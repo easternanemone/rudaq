@@ -10,6 +10,20 @@
 //! - **Event**: Buffers data into Arrow RecordBatches
 //! - **Stop**: Flushes remaining data and finalizes the file
 //!
+//! # Tensor Support
+//!
+//! N-dimensional arrays (images, spectra, spectral cubes) are stored using Arrow's
+//! `FixedSizeList<Float64>` type with tensor shape metadata. Each field carrying
+//! tensor data has the following custom metadata entries:
+//!
+//! - `ARROW:tensor:shape` - JSON array of dimension sizes, e.g. `[480,640]` for a
+//!   480-row by 640-column image.
+//! - `ARROW:tensor:dim_names` (optional) - JSON array of dimension labels, e.g.
+//!   `["height","width"]`.
+//!
+//! This convention allows downstream readers (Python, Julia, etc.) to reconstruct
+//! the original N-dimensional layout from the flat FixedSizeList storage.
+//!
 //! # Format Comparison
 //!
 //! | Format | Use Case | Pros | Cons |
@@ -30,7 +44,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 #[cfg(feature = "storage_arrow")]
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 #[cfg(feature = "storage_arrow")]
 use arrow::array::{ArrayRef, Float64Builder, UInt64Builder};
 #[cfg(feature = "storage_arrow")]
@@ -38,7 +52,47 @@ use arrow::datatypes::{DataType, Field, Schema};
 #[cfg(feature = "storage_arrow")]
 use arrow::record_batch::RecordBatch;
 #[cfg(feature = "storage_arrow")]
+use bytes::Bytes;
+#[cfg(feature = "storage_arrow")]
 use common::experiment::document::Document;
+
+// ── Tensor metadata constants ────────────────────────────────────────────────
+
+/// Arrow field metadata key for tensor shape (JSON array of dimension sizes).
+#[cfg(feature = "storage_arrow")]
+pub const TENSOR_SHAPE_KEY: &str = "ARROW:tensor:shape";
+
+/// Arrow field metadata key for tensor dimension names (optional JSON array).
+#[cfg(feature = "storage_arrow")]
+pub const TENSOR_DIM_NAMES_KEY: &str = "ARROW:tensor:dim_names";
+
+// ── Tensor metadata helpers ──────────────────────────────────────────────────
+
+/// Extract the tensor shape from an Arrow field's custom metadata.
+///
+/// Returns `None` if the field has no tensor shape metadata.
+/// Returns `Some(vec![...])` with the dimension sizes if present.
+#[cfg(feature = "storage_arrow")]
+pub fn read_tensor_shape(field: &Field) -> Option<Vec<i32>> {
+    field
+        .metadata()
+        .get(TENSOR_SHAPE_KEY)
+        .and_then(|s| serde_json::from_str(s).ok())
+}
+
+/// Check whether a `DataKey` shape describes an N-dimensional tensor (ndim >= 1).
+#[cfg(feature = "storage_arrow")]
+fn is_tensor_shape(shape: &[i32]) -> bool {
+    !shape.is_empty() && shape.iter().all(|&d| d > 0)
+}
+
+/// Compute the total number of elements in a tensor from its shape.
+#[cfg(feature = "storage_arrow")]
+fn tensor_num_elements(shape: &[i32]) -> usize {
+    shape.iter().map(|&d| d as usize).product()
+}
+
+// ── Internal state ───────────────────────────────────────────────────────────
 
 /// Internal state for an active run
 #[cfg(feature = "storage_arrow")]
@@ -46,7 +100,6 @@ struct ActiveArrowRun {
     run_uid: String,
     file_path: PathBuf,
     /// Schema derived from descriptor
-    #[allow(dead_code)]
     schema: Option<Arc<Schema>>,
     /// Buffered events (converted to columns on flush)
     event_buffer: Vec<BufferedEvent>,
@@ -60,23 +113,67 @@ struct ActiveArrowRun {
 #[cfg(feature = "storage_arrow")]
 #[derive(Clone)]
 struct DataKeyInfo {
-    #[allow(dead_code)]
     dtype: String,
     #[allow(dead_code)]
     source: String,
+    /// Tensor dimensions (empty for scalars)
+    shape: Vec<i32>,
 }
 
 #[cfg(feature = "storage_arrow")]
 struct BufferedEvent {
     seq_num: u64,
     time_ns: u64,
+    /// Scalar data (field name -> value)
     data: HashMap<String, f64>,
+    /// Array/tensor data (field name -> raw bytes, little-endian f64)
+    arrays: HashMap<String, Bytes>,
 }
+
+// ── Schema construction helpers ──────────────────────────────────────────────
+
+/// Build an Arrow `Field` for a descriptor data key.
+///
+/// Scalars map to `Float64` (or `Utf8` for strings).
+/// Tensors map to `FixedSizeList<Float64>` with shape metadata.
+#[cfg(feature = "storage_arrow")]
+fn build_arrow_field(key: &str, info: &DataKeyInfo) -> Field {
+    if is_tensor_shape(&info.shape) {
+        let num_elements = tensor_num_elements(&info.shape);
+        let inner_type = match info.dtype.as_str() {
+            "uint16" | "uint32" | "int16" | "int32" => DataType::Float64, // promote to f64
+            _ => DataType::Float64,
+        };
+        let inner_field = Arc::new(Field::new("item", inner_type, true));
+        let list_type =
+            DataType::FixedSizeList(inner_field, i32::try_from(num_elements).unwrap_or(i32::MAX));
+
+        // Attach tensor metadata
+        let mut metadata = HashMap::new();
+        metadata.insert(
+            TENSOR_SHAPE_KEY.to_string(),
+            serde_json::to_string(&info.shape).unwrap_or_default(),
+        );
+
+        Field::new(key, list_type, true).with_metadata(metadata)
+    } else {
+        // Scalar field
+        let dtype = match info.dtype.as_str() {
+            "number" | "float64" | "f64" => DataType::Float64,
+            "string" => DataType::Utf8,
+            _ => DataType::Float64,
+        };
+        Field::new(key, dtype, true)
+    }
+}
+
+// ── Arrow IPC Writer ─────────────────────────────────────────────────────────
 
 /// Arrow IPC Writer for RunEngine Documents
 ///
 /// Writes documents to Arrow IPC format, suitable for streaming and
-/// inter-process communication.
+/// inter-process communication. Supports scalar, 1-D array, 2-D (image),
+/// and 3-D (spectral cube) tensor data.
 ///
 /// # Example
 ///
@@ -99,7 +196,7 @@ pub struct ArrowDocumentWriter {
 
 #[cfg(feature = "storage_arrow")]
 impl ArrowDocumentWriter {
-    /// Create a new ArrowDocumentWriter
+    /// Create a new `ArrowDocumentWriter`
     pub fn new(base_path: PathBuf) -> Self {
         Self {
             base_path,
@@ -148,28 +245,21 @@ impl ArrowDocumentWriter {
                             return Err(anyhow!("Descriptor run_uid mismatch"));
                         }
 
-                        // Build schema from data keys
+                        // Fixed columns: seq_num, time_ns
                         let mut fields = vec![
                             Field::new("seq_num", DataType::UInt64, false),
                             Field::new("time_ns", DataType::UInt64, false),
                         ];
 
                         for (key, meta) in &desc.data_keys {
-                            let dtype = match meta.dtype.as_str() {
-                                "number" | "float64" | "f64" => DataType::Float64,
-                                "string" => DataType::Utf8,
-                                // For now, store other types as strings (serialized)
-                                _ => DataType::Float64,
+                            let info = DataKeyInfo {
+                                dtype: meta.dtype.clone(),
+                                source: meta.source.clone(),
+                                shape: meta.shape.clone(),
                             };
-                            fields.push(Field::new(key, dtype, true));
 
-                            run.data_keys.insert(
-                                key.clone(),
-                                DataKeyInfo {
-                                    dtype: meta.dtype.clone(),
-                                    source: meta.source.clone(),
-                                },
-                            );
+                            fields.push(build_arrow_field(key, &info));
+                            run.data_keys.insert(key.clone(), info);
                         }
 
                         run.schema = Some(Arc::new(Schema::new(fields)));
@@ -181,6 +271,7 @@ impl ArrowDocumentWriter {
                             seq_num: event.seq_num as u64,
                             time_ns: event.time_ns,
                             data: event.data.clone(),
+                            arrays: event.arrays.clone(),
                         });
 
                         // Auto-flush if threshold reached
@@ -212,6 +303,70 @@ impl ArrowDocumentWriter {
     }
 }
 
+// ── Flush helpers ────────────────────────────────────────────────────────────
+
+/// Build a `FixedSizeListArray` column from buffered tensor byte data.
+///
+/// Each event's bytes for this key are interpreted as little-endian `f64` values.
+/// The resulting array has one fixed-size list entry per event, with `num_elements`
+/// f64 values per entry.
+#[cfg(feature = "storage_arrow")]
+fn build_tensor_column(
+    key: &str,
+    info: &DataKeyInfo,
+    events: &[BufferedEvent],
+) -> Result<ArrayRef> {
+    use arrow::array::FixedSizeListBuilder;
+
+    let num_elements = tensor_num_elements(&info.shape);
+    let list_size = i32::try_from(num_elements).context("tensor element count exceeds i32")?;
+    let mut builder = FixedSizeListBuilder::new(Float64Builder::new(), list_size);
+
+    for event in events {
+        if let Some(raw) = event.arrays.get(key) {
+            let expected_f64_bytes = num_elements * 8;
+            let expected_u16_bytes = num_elements * 2;
+
+            if raw.len() == expected_f64_bytes {
+                // Data is already f64 little-endian
+                let values = builder.values();
+                for chunk in raw.chunks_exact(8) {
+                    let val = f64::from_le_bytes([
+                        chunk[0], chunk[1], chunk[2], chunk[3], chunk[4], chunk[5], chunk[6],
+                        chunk[7],
+                    ]);
+                    values.append_value(val);
+                }
+                builder.append(true);
+            } else if info.dtype == "uint16" && raw.len() == expected_u16_bytes {
+                // uint16 raw data: 2 bytes per element, promote to f64
+                let values = builder.values();
+                for chunk in raw.chunks_exact(2) {
+                    let val = f64::from(u16::from_le_bytes([chunk[0], chunk[1]]));
+                    values.append_value(val);
+                }
+                builder.append(true);
+            } else {
+                // Size mismatch - append null entry (pad inner values for alignment)
+                let values = builder.values();
+                for _ in 0..num_elements {
+                    values.append_null();
+                }
+                builder.append(false);
+            }
+        } else {
+            // No array data for this event - null entry
+            let values = builder.values();
+            for _ in 0..num_elements {
+                values.append_null();
+            }
+            builder.append(false);
+        }
+    }
+
+    Ok(Arc::new(builder.finish()))
+}
+
 /// Flush buffered events to Arrow IPC file
 #[cfg(feature = "storage_arrow")]
 fn flush_arrow_buffer(run: &mut ActiveArrowRun) -> Result<()> {
@@ -227,21 +382,23 @@ fn flush_arrow_buffer(run: &mut ActiveArrowRun) -> Result<()> {
         .as_ref()
         .ok_or_else(|| anyhow!("No schema defined"))?;
 
-    // Build arrays from buffered events
+    // Build fixed columns
     let mut seq_num_builder = UInt64Builder::new();
     let mut time_ns_builder = UInt64Builder::new();
 
-    // Build builders for each data key
-    let mut data_builders: HashMap<String, Float64Builder> = HashMap::new();
-    for key in run.data_keys.keys() {
-        data_builders.insert(key.clone(), Float64Builder::new());
+    // Build scalar-data builders (only for non-tensor keys)
+    let mut scalar_builders: HashMap<String, Float64Builder> = HashMap::new();
+    for (key, info) in &run.data_keys {
+        if !is_tensor_shape(&info.shape) {
+            scalar_builders.insert(key.clone(), Float64Builder::new());
+        }
     }
 
     for event in &run.event_buffer {
         seq_num_builder.append_value(event.seq_num);
         time_ns_builder.append_value(event.time_ns);
 
-        for (key, builder) in &mut data_builders {
+        for (key, builder) in &mut scalar_builders {
             if let Some(value) = event.data.get(key) {
                 builder.append_value(*value);
             } else {
@@ -250,16 +407,20 @@ fn flush_arrow_buffer(run: &mut ActiveArrowRun) -> Result<()> {
         }
     }
 
-    // Build arrays
+    // Assemble columns in schema order
     let mut columns: Vec<ArrayRef> = vec![
         Arc::new(seq_num_builder.finish()),
         Arc::new(time_ns_builder.finish()),
     ];
 
-    // Add data columns in schema order
     for field in schema.fields().iter().skip(2) {
-        if let Some(builder) = data_builders.get_mut(field.name()) {
-            columns.push(Arc::new(builder.finish()));
+        let key = field.name();
+        if let Some(info) = run.data_keys.get(key) {
+            if is_tensor_shape(&info.shape) {
+                columns.push(build_tensor_column(key, info, &run.event_buffer)?);
+            } else if let Some(builder) = scalar_builders.get_mut(key) {
+                columns.push(Arc::new(builder.finish()));
+            }
         }
     }
 
@@ -280,6 +441,8 @@ fn flush_arrow_buffer(run: &mut ActiveArrowRun) -> Result<()> {
 
     Ok(())
 }
+
+// ── Parquet Writer ───────────────────────────────────────────────────────────
 
 /// Parquet Writer for RunEngine Documents
 ///
@@ -307,7 +470,7 @@ pub struct ParquetDocumentWriter {
 
 #[cfg(feature = "storage_parquet")]
 impl ParquetDocumentWriter {
-    /// Create a new ParquetDocumentWriter
+    /// Create a new `ParquetDocumentWriter`
     pub fn new(base_path: PathBuf) -> Self {
         Self {
             base_path,
@@ -363,20 +526,14 @@ impl ParquetDocumentWriter {
                         ];
 
                         for (key, meta) in &desc.data_keys {
-                            let dtype = match meta.dtype.as_str() {
-                                "number" | "float64" | "f64" => DataType::Float64,
-                                "string" => DataType::Utf8,
-                                _ => DataType::Float64,
+                            let info = DataKeyInfo {
+                                dtype: meta.dtype.clone(),
+                                source: meta.source.clone(),
+                                shape: meta.shape.clone(),
                             };
-                            fields.push(Field::new(key, dtype, true));
 
-                            run.data_keys.insert(
-                                key.clone(),
-                                DataKeyInfo {
-                                    dtype: meta.dtype.clone(),
-                                    source: meta.source.clone(),
-                                },
-                            );
+                            fields.push(build_arrow_field(key, &info));
+                            run.data_keys.insert(key.clone(), info);
                         }
 
                         run.schema = Some(Arc::new(Schema::new(fields)));
@@ -388,6 +545,7 @@ impl ParquetDocumentWriter {
                             seq_num: event.seq_num as u64,
                             time_ns: event.time_ns,
                             data: event.data.clone(),
+                            arrays: event.arrays.clone(),
                         });
 
                         // Auto-flush if threshold reached
@@ -419,7 +577,6 @@ impl ParquetDocumentWriter {
 #[cfg(feature = "storage_parquet")]
 fn flush_parquet_buffer(run: &mut ActiveArrowRun) -> Result<()> {
     use arrow::array::{ArrayRef, Float64Builder, UInt64Builder};
-    use arrow::datatypes::{DataType, Field, Schema};
     use arrow::record_batch::RecordBatch;
     use parquet::arrow::ArrowWriter;
     use parquet::basic::Compression;
@@ -435,20 +592,22 @@ fn flush_parquet_buffer(run: &mut ActiveArrowRun) -> Result<()> {
         .as_ref()
         .ok_or_else(|| anyhow!("No schema defined"))?;
 
-    // Build arrays from buffered events
+    // Build fixed columns
     let mut seq_num_builder = UInt64Builder::new();
     let mut time_ns_builder = UInt64Builder::new();
 
-    let mut data_builders: HashMap<String, Float64Builder> = HashMap::new();
-    for key in run.data_keys.keys() {
-        data_builders.insert(key.clone(), Float64Builder::new());
+    let mut scalar_builders: HashMap<String, Float64Builder> = HashMap::new();
+    for (key, info) in &run.data_keys {
+        if !is_tensor_shape(&info.shape) {
+            scalar_builders.insert(key.clone(), Float64Builder::new());
+        }
     }
 
     for event in &run.event_buffer {
         seq_num_builder.append_value(event.seq_num);
         time_ns_builder.append_value(event.time_ns);
 
-        for (key, builder) in &mut data_builders {
+        for (key, builder) in &mut scalar_builders {
             if let Some(value) = event.data.get(key) {
                 builder.append_value(*value);
             } else {
@@ -463,8 +622,13 @@ fn flush_parquet_buffer(run: &mut ActiveArrowRun) -> Result<()> {
     ];
 
     for field in schema.fields().iter().skip(2) {
-        if let Some(builder) = data_builders.get_mut(field.name()) {
-            columns.push(Arc::new(builder.finish()));
+        let key = field.name();
+        if let Some(info) = run.data_keys.get(key) {
+            if is_tensor_shape(&info.shape) {
+                columns.push(build_tensor_column(key, info, &run.event_buffer)?);
+            } else if let Some(builder) = scalar_builders.get_mut(key) {
+                columns.push(Arc::new(builder.finish()));
+            }
         }
     }
 
@@ -485,6 +649,8 @@ fn flush_parquet_buffer(run: &mut ActiveArrowRun) -> Result<()> {
     Ok(())
 }
 
+// ── Tests ────────────────────────────────────────────────────────────────────
+
 #[cfg(test)]
 mod tests {
     #[allow(unused_imports)]
@@ -496,7 +662,7 @@ mod tests {
         use common::experiment::document::{DataKey, DescriptorDoc, EventDoc, StartDoc, StopDoc};
         use tempfile::TempDir;
 
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = TempDir::new().expect("create temp dir");
         let writer = ArrowDocumentWriter::new(temp_dir.path().to_path_buf());
 
         // Start
@@ -509,7 +675,10 @@ mod tests {
             metadata: HashMap::new(),
             hints: vec![],
         };
-        writer.write(Document::Start(start)).await.unwrap();
+        writer
+            .write(Document::Start(start))
+            .await
+            .expect("write start");
 
         // Descriptor
         let mut data_keys = HashMap::new();
@@ -537,7 +706,7 @@ mod tests {
         writer
             .write(Document::Descriptor(descriptor))
             .await
-            .unwrap();
+            .expect("write descriptor");
 
         // Events
         for i in 0..10 {
@@ -553,10 +722,13 @@ mod tests {
                 metadata: HashMap::new(),
                 run_uid: "test_run".to_string(),
                 time_ns: 1_000_000_000 + i as u64 * 100_000,
-                uid: format!("event_{}", i),
+                uid: format!("event_{i}"),
                 positions: HashMap::new(),
             };
-            writer.write(Document::Event(event)).await.unwrap();
+            writer
+                .write(Document::Event(event))
+                .await
+                .expect("write event");
         }
 
         // Stop
@@ -568,11 +740,622 @@ mod tests {
             reason: String::new(),
             num_events: 10,
         };
-        writer.write(Document::Stop(stop)).await.unwrap();
+        writer
+            .write(Document::Stop(stop))
+            .await
+            .expect("write stop");
 
         // Verify file exists
         let file_path = temp_dir.path().join("test_run_1000.arrow");
         assert!(file_path.exists());
+    }
+
+    /// Round-trip test for a 2D tensor (image: 4x8 f64).
+    #[tokio::test]
+    #[cfg(feature = "storage_arrow")]
+    async fn test_arrow_tensor_2d_roundtrip() {
+        use arrow::array::AsArray;
+        use arrow::ipc::reader::FileReader;
+        use common::experiment::document::{DataKey, DescriptorDoc, EventDoc, StartDoc, StopDoc};
+        use std::fs::File;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().expect("create temp dir");
+        let writer = ArrowDocumentWriter::new(temp_dir.path().to_path_buf());
+
+        let height: i32 = 4;
+        let width: i32 = 8;
+        let num_elements = (height * width) as usize;
+
+        // Start
+        let start = StartDoc {
+            uid: "tensor2d".to_string(),
+            time_ns: 2000,
+            plan_type: "count".to_string(),
+            plan_name: "Tensor2D".to_string(),
+            plan_args: HashMap::new(),
+            metadata: HashMap::new(),
+            hints: vec![],
+        };
+        writer
+            .write(Document::Start(start))
+            .await
+            .expect("write start");
+
+        // Descriptor with scalar + 2D tensor
+        let mut data_keys = HashMap::new();
+        data_keys.insert(
+            "intensity".to_string(),
+            DataKey {
+                source: "det".to_string(),
+                dtype: "number".to_string(),
+                shape: vec![],
+                units: "counts".to_string(),
+                precision: None,
+                lower_limit: None,
+                upper_limit: None,
+            },
+        );
+        data_keys.insert(
+            "image".to_string(),
+            DataKey {
+                source: "cam1".to_string(),
+                dtype: "float64".to_string(),
+                shape: vec![height, width],
+                units: String::new(),
+                precision: None,
+                lower_limit: None,
+                upper_limit: None,
+            },
+        );
+
+        let descriptor = DescriptorDoc {
+            run_uid: "tensor2d".to_string(),
+            uid: "desc_2d".to_string(),
+            name: "primary".to_string(),
+            data_keys,
+            configuration: HashMap::new(),
+            time_ns: 0,
+        };
+        writer
+            .write(Document::Descriptor(descriptor))
+            .await
+            .expect("write descriptor");
+
+        // Write 3 events with image data
+        let mut expected_images: Vec<Vec<f64>> = Vec::new();
+        for seq in 0u32..3 {
+            let mut data = HashMap::new();
+            data.insert("intensity".to_string(), seq as f64 * 10.0);
+
+            // Create image: pixel value = seq * 100 + pixel_index
+            let image_data: Vec<f64> = (0..num_elements)
+                .map(|i| seq as f64 * 100.0 + i as f64)
+                .collect();
+            expected_images.push(image_data.clone());
+
+            let raw_bytes: Vec<u8> = image_data.iter().flat_map(|v| v.to_le_bytes()).collect();
+            let mut arrays = HashMap::new();
+            arrays.insert("image".to_string(), Bytes::from(raw_bytes));
+
+            let event = EventDoc {
+                descriptor_uid: "desc_2d".to_string(),
+                seq_num: seq,
+                data,
+                arrays,
+                timestamps: HashMap::new(),
+                metadata: HashMap::new(),
+                run_uid: "tensor2d".to_string(),
+                time_ns: 3_000_000_000 + seq as u64 * 100_000,
+                uid: format!("ev2d_{seq}"),
+                positions: HashMap::new(),
+            };
+            writer
+                .write(Document::Event(event))
+                .await
+                .expect("write event");
+        }
+
+        // Stop
+        let stop = StopDoc {
+            uid: "stop_2d".to_string(),
+            run_uid: "tensor2d".to_string(),
+            time_ns: 4_000_000_000,
+            exit_status: "success".to_string(),
+            reason: String::new(),
+            num_events: 3,
+        };
+        writer
+            .write(Document::Stop(stop))
+            .await
+            .expect("write stop");
+
+        // ── Read back and verify ──
+        let file_path = temp_dir.path().join("tensor2d_2000.arrow");
+        assert!(file_path.exists(), "Arrow file should exist");
+
+        let file = File::open(&file_path).expect("open arrow file");
+        let reader = FileReader::try_new(file, None).expect("create FileReader");
+        let schema = reader.schema();
+
+        // Check tensor shape metadata on the image field
+        let image_field = schema
+            .field_with_name("image")
+            .expect("image field should exist");
+        let shape = read_tensor_shape(image_field).expect("should have tensor shape metadata");
+        assert_eq!(shape, vec![height, width]);
+
+        // Check the FixedSizeList type
+        match image_field.data_type() {
+            DataType::FixedSizeList(_, size) => {
+                assert_eq!(*size as usize, num_elements);
+            }
+            other => panic!("expected FixedSizeList, got {other:?}"),
+        }
+
+        // Read all batches and verify data
+        let mut total_rows = 0usize;
+        for batch_result in reader {
+            let batch = batch_result.expect("read batch");
+            let image_col = batch.column_by_name("image").expect("image column");
+            let intensity_col = batch.column_by_name("intensity").expect("intensity column");
+
+            let fsl = image_col.as_fixed_size_list();
+            let intensities = intensity_col
+                .as_any()
+                .downcast_ref::<arrow::array::Float64Array>()
+                .expect("intensity f64");
+
+            for row in 0..batch.num_rows() {
+                let event_idx = total_rows + row;
+
+                // Verify scalar
+                assert!(
+                    (intensities.value(row) - event_idx as f64 * 10.0).abs() < 1e-12,
+                    "scalar mismatch at event {event_idx}"
+                );
+
+                // Verify tensor values
+                let list_value = fsl.value(row);
+                let values = list_value
+                    .as_any()
+                    .downcast_ref::<arrow::array::Float64Array>()
+                    .expect("inner f64 array");
+                assert_eq!(values.len(), num_elements);
+
+                for (i, &expected) in expected_images[event_idx].iter().enumerate() {
+                    assert!(
+                        (values.value(i) - expected).abs() < 1e-12,
+                        "tensor value mismatch at event {event_idx}, element {i}"
+                    );
+                }
+            }
+            total_rows += batch.num_rows();
+        }
+        assert_eq!(total_rows, 3, "should have 3 events");
+    }
+
+    /// Round-trip test for a 3D tensor (spectral cube: 2x3x4 f64).
+    #[tokio::test]
+    #[cfg(feature = "storage_arrow")]
+    async fn test_arrow_tensor_3d_roundtrip() {
+        use arrow::array::AsArray;
+        use arrow::ipc::reader::FileReader;
+        use common::experiment::document::{DataKey, DescriptorDoc, EventDoc, StartDoc, StopDoc};
+        use std::fs::File;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().expect("create temp dir");
+        let writer = ArrowDocumentWriter::new(temp_dir.path().to_path_buf());
+
+        let depth: i32 = 2;
+        let height: i32 = 3;
+        let width: i32 = 4;
+        let num_elements = (depth * height * width) as usize; // 24
+
+        // Start
+        let start = StartDoc {
+            uid: "tensor3d".to_string(),
+            time_ns: 5000,
+            plan_type: "count".to_string(),
+            plan_name: "Tensor3D".to_string(),
+            plan_args: HashMap::new(),
+            metadata: HashMap::new(),
+            hints: vec![],
+        };
+        writer
+            .write(Document::Start(start))
+            .await
+            .expect("write start");
+
+        // Descriptor with 3D tensor
+        let mut data_keys = HashMap::new();
+        data_keys.insert(
+            "cube".to_string(),
+            DataKey {
+                source: "spectrometer".to_string(),
+                dtype: "float64".to_string(),
+                shape: vec![depth, height, width],
+                units: String::new(),
+                precision: None,
+                lower_limit: None,
+                upper_limit: None,
+            },
+        );
+
+        let descriptor = DescriptorDoc {
+            run_uid: "tensor3d".to_string(),
+            uid: "desc_3d".to_string(),
+            name: "primary".to_string(),
+            data_keys,
+            configuration: HashMap::new(),
+            time_ns: 0,
+        };
+        writer
+            .write(Document::Descriptor(descriptor))
+            .await
+            .expect("write descriptor");
+
+        // Write 2 events
+        let mut expected_cubes: Vec<Vec<f64>> = Vec::new();
+        for seq in 0u32..2 {
+            let cube_data: Vec<f64> = (0..num_elements)
+                .map(|i| seq as f64 * 1000.0 + i as f64 * 0.5)
+                .collect();
+            expected_cubes.push(cube_data.clone());
+
+            let raw_bytes: Vec<u8> = cube_data.iter().flat_map(|v| v.to_le_bytes()).collect();
+            let mut arrays = HashMap::new();
+            arrays.insert("cube".to_string(), Bytes::from(raw_bytes));
+
+            let event = EventDoc {
+                descriptor_uid: "desc_3d".to_string(),
+                seq_num: seq,
+                data: HashMap::new(),
+                arrays,
+                timestamps: HashMap::new(),
+                metadata: HashMap::new(),
+                run_uid: "tensor3d".to_string(),
+                time_ns: 6_000_000_000 + seq as u64 * 100_000,
+                uid: format!("ev3d_{seq}"),
+                positions: HashMap::new(),
+            };
+            writer
+                .write(Document::Event(event))
+                .await
+                .expect("write event");
+        }
+
+        // Stop
+        let stop = StopDoc {
+            uid: "stop_3d".to_string(),
+            run_uid: "tensor3d".to_string(),
+            time_ns: 7_000_000_000,
+            exit_status: "success".to_string(),
+            reason: String::new(),
+            num_events: 2,
+        };
+        writer
+            .write(Document::Stop(stop))
+            .await
+            .expect("write stop");
+
+        // ── Read back and verify ──
+        let file_path = temp_dir.path().join("tensor3d_5000.arrow");
+        assert!(file_path.exists(), "Arrow file should exist");
+
+        let file = File::open(&file_path).expect("open arrow file");
+        let reader = FileReader::try_new(file, None).expect("create FileReader");
+        let schema = reader.schema();
+
+        // Verify shape metadata
+        let cube_field = schema
+            .field_with_name("cube")
+            .expect("cube field should exist");
+        let shape = read_tensor_shape(cube_field).expect("should have tensor shape metadata");
+        assert_eq!(shape, vec![depth, height, width]);
+
+        // Verify data
+        let mut total_rows = 0usize;
+        for batch_result in reader {
+            let batch = batch_result.expect("read batch");
+            let cube_col = batch.column_by_name("cube").expect("cube column");
+            let fsl = cube_col.as_fixed_size_list();
+
+            for row in 0..batch.num_rows() {
+                let event_idx = total_rows + row;
+                let list_value = fsl.value(row);
+                let values = list_value
+                    .as_any()
+                    .downcast_ref::<arrow::array::Float64Array>()
+                    .expect("inner f64");
+                assert_eq!(values.len(), num_elements);
+
+                for (i, &expected) in expected_cubes[event_idx].iter().enumerate() {
+                    assert!(
+                        (values.value(i) - expected).abs() < 1e-12,
+                        "cube value mismatch at event {event_idx}, element {i}"
+                    );
+                }
+            }
+            total_rows += batch.num_rows();
+        }
+        assert_eq!(total_rows, 2);
+    }
+
+    /// Test that uint16 tensor data (camera frames) is correctly promoted to f64.
+    #[tokio::test]
+    #[cfg(feature = "storage_arrow")]
+    async fn test_arrow_tensor_uint16_promotion() {
+        use arrow::array::AsArray;
+        use arrow::ipc::reader::FileReader;
+        use common::experiment::document::{DataKey, DescriptorDoc, EventDoc, StartDoc, StopDoc};
+        use std::fs::File;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().expect("create temp dir");
+        let writer = ArrowDocumentWriter::new(temp_dir.path().to_path_buf());
+
+        let height: i32 = 3;
+        let width: i32 = 4;
+        let num_elements = (height * width) as usize;
+
+        let start = StartDoc {
+            uid: "u16test".to_string(),
+            time_ns: 8000,
+            plan_type: "count".to_string(),
+            plan_name: "U16Test".to_string(),
+            plan_args: HashMap::new(),
+            metadata: HashMap::new(),
+            hints: vec![],
+        };
+        writer
+            .write(Document::Start(start))
+            .await
+            .expect("write start");
+
+        let mut data_keys = HashMap::new();
+        data_keys.insert(
+            "frame".to_string(),
+            DataKey {
+                source: "cam".to_string(),
+                dtype: "uint16".to_string(),
+                shape: vec![height, width],
+                units: String::new(),
+                precision: None,
+                lower_limit: None,
+                upper_limit: None,
+            },
+        );
+
+        let descriptor = DescriptorDoc {
+            run_uid: "u16test".to_string(),
+            uid: "desc_u16".to_string(),
+            name: "primary".to_string(),
+            data_keys,
+            configuration: HashMap::new(),
+            time_ns: 0,
+        };
+        writer
+            .write(Document::Descriptor(descriptor))
+            .await
+            .expect("write descriptor");
+
+        // Write uint16 frame data (2 bytes per element)
+        let u16_data: Vec<u16> = (0..num_elements).map(|i| (i * 100) as u16).collect();
+        let raw_bytes: Vec<u8> = u16_data.iter().flat_map(|v| v.to_le_bytes()).collect();
+        let mut arrays = HashMap::new();
+        arrays.insert("frame".to_string(), Bytes::from(raw_bytes));
+
+        let event = EventDoc {
+            descriptor_uid: "desc_u16".to_string(),
+            seq_num: 0,
+            data: HashMap::new(),
+            arrays,
+            timestamps: HashMap::new(),
+            metadata: HashMap::new(),
+            run_uid: "u16test".to_string(),
+            time_ns: 9_000_000_000,
+            uid: "ev_u16_0".to_string(),
+            positions: HashMap::new(),
+        };
+        writer
+            .write(Document::Event(event))
+            .await
+            .expect("write event");
+
+        let stop = StopDoc {
+            uid: "stop_u16".to_string(),
+            run_uid: "u16test".to_string(),
+            time_ns: 10_000_000_000,
+            exit_status: "success".to_string(),
+            reason: String::new(),
+            num_events: 1,
+        };
+        writer
+            .write(Document::Stop(stop))
+            .await
+            .expect("write stop");
+
+        // Read back
+        let file_path = temp_dir.path().join("u16test_8000.arrow");
+        assert!(file_path.exists());
+
+        let file = File::open(&file_path).expect("open arrow file");
+        let reader = FileReader::try_new(file, None).expect("create FileReader");
+
+        for batch_result in reader {
+            let batch = batch_result.expect("read batch");
+            let frame_col = batch.column_by_name("frame").expect("frame column");
+            let fsl = frame_col.as_fixed_size_list();
+
+            let list_value = fsl.value(0);
+            let values = list_value
+                .as_any()
+                .downcast_ref::<arrow::array::Float64Array>()
+                .expect("inner f64");
+            assert_eq!(values.len(), num_elements);
+
+            for (i, &expected_u16) in u16_data.iter().enumerate() {
+                assert!(
+                    (values.value(i) - f64::from(expected_u16)).abs() < 1e-12,
+                    "uint16 promotion mismatch at element {i}"
+                );
+            }
+        }
+    }
+
+    /// Verify that mixed scalar + tensor events work correctly together.
+    #[tokio::test]
+    #[cfg(feature = "storage_arrow")]
+    async fn test_arrow_mixed_scalar_and_tensor() {
+        use arrow::array::AsArray;
+        use arrow::ipc::reader::FileReader;
+        use common::experiment::document::{DataKey, DescriptorDoc, EventDoc, StartDoc, StopDoc};
+        use std::fs::File;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().expect("create temp dir");
+        let writer = ArrowDocumentWriter::new(temp_dir.path().to_path_buf());
+
+        let start = StartDoc {
+            uid: "mixed".to_string(),
+            time_ns: 11000,
+            plan_type: "scan".to_string(),
+            plan_name: "Mixed".to_string(),
+            plan_args: HashMap::new(),
+            metadata: HashMap::new(),
+            hints: vec![],
+        };
+        writer
+            .write(Document::Start(start))
+            .await
+            .expect("write start");
+
+        // 1 scalar + 1 tensor (1D spectrum with 5 elements)
+        let mut data_keys = HashMap::new();
+        data_keys.insert(
+            "power".to_string(),
+            DataKey {
+                source: "pm".to_string(),
+                dtype: "number".to_string(),
+                shape: vec![],
+                units: "W".to_string(),
+                precision: None,
+                lower_limit: None,
+                upper_limit: None,
+            },
+        );
+        data_keys.insert(
+            "spectrum".to_string(),
+            DataKey {
+                source: "spec".to_string(),
+                dtype: "float64".to_string(),
+                shape: vec![5],
+                units: String::new(),
+                precision: None,
+                lower_limit: None,
+                upper_limit: None,
+            },
+        );
+
+        let descriptor = DescriptorDoc {
+            run_uid: "mixed".to_string(),
+            uid: "desc_mix".to_string(),
+            name: "primary".to_string(),
+            data_keys,
+            configuration: HashMap::new(),
+            time_ns: 0,
+        };
+        writer
+            .write(Document::Descriptor(descriptor))
+            .await
+            .expect("write descriptor");
+
+        // 5 events: each has scalar power and a 5-element spectrum
+        for seq in 0u32..5 {
+            let mut data = HashMap::new();
+            data.insert("power".to_string(), seq as f64 * 0.1);
+
+            let spectrum: Vec<f64> = (0..5).map(|i| seq as f64 + i as f64 * 0.01).collect();
+            let raw: Vec<u8> = spectrum.iter().flat_map(|v| v.to_le_bytes()).collect();
+            let mut arrays = HashMap::new();
+            arrays.insert("spectrum".to_string(), Bytes::from(raw));
+
+            let event = EventDoc {
+                descriptor_uid: "desc_mix".to_string(),
+                seq_num: seq,
+                data,
+                arrays,
+                timestamps: HashMap::new(),
+                metadata: HashMap::new(),
+                run_uid: "mixed".to_string(),
+                time_ns: 12_000_000_000 + seq as u64 * 100_000,
+                uid: format!("ev_mix_{seq}"),
+                positions: HashMap::new(),
+            };
+            writer
+                .write(Document::Event(event))
+                .await
+                .expect("write event");
+        }
+
+        let stop = StopDoc {
+            uid: "stop_mix".to_string(),
+            run_uid: "mixed".to_string(),
+            time_ns: 13_000_000_000,
+            exit_status: "success".to_string(),
+            reason: String::new(),
+            num_events: 5,
+        };
+        writer
+            .write(Document::Stop(stop))
+            .await
+            .expect("write stop");
+
+        // Read back
+        let file_path = temp_dir.path().join("mixed_11000.arrow");
+        assert!(file_path.exists());
+
+        let file = File::open(&file_path).expect("open arrow file");
+        let reader = FileReader::try_new(file, None).expect("create FileReader");
+
+        let mut total_rows = 0usize;
+        for batch_result in reader {
+            let batch = batch_result.expect("read batch");
+            let power_col = batch.column_by_name("power").expect("power column");
+            let spectrum_col = batch.column_by_name("spectrum").expect("spectrum column");
+
+            let powers = power_col
+                .as_any()
+                .downcast_ref::<arrow::array::Float64Array>()
+                .expect("power f64");
+            let spectra = spectrum_col.as_fixed_size_list();
+
+            for row in 0..batch.num_rows() {
+                let seq = total_rows + row;
+                assert!(
+                    (powers.value(row) - seq as f64 * 0.1).abs() < 1e-12,
+                    "power mismatch at event {seq}"
+                );
+
+                let list_val = spectra.value(row);
+                let vals = list_val
+                    .as_any()
+                    .downcast_ref::<arrow::array::Float64Array>()
+                    .expect("spectrum f64");
+                assert_eq!(vals.len(), 5);
+                for i in 0..5 {
+                    let expected = seq as f64 + i as f64 * 0.01;
+                    assert!(
+                        (vals.value(i) - expected).abs() < 1e-12,
+                        "spectrum mismatch at event {seq}, element {i}"
+                    );
+                }
+            }
+            total_rows += batch.num_rows();
+        }
+        assert_eq!(total_rows, 5);
     }
 
     #[tokio::test]
@@ -581,7 +1364,7 @@ mod tests {
         use common::experiment::document::{DataKey, DescriptorDoc, EventDoc, StartDoc, StopDoc};
         use tempfile::TempDir;
 
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = TempDir::new().expect("create temp dir");
         let writer = ParquetDocumentWriter::new(temp_dir.path().to_path_buf());
 
         // Start
@@ -594,7 +1377,10 @@ mod tests {
             metadata: HashMap::new(),
             hints: vec![],
         };
-        writer.write(Document::Start(start)).await.unwrap();
+        writer
+            .write(Document::Start(start))
+            .await
+            .expect("write start");
 
         // Descriptor
         let mut data_keys = HashMap::new();
@@ -604,7 +1390,7 @@ mod tests {
                 source: "det1".to_string(),
                 dtype: "number".to_string(),
                 shape: vec![],
-                units: "".to_string(),
+                units: String::new(),
                 precision: None,
                 lower_limit: None,
                 upper_limit: None,
@@ -622,7 +1408,7 @@ mod tests {
         writer
             .write(Document::Descriptor(descriptor))
             .await
-            .unwrap();
+            .expect("write descriptor");
 
         // Events
         for i in 0..10 {
@@ -638,10 +1424,13 @@ mod tests {
                 metadata: HashMap::new(),
                 run_uid: "test_run".to_string(),
                 time_ns: 1_000_000_000 + i as u64 * 100_000,
-                uid: format!("event_{}", i),
+                uid: format!("event_{i}"),
                 positions: HashMap::new(),
             };
-            writer.write(Document::Event(event)).await.unwrap();
+            writer
+                .write(Document::Event(event))
+                .await
+                .expect("write event");
         }
 
         // Stop
@@ -650,10 +1439,13 @@ mod tests {
             run_uid: "test_run".to_string(),
             time_ns: 2_000_000_000,
             exit_status: "success".to_string(),
-            reason: "".to_string(),
+            reason: String::new(),
             num_events: 10,
         };
-        writer.write(Document::Stop(stop)).await.unwrap();
+        writer
+            .write(Document::Stop(stop))
+            .await
+            .expect("write stop");
 
         // Verify file exists
         let file_path = temp_dir.path().join("test_run_1000.parquet");
