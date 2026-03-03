@@ -62,8 +62,6 @@ Each driver lives in its own crate for independent compilation, testing, and opt
 *   **`pool`**: Zero-allocation object pool for high-performance frame handling. Provides `Pool<T>` for generic objects and `BufferPool` for byte buffers with `bytes::Bytes` integration. Critical for high-FPS camera streaming where per-frame allocations cause latency.
 *   **`storage`**: Handles data persistence. Implements the "Mullet Strategy": fast **Arrow** ring buffer in the front, reliable **HDF5** writer in the back. Also supports CSV, MATLAB (.mat), and NetCDF formats.
 *   **`protocol`**: Defines the wire protocol (Protobuf) for all network communication. Includes domain↔proto conversion utilities.
-*   **`plugin-api`**: Native FFI plugin system using `abi_stable` for cross-version binary compatibility. Enables third-party Rust plugins without recompilation.
-*   **`plugin-example`**: Example plugin implementation demonstrating the plugin-api.
 *   **`db`**: Embedded SurrealDB control-plane database. Uses in-memory engine (`kv-mem`) for tests and RocksDB (`kv-rocksdb`) for production persistence. Manages device/experiment metadata with a two-plane model: SurrealDB as control plane (desired state), DashMap DeviceRegistry as data plane (observed state).
 
 ### 6. Core
@@ -204,8 +202,6 @@ Experiments are written in [Rhai](https://rhai.rs), a scripting language designe
 │   ├── experiment/           # RunEngine and Plan definitions
 │   ├── hardware/             # HAL with capability traits and DeviceRegistry
 │   ├── integration-tests/    # Cross-crate integration tests
-│   ├── plugin-api/           # Native FFI plugin system (abi_stable)
-│   ├── plugin-example/       # Example plugin implementation
 │   ├── pool/                 # Zero-allocation object pool for frame handling
 │   ├── protocol/             # Protobuf definitions and conversions
 │   ├── scripting/            # Rhai scripting engine integration

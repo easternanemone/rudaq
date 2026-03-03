@@ -7,23 +7,25 @@ The plugin system allows extending rust-daq with new hardware drivers and module
 | Type | Effort | Use Case |
 |------|--------|----------|
 | **Config-only** | ~30 min | Simple ASCII/SCPI instruments |
-| **Native Rust** | 2-4 hours | Complex state machines, high-performance |
 | **Rhai Script** | ~1 hour | Experiment workflows, custom modules |
 
 ## Quick Comparison
 
 ```
-┌─────────────────┬────────────────────┬──────────────────┬──────────────────┐
-│                 │ Config-Only        │ Native Rust      │ Rhai Script      │
-├─────────────────┼────────────────────┼──────────────────┼──────────────────┤
-│ Language        │ TOML               │ Rust             │ Rhai             │
-│ Compilation     │ None               │ Required         │ None             │
-│ Hot-reload      │ Yes                │ Partial          │ Yes              │
-│ Performance     │ Good               │ Excellent        │ Fair             │
-│ Complexity      │ Simple protocols   │ Any              │ Moderate         │
-│ Dependencies    │ None               │ abi_stable       │ None             │
-└─────────────────┴────────────────────┴──────────────────┴──────────────────┘
+┌─────────────────┬────────────────────┬──────────────────┐
+│                 │ Config-Only        │ Rhai Script      │
+├─────────────────┼────────────────────┼──────────────────┤
+│ Language        │ TOML               │ Rhai             │
+│ Compilation     │ None               │ None             │
+│ Hot-reload      │ Yes                │ Yes              │
+│ Performance     │ Good               │ Fair             │
+│ Complexity      │ Simple protocols   │ Moderate         │
+│ Dependencies    │ None               │ None             │
+└─────────────────┴────────────────────┴──────────────────┘
 ```
+
+For complex drivers requiring compiled Rust, implement the `DriverFactory` trait directly
+(see `docs/how-to/hardware-drivers.md`).
 
 ## Directory Structure
 
@@ -34,9 +36,6 @@ Plugins live in the `~/.rust-daq/plugins/` directory:
 ├── ell14-config/           # Config-only plugin
 │   ├── plugin.toml
 │   └── device.toml
-├── esp300-native/          # Native plugin
-│   ├── plugin.toml
-│   └── libesp300_native.dylib
 └── power-logger-rhai/      # Script plugin
     ├── plugin.toml
     └── power_logger.rhai
@@ -88,63 +87,6 @@ config_file = "device.toml"
 ```
 
 **See:** `examples/plugins/ell14-config/` for a complete example.
-
-## Native Rust Plugins
-
-Compiled Rust code loaded as a dynamic library (cdylib).
-
-**When to use:**
-- Complex state machine logic
-- High-performance I/O requirements
-- Proprietary or unusual protocols
-- Need to use external Rust crates
-
-**Structure:**
-```
-esp300-native/
-├── plugin.toml     # Manifest
-├── Cargo.toml      # Rust project config
-└── src/
-    └── lib.rs      # Plugin implementation
-```
-
-**Key implementation steps:**
-
-1. Add dependencies:
-```toml
-[dependencies]
-abi_stable = "0.11"
-plugin-api = { path = "path/to/plugin-api" }
-```
-
-2. Export root module:
-```rust
-use plugin_api::prelude::*;
-
-#[export_root_module]
-fn get_root_module() -> PluginMod_Ref {
-    PluginMod {
-        abi_version,
-        get_metadata,
-        list_module_types,
-        create_module,
-    }.leak_into_prefix()
-}
-```
-
-3. Implement ModuleFfi trait:
-```rust
-impl ModuleFfi for MyModule {
-    fn configure(&mut self, params: FfiModuleConfig) -> FfiModuleResult<RVec<RString>>;
-    fn stage(&mut self, ctx: &FfiModuleContext) -> FfiModuleResult<()>;
-    fn start(&mut self, ctx: FfiModuleContext) -> FfiModuleResult<()>;
-    fn stop(&mut self) -> FfiModuleResult<()>;
-    fn unstage(&mut self, ctx: &FfiModuleContext) -> FfiModuleResult<()>;
-    // ... and more
-}
-```
-
-**See:** `examples/plugins/esp300-native/` for a complete example.
 
 ## Rhai Script Plugins
 
@@ -201,12 +143,6 @@ name = "rotator"
 type = "ell14-config.ell14"
 port = "/dev/ttyUSB0"
 
-# Native device
-[[devices]]
-name = "stage"
-type = "esp300-native.esp300"
-port = "/dev/ttyUSB1"
-
 # Script module
 [[modules]]
 name = "logger"
@@ -226,26 +162,19 @@ Config and script plugins support hot-reload:
 - Changes take effect on next device/module instantiation
 - No daemon restart required
 
-Native plugins have partial hot-reload:
-- Library is reloaded on explicit reload command
-- Existing instances continue with old code
-- New instances use updated code
-
 ## Debugging Plugins
 
 Enable debug logging:
 ```bash
-RUST_LOG=plugin_api=debug rust-daq-daemon
+RUST_LOG=daq_modules=debug rust-daq-daemon
 ```
 
 Common issues:
 - **Plugin not found**: Check `plugin.toml` exists and `id` is unique
-- **ABI mismatch**: Rebuild native plugin against current plugin-api
 - **Script error**: Check Rhai syntax and variable scope
 
 ## Example Plugins
 
 See `examples/plugins/` for working examples:
 - `ell14-config/` - Config-only (simplest)
-- `esp300-native/` - Native Rust (most capable)
 - `power-logger-rhai/` - Rhai script (easiest iteration)

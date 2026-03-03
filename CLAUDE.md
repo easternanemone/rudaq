@@ -68,10 +68,8 @@ Applications
   bin              ← CLI daemon (mimalloc allocator), reconciler, safety sentinel
   ui               ← Web-based user interface
 
-Testing & Plugins
+Testing
   integration-tests ← Cross-crate integration test suite
-  plugin-api        ← Plugin system API definitions
-  plugin-example    ← Example plugin implementation
 ```
 
 > **`driver-universal` is the forward path.** New serial/TCP/SCPI devices should be defined as schema v3 TOML manifests in `config/devices/`, not as new driver crates. See `docs/how-to/legacy-scpi-deprecation.md`.

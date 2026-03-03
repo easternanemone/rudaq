@@ -15,7 +15,6 @@ serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 uuid = { version = "1.10", features = ["v4", "serde"] }
 scripting = { path = "../scripting", optional = true }
-plugin-api = { path = "../plugin-api", optional = true }
 
 [dev-dependencies]
 tempfile.workspace = true
@@ -23,7 +22,6 @@ tempfile.workspace = true
 
 [features]
 scripting = ["dep:scripting"]
-native_plugins = ["dep:plugin-api"]
 scripting_python = ["scripting/python"]
 
 [lints]

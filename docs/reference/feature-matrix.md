@@ -125,16 +125,12 @@ The `drivers` metacrate provides unified feature flags for all driver crates:
 | `server` | Full gRPC server | `server`, includes `networking` |
 | `scripting` | Rhai scripting engine | `scripting` |
 | `scripting_python` | Python bindings for scripting | `scripting/python` (PyO3) |
-| `native_plugins` | FFI native plugin system | `plugin-api` (abi_stable) |
 | `gui_egui` | Desktop GUI application | `egui`, `eframe`, `egui_plot`, `egui_extras` |
 | `modules` | Module system with runtime assignment | Requires `scripting` |
 | `plugins_hot_reload` | Hot reload plugin configs | `notify` crate |
 
 **Plugin System Notes:**
-- `scripting` enables Rhai-based script plugins in `rust-daq/src/plugins/`
-- `native_plugins` enables FFI plugins via `plugin-api` (abi_stable)
-- Both features can be enabled together; the `plugins` module conditionally compiles based on which are active
-- When enabling `native_plugins` without `scripting`, only FFI plugin types are available
+- `scripting` enables Rhai-based script plugins in `daq-modules/src/plugins/`
 
 ---
 
