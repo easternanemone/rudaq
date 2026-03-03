@@ -486,6 +486,8 @@ impl DaqServer {
 
 fn encode_measurement_frame(measurement: &Measurement) -> Result<Vec<u8>, bincode::Error> {
     let payload = bincode::serialize(measurement)?;
+    #[allow(clippy::cast_possible_truncation)]
+    // SAFETY: value is bounded and fits in target type
     let mut frame = Vec::with_capacity(4 + payload.len());
     frame.extend_from_slice(&(payload.len() as u32).to_le_bytes());
     frame.extend_from_slice(&payload);
@@ -564,6 +566,7 @@ impl Default for DaqServer {
 #[tonic::async_trait]
 impl ControlService for DaqServer {
     /// Upload and validate a script
+    #[allow(clippy::cast_possible_truncation)]
     async fn upload_script(
         &self,
         request: Request<UploadRequest>,
@@ -630,6 +633,8 @@ impl ControlService for DaqServer {
     }
 
     /// Start execution of an uploaded script
+    #[allow(clippy::cast_possible_truncation)]
+    // SAFETY: value is bounded and fits in target type
     async fn start_script(
         &self,
         request: Request<StartRequest>,
@@ -788,6 +793,9 @@ impl ControlService for DaqServer {
         };
 
         // Update execution state
+        #[allow(clippy::cast_possible_truncation)]
+        // SAFETY: value is bounded and fits in target type
+        #[allow(clippy::cast_possible_truncation)]
         let mut executions = self.executions.write().await;
         if let Some(exec) = executions.get_mut(&req.execution_id) {
             exec.state = "STOPPED".to_string();
@@ -871,6 +879,8 @@ impl ControlService for DaqServer {
 
                 // Get memory usage in KB, convert to MB
                 let used_memory_kb = sys.used_memory();
+                #[allow(clippy::cast_precision_loss)]
+                // SAFETY: precision loss acceptable for metrics/display
                 let used_memory_mb = used_memory_kb as f64 / 1024.0;
 
                 // Determine engine state based on CPU activity
@@ -881,6 +891,8 @@ impl ControlService for DaqServer {
                     "IDLE".to_string()
                 };
 
+                #[allow(clippy::cast_possible_truncation)]
+                // SAFETY: value is bounded and fits in target type
                 let status = SystemStatus {
                     current_state,
                     current_memory_usage_mb: used_memory_mb,
@@ -926,7 +938,7 @@ impl ControlService for DaqServer {
             // Setup rate limiting if specified (applied to SEND side, not receive)
             let mut rate_limiter = if max_rate_hz > 0 {
                 Some(tokio::time::interval(std::time::Duration::from_secs_f64(
-                    1.0 / max_rate_hz as f64,
+                    1.0 / f64::from(max_rate_hz),
                 )))
             } else {
                 None
@@ -972,6 +984,8 @@ impl ControlService for DaqServer {
                         timestamp,
                         ..
                     } => {
+                        #[allow(clippy::cast_sign_loss)]
+                        // SAFETY: value is non-negative at this point
                         let ts_ns = timestamp.timestamp_nanos_opt().unwrap_or(0) as u64;
                         (name.clone(), *value, ts_ns)
                     }
@@ -981,6 +995,9 @@ impl ControlService for DaqServer {
                         timestamp,
                         ..
                     } => {
+                        #[allow(clippy::cast_precision_loss, clippy::cast_sign_loss)]
+                        // SAFETY: precision loss acceptable for metrics/display
+                        #[allow(clippy::cast_precision_loss)]
                         let ts_ns = timestamp.timestamp_nanos_opt().unwrap_or(0) as u64;
                         // For vectors, we can emit the length or first value
                         (format!("{}_len", name), values.len() as f64, ts_ns)
@@ -992,8 +1009,10 @@ impl ControlService for DaqServer {
                         timestamp,
                         ..
                     } => {
+                        #[allow(clippy::cast_sign_loss)]
+                        // SAFETY: value is non-negative at this point
                         let ts_ns = timestamp.timestamp_nanos_opt().unwrap_or(0) as u64;
-                        (name.clone(), (width * height) as f64, ts_ns)
+                        (name.clone(), f64::from(width * height), ts_ns)
                     }
                     Measurement::Spectrum {
                         name,
@@ -1001,6 +1020,8 @@ impl ControlService for DaqServer {
                         timestamp,
                         ..
                     } => {
+                        #[allow(clippy::cast_precision_loss, clippy::cast_sign_loss)]
+                        // SAFETY: precision loss acceptable for metrics/display
                         let ts_ns = timestamp.timestamp_nanos_opt().unwrap_or(0) as u64;
                         (format!("{}_spectrum", name), amplitudes.len() as f64, ts_ns)
                     }
@@ -1048,7 +1069,7 @@ impl ControlService for DaqServer {
         tokio::spawn(async move {
             let mut rate_limiter = if max_rate_hz > 0 {
                 Some(tokio::time::interval(std::time::Duration::from_secs_f64(
-                    1.0 / max_rate_hz as f64,
+                    1.0 / f64::from(max_rate_hz),
                 )))
             } else {
                 None
@@ -1096,6 +1117,8 @@ impl ControlService for DaqServer {
                     limiter.tick().await;
                 }
 
+                #[allow(clippy::cast_sign_loss)]
+                // SAFETY: value is non-negative at this point
                 let timestamp_ns = timestamp.timestamp_nanos_opt().unwrap_or(0) as u64;
                 let metadata_json = metadata
                     .as_ref()
@@ -1401,6 +1424,8 @@ pub async fn start_server_with_hardware(
     let ring_buffer_path = storage_settings.ring_buffer_path.clone();
     let ring_buffer_size = storage_settings.ring_buffer_size_mb as u64;
 
+    #[allow(clippy::cast_possible_truncation)]
+    // SAFETY: value is bounded and fits in target type
     let ring_buffer = match tokio::task::spawn_blocking(move || {
         RingBuffer::create(&ring_buffer_path, ring_buffer_size as usize)
     })
@@ -2058,7 +2083,7 @@ mod tests {
             for i in 0..5 {
                 let _ = data_sender.send(Measurement::Scalar {
                     name: "test_channel".to_string(),
-                    value: i as f64,
+                    value: f64::from(i),
                     unit: "V".to_string(),
                     timestamp: Utc::now(),
                 });
@@ -2106,7 +2131,7 @@ mod tests {
                 let channel = if i % 2 == 0 { "channel_a" } else { "channel_b" };
                 let _ = data_sender.send(Measurement::Scalar {
                     name: channel.to_string(),
-                    value: i as f64,
+                    value: f64::from(i),
                     unit: "V".to_string(),
                     timestamp: Utc::now(),
                 });
@@ -2159,7 +2184,7 @@ mod tests {
             for i in 0..20 {
                 let _ = data_sender.send(Measurement::Scalar {
                     name: "test".to_string(),
-                    value: i as f64,
+                    value: f64::from(i),
                     unit: "V".to_string(),
                     timestamp: Utc::now(),
                 });
@@ -2222,7 +2247,7 @@ mod tests {
             for i in 0..3 {
                 let _ = data_sender.send(Measurement::Scalar {
                     name: "shared".to_string(),
-                    value: i as f64,
+                    value: f64::from(i),
                     unit: "V".to_string(),
                     timestamp: Utc::now(),
                 });

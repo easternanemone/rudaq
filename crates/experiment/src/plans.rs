@@ -173,10 +173,14 @@ impl LineScan {
         self
     }
 
+    #[allow(clippy::cast_precision_loss)]
+    // SAFETY: precision loss acceptable for metrics/display
     fn position_at(&self, point: usize) -> f64 {
         if self.num_points <= 1 {
             self.start
         } else {
+            #[allow(clippy::cast_precision_loss)]
+            // SAFETY: precision loss acceptable for metrics/display
             let step = (self.stop - self.start) / (self.num_points - 1) as f64;
             self.start + step * point as f64
         }
@@ -383,19 +387,27 @@ impl GridScan {
         self
     }
 
+    #[allow(clippy::cast_precision_loss)]
+    // SAFETY: precision loss acceptable for metrics/display
     fn outer_position(&self, idx: usize) -> f64 {
         if self.outer_points <= 1 {
             self.outer_start
         } else {
+            #[allow(clippy::cast_precision_loss)]
+            // SAFETY: precision loss acceptable for metrics/display
             let step = (self.outer_stop - self.outer_start) / (self.outer_points - 1) as f64;
             self.outer_start + step * idx as f64
         }
     }
 
+    #[allow(clippy::cast_precision_loss)]
+    // SAFETY: precision loss acceptable for metrics/display
     fn inner_position(&self, idx: usize) -> f64 {
         if self.inner_points <= 1 {
             self.inner_start
         } else {
+            #[allow(clippy::cast_precision_loss)]
+            // SAFETY: precision loss acceptable for metrics/display
             let step = (self.inner_stop - self.inner_start) / (self.inner_points - 1) as f64;
             self.inner_start + step * idx as f64
         }
@@ -510,6 +522,9 @@ impl Plan for GridScan {
                 // Advance to next point
                 if self.snake {
                     // Snake pattern: alternate direction on inner axis
+                    #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+                    // SAFETY: cast is intentional and domain-appropriate
+                    #[allow(clippy::cast_sign_loss)]
                     let next_inner = self.inner_idx as i32 + self.inner_direction;
                     if next_inner < 0 || next_inner >= self.inner_points as i32 {
                         // Move to next outer row

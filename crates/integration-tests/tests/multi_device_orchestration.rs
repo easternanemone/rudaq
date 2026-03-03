@@ -202,10 +202,14 @@ async fn test_gridscan_two_stages() {
 
     // Check that we have variety in positions (both axes moved)
     // Positions are in the `positions` field, not `data`
+    #[allow(clippy::cast_possible_truncation)]
+    // SAFETY: test/benchmark values are bounded
     let _x_positions: std::collections::HashSet<_> = events
         .iter()
         .filter_map(|e| e.positions.get("stage_x").map(|v| (*v * 10.0) as i32))
         .collect();
+    #[allow(clippy::cast_possible_truncation)]
+    // SAFETY: test/benchmark values are bounded
     let _y_positions: std::collections::HashSet<_> = events
         .iter()
         .filter_map(|e| e.positions.get("stage_y").map(|v| (*v * 10.0) as i32))
@@ -474,6 +478,8 @@ async fn test_count_plan() {
 
 /// Test: Document fields are properly populated
 #[tokio::test]
+#[allow(clippy::cast_possible_truncation)]
+// SAFETY: test/benchmark values are bounded
 async fn test_document_fields() {
     let registry = Arc::new(create_multi_device_registry().await);
     let engine = RunEngine::new(registry.clone());

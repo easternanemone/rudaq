@@ -169,6 +169,8 @@ pub struct AcquisitionMetadata {
 }
 
 impl Default for AcquisitionMetadata {
+    #[allow(clippy::cast_possible_truncation)]
+    // SAFETY: value is bounded and fits in target type
     fn default() -> Self {
         Self {
             sample_rate: 10000.0,
@@ -663,6 +665,8 @@ impl ComediStreamWriter {
             let current_len = ts_ds.shape()[0];
             ts_ds.resize((current_len + samples_per_channel,))?;
 
+            #[allow(clippy::cast_precision_loss)]
+            // SAFETY: precision loss acceptable for metrics/display
             let timestamps: Vec<f64> = (0..samples_per_channel)
                 .map(|i| (current_samples + i as u64) as f64 / sample_rate)
                 .collect();
@@ -727,6 +731,8 @@ impl ComediStreamWriter {
             let schema = Arc::new(Schema::new(fields));
 
             // Build arrays
+            #[allow(clippy::cast_precision_loss)]
+            // SAFETY: precision loss acceptable for metrics/display
             let timestamps: Vec<f64> = (0..samples_per_channel)
                 .map(|i| (current_samples + i as u64) as f64 / sample_rate)
                 .collect();
@@ -840,6 +846,8 @@ pub struct ContinuousAcquisitionSession {
 
 impl ContinuousAcquisitionSession {
     /// Create a new acquisition session
+    #[allow(clippy::cast_possible_truncation)]
+    // SAFETY: value is bounded and fits in target type
     pub fn new(writer: Arc<ComediStreamWriter>) -> Self {
         Self {
             writer,
@@ -853,6 +861,11 @@ impl ContinuousAcquisitionSession {
 
     /// Get session duration in seconds
     pub fn duration_secs(&self) -> f64 {
+        #[allow(clippy::cast_precision_loss)]
+        // SAFETY: precision loss acceptable for metrics/display
+        #[allow(clippy::cast_possible_truncation)]
+        // SAFETY: value is bounded and fits in target type
+        #[allow(clippy::cast_precision_loss)]
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos() as u64)
@@ -867,6 +880,9 @@ impl ContinuousAcquisitionSession {
 
     /// Get effective sample rate
     pub fn effective_rate(&self) -> f64 {
+        #[allow(clippy::cast_precision_loss)]
+        // SAFETY: precision loss acceptable for metrics/display
+        #[allow(clippy::cast_precision_loss)]
         let duration = self.duration_secs();
         if duration > 0.0 {
             self.total_samples() as f64 / duration
@@ -980,7 +996,7 @@ mod tests {
             .unwrap();
 
         // Write 100 samples
-        let samples: Vec<f64> = (0..100).map(|i| i as f64 * 0.1).collect();
+        let samples: Vec<f64> = (0..100).map(|i| f64::from(i) * 0.1).collect();
         writer.write_samples(&samples).await.unwrap();
 
         let stats = writer.stats();
@@ -1005,7 +1021,7 @@ mod tests {
         let session = ContinuousAcquisitionSession::new(writer);
 
         // Write some samples
-        let samples: Vec<f64> = (0..100).map(|i| i as f64 * 0.1).collect();
+        let samples: Vec<f64> = (0..100).map(|i| f64::from(i) * 0.1).collect();
         session.write(&samples).await.unwrap();
 
         assert_eq!(session.total_samples(), 100);

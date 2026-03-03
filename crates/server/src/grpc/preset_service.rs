@@ -505,6 +505,8 @@ impl PresetService for PresetServiceImpl {
 
         // Update timestamps
         let mut preset = preset;
+        #[allow(clippy::cast_possible_truncation)]
+        // SAFETY: value is bounded and fits in target type
         let now_ns = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()

@@ -345,7 +345,7 @@ async fn test_concurrent_moves() {
     let handles: Vec<_> = (0..5)
         .map(|i| {
             let service = Arc::clone(&service);
-            let position = i as f64 * 10.0;
+            let position = f64::from(i) * 10.0;
             tokio::spawn(async move {
                 let request = Request::new(MoveRequest {
                     device_id: "test_stage".to_string(),

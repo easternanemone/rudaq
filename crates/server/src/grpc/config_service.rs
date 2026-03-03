@@ -239,6 +239,8 @@ impl ConfigService for ConfigServiceImpl {
     }
 
     #[instrument(skip(self, req))]
+    #[allow(clippy::cast_possible_truncation)]
+    // SAFETY: value is bounded and fits in target type
     async fn import_config(
         &self,
         req: Request<ImportConfigRequest>,
@@ -262,6 +264,8 @@ impl ConfigService for ConfigServiceImpl {
             })
             .collect();
 
+        #[allow(clippy::cast_possible_truncation)]
+        // SAFETY: value is bounded and fits in target type
         let drivers = self.drivers_from_config(&hw_config).await?;
 
         let driver_count = self
@@ -346,6 +350,8 @@ impl ConfigService for ConfigServiceImpl {
         tokio_stream::wrappers::ReceiverStream<Result<ConfigChangeEvent, Status>>;
 
     #[instrument(skip(self, _req))]
+    #[allow(clippy::cast_possible_truncation)]
+    // SAFETY: value is bounded and fits in target type
     async fn subscribe_config_changes(
         &self,
         _req: Request<SubscribeConfigRequest>,

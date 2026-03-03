@@ -32,6 +32,8 @@ fn workspace_root() -> PathBuf {
 
 /// Send SIGINT to a child process for graceful shutdown.
 #[cfg(unix)]
+#[allow(clippy::cast_possible_wrap)]
+// SAFETY: test/benchmark values are bounded
 fn send_sigint(child: &Child) {
     unsafe {
         libc::kill(child.id() as i32, libc::SIGINT);

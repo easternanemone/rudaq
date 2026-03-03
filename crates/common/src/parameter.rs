@@ -919,7 +919,10 @@ mod tests {
         param.connect_to_hardware_write(move |val| {
             let hw = hw_val_clone.clone();
             Box::pin(async move {
-                hw.store(val as u64, Ordering::SeqCst);
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                // SAFETY: test value 250.0 is a positive integer that fits in u64
+                let val_u64 = val as u64;
+                hw.store(val_u64, Ordering::SeqCst);
                 Ok(())
             })
         });
@@ -1000,7 +1003,10 @@ mod tests {
             let hw_val = hw_val_clone.clone();
             Box::pin(async move {
                 hw_called.store(true, Ordering::SeqCst);
-                hw_val.store(val as u64, Ordering::SeqCst);
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                // SAFETY: test value is a positive integer that fits in u64
+                let val_u64 = val as u64;
+                hw_val.store(val_u64, Ordering::SeqCst);
                 Ok(())
             })
         });

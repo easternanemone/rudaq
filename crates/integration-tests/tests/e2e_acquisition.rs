@@ -141,6 +141,7 @@ impl Triggerable for FailableCamera {
         }
 
         let count = self.inner.get_frame_count();
+        #[allow(clippy::cast_lossless)] // usize → u64: safe on 64-bit targets
         if count >= self.fail_after_frames.load(Ordering::SeqCst) as u64 {
             anyhow::bail!("FailableCamera: Failed after {} frames", count);
         }
@@ -428,7 +429,7 @@ async fn test_concurrent_hardware_stress() {
         tokio::spawn(async move {
             let mut moves = 0;
             for i in 0..20 {
-                let pos = (i % 5) as f64 * 2.0;
+                let pos = f64::from(i % 5) * 2.0;
                 stage.move_abs(pos).await.unwrap();
                 moves += 1;
             }
@@ -485,7 +486,7 @@ async fn test_graceful_shutdown() {
                     break;
                 }
 
-                let pos = i as f64;
+                let pos = f64::from(i);
                 stage.move_abs(pos).await.unwrap();
                 camera.trigger().await.unwrap();
                 completed += 1;
@@ -532,7 +533,7 @@ async fn test_high_throughput_acquisition() {
     }
 
     let elapsed = start.elapsed();
-    let samples_per_sec = num_samples as f64 / elapsed.as_secs_f64();
+    let samples_per_sec = f64::from(num_samples) / elapsed.as_secs_f64();
 
     println!(
         "High-throughput test: {} samples in {:?} ({:.1} samples/sec, simulated time)",

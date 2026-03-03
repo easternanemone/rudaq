@@ -559,7 +559,7 @@ fn validate_trace_model(
                     relative_index
                 )));
             }
-            if *domain_start > sample_start as f64 || *domain_end < sample_end as f64 {
+            if *domain_start > f64::from(sample_start) || *domain_end < f64::from(sample_end) {
                 return Err(invalid(format!(
                     "order {} trace domain [{}, {}] does not cover sample range [{}..={}]",
                     relative_index, domain_start, domain_end, sample_start, sample_end
@@ -609,7 +609,7 @@ fn validate_wavelength_model(
                     relative_index
                 )));
             }
-            if *domain_start > sample_start as f64 || *domain_end < sample_end as f64 {
+            if *domain_start > f64::from(sample_start) || *domain_end < f64::from(sample_end) {
                 return Err(invalid(format!(
                     "order {} wavelength domain [{}, {}] does not cover sample range [{}..={}]",
                     relative_index, domain_start, domain_end, sample_start, sample_end
@@ -745,7 +745,7 @@ mod tests {
                         domain_end: 1023.0,
                     },
                     wavelength: EchelleWavelengthModel::Sampled {
-                        wavelengths: (0..16).map(|i| 400.0 + i as f64 * 0.02).collect(),
+                        wavelengths: (0..16).map(|i| 400.0 + f64::from(i) * 0.02).collect(),
                         unit: "nm".to_string(),
                     },
                     aperture_half_width_px: Some(3.5),

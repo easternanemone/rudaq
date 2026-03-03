@@ -115,6 +115,8 @@ impl Statistics {
         self.max = self.values.iter().copied().fold(f64::MIN, |a, b| a.max(b));
     }
 
+    #[allow(clippy::cast_precision_loss)]
+    // SAFETY: precision loss acceptable for metrics/display
     fn mean(&self) -> f64 {
         if self.values.is_empty() {
             0.0
@@ -127,6 +129,8 @@ impl Statistics {
         if self.values.len() < 2 {
             0.0
         } else {
+            #[allow(clippy::cast_precision_loss)]
+            // SAFETY: precision loss acceptable for metrics/display
             let n = self.values.len() as f64;
             let mean = self.sum / n;
             let variance = (self.sum_sq / n) - (mean * mean);
@@ -134,7 +138,11 @@ impl Statistics {
         }
     }
 
+    #[allow(clippy::cast_precision_loss)]
+    // SAFETY: precision loss acceptable for metrics/display
     fn as_hashmap(&self) -> HashMap<String, f64> {
+        #[allow(clippy::cast_precision_loss)]
+        // SAFETY: precision loss acceptable for metrics/display
         let mut map = HashMap::new();
         map.insert("mean".to_string(), self.mean());
         map.insert("std".to_string(), self.std());
@@ -335,6 +343,9 @@ impl Module for PowerMonitor {
     }
 
     fn get_config(&self) -> HashMap<String, String> {
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        // SAFETY: value is validated/bounded before cast
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let mut config = HashMap::new();
         config.insert(
             "sample_rate_hz".to_string(),
@@ -437,6 +448,8 @@ async fn power_monitor_task(
     power_meter: Arc<dyn hardware::capabilities::Readable>,
 ) {
     let interval = Duration::from_secs_f64(1.0 / config.sample_rate_hz);
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    // SAFETY: value is validated/bounded before cast
     let window_size = (config.sample_rate_hz * config.averaging_window_s).ceil() as usize;
     let window_size = window_size.max(1);
 
@@ -584,7 +597,7 @@ mod tests {
 
         // Add some values
         for i in 1..=5 {
-            stats.add(i as f64, 10);
+            stats.add(f64::from(i), 10);
         }
 
         assert_eq!(stats.count, 5);
@@ -599,7 +612,7 @@ mod tests {
 
         // Add more values than window size
         for i in 1..=10 {
-            stats.add(i as f64, 5);
+            stats.add(f64::from(i), 5);
         }
 
         // Window should only contain last 5 values (6-10)

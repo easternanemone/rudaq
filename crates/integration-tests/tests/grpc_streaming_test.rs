@@ -57,7 +57,7 @@ mod streaming_tests {
             for i in 0..3 {
                 let _ = data_sender.send(Measurement::Scalar {
                     name: "test_channel".to_string(),
-                    value: i as f64 * 10.0,
+                    value: f64::from(i) * 10.0,
                     unit: "V".to_string(),
                     timestamp: Utc::now(),
                 });
@@ -100,6 +100,8 @@ mod streaming_tests {
         tokio::spawn(async move {
             let channels = ["temperature", "pressure", "temperature", "voltage"];
             for (i, &channel) in channels.iter().enumerate() {
+                #[allow(clippy::cast_precision_loss)]
+                // SAFETY: test/benchmark values are bounded
                 let _ = data_sender.send(Measurement::Scalar {
                     name: channel.to_string(),
                     value: i as f64,
@@ -154,7 +156,7 @@ mod streaming_tests {
             for i in 0..3 {
                 let _ = data_sender.send(Measurement::Scalar {
                     name: "shared".to_string(),
-                    value: i as f64 * 100.0,
+                    value: f64::from(i) * 100.0,
                     unit: "V".to_string(),
                     timestamp: Utc::now(),
                 });

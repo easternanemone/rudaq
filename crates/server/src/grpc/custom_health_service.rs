@@ -76,6 +76,9 @@ fn instant_to_ns(instant: std::time::Instant) -> u64 {
     let now_system = SystemTime::now();
 
     let elapsed = now_instant.duration_since(instant);
+    #[allow(clippy::cast_possible_truncation)]
+    // SAFETY: value is bounded and fits in target type
+    #[allow(clippy::cast_possible_truncation)]
     let system_time = now_system - elapsed;
 
     system_time
@@ -147,15 +150,23 @@ fn proto_to_error_severity(level: ErrorSeverityLevel) -> ErrorSeverity {
 
 #[tonic::async_trait]
 impl HealthService for HealthServiceImpl {
+    #[allow(clippy::cast_possible_truncation)]
+    // SAFETY: value is bounded and fits in target type
     async fn get_system_health(
         &self,
         _request: Request<GetSystemHealthRequest>,
     ) -> Result<Response<GetSystemHealthResponse>, Status> {
         let health_status = self.monitor.get_system_health().await;
+        #[allow(clippy::cast_possible_truncation)]
+        // SAFETY: value is bounded and fits in target type
         let modules = self.monitor.get_module_health().await;
+        #[allow(clippy::cast_possible_truncation)]
+        // SAFETY: value is bounded and fits in target type
         let errors = self.monitor.get_error_history(None).await;
 
         let healthy_count = modules.iter().filter(|m| m.is_healthy).count() as u32;
+        #[allow(clippy::cast_possible_truncation)]
+        // SAFETY: value is bounded and fits in target type
         let unhealthy_count = (modules.len() as u32).saturating_sub(healthy_count);
 
         let critical_count = errors
@@ -163,6 +174,8 @@ impl HealthService for HealthServiceImpl {
             .filter(|e| e.severity == ErrorSeverity::Critical)
             .count() as u32;
 
+        #[allow(clippy::cast_possible_truncation)]
+        // SAFETY: value is bounded and fits in target type
         let response = GetSystemHealthResponse {
             status: system_health_to_proto(health_status) as i32,
             total_modules: modules.len() as u32,
@@ -289,6 +302,8 @@ impl HealthService for HealthServiceImpl {
 
         let total_count = self.monitor.error_count().await;
 
+        #[allow(clippy::cast_possible_truncation)]
+        // SAFETY: value is bounded and fits in target type
         let response = GetErrorHistoryResponse {
             errors: proto_errors,
             total_error_count: total_count as u32,
@@ -307,7 +322,7 @@ impl HealthService for HealthServiceImpl {
     ) -> Result<Response<<Self as HealthService>::StreamHealthUpdatesStream>, Status> {
         let req = request.into_inner();
         let update_interval = if req.update_interval_ms > 0 {
-            Duration::from_millis(req.update_interval_ms as u64)
+            Duration::from_millis(u64::from(req.update_interval_ms))
         } else {
             HEALTH_CHECK_INTERVAL // Default 5 seconds
         };

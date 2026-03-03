@@ -454,6 +454,8 @@ impl RunEngine {
                 let (w, h) = producer.resolution();
                 // Assume uint16 for now, or check metadata if available
                 // Assume uint16 for now, or check metadata if available
+                #[allow(clippy::cast_possible_wrap)]
+                // SAFETY: value fits in target type range
                 let mut key = DataKey::array(&det, vec![h as i32, w as i32]);
                 key.dtype = "uint16".to_string();
                 descriptor.data_keys.insert(det.clone(), key);

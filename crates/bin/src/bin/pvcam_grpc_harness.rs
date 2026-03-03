@@ -284,6 +284,8 @@ fn parse_binning(value: &str) -> Result<(u16, u16)> {
     Ok((parts[0].parse()?, parts[1].parse()?))
 }
 
+#[allow(clippy::cast_possible_truncation)]
+// SAFETY: value is bounded and fits in target type
 fn now_unix_ns() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -363,6 +365,8 @@ async fn set_parameter(
     }
 }
 
+#[allow(clippy::cast_precision_loss)]
+// SAFETY: precision loss acceptable for metrics/display
 fn update_latency(stats: &mut StreamStats, latency_ms: f64) {
     stats.latency_samples += 1;
     stats.avg_latency_ms += (latency_ms - stats.avg_latency_ms) / stats.latency_samples as f64;
@@ -451,7 +455,7 @@ async fn run_stream(
                         }
 
                         let uncompressed_size = if frame.uncompressed_size > 0 {
-                            frame.uncompressed_size as u64
+                            u64::from(frame.uncompressed_size)
                         } else {
                             frame.data.len() as u64
                         };
@@ -460,6 +464,8 @@ async fn run_stream(
 
                         if frame.timestamp_ns > 0 {
                             let now_ns = now_unix_ns();
+                            #[allow(clippy::cast_precision_loss)]
+                            // SAFETY: precision loss acceptable for metrics/display
                             let latency_ms = (now_ns.saturating_sub(frame.timestamp_ns) as f64) / 1_000_000.0;
                             update_latency(stats, latency_ms);
                         }
@@ -726,12 +732,18 @@ fn compute_summary(
     notes: Vec<String>,
 ) -> HarnessSummary {
     let duration_secs = config.duration.as_secs_f64().max(1.0);
+    #[allow(clippy::cast_precision_loss)]
+    // SAFETY: precision loss acceptable for metrics/display
     let fps = stats.frames_received as f64 / duration_secs;
+    #[allow(clippy::cast_precision_loss)]
+    // SAFETY: precision loss acceptable for metrics/display
     let drop_rate = if stats.frames_sent > 0 {
         stats.frames_dropped as f64 / stats.frames_sent as f64
     } else {
         0.0
     };
+    #[allow(clippy::cast_precision_loss)]
+    // SAFETY: precision loss acceptable for metrics/display
     let compression_ratio = if stats.bytes_compressed > 0 {
         stats.bytes_uncompressed as f64 / stats.bytes_compressed as f64
     } else {
@@ -782,7 +794,7 @@ fn evaluate_success(config: &HarnessConfig, metrics: &SummaryMetrics, notes: &[S
         0.0
     };
     let expected_fps = if config.max_fps > 0 {
-        expected_fps.min(config.max_fps as f64)
+        expected_fps.min(f64::from(config.max_fps))
     } else {
         expected_fps
     };

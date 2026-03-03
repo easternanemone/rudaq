@@ -389,6 +389,8 @@ impl ReconnectConfig {
     /// Calculate the delay for a given attempt number (1-based).
     #[must_use]
     pub fn delay_for_attempt(&self, attempt: u32) -> Duration {
+        #[allow(clippy::cast_possible_wrap)]
+        // SAFETY: value fits in target type range
         let base_delay = self.initial_delay.as_secs_f64()
             * self
                 .backoff_multiplier
@@ -420,7 +422,7 @@ fn rand_jitter() -> f64 {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .subsec_nanos();
-    (nanos % 1000) as f64 / 1000.0
+    f64::from(nanos % 1000) / 1000.0
 }
 
 /// Result of a connection attempt sent through the channel.

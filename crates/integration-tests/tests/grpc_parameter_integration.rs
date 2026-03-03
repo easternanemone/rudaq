@@ -328,7 +328,7 @@ async fn test_concurrent_parameter_access_no_deadlock() -> Result<()> {
     let service_clone = service.clone();
     let write_task = tokio::spawn(async move {
         for i in 0..1000 {
-            let exposure_value = 0.033 + (i % 100) as f64 / 1000.0; // Vary exposure
+            let exposure_value = 0.033 + f64::from(i % 100) / 1000.0; // Vary exposure
             let request = Request::new(SetParameterRequest {
                 device_id: "mock_camera".to_string(),
                 parameter_name: "exposure_s".to_string(),

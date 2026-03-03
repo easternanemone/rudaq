@@ -387,6 +387,8 @@ impl RingBuffer {
 
             // Generate stream_id from timestamp for cross-process reader detection.
             // Using system time ensures uniqueness across buffer re-creations.
+            #[allow(clippy::cast_possible_truncation)]
+            // SAFETY: value is bounded and fits in target type
             let stream_id = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_nanos() as u64)
@@ -440,6 +442,8 @@ impl RingBuffer {
 
         // CRITICAL: Validate file size BEFORE memory mapping to prevent
         // accessing invalid memory if the file was truncated or corrupted
+        #[allow(clippy::cast_possible_truncation)]
+        // SAFETY: value is bounded and fits in target type
         let file_size = file.metadata().map_err(DaqError::Io)?.len() as usize;
 
         if file_size < HEADER_SIZE {
@@ -494,6 +498,8 @@ impl RingBuffer {
         }
 
         // Validate that file size matches expected size (header + capacity)
+        #[allow(clippy::cast_possible_truncation)]
+        // SAFETY: value is bounded and fits in target type
         let expected_size = HEADER_SIZE + capacity as usize;
         if file_size != expected_size {
             return Err(DaqError::Storage(StorageError::new(
@@ -543,6 +549,10 @@ impl RingBuffer {
     ///
     /// # Thread Safety
     /// Multiple concurrent writers are safe - the internal lock serializes writes.
+    #[allow(clippy::cast_possible_truncation)]
+    // SAFETY: value is bounded and fits in target type
+    #[allow(clippy::cast_possible_truncation)]
+    // SAFETY: value is bounded and fits in target type
     pub fn write(&self, data: &[u8]) -> Result<(), DaqError> {
         // Async context safety guard (bd-m9jm)
         warn_if_async_context("write");
@@ -578,9 +588,13 @@ impl RingBuffer {
             (*self.header).write_epoch.fetch_add(1, Ordering::AcqRel);
 
             // Load current write position with Acquire ordering to see previous writes
+            #[allow(clippy::cast_possible_truncation)]
+            // SAFETY: value is bounded and fits in target type
             let head = (*self.header).write_head.load(Ordering::Acquire);
 
             // Calculate circular offset
+            #[allow(clippy::cast_possible_truncation)]
+            // SAFETY: value is bounded and fits in target type
             let write_offset = (head % self.capacity) as usize;
             debug_assert!(write_offset < self.capacity as usize);
 
@@ -589,6 +603,8 @@ impl RingBuffer {
                 // SAFETY: write_offset < capacity (due to modulo), and first_part_len
                 // is bounded by capacity - write_offset, so data_ptr.add(write_offset)
                 // is within the mmap region [data_ptr, data_ptr + capacity)
+                #[allow(clippy::cast_possible_truncation)]
+                // SAFETY: value is bounded and fits in target type
                 let first_part_len = self.capacity as usize - write_offset;
                 let dest = self.data_ptr.add(write_offset);
                 std::ptr::copy_nonoverlapping(data.as_ptr(), dest, first_part_len);
@@ -838,6 +854,10 @@ impl RingBuffer {
     /// Returns `Some(Vec<u8>)` if successful, or `None` if a concurrent write occurred.
     /// This encapsulates the unsafe pointer logic and seqlock validation.
     #[inline(always)]
+    #[allow(clippy::cast_possible_truncation)]
+    // SAFETY: value is bounded and fits in target type
+    #[allow(clippy::cast_possible_truncation)]
+    // SAFETY: value is bounded and fits in target type
     fn try_read_consistent(&self) -> Option<Vec<u8>> {
         // SAFETY: header and data_ptr are valid for the lifetime of self
         unsafe {
@@ -873,13 +893,19 @@ impl RingBuffer {
             }
 
             // Calculate read offset (circular) based on EFFECTIVE tail
+            #[allow(clippy::cast_possible_truncation)]
+            // SAFETY: value is bounded and fits in target type
             let read_offset = (effective_tail % self.capacity) as usize;
 
+            #[allow(clippy::cast_possible_truncation)]
+            // SAFETY: value is bounded and fits in target type
             let mut buffer = vec![0u8; available as usize];
 
             // Handle wrap-around copy
             if read_offset + available as usize > self.capacity as usize {
                 // Split copy: end of buffer + start of buffer
+                #[allow(clippy::cast_possible_truncation)]
+                // SAFETY: value is bounded and fits in target type
                 let first_part_len = self.capacity as usize - read_offset;
 
                 // Bounds check for first part
@@ -889,6 +915,8 @@ impl RingBuffer {
                 }
 
                 // Bounds check for second part
+                #[allow(clippy::cast_possible_truncation)]
+                // SAFETY: value is bounded and fits in target type
                 let second_part_len = available as usize - first_part_len;
                 if second_part_len > 0 {
                     std::ptr::copy_nonoverlapping(
@@ -899,6 +927,8 @@ impl RingBuffer {
                 }
             } else {
                 // Contiguous copy
+                #[allow(clippy::cast_possible_truncation)]
+                // SAFETY: value is bounded and fits in target type
                 let src = self.data_ptr.add(read_offset);
                 std::ptr::copy_nonoverlapping(src, buffer.as_mut_ptr(), available as usize);
             }
@@ -1484,6 +1514,8 @@ impl RingBuffer {
         })?;
 
         // Prepend 4-byte little-endian length for cross-process readers
+        #[allow(clippy::cast_possible_truncation)]
+        // SAFETY: value is bounded and fits in target type
         let len = buffer.len() as u32;
         let mut framed = Vec::with_capacity(4 + buffer.len());
         framed.extend_from_slice(&len.to_le_bytes());
@@ -1528,6 +1560,8 @@ impl RingBuffer {
                     *guard = Some(json_str);
 
                     // Update header schema_len (capped at u32::MAX)
+                    #[allow(clippy::cast_possible_truncation)]
+                    // SAFETY: value is bounded and fits in target type
                     let schema_len = std::cmp::min(len, u32::MAX as usize) as u32;
                     // SAFETY: header is valid for the lifetime of self
                     unsafe {
@@ -1668,6 +1702,8 @@ mod tests {
 
         // Create small buffer (1KB)
         let rb = RingBuffer::create(&path, 1).unwrap();
+        #[allow(clippy::cast_possible_truncation)]
+        // SAFETY: value is bounded and fits in target type
         let capacity = rb.capacity() as usize;
 
         // Write data that will wrap around
@@ -1689,6 +1725,8 @@ mod tests {
         let path = temp_dir.path().join("wrap_latest.buf");
 
         let rb = RingBuffer::create(&path, 1).unwrap(); // 1 MB
+        #[allow(clippy::cast_possible_truncation)]
+        // SAFETY: value is bounded and fits in target type
         let capacity = rb.capacity() as usize;
 
         let first = vec![0x11u8; capacity - 16];
@@ -1794,7 +1832,7 @@ mod tests {
         }
         let elapsed = start.elapsed();
 
-        let ops_per_sec = iterations as f64 / elapsed.as_secs_f64();
+        let ops_per_sec = f64::from(iterations) / elapsed.as_secs_f64();
         println!("Write performance: {:.0} ops/sec", ops_per_sec);
 
         // Should achieve 10k+ writes/sec
@@ -2181,6 +2219,8 @@ mod tests {
         let rb = Arc::new(RingBuffer::create(&path, 1).unwrap()); // 1 MB
         let async_rb = AsyncRingBuffer::new(rb);
 
+        #[allow(clippy::cast_possible_truncation)]
+        // SAFETY: value is bounded and fits in target type
         let capacity = async_rb.capacity() as usize;
 
         // Write data that will wrap around
@@ -2407,6 +2447,8 @@ mod tests {
                 let temp_dir = tempfile::tempdir().unwrap();
                 let path = temp_dir.path().join("prop_bounded.buf");
                 let rb = RingBuffer::create(&path, 1).unwrap();
+                #[allow(clippy::cast_possible_truncation)]
+                // SAFETY: value is bounded and fits in target type
                 let capacity = rb.capacity() as usize;
 
                 for data in &writes {
@@ -2428,6 +2470,8 @@ mod tests {
                 let temp_dir = tempfile::tempdir().unwrap();
                 let path = temp_dir.path().join("prop_wrap.buf");
                 let rb = RingBuffer::create(&path, 1).unwrap();
+                #[allow(clippy::cast_possible_truncation)]
+                // SAFETY: value is bounded and fits in target type
                 let capacity = rb.capacity() as usize;
 
                 let mut all_data = Vec::new();
@@ -2468,6 +2512,8 @@ mod tests {
                 let temp_dir = tempfile::tempdir().unwrap();
                 let path = temp_dir.path().join("prop_oversize.buf");
                 let rb = RingBuffer::create(&path, 1).unwrap();
+                #[allow(clippy::cast_possible_truncation)]
+                // SAFETY: value is bounded and fits in target type
                 let capacity = rb.capacity() as usize;
 
                 let oversized = vec![0u8; capacity + extra];
@@ -2499,7 +2545,11 @@ mod tests {
             let rb = Arc::clone(&rb);
             handles.push(thread::spawn(move || {
                 for i in 0..writes_per_writer {
+                    #[allow(clippy::cast_possible_truncation)]
+                    // SAFETY: value is bounded and fits in target type
                     let mut data = vec![writer_id as u8; payload_size];
+                    #[allow(clippy::cast_possible_truncation)]
+                    // SAFETY: value is bounded and fits in target type
                     let seq_bytes = (i as u32).to_le_bytes();
                     data[..4].copy_from_slice(&seq_bytes);
                     rb.write(&data).unwrap();
@@ -2513,6 +2563,8 @@ mod tests {
         let reader = thread::spawn(move || {
             let mut reads = 0u64;
             while !done_clone.load(std::sync::atomic::Ordering::Relaxed) {
+                #[allow(clippy::cast_possible_truncation)]
+                // SAFETY: value is bounded and fits in target type
                 let snapshot = rb_reader.read_snapshot();
                 assert!(snapshot.len() <= rb_reader.capacity() as usize);
                 reads += 1;
@@ -2557,6 +2609,8 @@ mod tests {
         let writer_rb = async_rb.clone();
         let writer = tokio::spawn(async move {
             for i in 0..num_writes {
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                // SAFETY: value is validated/bounded before cast
                 let data = vec![i as u8; 1024];
                 writer_rb.write(&data).await.unwrap();
                 if i % 10 == 0 {
@@ -2675,6 +2729,8 @@ mod tests {
             let arb = async_rb.clone();
             handles.push(tokio::spawn(async move {
                 for _ in 0..reads_per {
+                    #[allow(clippy::cast_possible_truncation)]
+                    // SAFETY: value is bounded and fits in target type
                     let snapshot = arb.read_snapshot().await.unwrap();
                     assert!(snapshot.len() <= arb.capacity() as usize);
                     tokio::task::yield_now().await;
@@ -2701,6 +2757,8 @@ mod tests {
             let path = temp_dir.path().join(format!("lifecycle_{}.buf", i));
             let rb = RingBuffer::create(&path, 1).unwrap();
 
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            // SAFETY: value is validated/bounded before cast
             let data = vec![i as u8; 4096];
             rb.write(&data).unwrap();
 

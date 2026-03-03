@@ -30,6 +30,8 @@ fn make_batch(rows: usize) -> RecordBatch {
     ]));
 
     let names = StringArray::from_iter_values((0..rows).map(|i| format!("sig_{}", i % 16)));
+    #[allow(clippy::cast_precision_loss)]
+    // SAFETY: test/benchmark values are bounded
     let values = Float64Array::from_iter_values((0..rows).map(|i| i as f64));
 
     RecordBatch::try_new(schema, vec![Arc::new(names), Arc::new(values)]).unwrap()
@@ -50,6 +52,8 @@ fn main() {
     }
     let elapsed = start.elapsed();
     let secs = elapsed.as_secs_f64();
+    #[allow(clippy::cast_precision_loss)]
+    // SAFETY: test/benchmark values are bounded
     let rate = batches as f64 / secs;
 
     println!(

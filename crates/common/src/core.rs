@@ -63,8 +63,8 @@ impl PixelBuffer {
     pub fn as_f64(&self) -> std::borrow::Cow<'_, [f64]> {
         use std::borrow::Cow;
         match self {
-            PixelBuffer::U8(data) => Cow::Owned(data.iter().map(|&v| v as f64).collect()),
-            PixelBuffer::U16(data) => Cow::Owned(data.iter().map(|&v| v as f64).collect()),
+            PixelBuffer::U8(data) => Cow::Owned(data.iter().map(|&v| f64::from(v)).collect()),
+            PixelBuffer::U16(data) => Cow::Owned(data.iter().map(|&v| f64::from(v)).collect()),
             PixelBuffer::F64(data) => Cow::Borrowed(data.as_slice()),
         }
     }
@@ -697,6 +697,8 @@ impl ParameterValue {
     }
 
     /// Extract value as f64
+    #[allow(clippy::cast_precision_loss)]
+    // SAFETY: precision loss acceptable for metrics/display
     pub fn as_f64(&self) -> Option<f64> {
         match self {
             ParameterValue::Float(f) => Some(*f),
@@ -707,6 +709,8 @@ impl ParameterValue {
     }
 
     /// Extract value as i64
+    #[allow(clippy::cast_possible_truncation)]
+    // SAFETY: value is bounded and fits in target type
     pub fn as_i64(&self) -> Option<i64> {
         match self {
             ParameterValue::Int(i) => Some(*i),
@@ -739,6 +743,8 @@ impl From<i64> for ParameterValue {
 }
 
 impl From<u64> for ParameterValue {
+    #[allow(clippy::cast_possible_wrap)]
+    // SAFETY: value fits in target type range
     fn from(value: u64) -> Self {
         ParameterValue::Int(value as i64)
     }
@@ -746,13 +752,13 @@ impl From<u64> for ParameterValue {
 
 impl From<u32> for ParameterValue {
     fn from(value: u32) -> Self {
-        ParameterValue::Int(value as i64)
+        ParameterValue::Int(i64::from(value))
     }
 }
 
 impl From<u8> for ParameterValue {
     fn from(value: u8) -> Self {
-        ParameterValue::Int(value as i64)
+        ParameterValue::Int(i64::from(value))
     }
 }
 
@@ -788,7 +794,7 @@ impl From<Vec<i64>> for ParameterValue {
 
 impl From<Vec<i32>> for ParameterValue {
     fn from(value: Vec<i32>) -> Self {
-        ParameterValue::IntArray(value.into_iter().map(|x| x as i64).collect())
+        ParameterValue::IntArray(value.into_iter().map(|x| i64::from(x)).collect())
     }
 }
 

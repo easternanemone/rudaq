@@ -87,7 +87,7 @@ async fn test_mock_stage_multiple_moves() {
 
     // Perform multiple moves in sequence
     for i in 1..=5 {
-        let target = i as f64 * 2.0;
+        let target = f64::from(i) * 2.0;
         stage.move_abs(target).await.unwrap();
         assert_eq!(stage.position().await.unwrap(), target);
     }

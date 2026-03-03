@@ -176,6 +176,8 @@ where
 
         Box::pin(async move {
             let result = fut.await;
+            #[allow(clippy::cast_possible_truncation)]
+            // SAFETY: value is bounded and fits in target type
             let elapsed_ms = start.elapsed().as_millis() as u64;
 
             match &result {

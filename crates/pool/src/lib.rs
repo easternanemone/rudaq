@@ -1040,6 +1040,8 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(clippy::cast_possible_truncation)]
+    // SAFETY: i % 256 always fits in u8
     async fn test_lock_free_access() {
         // Verify that get()/get_mut() don't take locks by checking
         // we can call them many times without performance degradation
@@ -1216,6 +1218,8 @@ mod tests {
 
         let slow_count = slow_accesses.load(Ordering::Relaxed);
         let total_count = total_accesses.load(Ordering::Relaxed);
+        #[allow(clippy::cast_precision_loss)]
+        // SAFETY: precision loss acceptable for metrics/display
         let slow_percentage = (slow_count as f64 / total_count as f64) * 100.0;
 
         println!(
@@ -1270,6 +1274,8 @@ mod tests {
                     let _ = std::hint::black_box(item[(i + 1) % 4096]);
                     let _ = std::hint::black_box(item[(i + 2) % 4096]);
 
+                    #[allow(clippy::cast_possible_truncation)]
+                    // SAFETY: value is bounded and fits in target type
                     let elapsed_nanos = start.elapsed().as_nanos() as u64;
 
                     // Update max latency
@@ -1420,6 +1426,12 @@ mod pool_timing_tests {
 
     /// Calculate percentile from a sorted slice of durations.
     fn percentile(sorted: &[Duration], p: f64) -> Duration {
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_precision_loss,
+            clippy::cast_sign_loss
+        )]
+        // SAFETY: value is validated/bounded before cast
         let idx = ((sorted.len() as f64) * p / 100.0).ceil() as usize;
         sorted[idx.saturating_sub(1).min(sorted.len() - 1)]
     }
@@ -1432,6 +1444,8 @@ mod pool_timing_tests {
         let p50 = percentile(times, 50.0);
         let p95 = percentile(times, 95.0);
         let p99 = percentile(times, 99.0);
+        #[allow(clippy::cast_possible_truncation)]
+        // SAFETY: value is bounded and fits in target type
         let mean: Duration = times.iter().sum::<Duration>() / times.len() as u32;
 
         println!("\n{name} ({} samples):", times.len());
@@ -1529,6 +1543,8 @@ mod pool_timing_tests {
     }
 
     #[tokio::test]
+    #[allow(clippy::cast_precision_loss)]
+    // SAFETY: test counter values are small, precision loss is acceptable for throughput display
     async fn test_pool_concurrent_access_timing() {
         // Pool with 8 slots, 16 concurrent tasks each doing 100 acquire/release cycles
         let pool = Arc::new(Pool::new_simple(8, || vec![0u8; 1024]));
@@ -1715,7 +1731,7 @@ mod pool_timing_tests {
         println!("  Worst wait time: {:?}", worst_wait);
         println!(
             "  Throughput: {:.0} cycles/sec",
-            (num_tasks * cycles_per_task) as f64 / total_elapsed.as_secs_f64()
+            f64::from(num_tasks * cycles_per_task) / total_elapsed.as_secs_f64()
         );
 
         // Even under pressure, worst wait should be bounded
@@ -1729,6 +1745,8 @@ mod pool_timing_tests {
     }
 
     #[tokio::test]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+    // SAFETY: i % 256 always fits in u8; precision loss acceptable for benchmark nanos
     async fn test_lock_free_access_overhead() {
         // Measure the overhead of accessing data through Loaned vs direct access
         let pool = Pool::new_simple(1, || vec![0u8; 1024 * 1024]);
@@ -1756,8 +1774,12 @@ mod pool_timing_tests {
         for i in 0..iterations {
             direct_vec[i % (1024 * 1024)] = (i % 256) as u8;
         }
+        #[allow(clippy::cast_precision_loss)]
+        // SAFETY: precision loss acceptable for metrics/display
         let direct_time = start.elapsed();
 
+        #[allow(clippy::cast_precision_loss)]
+        // SAFETY: precision loss acceptable for metrics/display
         let overhead_ns = loaned_time.as_nanos() as f64 / iterations as f64
             - direct_time.as_nanos() as f64 / iterations as f64;
 

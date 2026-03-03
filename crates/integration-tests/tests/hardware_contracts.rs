@@ -425,7 +425,7 @@ async fn test_contract_movable_readable_independence() {
     let pm = MockPowerMeter::new(1e-3);
 
     for i in 0..5 {
-        let target = i as f64 * 2.0;
+        let target = f64::from(i) * 2.0;
         stage.move_abs(target).await.unwrap();
         stage.wait_settled().await.unwrap();
         let reading = pm.read().await.unwrap();

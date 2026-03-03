@@ -80,6 +80,8 @@ fn create_test_vector(name: &str, values: Vec<f64>) -> Measurement {
 /// Create a spectrum measurement for testing
 #[allow(dead_code)]
 fn create_test_spectrum(name: &str, n_bins: usize) -> Measurement {
+    #[allow(clippy::cast_precision_loss)]
+    // SAFETY: test/benchmark values are bounded
     let frequencies: Vec<f64> = (0..n_bins).map(|i| i as f64 * 100.0).collect();
     let amplitudes: Vec<f64> = frequencies
         .iter()
@@ -102,6 +104,8 @@ fn _create_test_image(name: &str, width: u32, height: u32) -> Measurement {
     use common::core::{ImageMetadata, PixelBuffer};
 
     let pixel_count = (width * height) as usize;
+    #[allow(clippy::cast_possible_truncation)]
+    // SAFETY: test/benchmark values are bounded
     let pixels: Vec<u16> = (0..pixel_count).map(|i| (i % 65536) as u16).collect();
 
     Measurement::Image {
@@ -274,7 +278,7 @@ mod hdf5_tests {
 
         // Write multiple batches
         for i in 0..5 {
-            let measurement = create_test_scalar(&format!("param_{}", i), i as f64);
+            let measurement = create_test_scalar(&format!("param_{}", i), f64::from(i));
 
             #[cfg(feature = "storage_arrow")]
             {
@@ -770,7 +774,7 @@ mod ringbuffer_hdf5_integration {
                 let mut batch_measurements = Vec::new();
                 for i in 0..100 {
                     let name = format!("measurement_{}_{}", batch_num, i);
-                    batch_measurements.push(create_test_scalar(&name, i as f64));
+                    batch_measurements.push(create_test_scalar(&name, f64::from(i)));
                 }
 
                 let batches = Measurement::into_arrow_batches(&batch_measurements).unwrap();
@@ -816,7 +820,7 @@ mod ringbuffer_hdf5_integration {
         #[cfg(feature = "storage_arrow")]
         {
             for i in 0..10 {
-                let measurement = create_test_scalar(&format!("async_test_{}", i), i as f64);
+                let measurement = create_test_scalar(&format!("async_test_{}", i), f64::from(i));
                 let batches = Measurement::into_arrow_batches(&[measurement]).unwrap();
                 if let Some(batch) = batches.scalars {
                     ring.write_arrow_batch(&batch).unwrap();
@@ -856,7 +860,7 @@ mod performance_tests {
         }
 
         let elapsed = start.elapsed();
-        let ops_per_sec = iterations as f64 / elapsed.as_secs_f64();
+        let ops_per_sec = f64::from(iterations) / elapsed.as_secs_f64();
 
         println!("Arrow batch creation: {:.0} ops/sec", ops_per_sec);
         assert!(ops_per_sec > 1000.0, "Should create batches quickly");
@@ -878,7 +882,7 @@ mod performance_tests {
         }
 
         let elapsed = start.elapsed();
-        let ops_per_sec = iterations as f64 / elapsed.as_secs_f64();
+        let ops_per_sec = f64::from(iterations) / elapsed.as_secs_f64();
 
         println!("Ring buffer write: {:.0} ops/sec", ops_per_sec);
         assert!(ops_per_sec > 5_000.0, "Should write quickly");

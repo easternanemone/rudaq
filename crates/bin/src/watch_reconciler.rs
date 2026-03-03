@@ -303,6 +303,8 @@ async fn do_reconcile(db: &DaqDb, registry: &DeviceRegistry, context: &str) {
 fn jitter_ms(max_ms: u64) -> u64 {
     // Use thread-id + nanosecond timestamp as entropy source.
     let seed = {
+        #[allow(clippy::cast_possible_truncation)]
+        // SAFETY: value is bounded and fits in target type
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()

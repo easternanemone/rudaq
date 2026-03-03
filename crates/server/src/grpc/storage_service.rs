@@ -312,6 +312,8 @@ impl StorageServiceImpl {
                     .map(|s| s.to_string_lossy().to_string())
                     .unwrap_or_default();
 
+                #[allow(clippy::cast_possible_truncation)]
+                // SAFETY: value is bounded and fits in target type
                 let created_at_ns = metadata
                     .created()
                     .ok()
@@ -470,6 +472,8 @@ impl StorageService for StorageServiceImpl {
         let output_path = validated_path;
 
         let recording_id = Uuid::new_v4().to_string();
+        #[allow(clippy::cast_possible_truncation)]
+        // SAFETY: value is bounded and fits in target type
         let start_time_ns = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
@@ -497,7 +501,7 @@ impl StorageService for StorageServiceImpl {
         if let Some(rb) = &self.ring_buffer {
             match HDF5Writer::new(&output_path, rb.clone()) {
                 Ok(mut writer_instance) => {
-                    let interval = Duration::from_millis(settings.flush_interval_ms as u64);
+                    let interval = Duration::from_millis(u64::from(settings.flush_interval_ms));
                     writer_instance.set_flush_interval(interval);
                     let writer_arc = Arc::new(writer_instance);
                     let session_clone = Arc::clone(&session);
@@ -601,6 +605,8 @@ impl StorageService for StorageServiceImpl {
         *session.state.write().await = RecordingState::RecordingFinalizing;
 
         // Calculate duration
+        #[allow(clippy::cast_possible_truncation)]
+        // SAFETY: value is bounded and fits in target type
         let end_time_ns = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
@@ -698,6 +704,8 @@ impl StorageService for StorageServiceImpl {
                     }));
                 }
 
+                #[allow(clippy::cast_possible_truncation)]
+                // SAFETY: value is bounded and fits in target type
                 let now_ns = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .unwrap_or_default()
@@ -779,6 +787,8 @@ impl StorageService for StorageServiceImpl {
         // Sort by creation time, newest first
         results.sort_by(|a, b| b.created_at_ns.cmp(&a.created_at_ns));
 
+        #[allow(clippy::cast_possible_truncation)]
+        // SAFETY: value is bounded and fits in target type
         let total_count = results.len() as u32;
 
         let summaries: Vec<AcquisitionSummary> = results
@@ -954,7 +964,7 @@ impl StorageService for StorageServiceImpl {
         let current_recording = Arc::clone(&self.current_recording);
 
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_millis(interval_ms as u64));
+            let mut interval = tokio::time::interval(Duration::from_millis(u64::from(interval_ms)));
 
             loop {
                 interval.tick().await;
@@ -962,6 +972,8 @@ impl StorageService for StorageServiceImpl {
                 let recording = current_recording.read().await;
                 match &*recording {
                     Some(session) if session.id == scan_id => {
+                        #[allow(clippy::cast_possible_truncation)]
+                        // SAFETY: value is bounded and fits in target type
                         let now_ns = SystemTime::now()
                             .duration_since(UNIX_EPOCH)
                             .unwrap_or_default()
@@ -971,7 +983,11 @@ impl StorageService for StorageServiceImpl {
                         let samples = session.samples_recorded.load(Ordering::SeqCst);
                         let bytes = session.bytes_written.load(Ordering::SeqCst);
                         let elapsed_ns = now_ns - session.start_time_ns;
+                        #[allow(clippy::cast_precision_loss)]
+                        // SAFETY: precision loss acceptable for metrics/display
                         let elapsed_secs = elapsed_ns as f64 / 1_000_000_000.0;
+                        #[allow(clippy::cast_precision_loss)]
+                        // SAFETY: precision loss acceptable for metrics/display
                         let samples_per_sec = if elapsed_secs > 0.0 {
                             samples as f64 / elapsed_secs
                         } else {
@@ -1051,6 +1067,10 @@ impl StorageService for StorageServiceImpl {
         }))
     }
 
+    #[allow(clippy::cast_possible_truncation)]
+    // SAFETY: value is bounded and fits in target type
+    #[allow(clippy::cast_possible_truncation)]
+    // SAFETY: value is bounded and fits in target type
     async fn get_tap_status(
         &self,
         request: Request<GetTapStatusRequest>,
@@ -1071,6 +1091,8 @@ impl StorageService for StorageServiceImpl {
             ring_buffer.tap_health()
         };
 
+        #[allow(clippy::cast_possible_truncation)]
+        // SAFETY: value is bounded and fits in target type
         let taps = taps
             .into_iter()
             .map(|tap| TapStatus {

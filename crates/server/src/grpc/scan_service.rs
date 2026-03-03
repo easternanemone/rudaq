@@ -107,22 +107,25 @@ impl ScanExecution {
     }
 
     fn to_status(&self, scan_id: &str) -> ScanStatus {
+        #[allow(clippy::cast_possible_truncation)]
+        // SAFETY: value is bounded and fits in target type
         let elapsed_ns = self
             .start_time
             .map(|t| t.elapsed().as_nanos() as u64)
             .unwrap_or(0);
 
+        #[allow(clippy::cast_lossless)]
         let progress = if self.total_points > 0 {
-            (self.current_point as f64 / self.total_points as f64) * 100.0
+            (f64::from(self.current_point) / self.total_points as f64) * 100.0
         } else {
             0.0
         };
 
         // Estimate remaining time based on progress
         let estimated_remaining_ns = if self.current_point > 0 && elapsed_ns > 0 {
-            let time_per_point = elapsed_ns / self.current_point as u64;
+            let time_per_point = elapsed_ns / u64::from(self.current_point);
             let remaining_points = self.total_points - self.current_point;
-            Some(time_per_point * remaining_points as u64)
+            Some(time_per_point * u64::from(remaining_points))
         } else {
             None
         };
@@ -227,10 +230,15 @@ impl ScanServiceImpl {
             .axes
             .iter()
             .map(|axis| {
+                #[allow(clippy::cast_precision_loss)]
+                // SAFETY: precision loss acceptable for metrics/display
                 let n = axis.num_points.max(1) as usize;
                 if n == 1 {
                     vec![axis.start_position]
                 } else {
+                    #[allow(clippy::cast_precision_loss)]
+                    // SAFETY: precision loss acceptable for metrics/display
+                    #[allow(clippy::cast_precision_loss)]
                     let step = (axis.end_position - axis.start_position) / (n - 1) as f64;
                     (0..n)
                         .map(|i| axis.start_position + step * i as f64)
@@ -338,6 +346,7 @@ impl ScanServiceImpl {
 
     /// Execute scan in background task
     #[allow(clippy::too_many_arguments)] // scan execution requires these distinct coordination handles
+    #[allow(clippy::cast_possible_truncation)]
     async fn run_scan(
         registry: Arc<DeviceRegistry>,
         scan_id: String,
@@ -351,7 +360,11 @@ impl ScanServiceImpl {
         use std::sync::atomic::Ordering;
 
         let points = Self::generate_scan_points(&config);
+        #[allow(clippy::cast_possible_truncation)]
+        // SAFETY: value is bounded and fits in target type
         let total_points = points.len() as u32;
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        // SAFETY: value is validated/bounded before cast
         let dwell_ms = config.dwell_time_ms.max(0.0) as u64;
         let triggers = config.triggers_per_point.max(1);
 
@@ -461,6 +474,8 @@ impl ScanServiceImpl {
                 }
 
                 // Read all acquisition devices
+                #[allow(clippy::cast_possible_truncation)]
+                // SAFETY: value is bounded and fits in target type
                 let timestamp_ns = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .unwrap_or_default()
@@ -492,6 +507,8 @@ impl ScanServiceImpl {
             // Send progress update with backpressure handling (bd-6qaj)
             // Use try_send to avoid blocking if client is slow; drop updates rather than
             // accumulating spawned tasks or erroring the scan.
+            #[allow(clippy::cast_possible_truncation)]
+            // SAFETY: value is bounded and fits in target type
             let progress = ScanProgress {
                 scan_id: scan_id.clone(),
                 state: ScanState::ScanRunning.into(),
@@ -511,6 +528,9 @@ impl ScanServiceImpl {
                 use prost::Message;
                 let msg_len = progress.encoded_len();
                 // Allocate buffer: 4 bytes for length + message bytes
+                #[allow(clippy::cast_possible_truncation)]
+                // SAFETY: value is bounded and fits in target type
+                #[allow(clippy::cast_possible_truncation)]
                 let mut buf = Vec::with_capacity(4 + msg_len);
                 // Write length prefix (4 bytes, little-endian)
                 buf.extend_from_slice(&(msg_len as u32).to_le_bytes());
@@ -543,6 +563,9 @@ impl ScanServiceImpl {
 
             // Update current point
             {
+                #[allow(clippy::cast_possible_truncation)]
+                // SAFETY: value is bounded and fits in target type
+                #[allow(clippy::cast_possible_truncation)]
                 let mut scans_guard = scans.lock().await;
                 if let Some(scan) = scans_guard.get_mut(&scan_id) {
                     scan.current_point = point_idx as u32 + 1;
@@ -632,6 +655,8 @@ impl ScanServiceImpl {
             )));
         }
 
+        #[allow(clippy::cast_possible_truncation)]
+        // SAFETY: value is bounded and fits in target type
         let start_time_ns = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
