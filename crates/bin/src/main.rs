@@ -146,6 +146,17 @@ enum Commands {
     #[cfg(feature = "db-surreal")]
     #[command(subcommand)]
     Config(ConfigCommands),
+
+    /// Recover data from a corrupt HDF5 file after power loss
+    Recover {
+        /// Path to the corrupt HDF5 file
+        #[arg(long)]
+        input: PathBuf,
+
+        /// Path for the recovered output file (must not already exist)
+        #[arg(long)]
+        output: PathBuf,
+    },
 }
 
 /// Subcommands for `rust-daq config ...`
@@ -373,6 +384,7 @@ async fn main() -> Result<()> {
         Commands::Client(cmd) => handle_client_command(cmd).await,
         #[cfg(feature = "db-surreal")]
         Commands::Config(cmd) => handle_config_command(cmd).await,
+        Commands::Recover { input, output } => handle_recover(input, output).await,
     }
 }
 
@@ -1044,6 +1056,32 @@ async fn config_list(db_path: Option<PathBuf>) -> Result<()> {
         );
     }
     println!("\n{} instrument(s) total", instruments.len());
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Recover subcommand
+// ---------------------------------------------------------------------------
+
+async fn handle_recover(input: PathBuf, output: PathBuf) -> Result<()> {
+    println!("HDF5 Recovery Tool");
+    println!("  Input:  {}", input.display());
+    println!("  Output: {}", output.display());
+    println!();
+
+    // Run the blocking HDF5 recovery in a spawn_blocking task
+    let report =
+        tokio::task::spawn_blocking(move || storage::recover_hdf5(&input, &output)).await??;
+
+    println!("{report}");
+
+    if report.lost_datasets > 0 {
+        eprintln!(
+            "Warning: {} dataset(s) could not be recovered.",
+            report.lost_datasets
+        );
+    }
+
     Ok(())
 }
 
