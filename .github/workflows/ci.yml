@@ -94,3 +94,30 @@ jobs:
             --exclude ui \
             --exclude comedi-sys \
             --exclude driver-comedi
+
+      - name: Report build artifact sizes
+        if: always()
+        run: |
+          echo "## Build Artifact Report" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          # Target directory total
+          if [ -d target ]; then
+            total=$(du -sh target | awk '{print $1}')
+            echo "- **target/ total:** $total" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          # Key binary sizes (if built)
+          for bin in target/debug/daq-daemon target/debug/daq-cli; do
+            if [ -f "$bin" ]; then
+              size=$(du -sh "$bin" | awk '{print $1}')
+              echo "- **$(basename "$bin"):** $size" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+
+          # Disk usage summary
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Disk Usage" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          df -h . >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"

@@ -112,6 +112,16 @@ repos:
         description: "Verify code compiles"
         stages: [push]  # Only on push to save time on local commits
 
+      - id: target-size-check
+        name: target/ size check
+        entry: bash -c 'if [ -d target ]; then size_kb=$(du -sk target | awk "{print \$1}"); threshold_kb=$((20 * 1024 * 1024)); if [ "$size_kb" -gt "$threshold_kb" ]; then size_human=$(du -sh target | awk "{print \$1}"); echo "WARNING: target/ is $size_human (>20GiB). Run: scripts/target-maintenance.sh"; fi; fi'
+        language: system
+        always_run: true
+        pass_filenames: false
+        description: "Warn when target/ directory exceeds 20GiB"
+        stages: [push]
+        verbose: true
+
   # Python formatting (for Python bindings and tools)
   - repo: https://github.com/psf/black
     rev: 24.1.1
