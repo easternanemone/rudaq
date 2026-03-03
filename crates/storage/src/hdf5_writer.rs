@@ -567,6 +567,8 @@ impl HDF5Writer {
                 .open(&fallback_path)?;
 
             // Write length-prefixed message (allows decoding multiple messages)
+            #[allow(clippy::cast_possible_truncation)]
+            // Ring buffer snapshots are bounded by the buffer capacity (typically < 1 GiB)
             let len = snapshot_len as u32;
             file.write_all(&len.to_le_bytes())?;
             file.write_all(&snapshot)?;

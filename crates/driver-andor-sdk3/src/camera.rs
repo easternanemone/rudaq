@@ -2289,7 +2289,7 @@ impl AndorCamera {
                         if tx.try_send(loaned).is_err() {
                             let dropped = inner.frames_dropped.fetch_add(1, Ordering::Relaxed) + 1;
                             // Rate-limit backpressure warnings: log first drop, then every 100th
-                            if dropped == 1 || dropped % 100 == 0 {
+                            if dropped == 1 || dropped.is_multiple_of(100) {
                                 tracing::warn!(
                                     frame = frame_nr,
                                     total_dropped = dropped,
@@ -2418,7 +2418,7 @@ impl AndorCamera {
                     if tx.try_send(loaned).is_err() {
                         let dropped = inner.frames_dropped.fetch_add(1, Ordering::Relaxed) + 1;
                         // Rate-limit backpressure warnings: log first drop, then every 100th
-                        if dropped == 1 || dropped % 100 == 0 {
+                        if dropped == 1 || dropped.is_multiple_of(100) {
                             tracing::warn!(
                                 frame = frame_nr,
                                 total_dropped = dropped,

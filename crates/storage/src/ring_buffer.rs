@@ -709,13 +709,15 @@ impl RingBuffer {
         }
 
         // Periodic FPS calculation
-        if frame_num % TELEMETRY_FPS_INTERVAL == 0 {
+        if frame_num.is_multiple_of(TELEMETRY_FPS_INTERVAL) {
             // We only take the lock every TELEMETRY_FPS_INTERVAL frames
             if let Ok(mut last_time) = self.telemetry_last_fps_time.write() {
                 let now = Instant::now();
                 let elapsed = now.duration_since(*last_time);
                 *last_time = now;
 
+                #[allow(clippy::cast_precision_loss)]
+                // SAFETY: TELEMETRY_FPS_INTERVAL is 100, well within f64 precision
                 let fps = if elapsed.as_secs_f64() > 0.0 {
                     TELEMETRY_FPS_INTERVAL as f64 / elapsed.as_secs_f64()
                 } else {

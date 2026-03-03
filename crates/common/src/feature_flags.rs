@@ -115,7 +115,7 @@ impl FeatureFlags {
     /// # Errors
     ///
     /// Returns an error if parsing fails.
-    pub fn from_str(toml_str: &str) -> anyhow::Result<Self> {
+    pub fn parse_str(toml_str: &str) -> anyhow::Result<Self> {
         let mut flags: Self =
             toml::from_str(toml_str).with_context(|| "parsing feature flags TOML string")?;
         flags.resolve();
@@ -203,7 +203,7 @@ mod tests {
 
     #[test]
     fn test_load_from_string() {
-        let toml = r#"
+        let toml = r"
 default_enabled = false
 
 [flags]
@@ -211,8 +211,8 @@ optimized_streaming = true
 frame_pool_preallocation = true
 async_ring_buffer = true
 experimental_streaming = false
-"#;
-        let flags = FeatureFlags::from_str(toml).expect("parse failed");
+";
+        let flags = FeatureFlags::parse_str(toml).expect("parse failed");
         assert!(flags.optimized_streaming);
         assert!(flags.frame_pool_preallocation);
         assert!(flags.async_ring_buffer);
@@ -221,15 +221,15 @@ experimental_streaming = false
 
     #[test]
     fn test_optimized_streaming_gates_performance_flags() {
-        let toml = r#"
+        let toml = r"
 default_enabled = false
 
 [flags]
 optimized_streaming = false
 frame_pool_preallocation = true
 async_ring_buffer = true
-"#;
-        let flags = FeatureFlags::from_str(toml).expect("parse failed");
+";
+        let flags = FeatureFlags::parse_str(toml).expect("parse failed");
         assert!(!flags.optimized_streaming);
         // Even though individually enabled, the master toggle forces them off.
         assert!(!flags.frame_pool_preallocation);
@@ -248,25 +248,25 @@ async_ring_buffer = true
 
     #[test]
     fn test_is_enabled_dynamic() {
-        let toml = r#"
+        let toml = r"
 default_enabled = false
 
 [flags]
 my_custom_flag = true
-"#;
-        let flags = FeatureFlags::from_str(toml).expect("parse failed");
+";
+        let flags = FeatureFlags::parse_str(toml).expect("parse failed");
         assert!(flags.is_enabled("my_custom_flag"));
         assert!(!flags.is_enabled("nonexistent_flag"));
     }
 
     #[test]
     fn test_default_enabled_fallback() {
-        let toml = r#"
+        let toml = r"
 default_enabled = true
 
 [flags]
-"#;
-        let flags = FeatureFlags::from_str(toml).expect("parse failed");
+";
+        let flags = FeatureFlags::parse_str(toml).expect("parse failed");
         // Flags not in the map should use default_enabled = true
         assert!(flags.is_enabled("anything_not_defined"));
         assert!(flags.optimized_streaming);

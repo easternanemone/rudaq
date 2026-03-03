@@ -94,6 +94,7 @@ fn db_instrument_to_proto(inst: &DbInstrument) -> InstrumentConfig {
     }
 }
 
+#[allow(clippy::result_large_err)] // tonic::Status is the standard gRPC error type
 fn proto_to_db_instrument(proto: &InstrumentConfig) -> Result<DbInstrument, Status> {
     let config: serde_json::Value = if proto.config_json.is_empty() {
         serde_json::json!({})
