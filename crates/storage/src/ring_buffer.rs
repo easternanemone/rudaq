@@ -1578,6 +1578,35 @@ impl RingBuffer {
     }
 }
 
+impl Drop for RingBuffer {
+    fn drop(&mut self) {
+        let path = &self.path;
+        match std::fs::remove_file(path) {
+            Ok(()) => {
+                tracing::info!(
+                    path = %path.display(),
+                    "Cleaned up ring buffer backing file on drop"
+                );
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                // File was already deleted (e.g., by external cleanup or a previous drop).
+                // This is expected and not an error.
+                tracing::debug!(
+                    path = %path.display(),
+                    "Ring buffer backing file already deleted, nothing to clean up"
+                );
+            }
+            Err(e) => {
+                tracing::warn!(
+                    path = %path.display(),
+                    error = %e,
+                    "Failed to clean up ring buffer backing file on drop"
+                );
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1667,13 +1696,12 @@ mod tests {
         let temp_dir = tempfile::tempdir().unwrap();
         let path = temp_dir.path().join("test_ring.buf");
 
-        // Create and write some data
-        {
-            let rb = RingBuffer::create(&path, 1).unwrap();
-            rb.write(b"test data").unwrap();
-        }
+        // Create and write some data, keeping the original alive so Drop
+        // doesn't delete the file before we can reopen it.
+        let rb_creator = RingBuffer::create(&path, 1).unwrap();
+        rb_creator.write(b"test data").unwrap();
 
-        // Open existing buffer
+        // Open existing buffer while creator is still alive
         let rb = RingBuffer::open(&path).unwrap();
         assert_eq!(rb.capacity(), 1024 * 1024);
         assert_eq!(rb.write_head(), 9); // "test data" = 9 bytes
@@ -2058,19 +2086,26 @@ mod tests {
     /// Regression test for bd-jnfu.1 (ring buffer safety audit).
     #[test]
     fn test_open_rejects_size_mismatch() {
+        use std::io::Write;
+
         let temp_dir = tempfile::tempdir().unwrap();
         let path = temp_dir.path().join("size_mismatch.buf");
 
-        // Create a valid ring buffer
+        // Create a valid ring buffer and copy its header bytes before Drop
+        // deletes the file (bd-izdj.15: Drop now cleans up backing files).
+        let header_bytes = {
+            // Create a 1 MB ring buffer; read raw file content before drop deletes it.
+            let _rb = RingBuffer::create(&path, 1).unwrap();
+            std::fs::read(&path).unwrap()
+        };
+        // Drop deleted the file; recreate it with the original header
+        // but truncated to simulate corruption.
         {
-            let _rb = RingBuffer::create(&path, 1).unwrap(); // 1 MB
+            let mut file = std::fs::File::create(&path).unwrap();
+            // Write only the header portion, then truncate to header + 512KB
+            file.write_all(&header_bytes[..HEADER_SIZE]).unwrap();
+            file.set_len((HEADER_SIZE + 512 * 1024) as u64).unwrap();
         }
-
-        // Truncate the file to simulate corruption
-        let file = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
-        // Truncate to header + 512KB (should be header + 1MB)
-        file.set_len((HEADER_SIZE + 512 * 1024) as u64).unwrap();
-        drop(file);
 
         // open() should fail with size mismatch error
         let result = RingBuffer::open(&path);
