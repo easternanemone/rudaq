@@ -174,7 +174,7 @@ fn verify_mock_serial_export() {
 fn verify_pvcam_export() {
     // Verify PVCAM camera is exported
     fn _check_type_exists<T>() {}
-    _check_type_exists::<hardware::drivers::pvcam::PvcamDriver>();
+    _check_type_exists::<driver_pvcam::PvcamDriver>();
 }
 
 #[cfg(feature = "newport_power_meter")]
@@ -182,7 +182,7 @@ fn verify_pvcam_export() {
 fn verify_newport_1830c_export() {
     // Verify Newport 1830-C power meter is exported
     fn _check_type_exists<T>() {}
-    _check_type_exists::<hardware::drivers::newport_1830c::Newport1830CDriver>();
+    _check_type_exists::<driver_newport::Newport1830CDriver>();
 }
 
 // =============================================================================
