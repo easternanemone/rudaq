@@ -7,6 +7,9 @@
 
 #![allow(unsafe_code)]
 
+#[macro_use]
+mod macros;
+
 pub mod components;
 
 #[cfg(feature = "pvcam_sdk")]
@@ -483,12 +486,17 @@ impl PvcamDriver {
             .with_dtype("bool")
             .read_only();
 
-        // Thermal Group
-        let temperature = Parameter::new("thermal.temperature", 0.0)
-            .with_description("Current sensor temperature")
-            .with_unit("C")
-            .with_dtype("float")
-            .read_only();
+        // Thermal Group — temperature generated via pvcam_parameters! macro
+        pvcam_parameters! {
+            params,
+            float temperature {
+                name: "thermal.temperature",
+                default: 0.0,
+                description: "Current sensor temperature",
+                unit: "C",
+                read_only: true,
+            }
+        }
 
         let temperature_setpoint = Parameter::new("thermal.setpoint", -10.0)
             .with_description("Temperature setpoint")
@@ -531,36 +539,58 @@ impl PvcamDriver {
             .with_description("Post-scan pixels")
             .read_only();
 
-        // Readout Timing
-        let readout_time_us = Parameter::new("acquisition.readout_time_us", 0u32)
-            .with_description("Readout time")
-            .with_unit("us")
-            .read_only();
+        // Readout Timing — generated via pvcam_parameters! macro
+        pvcam_parameters! {
+            params,
 
-        let pixel_time_ns = Parameter::new("acquisition.pixel_time_ns", 0u32)
-            .with_description("Pixel time")
-            .with_unit("ns")
-            .read_only();
+            uint32 readout_time_us {
+                name: "acquisition.readout_time_us",
+                default: 0u32,
+                description: "Readout time",
+                unit: "us",
+                read_only: true,
+            }
 
-        let clearing_time_us = Parameter::new("acquisition.clearing_time_us", 0u32)
-            .with_description("Sensor clearing time")
-            .with_unit("us")
-            .read_only();
+            uint32 pixel_time_ns {
+                name: "acquisition.pixel_time_ns",
+                default: 0u32,
+                description: "Pixel time",
+                unit: "ns",
+                read_only: true,
+            }
 
-        let pre_trigger_delay_us = Parameter::new("acquisition.pre_trigger_delay_us", 0u32)
-            .with_description("Pre-trigger delay")
-            .with_unit("us")
-            .read_only();
+            uint32 clearing_time_us {
+                name: "acquisition.clearing_time_us",
+                default: 0u32,
+                description: "Sensor clearing time",
+                unit: "us",
+                read_only: true,
+            }
 
-        let post_trigger_delay_us = Parameter::new("acquisition.post_trigger_delay_us", 0u32)
-            .with_description("Post-trigger delay")
-            .with_unit("us")
-            .read_only();
+            uint32 pre_trigger_delay_us {
+                name: "acquisition.pre_trigger_delay_us",
+                default: 0u32,
+                description: "Pre-trigger delay",
+                unit: "us",
+                read_only: true,
+            }
 
-        let frame_time_us = Parameter::new("acquisition.frame_time_us", 0.0)
-            .with_description("Total frame time (Exposure + Readout)")
-            .with_unit("us")
-            .read_only();
+            uint32 post_trigger_delay_us {
+                name: "acquisition.post_trigger_delay_us",
+                default: 0u32,
+                description: "Post-trigger delay",
+                unit: "us",
+                read_only: true,
+            }
+
+            float frame_time_us {
+                name: "acquisition.frame_time_us",
+                default: 0.0,
+                description: "Total frame time (Exposure + Readout)",
+                unit: "us",
+                read_only: true,
+            }
+        }
 
         // Shutter Group
         let shutter_mode = Parameter::new("shutter.mode", ShutterMode::Normal.as_str().to_string())
@@ -671,7 +701,7 @@ impl PvcamDriver {
         params.register(binning.clone());
         params.register(armed.clone());
         params.register(streaming.clone());
-        params.register(temperature.clone());
+        // temperature — registered by pvcam_parameters! above
         params.register(temperature_setpoint.clone());
         params.register(fan_speed.clone());
         params.register(readout_port.clone());
@@ -683,12 +713,8 @@ impl PvcamDriver {
         params.register(post_mask.clone());
         params.register(pre_scan.clone());
         params.register(post_scan.clone());
-        params.register(readout_time_us.clone());
-        params.register(pixel_time_ns.clone());
-        params.register(clearing_time_us.clone());
-        params.register(pre_trigger_delay_us.clone());
-        params.register(post_trigger_delay_us.clone());
-        params.register(frame_time_us.clone());
+        // readout_time_us, pixel_time_ns, clearing_time_us, pre_trigger_delay_us,
+        // post_trigger_delay_us, frame_time_us — registered by pvcam_parameters! above
 
         params.register(shutter_mode.clone());
         params.register(shutter_status.clone());
