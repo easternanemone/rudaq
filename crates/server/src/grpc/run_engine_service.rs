@@ -322,6 +322,9 @@ impl RunEngineService for RunEngineServiceImpl {
         &self,
         _request: Request<StartEngineRequest>,
     ) -> Result<Response<StartEngineResponse>, Status> {
+        // Refresh watchdog — client is actively managing the engine (bd-c9z1)
+        self.engine.touch_activity().await;
+
         // Start the engine (spawns background task)
         self.engine
             .start()
@@ -338,6 +341,9 @@ impl RunEngineService for RunEngineServiceImpl {
         &self,
         _request: Request<PauseEngineRequest>,
     ) -> Result<Response<PauseEngineResponse>, Status> {
+        // Refresh watchdog — client is actively managing the engine (bd-c9z1)
+        self.engine.touch_activity().await;
+
         match self.engine.pause().await {
             Ok(()) => Ok(Response::new(PauseEngineResponse {
                 success: true,
@@ -351,6 +357,9 @@ impl RunEngineService for RunEngineServiceImpl {
         &self,
         _request: Request<ResumeEngineRequest>,
     ) -> Result<Response<ResumeEngineResponse>, Status> {
+        // Refresh watchdog — client is actively managing the engine (bd-c9z1)
+        self.engine.touch_activity().await;
+
         self.engine
             .resume()
             .await
@@ -405,6 +414,9 @@ impl RunEngineService for RunEngineServiceImpl {
         &self,
         _request: Request<GetEngineStatusRequest>,
     ) -> Result<Response<EngineStatus>, Status> {
+        // Refresh watchdog — client is polling status, proving liveness (bd-c9z1)
+        self.engine.touch_activity().await;
+
         use crate::grpc::proto::EngineState as ProtoEngineState;
         use experiment::run_engine::EngineState as DomainEngineState;
 

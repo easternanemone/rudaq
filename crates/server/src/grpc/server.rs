@@ -1659,6 +1659,10 @@ pub async fn start_server_with_hardware(
         svc
     };
 
+    // Spawn orphan-plan watchdog (bd-c9z1)
+    // Detects plans stuck in Running/Paused with no client activity and aborts them.
+    let _watchdog_handle = run_engine.spawn_watchdog();
+
     // Game loop for system state broadcasting (Phase 4)
     //
     // Drivers → mpsc → game loop → broadcast → { gRPC StreamSystemState, Rerun }

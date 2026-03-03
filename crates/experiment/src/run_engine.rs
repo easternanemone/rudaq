@@ -50,7 +50,7 @@ use bytes::Bytes;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, Mutex, RwLock};
-use tokio::time::{sleep, Duration};
+use tokio::time::{sleep, Duration, Instant};
 use tracing::{debug, error, info, instrument, warn};
 
 use super::lifecycle::RunLifecycleHook;
@@ -172,7 +172,20 @@ pub struct RunEngine {
     /// that calls `on_heartbeat()` every ~10 seconds. This enables the
     /// reconciler to detect stale runs (crashed daemons).
     lifecycle_hook: Option<Arc<dyn RunLifecycleHook>>,
+
+    /// Timestamp of the last meaningful activity (command execution).
+    /// Updated on every MoveTo, Read, Trigger, EmitEvent, Set, and state
+    /// transitions (start, pause, resume). Used by the watchdog to detect
+    /// orphaned plans whose clients disconnected mid-execution.
+    last_activity: Arc<RwLock<Instant>>,
+
+    /// How long a plan may remain Running or Paused with no activity before
+    /// the watchdog aborts it. Default: 5 minutes.
+    watchdog_timeout: Duration,
 }
+
+/// Default watchdog timeout for orphaned plan detection (5 minutes).
+const DEFAULT_WATCHDOG_TIMEOUT: Duration = Duration::from_secs(300);
 
 impl RunEngine {
     /// Create a new RunEngine
@@ -189,7 +202,18 @@ impl RunEngine {
             run_context: Mutex::new(None),
             last_checkpoint: RwLock::new(None),
             lifecycle_hook: None,
+            last_activity: Arc::new(RwLock::new(Instant::now())),
+            watchdog_timeout: DEFAULT_WATCHDOG_TIMEOUT,
         }
+    }
+
+    /// Set the watchdog timeout for orphaned plan detection.
+    ///
+    /// If a plan has been Running or Paused with no meaningful activity
+    /// (MoveTo, Read, Trigger, etc.) for longer than this duration, the
+    /// watchdog will abort it automatically.
+    pub fn set_watchdog_timeout(&mut self, timeout: Duration) {
+        self.watchdog_timeout = timeout;
     }
 
     /// Set the lifecycle hook for heartbeat monitoring and other events.
@@ -198,6 +222,73 @@ impl RunEngine {
     /// that calls `on_heartbeat()` every ~10 seconds.
     pub fn set_lifecycle_hook(&mut self, hook: Arc<dyn RunLifecycleHook>) {
         self.lifecycle_hook = Some(hook);
+    }
+
+    /// Record meaningful activity (resets the watchdog timer).
+    ///
+    /// Called internally on every command execution (MoveTo, Read, Trigger,
+    /// EmitEvent, Set) and on state transitions (start, pause, resume).
+    /// Also available to the gRPC layer so that external client requests
+    /// (e.g. `get_engine_status`) can prove liveness.
+    pub async fn touch_activity(&self) {
+        *self.last_activity.write().await = Instant::now();
+    }
+
+    /// Spawn a background watchdog task that periodically checks for orphaned plans.
+    ///
+    /// A plan is considered orphaned when the engine has been in `Running` or
+    /// `Paused` state with no meaningful activity for longer than the configured
+    /// `watchdog_timeout` (default: 5 minutes).
+    ///
+    /// When an orphaned plan is detected, the watchdog aborts it and logs a
+    /// warning. The check interval is one-tenth of the timeout (minimum 5s).
+    ///
+    /// The returned `JoinHandle` can be used to abort the watchdog on shutdown.
+    pub fn spawn_watchdog(self: &Arc<Self>) -> tokio::task::JoinHandle<()> {
+        let engine = Arc::clone(self);
+        let timeout = engine.watchdog_timeout;
+        // Check interval: 1/10 of timeout, clamped to at least 1 second
+        let check_interval = timeout.div_f64(10.0).max(Duration::from_secs(1));
+
+        info!(
+            timeout_secs = timeout.as_secs(),
+            check_interval_secs = check_interval.as_secs(),
+            "RunEngine orphan-plan watchdog started"
+        );
+
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(check_interval);
+            loop {
+                interval.tick().await;
+
+                let state = *engine.state.read().await;
+                match state {
+                    EngineState::Running | EngineState::Paused => {
+                        let last = *engine.last_activity.read().await;
+                        let elapsed = last.elapsed();
+                        if elapsed > timeout {
+                            let run_uid = engine.current_run_uid().await;
+                            warn!(
+                                state = %state,
+                                elapsed_secs = elapsed.as_secs(),
+                                timeout_secs = timeout.as_secs(),
+                                run_uid = ?run_uid,
+                                "Orphaned plan detected: no activity for {} seconds, aborting",
+                                elapsed.as_secs()
+                            );
+                            if let Err(e) = engine
+                                .abort("watchdog: orphaned plan (no client activity)")
+                                .await
+                            {
+                                warn!(error = %e, "Watchdog failed to abort orphaned plan");
+                            }
+                        }
+                    }
+                    // Idle or Aborting: nothing to watch
+                    EngineState::Idle | EngineState::Aborting => {}
+                }
+            }
+        })
     }
 
     /// Subscribe to document stream
@@ -275,6 +366,7 @@ impl RunEngine {
         };
 
         *self.state.write().await = EngineState::Running;
+        self.touch_activity().await;
         info!("Engine started");
 
         // Execute the plan
@@ -291,6 +383,7 @@ impl RunEngine {
 
         info!("Pause requested");
         *self.pause_requested.write().await = true;
+        self.touch_activity().await;
         Ok(())
     }
 
@@ -305,6 +398,7 @@ impl RunEngine {
         info!("Resuming from pause");
         *self.pause_requested.write().await = false;
         *self.state.write().await = EngineState::Running;
+        self.touch_activity().await;
         Ok(())
     }
 
@@ -645,6 +739,7 @@ impl RunEngine {
                 device_id,
                 position,
             } => {
+                self.touch_activity().await;
                 self.execute_move(&device_id, position).await?;
 
                 // Update current positions in context
@@ -655,6 +750,7 @@ impl RunEngine {
             }
 
             PlanCommand::Read { device_id } => {
+                self.touch_activity().await;
                 // Check if we have a frame channel for this device
                 let mut is_frame_device = false;
 
@@ -699,6 +795,7 @@ impl RunEngine {
             }
 
             PlanCommand::Trigger { device_id } => {
+                self.touch_activity().await;
                 self.execute_trigger(&device_id).await?;
                 Ok(false)
             }
@@ -751,6 +848,7 @@ impl RunEngine {
                 mut data,
                 positions,
             } => {
+                self.touch_activity().await;
                 let mut ctx_guard = self.run_context.lock().await;
                 let ctx = ctx_guard
                     .as_mut()
@@ -791,6 +889,7 @@ impl RunEngine {
                 parameter,
                 value,
             } => {
+                self.touch_activity().await;
                 debug!(device = %device_id, param = %parameter, value = %value, "Setting parameter");
                 self.execute_set_parameter(&device_id, &parameter, &value)
                     .await?;
@@ -1365,5 +1464,138 @@ mod tests {
         assert_eq!(format!("{:?}", EngineState::Idle), "Idle");
         assert_eq!(format!("{:?}", EngineState::Running), "Running");
         assert_eq!(format!("{:?}", EngineState::Paused), "Paused");
+    }
+
+    /// Test that the watchdog aborts an engine stuck in Running with no activity (bd-c9z1)
+    ///
+    /// Uses direct state manipulation to avoid complex timing interactions
+    /// with the plan execution loop. Uses multi-thread runtime for real-time testing.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_watchdog_aborts_orphaned_running_plan() {
+        let registry = Arc::new(DeviceRegistry::new());
+        let mut engine_raw = RunEngine::new(registry);
+        // Timeout = 200ms, check interval = max(20ms, 1s) = 1s
+        engine_raw.set_watchdog_timeout(Duration::from_millis(200));
+        let engine = Arc::new(engine_raw);
+
+        // Directly set state to Running to simulate an orphaned plan
+        *engine.state.write().await = EngineState::Running;
+
+        // Spawn the watchdog
+        let watchdog_handle = engine.spawn_watchdog();
+
+        // Wait for the check interval (1s) + margin for the watchdog to fire
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+
+        // The watchdog should have called abort(), transitioning to Aborting.
+        let state = engine.state().await;
+        assert!(
+            state == EngineState::Aborting || state == EngineState::Idle,
+            "Watchdog should have triggered abort, got state: {state}"
+        );
+
+        watchdog_handle.abort();
+    }
+
+    /// Test that the watchdog aborts a Paused engine with no activity (bd-c9z1)
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_watchdog_aborts_orphaned_paused_plan() {
+        let registry = Arc::new(DeviceRegistry::new());
+        let mut engine_raw = RunEngine::new(registry);
+        engine_raw.set_watchdog_timeout(Duration::from_millis(200));
+        let engine = Arc::new(engine_raw);
+
+        // Directly set state to Paused to simulate an orphaned paused plan
+        *engine.state.write().await = EngineState::Paused;
+
+        let watchdog_handle = engine.spawn_watchdog();
+
+        // Wait for the check interval (1s) + margin
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+
+        let state = engine.state().await;
+        assert!(
+            state == EngineState::Aborting || state == EngineState::Idle,
+            "Watchdog should have triggered abort on paused engine, got state: {state}"
+        );
+
+        watchdog_handle.abort();
+    }
+
+    /// Test that the watchdog does NOT abort a plan with ongoing activity (bd-c9z1)
+    #[tokio::test(start_paused = true)]
+    async fn test_watchdog_does_not_abort_active_plan() {
+        let registry = Arc::new(DeviceRegistry::new());
+        let mut engine_raw = RunEngine::new(registry);
+        // 2-second timeout
+        engine_raw.set_watchdog_timeout(Duration::from_secs(2));
+        let engine = Arc::new(engine_raw);
+
+        // Queue a plan with 5 events (Count emits events rapidly)
+        let plan = Box::new(Count::new(5));
+        engine.queue(plan).await;
+
+        // Spawn the watchdog
+        let watchdog_handle = engine.spawn_watchdog();
+
+        // Start in a separate task
+        let engine_for_task = engine.clone();
+        tokio::spawn(async move {
+            let _ = engine_for_task.start().await;
+        });
+
+        let mut rx = engine.subscribe();
+
+        // Collect all documents until StopDoc
+        let stop_doc = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match rx.recv().await {
+                    Ok(Document::Stop(stop)) => return stop,
+                    Ok(_) => {}
+                    Err(err) => panic!("Channel closed before StopDoc: {err}"),
+                }
+            }
+        })
+        .await
+        .expect("Should receive StopDoc");
+
+        // Plan should complete successfully (watchdog should NOT have fired)
+        assert_eq!(
+            stop_doc.exit_status, "success",
+            "Active plan should complete successfully, not be aborted by watchdog"
+        );
+
+        watchdog_handle.abort();
+    }
+
+    /// Test that touch_activity resets the watchdog timer (bd-c9z1)
+    #[tokio::test(start_paused = true)]
+    async fn test_touch_activity_prevents_watchdog() {
+        let registry = Arc::new(DeviceRegistry::new());
+        let mut engine_raw = RunEngine::new(registry);
+        engine_raw.set_watchdog_timeout(Duration::from_secs(2));
+        let engine = Arc::new(engine_raw);
+
+        // Manually set state to Running to simulate an active plan
+        *engine.state.write().await = EngineState::Running;
+
+        let watchdog_handle = engine.spawn_watchdog();
+
+        // Keep touching activity every 1 second (under the 2s timeout)
+        for _ in 0..5 {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            engine.touch_activity().await;
+        }
+
+        // Engine should still be Running (watchdog did not fire)
+        assert_eq!(
+            engine.state().await,
+            EngineState::Running,
+            "Watchdog should not fire when activity is refreshed"
+        );
+
+        watchdog_handle.abort();
+        // Reset state to avoid panic on drop
+        *engine.state.write().await = EngineState::Idle;
     }
 }
