@@ -203,7 +203,7 @@ impl MockCamera {
             bit_depth,
             data: Bytes::from(data),
             timestamp_ns,
-            frame_number: frame_number as u64,
+            frame_number: u64::from(frame_number),
             exposure_ms: Some(self.inner.exposure_s.get() * 1000.0),
             roi_x: 0,
             roi_y: 0,
@@ -365,7 +365,7 @@ impl MockSpectrograph {
         let dispersion = 0.05; // nm per pixel
 
         let wavelengths: Vec<f64> = (0..num_pixels)
-            .map(|i| center + (i as f64 - num_pixels as f64 / 2.0) * dispersion)
+            .map(|i| center + (f64::from(i) - f64::from(num_pixels) / 2.0) * dispersion)
             .collect();
 
         Ok(WavelengthCalibration::new(wavelengths))
@@ -721,9 +721,9 @@ mod tests {
         // Decode packed bytes and verify pixel values
         for pair_idx in 0..4 {
             let base = pair_idx * 3;
-            let b0 = frame.data[base] as u16;
-            let b1 = frame.data[base + 1] as u16;
-            let b2 = frame.data[base + 2] as u16;
+            let b0 = u16::from(frame.data[base]);
+            let b1 = u16::from(frame.data[base + 1]);
+            let b2 = u16::from(frame.data[base + 2]);
             let pix_a = b0 | ((b1 & 0x0F) << 8);
             let pix_b = (b1 >> 4) | (b2 << 4);
             assert!(pix_a < 4096, "Packed pixel A {} out of range", pix_a);

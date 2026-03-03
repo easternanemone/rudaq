@@ -169,18 +169,19 @@ impl MockAnalogInput {
     fn new(channel: u32) -> Self {
         Self {
             channel,
-            value: RwLock::new(0.5 + 0.1 * channel as f64), // Simulated offset per channel
+            value: RwLock::new(0.5 + 0.1 * f64::from(channel)), // Simulated offset per channel
         }
     }
 
     async fn read_voltage(&self) -> Result<f64> {
         // Simulate noise
         let base = *self.value.read().await;
-        let noise = (std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .subsec_nanos() as f64
-            / 1e9
+        let noise = (f64::from(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .subsec_nanos(),
+        ) / 1e9
             - 0.5)
             * 0.01;
         Ok(base + noise)
@@ -292,10 +293,10 @@ impl ComediAnalogInputDriver {
             .with_unit("V");
 
         let channel_param =
-            Parameter::new("channel", channel as f64).with_description("Analog input channel");
+            Parameter::new("channel", f64::from(channel)).with_description("Analog input channel");
 
         // Input mode as numeric for parameter (0=RSE, 1=NRSE, 2=DIFF, 3=Other)
-        let input_mode_param = Parameter::new("input_mode", aref.to_raw() as f64)
+        let input_mode_param = Parameter::new("input_mode", f64::from(aref.to_raw()))
             .with_description("Input reference mode (0=RSE, 1=NRSE, 2=DIFF)");
 
         params.register(voltage.clone());

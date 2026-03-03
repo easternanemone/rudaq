@@ -395,7 +395,7 @@ impl PvcamDriver {
                 let speed = port.and_then(|p| {
                     p.speeds
                         .iter()
-                        .find(|s| s.index as u32 == info.speed_index as u32)
+                        .find(|s| s.index as u32 == u32::from(info.speed_index))
                         .or_else(|| p.speeds.iter().find(|s| s.name == info.speed_name))
                         .or_else(|| p.speeds.first())
                 });
@@ -406,7 +406,7 @@ impl PvcamDriver {
                 let gain = speed.and_then(|s| {
                     s.gains
                         .iter()
-                        .find(|g| g.index as u32 == info.gain_index as u32)
+                        .find(|g| g.index as u32 == u32::from(info.gain_index))
                         .or_else(|| s.gains.iter().find(|g| g.name == info.gain_name))
                         .or_else(|| s.gains.first())
                 });
@@ -849,7 +849,7 @@ impl PvcamDriver {
                     // Update frame time (Exposure + Readout)
                     // Exposure is ms, readout is us.
                     let exp_ms = exposure_param.get();
-                    let readout_us = val as f64;
+                    let readout_us = f64::from(val);
                     let _ = frame_time_param
                         .set_from_hardware(exp_ms * 1000.0 + readout_us)
                         .await;
@@ -1575,7 +1575,7 @@ impl PvcamDriver {
 
                                 let _ = bit_depth.set_from_hardware(speed.bit_depth as u16).await;
                                 let _ = pixel_time_ns
-                                    .set_from_hardware(speed.pix_time_ns as u32)
+                                    .set_from_hardware(u32::from(speed.pix_time_ns))
                                     .await;
                             }
                         }
@@ -1617,7 +1617,7 @@ impl PvcamDriver {
 
                             let _ = bit_depth.set_from_hardware(speed.bit_depth as u16).await;
                             let _ = pixel_time_ns
-                                .set_from_hardware(speed.pix_time_ns as u32)
+                                .set_from_hardware(u32::from(speed.pix_time_ns))
                                 .await;
                         }
                     }
@@ -1681,7 +1681,7 @@ impl PvcamDriver {
                         .await;
                     let _ = self
                         .pixel_time_ns
-                        .set_from_hardware(speed.pix_time_ns as u32)
+                        .set_from_hardware(u32::from(speed.pix_time_ns))
                         .await;
                 }
             }

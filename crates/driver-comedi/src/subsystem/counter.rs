@@ -75,6 +75,8 @@ impl Counter {
             }
         }
 
+        #[allow(clippy::cast_sign_loss)]
+        // SAFETY: Comedi FFI returns non-negative channel count as i32.
         let n_channels =
             unsafe { comedi_sys::comedi_get_n_channels(device.handle(), subdevice) as u32 };
 
@@ -106,11 +108,13 @@ impl Counter {
     }
 
     /// Get the counter bit width.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    // SAFETY: log2(maxdata+1) for counter maxdata (16-32 bit) is a small positive integer.
     pub fn bit_width(&self) -> u32 {
         if self.maxdata == 0 {
             0
         } else {
-            (self.maxdata as f64 + 1.0).log2() as u32
+            (f64::from(self.maxdata) + 1.0).log2() as u32
         }
     }
 

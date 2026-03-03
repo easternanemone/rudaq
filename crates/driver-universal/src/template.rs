@@ -39,9 +39,9 @@ fn hex_filter(value: i64, width: usize) -> String {
     // complement hex (e.g. ELL14 relative moves use 8-hex-digit int32 fields).
     // Without masking, negative i64 values render as 16 hex digits.
     let masked: u64 = match width {
-        2 => (value as u8) as u64,
-        4 => (value as u16) as u64,
-        8 => (value as u32) as u64,
+        2 => u64::from(value as u8),
+        4 => u64::from(value as u16),
+        8 => u64::from(value as u32),
         _ => value as u64,
     };
     format!("{:0>width$X}", masked, width = width)

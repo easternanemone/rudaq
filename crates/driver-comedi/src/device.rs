@@ -45,6 +45,9 @@ impl SubdeviceType {
     /// Note: The Comedi API returns subdevice types as i32, but the constants
     /// are u32. This function accepts i32 and safely converts negative values
     /// to None.
+    #[allow(clippy::cast_sign_loss)]
+    // SAFETY: Negative values are rejected above; remaining i32 values are
+    // non-negative Comedi subdevice type constants that fit in u32.
     pub fn from_raw(raw: i32) -> Option<Self> {
         // Handle negative values (error codes) by returning None
         if raw < 0 {
@@ -128,11 +131,13 @@ impl SubdeviceInfo {
     }
 
     /// Resolution in bits (derived from maxdata).
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    // SAFETY: log2(maxdata+1) for ADC maxdata (12-24 bit) is always a small positive integer.
     pub fn resolution_bits(&self) -> u32 {
         if self.maxdata == 0 {
             0
         } else {
-            (self.maxdata as f64 + 1.0).log2() as u32
+            (f64::from(self.maxdata) + 1.0).log2() as u32
         }
     }
 }
@@ -450,6 +455,8 @@ impl ComediDevice {
     }
 
     /// Get the number of subdevices.
+    #[allow(clippy::cast_sign_loss)]
+    // SAFETY: Comedi returns non-negative subdevice count as i32; fits in u32.
     pub fn n_subdevices(&self) -> u32 {
         // SAFETY: handle is valid
         unsafe { comedi_sys::comedi_get_n_subdevices(self.handle()) as u32 }
@@ -485,7 +492,9 @@ impl ComediDevice {
 
         let subdev_type = self.subdevice_type(subdevice)?;
 
-        // SAFETY: handle is valid and subdevice is in range
+        // SAFETY: handle is valid and subdevice is in range.
+        // Comedi FFI returns i32 for counts/flags that are always non-negative.
+        #[allow(clippy::cast_sign_loss)]
         unsafe {
             let n_channels = comedi_sys::comedi_get_n_channels(self.handle(), subdevice) as u32;
             let maxdata = comedi_sys::comedi_get_maxdata(self.handle(), subdevice, 0);
@@ -680,14 +689,17 @@ mod tests {
     #[test]
     fn test_subdevice_type_from_raw() {
         // Note: from_raw takes i32 (what FFI returns), but constants are u32
-        assert_eq!(
-            SubdeviceType::from_raw(comedi_sys::COMEDI_SUBD_AI as i32),
-            Some(SubdeviceType::AnalogInput)
-        );
-        assert_eq!(
-            SubdeviceType::from_raw(comedi_sys::COMEDI_SUBD_COUNTER as i32),
-            Some(SubdeviceType::Counter)
-        );
+        #[allow(clippy::cast_possible_wrap)]
+        {
+            assert_eq!(
+                SubdeviceType::from_raw(comedi_sys::COMEDI_SUBD_AI as i32),
+                Some(SubdeviceType::AnalogInput)
+            );
+            assert_eq!(
+                SubdeviceType::from_raw(comedi_sys::COMEDI_SUBD_COUNTER as i32),
+                Some(SubdeviceType::Counter)
+            );
+        }
         assert_eq!(SubdeviceType::from_raw(999), None);
         // Test negative value handling
         assert_eq!(SubdeviceType::from_raw(-1), None);

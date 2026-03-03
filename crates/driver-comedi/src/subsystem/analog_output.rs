@@ -55,6 +55,8 @@ impl AnalogOutput {
             });
         }
 
+        #[allow(clippy::cast_sign_loss)]
+        // SAFETY: Comedi FFI returns non-negative channel count as i32.
         let n_channels =
             unsafe { comedi_sys::comedi_get_n_channels(device.handle(), subdevice) as u32 };
 
@@ -86,11 +88,13 @@ impl AnalogOutput {
     }
 
     /// Get the resolution in bits.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    // SAFETY: log2(maxdata+1) for DAC maxdata (12-16 bit) is always a small positive integer.
     pub fn resolution_bits(&self) -> u32 {
         if self.maxdata == 0 {
             0
         } else {
-            (self.maxdata as f64 + 1.0).log2() as u32
+            (f64::from(self.maxdata) + 1.0).log2() as u32
         }
     }
 
@@ -102,6 +106,8 @@ impl AnalogOutput {
             comedi_sys::comedi_get_n_ranges(self.device.handle(), self.subdevice, channel)
         };
 
+        #[allow(clippy::cast_sign_loss)]
+        // SAFETY: Comedi returns non-negative range count.
         Ok(n as u32)
     }
 
@@ -193,7 +199,12 @@ impl AnalogOutput {
             if range_ptr.is_null() {
                 // Fallback to manual calculation
                 let fraction = (voltage - range.min) / range.span();
-                (fraction * self.maxdata as f64).clamp(0.0, self.maxdata as f64) as lsampl_t
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                // SAFETY: Clamped to [0, maxdata], fits in lsampl_t.
+                {
+                    (fraction * f64::from(self.maxdata)).clamp(0.0, f64::from(self.maxdata))
+                        as lsampl_t
+                }
             } else {
                 comedi_sys::comedi_from_phys(voltage, range_ptr, self.maxdata)
             }
@@ -207,7 +218,7 @@ impl AnalogOutput {
                 comedi_sys::comedi_get_range(self.device.handle(), self.subdevice, 0, range.index);
 
             if range_ptr.is_null() {
-                let fraction = raw as f64 / self.maxdata as f64;
+                let fraction = f64::from(raw) / f64::from(self.maxdata);
                 range.min + fraction * range.span()
             } else {
                 comedi_sys::comedi_to_phys(raw, range_ptr, self.maxdata)

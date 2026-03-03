@@ -1462,7 +1462,7 @@ impl GenericDriver {
 
             frame_count += 1;
             self.frame_counter
-                .store(frame_count as u64, std::sync::atomic::Ordering::SeqCst);
+                .store(u64::from(frame_count), std::sync::atomic::Ordering::SeqCst);
 
             // Small delay to prevent CPU spin
             // In mock mode, add delay to simulate hardware frame rate
@@ -1508,7 +1508,7 @@ impl GenericDriver {
                 for y in 0..height {
                     for x in 0..width {
                         let idx = (y * width + x) as usize;
-                        buffer[idx] = ((x as f32 / width as f32) * intensity as f32) as u16;
+                        buffer[idx] = ((x as f32 / width as f32) * f32::from(intensity)) as u16;
                     }
                 }
             }

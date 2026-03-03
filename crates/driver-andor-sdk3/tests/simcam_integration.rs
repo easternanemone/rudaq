@@ -204,7 +204,7 @@ mod pooled_delivery {
         let val_00 = u16::from_le_bytes([data[0], data[1]]);
         assert_eq!(
             val_00,
-            (offset as u32 % 65535) as u16,
+            (u32::from(offset) % 65535) as u16,
             "pixel (0,0) should match gradient formula"
         );
 
@@ -212,7 +212,7 @@ mod pooled_delivery {
         let val_10 = u16::from_le_bytes([data[2], data[3]]);
         assert_eq!(
             val_10,
-            ((1 + offset as u32) % 65535) as u16,
+            ((1 + u32::from(offset)) % 65535) as u16,
             "pixel (1,0) should match gradient formula"
         );
 
@@ -221,7 +221,7 @@ mod pooled_delivery {
         let val_01 = u16::from_le_bytes([data[stride], data[stride + 1]]);
         assert_eq!(
             val_01,
-            ((1 + offset as u32) % 65535) as u16,
+            ((1 + u32::from(offset)) % 65535) as u16,
             "pixel (0,1) should match gradient formula"
         );
     }

@@ -1490,8 +1490,8 @@ impl PvcamAcquisition {
 
         // bd-5oss: Create frame pool if primary_tx is registered
         let frame_pool: Option<Arc<Pool<FrameData>>> = if primary_tx.is_some() {
-            let binned_width = roi.width / x_bin as u32;
-            let binned_height = roi.height / y_bin as u32;
+            let binned_width = roi.width / u32::from(x_bin);
+            let binned_height = roi.height / u32::from(y_bin);
             let frame_bytes = (binned_width * binned_height * 2) as usize; // 16-bit
             let pool_size = 16; // Reasonable default for mock
             let pool = Pool::new_with_reset(
@@ -1510,8 +1510,8 @@ impl PvcamAcquisition {
         };
 
         tokio::spawn(async move {
-            let binned_width = roi.width / x_bin as u32;
-            let binned_height = roi.height / y_bin as u32;
+            let binned_width = roi.width / u32::from(x_bin);
+            let binned_height = roi.height / u32::from(y_bin);
             let frame_size = (binned_width * binned_height) as usize;
 
             while streaming.get() {

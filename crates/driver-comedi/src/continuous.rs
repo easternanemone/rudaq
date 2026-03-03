@@ -362,6 +362,7 @@ impl ContinuousStream {
                                     Ok(()) => {}
                                     Err(mpsc::error::TrySendError::Full(_)) => {
                                         sink.drops.fetch_add(1, Ordering::SeqCst);
+                                        #[allow(clippy::cast_possible_truncation)]
                                         samples_dropped.fetch_add(
                                             (batch_size * n_channels) as u64,
                                             Ordering::SeqCst,
@@ -454,6 +455,7 @@ impl ContinuousStream {
                 // The number of messages sitting in the channel is
                 // (capacity - available permits).
                 let queued = capacity - sink.sender.capacity();
+                #[allow(clippy::cast_precision_loss)]
                 let fill = queued as f64 / capacity as f64;
                 if fill > max_sink_pressure {
                     max_sink_pressure = fill;

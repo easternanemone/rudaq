@@ -27,6 +27,15 @@ fn prng(seed: u64) -> u64 {
 ///
 /// # Returns
 /// A Vec<u16> containing the test pattern pixel data
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss,
+    clippy::cast_possible_wrap
+)]
+// SAFETY: Camera dimensions are bounded to typical sensor sizes (max ~4096x4096).
+// All pixel coordinates and intermediate values fit within i32/u16/u32 ranges.
+// f64 precision loss on frame_num is acceptable for animation phase calculations.
 pub fn generate_test_pattern(width: u32, height: u32, frame_num: u64) -> Vec<u16> {
     let mut buffer = vec![0u16; (width * height) as usize];
     let w = width as usize;
@@ -58,7 +67,7 @@ pub fn generate_test_pattern(width: u32, height: u32, frame_num: u64) -> Vec<u16
 
     // === Dynamic elements ===
     // Moving hotspot: orbits around center with period of ~120 frames (~4 sec at 30fps)
-    let orbit_radius = (width.min(height) / 5) as f64;
+    let orbit_radius = f64::from(width.min(height) / 5);
     let angle = (frame_num as f64 * 0.05) % (2.0 * std::f64::consts::PI);
     let hotspot_x = cx as f64 + orbit_radius * angle.cos();
     let hotspot_y = cy as f64 + orbit_radius * angle.sin();
@@ -89,7 +98,7 @@ pub fn generate_test_pattern(width: u32, height: u32, frame_num: u64) -> Vec<u16
             };
 
             // Add noise to base value (small amplitude: ~3% of full scale)
-            let mut pixel_value: u16 = (base_value + noise_value as i32).clamp(0, 65535) as u16;
+            let mut pixel_value: u16 = (base_value + i32::from(noise_value)).clamp(0, 65535) as u16;
 
             // Layer 2: Gradient regions at top and bottom
             // Top gradient: 0% to 100% intensity (left to right)
@@ -209,7 +218,7 @@ pub fn generate_test_pattern(width: u32, height: u32, frame_num: u64) -> Vec<u16
             let gaussian = (-dist_sq_hotspot / (2.0 * hotspot_radius * hotspot_radius)).exp();
             // Add hotspot intensity (additive blend, max 50% of full scale)
             let hotspot_contribution = (gaussian * 32768.0) as u32;
-            pixel_value = (pixel_value as u32 + hotspot_contribution).min(65535) as u16;
+            pixel_value = (u32::from(pixel_value) + hotspot_contribution).min(65535) as u16;
 
             buffer[idx] = pixel_value;
         }

@@ -357,7 +357,7 @@ pub fn register_plans(engine: &mut Engine) {
     // run_engine.current_progress() -> int
     engine.register_fn("current_progress", |re: &mut RunEngineHandle| -> i64 {
         block_in_place(|| Handle::current().block_on(re.engine.current_progress()))
-            .map(|p| p as i64)
+            .map(i64::from)
             .unwrap_or(-1)
     });
 }

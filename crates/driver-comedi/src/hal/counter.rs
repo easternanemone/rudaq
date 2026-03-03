@@ -90,7 +90,7 @@ impl Readable for ReadableCounter {
             .map_err(|e| anyhow::anyhow!("Task join error: {}", e))?
             .map_err(|e| anyhow::anyhow!("Read error: {}", e))?;
 
-        Ok(count as f64)
+        Ok(f64::from(count))
     }
 }
 
@@ -106,6 +106,8 @@ impl Settable for ReadableCounter {
     async fn set_value(&self, name: &str, value: Value) -> Result<()> {
         match name {
             "value" | "count" => {
+                #[allow(clippy::cast_possible_truncation)]
+                // SAFETY: Counter values are bounded by maxdata (16-32 bit), fits in u32.
                 let count = value
                     .as_u64()
                     .ok_or_else(|| anyhow::anyhow!("count must be an unsigned integer"))?

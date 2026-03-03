@@ -139,13 +139,13 @@ impl FrameObserver for CapturingObserverWrapper {
     fn on_frame(&self, frame: &FrameView<'_>) {
         self.state
             .width
-            .store(frame.width as u64, Ordering::Relaxed);
+            .store(u64::from(frame.width), Ordering::Relaxed);
         self.state
             .height
-            .store(frame.height as u64, Ordering::Relaxed);
+            .store(u64::from(frame.height), Ordering::Relaxed);
         self.state
             .bit_depth
-            .store(frame.bit_depth as u64, Ordering::Relaxed);
+            .store(u64::from(frame.bit_depth), Ordering::Relaxed);
         self.state
             .frame_number
             .store(frame.frame_number, Ordering::Relaxed);
@@ -190,17 +190,17 @@ async fn observer_frame_view_matches_primary_frame() {
     // Observer should have captured the same frame metadata
     assert_eq!(
         state.width.load(Ordering::Relaxed),
-        loaned.width as u64,
+        u64::from(loaned.width),
         "observer width should match primary"
     );
     assert_eq!(
         state.height.load(Ordering::Relaxed),
-        loaned.height as u64,
+        u64::from(loaned.height),
         "observer height should match primary"
     );
     assert_eq!(
         state.bit_depth.load(Ordering::Relaxed),
-        loaned.bit_depth as u64,
+        u64::from(loaned.bit_depth),
         "observer bit_depth should match primary"
     );
     // Observer may have seen same frame or the next one; just check it's not MAX
@@ -326,7 +326,7 @@ async fn pixel_data_little_endian_u16() {
 
     // Verify LE encoding by manual decode vs Rust's from_le_bytes
     let pixel_0_0 = u16::from_le_bytes([data[0], data[1]]);
-    assert_eq!(pixel_0_0, data[0] as u16 | ((data[1] as u16) << 8));
+    assert_eq!(pixel_0_0, u16::from(data[0]) | (u16::from(data[1]) << 8));
 
     // Cross-check: Frame::from_u16 also uses LE encoding
     let test_pixels = vec![pixel_0_0];

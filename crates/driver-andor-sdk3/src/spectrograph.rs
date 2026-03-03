@@ -466,7 +466,7 @@ impl AndorSpectrograph {
             let center = self.inner.wavelength_nm.get();
             let dispersion = 0.05; // nm per pixel
             let wavelengths: Vec<f64> = (0..num_pixels)
-                .map(|i| center + (i as f64 - num_pixels as f64 / 2.0) * dispersion)
+                .map(|i| center + (f64::from(i) - f64::from(num_pixels) / 2.0) * dispersion)
                 .collect();
 
             Ok(WavelengthCalibration::new(wavelengths))

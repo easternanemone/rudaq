@@ -627,14 +627,24 @@ impl MockCamera {
                                 if matches!(mode, MockMode::Realistic | MockMode::Chaos) {
                                     let current_temp_for_noise = temp_sim.lock().await.current();
                                     // ~12 ADU noise at 20°C, scales with temperature
+                                    #[allow(clippy::cast_possible_truncation)]
+                                    // SAFETY: Temperature range is clamped to [-20, ~50]°C,
+                                    // so thermal_sigma is bounded to [0, ~21], fits in i32.
                                     let thermal_sigma =
                                         ((current_temp_for_noise.max(-20.0) + 20.0) * 0.3) as i32;
                                     if thermal_sigma > 0 {
                                         for pixel in &mut buffer {
                                             let noise =
                                                 rng_val.gen_range(-thermal_sigma..=thermal_sigma);
-                                            *pixel =
-                                                ((*pixel as i32) + noise).clamp(0, 65535) as u16;
+                                            #[allow(
+                                                clippy::cast_possible_truncation,
+                                                clippy::cast_sign_loss
+                                            )]
+                                            // SAFETY: clamp(0, 65535) guarantees the value fits in u16
+                                            {
+                                                *pixel = (i32::from(*pixel) + noise).clamp(0, 65535)
+                                                    as u16;
+                                            }
                                         }
                                     }
                                 }
@@ -647,12 +657,21 @@ impl MockCamera {
                                         let readout_time_ms = timing.frame_readout_ms;
 
                                         // fps = min(1/exposure, max_fps, 1000/readout_time)
+                                        #[allow(clippy::cast_precision_loss)]
+                                        // SAFETY: readout_time_ms is a small u64 value (typically < 1000)
                                         let max_fps_from_readout =
                                             1000.0 / readout_time_ms.max(1) as f64;
                                         let exposure_fps = 1.0 / exposure_s;
                                         let actual_fps =
                                             exposure_fps.min(max_fps_val).min(max_fps_from_readout);
-                                        (1000.0 / actual_fps) as u64
+                                        #[allow(
+                                            clippy::cast_possible_truncation,
+                                            clippy::cast_sign_loss
+                                        )]
+                                        // SAFETY: Frame delay in ms is always positive and < u64::MAX
+                                        {
+                                            (1000.0 / actual_fps) as u64
+                                        }
                                     }
                                 };
 
@@ -666,10 +685,14 @@ impl MockCamera {
                                         frame_data.height = h;
                                         frame_data.bit_depth = 16;
                                         frame_data.frame_number = frame_num;
-                                        frame_data.timestamp_ns = std::time::SystemTime::now()
-                                            .duration_since(std::time::UNIX_EPOCH)
-                                            .map(|d| d.as_nanos() as u64)
-                                            .unwrap_or(0);
+                                        #[allow(clippy::cast_possible_truncation)]
+                                        // SAFETY: Nanosecond timestamps won't exceed u64 until year ~2554
+                                        {
+                                            frame_data.timestamp_ns = std::time::SystemTime::now()
+                                                .duration_since(std::time::UNIX_EPOCH)
+                                                .map(|d| d.as_nanos() as u64)
+                                                .unwrap_or(0);
+                                        }
 
                                         let byte_len = buffer.len() * 2;
                                         if byte_len <= frame_data.pixels.capacity() {
@@ -714,6 +737,8 @@ impl MockCamera {
                                             .iter()
                                             .flat_map(|&pixel| pixel.to_le_bytes())
                                             .collect();
+                                        #[allow(clippy::cast_possible_truncation)]
+                                        // SAFETY: Nanosecond timestamps won't exceed u64 until year ~2554
                                         let timestamp_ns = std::time::SystemTime::now()
                                             .duration_since(std::time::UNIX_EPOCH)
                                             .map(|d| d.as_nanos() as u64)
@@ -1145,10 +1170,13 @@ impl FrameProducer for MockCamera {
             FrameData::reset,
         );
 
+        #[allow(clippy::cast_precision_loss)]
+        // SAFETY: Pool total bytes is a small value well within f64 precision
+        let total_mb = (MOCK_FRAME_POOL_SIZE * frame_bytes) as f64 / (1024.0 * 1024.0);
         tracing::info!(
             pool_size = MOCK_FRAME_POOL_SIZE,
             frame_bytes,
-            total_mb = (MOCK_FRAME_POOL_SIZE * frame_bytes) as f64 / (1024.0 * 1024.0),
+            total_mb,
             "MockCamera: Created frame pool for primary output"
         );
 
@@ -1245,9 +1273,10 @@ mod tests {
     impl FrameObserver for CountingObserver {
         fn on_frame(&self, frame: &FrameView<'_>) {
             self.frames_received.fetch_add(1, Ordering::Relaxed);
-            self.last_width.store(frame.width as u64, Ordering::Relaxed);
+            self.last_width
+                .store(u64::from(frame.width), Ordering::Relaxed);
             self.last_height
-                .store(frame.height as u64, Ordering::Relaxed);
+                .store(u64::from(frame.height), Ordering::Relaxed);
         }
 
         fn name(&self) -> &'static str {

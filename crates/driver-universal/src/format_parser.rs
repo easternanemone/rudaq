@@ -272,9 +272,9 @@ fn extract_field(
             })?;
             // Width-aware two's complement interpretation
             let value: i64 = match width {
-                2 => (raw as u8) as i8 as i64,
-                4 => (raw as u16) as i16 as i64,
-                8 => (raw as u32) as i32 as i64,
+                2 => i64::from((raw as u8) as i8),
+                4 => i64::from((raw as u16) as i16),
+                8 => i64::from((raw as u32) as i32),
                 _ => raw as i64, // Non-standard widths: unsigned
             };
             Ok((Value::Number(serde_json::Number::from(value)), *width))

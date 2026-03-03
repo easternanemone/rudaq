@@ -377,7 +377,7 @@ impl Newport1830CDriver {
         }
         trimmed
             .parse::<u16>()
-            .map(|nm| nm as f64)
+            .map(f64::from)
             .with_context(|| format!("Failed to parse wavelength response: '{}'", trimmed))
     }
 
@@ -433,7 +433,7 @@ impl Newport1830CDriver {
 
         for attempt in 0..MAX_RETRIES {
             if attempt > 0 {
-                let backoff = Duration::from_millis(BASE_BACKOFF_MS * (attempt as u64));
+                let backoff = Duration::from_millis(BASE_BACKOFF_MS * u64::from(attempt));
                 tracing::debug!(
                     cmd = %command,
                     attempt,
@@ -734,7 +734,7 @@ mod tests {
         for (input, expected) in test_cases {
             let parsed: Result<u16, _> = input.trim().parse();
             assert!(parsed.is_ok(), "Failed to parse: {}", input);
-            assert!(((parsed.unwrap() as f64) - expected).abs() < f64::EPSILON);
+            assert!((f64::from(parsed.unwrap()) - expected).abs() < f64::EPSILON);
         }
     }
 

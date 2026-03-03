@@ -193,6 +193,16 @@ pub struct CounterHandle {
 /// - `AnalogOutput` - DAC output
 /// - `DigitalIO` - DIO pin control
 /// - `Counter` - Counter/timer operations
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss,
+    clippy::cast_possible_wrap
+)]
+// SAFETY: Rhai uses i64 for all integers. Channel/pin indices are small positive
+// values (typically < 256) and safely fit in u32. Counter u64 values may lose
+// precision when cast to f64 for Measurement or to i64 for Rhai, but this is
+// acceptable for scripting/display purposes.
 pub fn register_comedi_hardware(engine: &mut Engine) {
     // Register custom types
     engine.register_type_with_name::<AnalogInputHandle>("AnalogInput");
@@ -230,7 +240,7 @@ pub fn register_comedi_hardware(engine: &mut Engine) {
         "read_raw",
         |ai: &mut AnalogInputHandle, channel: i64| -> Result<i64, Box<EvalAltResult>> {
             let raw = map_error("AI read_raw", ai.driver.read_raw(channel as u32))?;
-            Ok(raw as i64)
+            Ok(i64::from(raw))
         },
     );
 
@@ -252,7 +262,7 @@ pub fn register_comedi_hardware(engine: &mut Engine) {
 
     // ai.channels() -> count
     engine.register_fn("channels", |ai: &mut AnalogInputHandle| -> i64 {
-        ai.driver.channel_count() as i64
+        i64::from(ai.driver.channel_count())
     });
 
     // ai.range(channel) -> [min, max]
@@ -325,7 +335,7 @@ pub fn register_comedi_hardware(engine: &mut Engine) {
 
     // ao.channels() -> count
     engine.register_fn("channels", |ao: &mut AnalogOutputHandle| -> i64 {
-        ao.driver.channel_count() as i64
+        i64::from(ao.driver.channel_count())
     });
 
     // ao.range(channel) -> [min, max]
@@ -396,7 +406,7 @@ pub fn register_comedi_hardware(engine: &mut Engine) {
 
     // dio.pins() -> count
     engine.register_fn("pins", |dio: &mut DigitalIOHandle| -> i64 {
-        dio.driver.pin_count() as i64
+        i64::from(dio.driver.pin_count())
     });
 
     // dio.read_port() -> bitmask
@@ -404,7 +414,7 @@ pub fn register_comedi_hardware(engine: &mut Engine) {
         "read_port",
         |dio: &mut DigitalIOHandle| -> Result<i64, Box<EvalAltResult>> {
             let port = map_error("DIO read_port", dio.driver.read_port())?;
-            Ok(port as i64)
+            Ok(i64::from(port))
         },
     );
 
@@ -467,7 +477,7 @@ pub fn register_comedi_hardware(engine: &mut Engine) {
 
     // counter.count() -> number of counters
     engine.register_fn("count", |ctr: &mut CounterHandle| -> i64 {
-        ctr.driver.counter_count() as i64
+        i64::from(ctr.driver.counter_count())
     });
 
     // counter.reset_all()
@@ -517,7 +527,7 @@ pub mod mock {
         fn read_voltage(&self, channel: u32) -> Result<f64, String> {
             let raw = self.read_raw(channel)?;
             // Assume 16-bit, -10V to +10V range
-            Ok((raw as f64 / 32768.0) * 10.0 - 10.0)
+            Ok((f64::from(raw) / 32768.0) * 10.0 - 10.0)
         }
 
         fn read_raw(&self, channel: u32) -> Result<u32, String> {
@@ -560,6 +570,8 @@ pub mod mock {
     impl AnalogOutput for MockAnalogOutput {
         fn write_voltage(&self, channel: u32, voltage: f64) -> Result<(), String> {
             // Convert -10V..+10V to 0..65535
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            // SAFETY: clamp(0.0, 65535.0) guarantees the value is non-negative and fits in u32
             let raw = (((voltage + 10.0) / 20.0) * 65535.0).clamp(0.0, 65535.0) as u32;
             self.write_raw(channel, raw)
         }

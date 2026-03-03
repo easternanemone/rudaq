@@ -146,6 +146,8 @@ impl Settable for SettableAnalogOutput {
             }
 
             "raw" => {
+                #[allow(clippy::cast_possible_truncation)]
+                // SAFETY: Raw DAC values are within maxdata (typically 12-16 bit), fits in u32.
                 let raw = value
                     .as_u64()
                     .ok_or_else(|| anyhow::anyhow!("raw must be an unsigned integer"))?

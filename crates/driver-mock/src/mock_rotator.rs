@@ -257,7 +257,7 @@ impl MockRotator {
             .with_range(config.min_position, config.max_position)
             .with_dtype("float");
 
-        let velocity_param = Parameter::new("velocity_percent", config.velocity_percent as f64)
+        let velocity_param = Parameter::new("velocity_percent", f64::from(config.velocity_percent))
             .with_description("Motor velocity")
             .with_unit("%")
             .with_range(0.0, 100.0)
@@ -279,6 +279,8 @@ impl MockRotator {
     }
 
     /// Get the current velocity percentage.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    // SAFETY: Velocity parameter is constrained to [0, 100], fits in u8 after rounding.
     pub fn velocity(&self) -> u8 {
         self.velocity_param.get().round() as u8
     }
@@ -293,7 +295,7 @@ impl MockRotator {
 
         self.velocity_param
             .inner()
-            .set(velocity as f64)
+            .set(f64::from(velocity))
             .expect("set velocity");
         self.status
             .store(Ell14StatusCode::Ok as u8, Ordering::Relaxed);
@@ -314,8 +316,11 @@ impl MockRotator {
     /// Home the device to mechanical zero.
     pub async fn home(&self) -> Result<()> {
         // Simulate homing motion
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        // SAFETY: Velocity is constrained to [0, 100], fits in u8. Duration is positive and bounded.
         let velocity = self.velocity_param.get().round() as u8;
-        let duration_ms = (1000.0 * (100.0 / velocity.max(1) as f64)) as u64;
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let duration_ms = (1000.0 * (100.0 / f64::from(velocity.max(1)))) as u64;
         sleep(Duration::from_millis(duration_ms)).await;
 
         // Set position to zero
@@ -345,13 +350,16 @@ impl MockRotator {
     }
 
     /// Calculate movement duration based on distance and velocity.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    // SAFETY: Velocity is [0, 100], fits in u8. Duration result is always positive
+    // and bounded by physical motor speeds, fits in u64.
     fn calculate_duration(&self, distance_degrees: f64) -> Duration {
         let velocity = self.velocity_param.get().round() as u8;
 
         // Base speed: 1 degree per 10ms at 100% velocity
         // Scale by velocity percentage
         let base_ms_per_degree = 10.0;
-        let velocity_factor = velocity.max(1) as f64 / 100.0;
+        let velocity_factor = f64::from(velocity.max(1)) / 100.0;
         let ms_per_degree = base_ms_per_degree / velocity_factor;
 
         let duration_ms = (distance_degrees.abs() * ms_per_degree) as u64;
@@ -599,6 +607,7 @@ mod tests {
         let slow_duration = start.elapsed();
 
         // Slow should be approximately 2x fast (with some tolerance)
+        #[allow(clippy::cast_precision_loss)]
         let ratio = slow_duration.as_millis() as f64 / fast_duration.as_millis() as f64;
         assert!(ratio > 1.5 && ratio < 2.5, "Ratio: {}", ratio);
 

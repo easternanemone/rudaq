@@ -379,10 +379,12 @@ fn test_eom_rotator_wavelength_3d_sweep() {
     println!();
 }
 
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+// SAFETY: Clamped to [0, maxdata]; fits in u32.
 fn voltage_to_data(voltage: f64, range_min: f64, range_max: f64, maxdata: u32) -> u32 {
     let fraction = (voltage - range_min) / (range_max - range_min);
     let clamped = fraction.clamp(0.0, 1.0);
-    (clamped * maxdata as f64).round() as u32
+    (clamped * f64::from(maxdata)).round() as u32
 }
 
 fn make_power_bar(powers: &[f64], min_scale: f64, max_scale: f64) -> String {
@@ -592,6 +594,14 @@ struct ComediSimple {
     handle: *mut comedi_sys::comedi_t,
 }
 
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless,
+    clippy::cast_possible_wrap
+)]
+// SAFETY: FFI boundary casts. Comedi returns i32 for non-negative values; handles
+// are pointers; maxdata fits in u32.
 impl ComediSimple {
     fn open(device: &str) -> Result<Self, Box<dyn std::error::Error>> {
         let c_device = std::ffi::CString::new(device)?;
@@ -740,6 +750,8 @@ impl Newport1830Simple {
         Ok(power)
     }
 
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    // SAFETY: Wavelength in nm is a positive value < 2000, fits in u32.
     fn set_wavelength(&mut self, wavelength_nm: f64) -> Result<(), Box<dyn std::error::Error>> {
         // Newport 1830-C uses W command with 4-digit integer nm and CR terminator
         let wl_int = wavelength_nm.round() as u32;
@@ -811,7 +823,7 @@ impl Ell14Simple {
                 let pulses_hex = &response_str[data_start + 22..data_start + 30];
                 // pulses is total pulses per revolution, divide by 100 to get degrees
                 match u32::from_str_radix(pulses_hex.trim(), 16) {
-                    Ok(p) if p > 1000 && p < 1000000 => p as f64 / 100.0,
+                    Ok(p) if p > 1000 && p < 1000000 => f64::from(p) / 100.0,
                     _ => 1433.60, // ELL14 default
                 }
             } else {
@@ -828,6 +840,8 @@ impl Ell14Simple {
         })
     }
 
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    // SAFETY: Angle * pulses_per_degree is positive and bounded by motor range, fits in u32.
     fn move_abs(&mut self, degrees: f64) -> Result<(), Box<dyn std::error::Error>> {
         let pulses = (degrees * self.pulses_per_degree).round() as u32;
         let cmd = format!("{}ma{:08X}", self.address, pulses);
@@ -902,7 +916,7 @@ impl Ell14Simple {
             if response_str.len() >= hex_start + 8 {
                 let hex_str = &response_str[hex_start..hex_start + 8];
                 if let Ok(pulses) = u32::from_str_radix(hex_str.trim(), 16) {
-                    return Ok(pulses as f64 / self.pulses_per_degree);
+                    return Ok(f64::from(pulses) / self.pulses_per_degree);
                 }
             }
         }

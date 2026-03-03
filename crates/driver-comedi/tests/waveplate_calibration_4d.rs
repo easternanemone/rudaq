@@ -763,7 +763,7 @@ impl Ell14Bus {
             if response_str.len() >= data_start + 30 {
                 let pulses_hex = &response_str[data_start + 22..data_start + 30];
                 match u32::from_str_radix(pulses_hex.trim(), 16) {
-                    Ok(p) if p > 1000 && p < 1000000 => return p as f64 / 100.0,
+                    Ok(p) if p > 1000 && p < 1000000 => return f64::from(p) / 100.0,
                     _ => {}
                 }
             }

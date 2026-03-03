@@ -51,6 +51,10 @@ pub struct CrcValue {
 
 /// Calculate CRC for the given data using the specified algorithm.
 #[cfg(feature = "binary_protocol")]
+#[allow(clippy::cast_possible_truncation, clippy::cast_lossless)]
+// SAFETY: CRC values are produced at known widths (8, 16, or 32 bits) and stored in
+// u64 for uniformity. The narrowing casts back to u8/u16/u32 for byte encoding are
+// exact because the value was originally computed at that width.
 pub fn calculate_crc(data: &[u8], config: &CrcConfig) -> CrcValue {
     use crc::{Crc, CRC_16_IBM_SDLC, CRC_16_MODBUS, CRC_16_XMODEM, CRC_32_ISCSI, CRC_32_ISO_HDLC};
 
@@ -176,6 +180,14 @@ impl BinaryFrameBuilder {
     }
 
     /// Append a single field to the frame.
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss
+    )]
+    // SAFETY: Binary protocol fields are typed by the TOML config (u8, i16, u32, etc.).
+    // The f64 intermediate representation is narrowed to match the declared field type.
+    // Values are expected to be within the target type's range per the device protocol spec.
     fn append_field(
         &mut self,
         field: &BinaryFieldConfig,
@@ -280,6 +292,9 @@ impl BinaryFrameBuilder {
     /// - Hex literals: "0x03", "0xFF"
     /// - Parameter references: "${device_address}", "${count}"
     /// - Decimal literals: "123", "45.6"
+    #[allow(clippy::cast_precision_loss)]
+    // SAFETY: Hex literals in protocol configs are small register addresses/values
+    // that fit within f64's 52-bit mantissa without precision loss.
     fn resolve_value(&self, template: &str, params: &HashMap<String, f64>) -> Result<f64> {
         let template = template.trim();
 
@@ -340,6 +355,9 @@ pub enum ParsedValue {
 
 impl ParsedValue {
     /// Convert to f64 if possible.
+    #[allow(clippy::cast_precision_loss)]
+    // SAFETY: Lossy conversion is inherent to the f64 representation. Callers
+    // accept precision loss for display/calculation purposes.
     pub fn as_f64(&self) -> Option<f64> {
         match self {
             ParsedValue::Unsigned(v) => Some(*v as f64),
@@ -350,6 +368,9 @@ impl ParsedValue {
     }
 
     /// Convert to i64 if possible.
+    #[allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
+    // SAFETY: Lossy conversion is inherent. Unsigned values > i64::MAX will wrap;
+    // float values are truncated. Callers accept this for protocol field access.
     pub fn as_i64(&self) -> Option<i64> {
         match self {
             ParsedValue::Unsigned(v) => Some(*v as i64),
@@ -377,6 +398,9 @@ pub struct BinaryResponseParser;
 
 impl BinaryResponseParser {
     /// Parse a binary response frame using the provided configuration.
+    #[allow(clippy::cast_sign_loss)]
+    // SAFETY: min_length/max_length from config are small positive protocol frame
+    // sizes that fit in usize.
     #[instrument(skip(data, config), fields(data_len = data.len()), err)]
     pub fn parse(
         data: &[u8],
@@ -435,6 +459,10 @@ impl BinaryResponseParser {
     }
 
     /// Parse a single field from the response.
+    #[allow(clippy::cast_sign_loss, clippy::cast_possible_wrap)]
+    // SAFETY: Length fields from binary protocols are small positive values that
+    // fit in usize. Signed-to-unsigned comparison for expected value validation is
+    // intentional for protocol field matching.
     fn parse_field(
         data: &[u8],
         field: &BinaryResponseFieldConfig,
@@ -481,23 +509,23 @@ impl BinaryResponseParser {
         let field_data = &data[start..start + length];
 
         let value = match field.field_type {
-            BinaryFieldType::U8 => ParsedValue::Unsigned(field_data[0] as u64),
-            BinaryFieldType::I8 => ParsedValue::Signed(field_data[0] as i8 as i64),
+            BinaryFieldType::U8 => ParsedValue::Unsigned(u64::from(field_data[0])),
+            BinaryFieldType::I8 => ParsedValue::Signed(i64::from(field_data[0] as i8)),
             BinaryFieldType::U16Be => {
                 let v = u16::from_be_bytes([field_data[0], field_data[1]]);
-                ParsedValue::Unsigned(v as u64)
+                ParsedValue::Unsigned(u64::from(v))
             }
             BinaryFieldType::U16Le => {
                 let v = u16::from_le_bytes([field_data[0], field_data[1]]);
-                ParsedValue::Unsigned(v as u64)
+                ParsedValue::Unsigned(u64::from(v))
             }
             BinaryFieldType::I16Be => {
                 let v = i16::from_be_bytes([field_data[0], field_data[1]]);
-                ParsedValue::Signed(v as i64)
+                ParsedValue::Signed(i64::from(v))
             }
             BinaryFieldType::I16Le => {
                 let v = i16::from_le_bytes([field_data[0], field_data[1]]);
-                ParsedValue::Signed(v as i64)
+                ParsedValue::Signed(i64::from(v))
             }
             BinaryFieldType::U32Be => {
                 let v = u32::from_be_bytes([
@@ -506,7 +534,7 @@ impl BinaryResponseParser {
                     field_data[2],
                     field_data[3],
                 ]);
-                ParsedValue::Unsigned(v as u64)
+                ParsedValue::Unsigned(u64::from(v))
             }
             BinaryFieldType::U32Le => {
                 let v = u32::from_le_bytes([
@@ -515,7 +543,7 @@ impl BinaryResponseParser {
                     field_data[2],
                     field_data[3],
                 ]);
-                ParsedValue::Unsigned(v as u64)
+                ParsedValue::Unsigned(u64::from(v))
             }
             BinaryFieldType::I32Be => {
                 let v = i32::from_be_bytes([
@@ -524,7 +552,7 @@ impl BinaryResponseParser {
                     field_data[2],
                     field_data[3],
                 ]);
-                ParsedValue::Signed(v as i64)
+                ParsedValue::Signed(i64::from(v))
             }
             BinaryFieldType::I32Le => {
                 let v = i32::from_le_bytes([
@@ -533,7 +561,7 @@ impl BinaryResponseParser {
                     field_data[2],
                     field_data[3],
                 ]);
-                ParsedValue::Signed(v as i64)
+                ParsedValue::Signed(i64::from(v))
             }
             BinaryFieldType::F32Be => {
                 let v = f32::from_be_bytes([
@@ -542,7 +570,7 @@ impl BinaryResponseParser {
                     field_data[2],
                     field_data[3],
                 ]);
-                ParsedValue::Float(v as f64)
+                ParsedValue::Float(f64::from(v))
             }
             BinaryFieldType::F32Le => {
                 let v = f32::from_le_bytes([
@@ -551,7 +579,7 @@ impl BinaryResponseParser {
                     field_data[2],
                     field_data[3],
                 ]);
-                ParsedValue::Float(v as f64)
+                ParsedValue::Float(f64::from(v))
             }
             BinaryFieldType::U64Be => {
                 let v = u64::from_be_bytes([

@@ -59,6 +59,8 @@ impl DigitalIO {
             }
         }
 
+        #[allow(clippy::cast_sign_loss)]
+        // SAFETY: Comedi FFI returns non-negative channel count as i32.
         let n_channels =
             unsafe { comedi_sys::comedi_get_n_channels(device.handle(), subdevice) as u32 };
 

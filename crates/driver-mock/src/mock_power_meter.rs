@@ -807,7 +807,9 @@ mod tests {
             .collect::<Result<Vec<_>>>()
             .unwrap();
 
+        #[allow(clippy::cast_precision_loss)]
         let mean = readings.iter().sum::<f64>() / readings.len() as f64;
+        #[allow(clippy::cast_precision_loss)]
         let variance =
             readings.iter().map(|r| (r - mean).powi(2)).sum::<f64>() / readings.len() as f64;
 

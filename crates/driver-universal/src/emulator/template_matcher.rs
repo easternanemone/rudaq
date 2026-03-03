@@ -230,9 +230,9 @@ fn decode_value(raw: &str, decoder: &ParamDecoder) -> Value {
             .map(|raw_val| {
                 // Width-aware two's complement sign extension
                 let signed: i64 = match width {
-                    2 => (raw_val as u8) as i8 as i64,
-                    4 => (raw_val as u16) as i16 as i64,
-                    8 => (raw_val as u32) as i32 as i64,
+                    2 => i64::from((raw_val as u8) as i8),
+                    4 => i64::from((raw_val as u16) as i16),
+                    8 => i64::from((raw_val as u32) as i32),
                     _ => raw_val as i64,
                 };
                 Value::Number(signed.into())

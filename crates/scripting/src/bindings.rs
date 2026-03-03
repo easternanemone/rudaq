@@ -439,8 +439,8 @@ pub fn register_hardware(engine: &mut Engine) {
     engine.register_fn("resolution", move |camera: &mut CameraHandle| -> Dynamic {
         let (width, height) = camera.driver.resolution();
         Dynamic::from(vec![
-            Dynamic::from(width as i64),
-            Dynamic::from(height as i64),
+            Dynamic::from(i64::from(width)),
+            Dynamic::from(i64::from(height)),
         ])
     });
 

@@ -215,12 +215,17 @@ impl StreamConfig {
     }
 
     /// Calculate the scan interval in nanoseconds.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    // SAFETY: Scan rate produces intervals in the range of microseconds-to-seconds,
+    // well within u32 range (max ~4.3 seconds in nanoseconds).
     pub fn scan_interval_ns(&self) -> u32 {
         let scan_rate = self.scan_rate.unwrap_or(self.sample_rate);
         (1e9 / scan_rate) as u32
     }
 
     /// Calculate the convert interval in nanoseconds.
+    #[allow(clippy::cast_possible_truncation)]
+    // SAFETY: Channel count is small (typically < 64), fits in u32.
     pub fn convert_interval_ns(&self) -> u32 {
         self.convert_interval_ns.unwrap_or_else(|| {
             // Default: evenly space conversions within scan
@@ -568,6 +573,15 @@ impl StreamAcquisition {
     ///
     /// Returns a vector of voltage readings organized as [scan0_ch0, scan0_ch1, ...].
     /// Returns None if acquisition is not running.
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss
+    )]
+    // SAFETY: Buffer sizes, byte counts, and sample counts from Comedi are bounded
+    // by the kernel DMA buffer (typically 64K-1M). The usize/u64/u32 casts are
+    // safe for these sizes. The u64 cast for samples_acquired is for atomic
+    // statistics only.
     pub fn read_available(&self) -> Result<Option<Vec<f64>>> {
         if !self.running.load(Ordering::SeqCst) {
             return Ok(None);
@@ -591,7 +605,7 @@ impl StreamAcquisition {
             comedi_sys::comedi_get_buffer_size(handle, state.subdevice)
         });
         if buffer_size > 0 {
-            let fill_ratio = available.max(0) as f64 / buffer_size as f64;
+            let fill_ratio = f64::from(available.max(0)) / f64::from(buffer_size);
 
             if fill_ratio > BACKPRESSURE_WARN_THRESHOLD {
                 // Only warn once per high-fill episode to avoid log spam
@@ -679,8 +693,10 @@ impl StreamAcquisition {
                 ])
             } else {
                 let offset = i * 2;
-                u16::from_ne_bytes([state.read_buffer[offset], state.read_buffer[offset + 1]])
-                    as u32
+                u32::from(u16::from_ne_bytes([
+                    state.read_buffer[offset],
+                    state.read_buffer[offset + 1],
+                ]))
             };
 
             let range = &state.ranges[ch_idx];
@@ -732,6 +748,9 @@ impl StreamAcquisition {
     }
 
     /// Get current statistics.
+    #[allow(clippy::cast_precision_loss)]
+    // SAFETY: Sample counts cast to f64 for rate calculation; precision loss is
+    // acceptable for statistics display.
     pub fn stats(&self) -> StreamStats {
         let state = self.state.lock();
         let samples = self.samples_acquired.load(Ordering::SeqCst);
@@ -756,7 +775,7 @@ impl StreamAcquisition {
         });
 
         let buffer_fill = if buffer_size > 0 {
-            available.max(0) as f64 / buffer_size as f64
+            f64::from(available.max(0)) / f64::from(buffer_size)
         } else {
             0.0
         };
@@ -786,6 +805,9 @@ impl StreamAcquisition {
     }
 
     /// Build the comedi command structure.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    // SAFETY: Channel count, stop counts, and duration-to-sample conversions are
+    // bounded by hardware limits and fit within u32.
     fn build_command(&self, state: &mut StreamState) -> Result<()> {
         let n_channels = self.config.channels.len() as u32;
 
@@ -914,7 +936,7 @@ impl StreamAcquisition {
 
     /// Convert raw ADC value to voltage.
     fn raw_to_voltage(&self, raw: u32, range: &Range, maxdata: lsampl_t) -> f64 {
-        let fraction = raw as f64 / maxdata as f64;
+        let fraction = f64::from(raw) / f64::from(maxdata);
         range.min + fraction * range.span()
     }
 }

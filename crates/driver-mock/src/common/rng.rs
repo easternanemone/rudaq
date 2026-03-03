@@ -120,7 +120,17 @@ mod tests {
 
         // With 10000 samples at 30% rate, expect roughly 3000 failures
         // Allow 10% deviation (2700-3300)
-        let expected = (rate * samples as f64) as usize;
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            clippy::cast_precision_loss
+        )]
+        let expected = (rate * f64::from(samples)) as usize;
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            clippy::cast_precision_loss
+        )]
         let tolerance = (expected as f64 * 0.1) as usize;
         assert!(
             failures > expected - tolerance && failures < expected + tolerance,

@@ -121,9 +121,9 @@ fn generate_format_string(segments: &[FormatSegment], state: &HashMap<String, Va
 /// Format i64 as uppercase hex with two's complement masking and zero-padding.
 fn format_hex(value: i64, width: usize) -> String {
     let masked: u64 = match width {
-        2 => (value as u8) as u64,
-        4 => (value as u16) as u64,
-        8 => (value as u32) as u64,
+        2 => u64::from(value as u8),
+        4 => u64::from(value as u16),
+        8 => u64::from(value as u32),
         _ => value as u64,
     };
     format!("{:0>width$X}", masked, width = width)

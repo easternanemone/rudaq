@@ -312,7 +312,7 @@ async fn test_frame_data_integrity() {
                 .chunks_exact(2)
                 .map(|c| u16::from_le_bytes([c[0], c[1]]))
                 .collect();
-            let mean: f64 = pixels.iter().map(|&p| p as f64).sum::<f64>() / pixels.len() as f64;
+            let mean: f64 = pixels.iter().map(|&p| f64::from(p)).sum::<f64>() / pixels.len() as f64;
             let max = *pixels.iter().max().unwrap_or(&0);
             let min = *pixels.iter().min().unwrap_or(&0);
 

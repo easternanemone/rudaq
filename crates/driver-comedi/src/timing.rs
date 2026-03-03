@@ -186,9 +186,10 @@ impl TimingCapabilities {
     pub fn nearest_sample_rate(&self, requested: f64) -> f64 {
         // Calculate the divisor needed
         let ideal_divisor = self.base_clock_hz / requested;
-        let actual_divisor = ideal_divisor
-            .round()
-            .clamp(self.divisor_range.0 as f64, self.divisor_range.1 as f64);
+        let actual_divisor = ideal_divisor.round().clamp(
+            f64::from(self.divisor_range.0),
+            f64::from(self.divisor_range.1),
+        );
 
         self.base_clock_hz / actual_divisor
     }
@@ -258,12 +259,17 @@ impl TimingConfig {
     }
 
     /// Calculate the scan interval in nanoseconds.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    // SAFETY: Sample rates produce intervals in the ns-to-seconds range, fitting u32.
     pub fn scan_interval_ns(&self) -> u32 {
         self.scan_interval_ns
             .unwrap_or_else(|| (1e9 / self.sample_rate) as u32)
     }
 
     /// Calculate the convert interval in nanoseconds.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    // SAFETY: Convert interval is derived from scan interval divided by channels,
+    // always positive and fits in u32.
     pub fn convert_interval_ns(&self) -> u32 {
         self.convert_interval_ns.unwrap_or_else(|| {
             if self.n_channels <= 1 {
@@ -272,14 +278,14 @@ impl TimingConfig {
                 // Divide scan interval among channels with settling time
                 let scan_ns = self.scan_interval_ns();
                 let base_convert = scan_ns / self.n_channels;
-                (base_convert as f64 * self.settling_multiplier) as u32
+                (f64::from(base_convert) * self.settling_multiplier) as u32
             }
         })
     }
 
     /// Get the effective sample rate.
     pub fn effective_sample_rate(&self) -> f64 {
-        1e9 / self.scan_interval_ns() as f64
+        1e9 / f64::from(self.scan_interval_ns())
     }
 
     /// Validate the configuration against capabilities.
@@ -343,7 +349,7 @@ impl TimingConfig {
             );
             self.scan_interval_ns = Some(actual_scan_ns);
             // Update sample rate to match
-            self.sample_rate = 1e9 / actual_scan_ns as f64;
+            self.sample_rate = 1e9 / f64::from(actual_scan_ns);
         }
 
         if actual_convert_ns != requested_convert {
@@ -428,13 +434,15 @@ impl TimingConfigBuilder {
 /// Helper functions for common timing calculations.
 pub mod timing_utils {
     /// Convert sample rate to nanosecond interval.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    // SAFETY: Sample rates produce intervals fitting in u32 (max ~4.3s in ns).
     pub fn rate_to_ns(rate_hz: f64) -> u32 {
         (1e9 / rate_hz) as u32
     }
 
     /// Convert nanosecond interval to sample rate.
     pub fn ns_to_rate(ns: u32) -> f64 {
-        1e9 / ns as f64
+        1e9 / f64::from(ns)
     }
 
     /// Calculate minimum scan interval for given channels and convert time.
@@ -444,12 +452,12 @@ pub mod timing_utils {
 
     /// Calculate aggregate sample rate.
     pub fn aggregate_rate(per_channel_rate: f64, n_channels: u32) -> f64 {
-        per_channel_rate * n_channels as f64
+        per_channel_rate * f64::from(n_channels)
     }
 
     /// Calculate per-channel rate from aggregate.
     pub fn per_channel_rate(aggregate_rate: f64, n_channels: u32) -> f64 {
-        aggregate_rate / n_channels as f64
+        aggregate_rate / f64::from(n_channels)
     }
 }
 

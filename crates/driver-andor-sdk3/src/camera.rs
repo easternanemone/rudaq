@@ -2351,7 +2351,7 @@ impl AndorCamera {
             let exposure = inner.exposure_s.get();
             tokio::time::sleep(Duration::from_secs_f64(exposure)).await;
 
-            let frame_nr = inner.frame_count.fetch_add(1, Ordering::Relaxed) as u64;
+            let frame_nr = u64::from(inner.frame_count.fetch_add(1, Ordering::Relaxed));
 
             if let Some(mut loaned) = inner.frame_pool.try_acquire() {
                 // Generate synthetic gradient pattern
@@ -2366,7 +2366,7 @@ impl AndorCamera {
                     for x in 0..width {
                         let idx = ((y * width + x) as usize) * 2;
                         if idx + 1 < actual_len {
-                            let value = ((x + y + offset as u32) % 65535) as u16;
+                            let value = ((x + y + u32::from(offset)) % 65535) as u16;
                             buf[idx] = value as u8;
                             buf[idx + 1] = (value >> 8) as u8;
                         }

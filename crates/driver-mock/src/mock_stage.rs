@@ -413,6 +413,8 @@ impl MockStage {
         match self.mode {
             MockMode::Instant => Duration::ZERO,
             MockMode::Realistic | MockMode::Chaos => {
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                // SAFETY: Settling time is a positive value bounded by physical stage limits
                 let settling_ms =
                     self.base_settling_ms + (self.settling_coefficient * distance.abs()) as u64;
                 Duration::from_millis(settling_ms)

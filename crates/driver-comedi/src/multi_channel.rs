@@ -92,6 +92,8 @@ impl SimpleRingBuffer {
     /// # Panics
     ///
     /// Panics if scan length doesn't match n_channels.
+    #[allow(clippy::cast_possible_truncation)]
+    // SAFETY: Write position wraps around buffer capacity; truncation to usize is safe.
     fn write_scan(&self, scan: &[f64]) {
         assert_eq!(scan.len(), self.n_channels, "Scan length mismatch");
 
@@ -109,6 +111,8 @@ impl SimpleRingBuffer {
         }
 
         // Update write position
+        #[allow(clippy::cast_possible_truncation)]
+        // SAFETY: n_channels is small (< 64), fits in u64.
         self.write_pos
             .fetch_add(self.n_channels as u64, Ordering::Release);
     }
@@ -120,6 +124,8 @@ impl SimpleRingBuffer {
     /// # Arguments
     ///
     /// * `num_samples` - Number of samples to read per channel
+    #[allow(clippy::cast_possible_truncation)]
+    // SAFETY: Total written samples is bounded by buffer capacity; truncation to usize is safe.
     fn read_latest(&self, num_samples: usize) -> Vec<Vec<f64>> {
         let total_written = self.write_pos.load(Ordering::Acquire);
         let scans_written = (total_written as usize) / self.n_channels;
@@ -134,7 +140,9 @@ impl SimpleRingBuffer {
         }
 
         // Calculate start position (read backwards from write position)
+        #[allow(clippy::cast_possible_truncation)]
         let read_start = total_written.saturating_sub((scans_to_read * self.n_channels) as u64);
+        #[allow(clippy::cast_possible_truncation)]
         let start_idx = (read_start as usize) % self.capacity;
 
         // Pre-allocate channel vectors
@@ -154,6 +162,7 @@ impl SimpleRingBuffer {
     }
 
     /// Get the total number of scans written (may exceed capacity).
+    #[allow(clippy::cast_possible_truncation)]
     fn scans_written(&self) -> usize {
         (self.write_pos.load(Ordering::Acquire) as usize) / self.n_channels
     }
@@ -243,6 +252,12 @@ impl ComediMultiChannelAcquisition {
 
         // Allocate ring buffer (default: 10 seconds of data)
         let buffer_duration_secs = 10.0;
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            clippy::cast_precision_loss
+        )]
+        // SAFETY: Buffer capacity is bounded by available memory; channel count fits in f64.
         let buffer_capacity = (sample_rate * buffer_duration_secs * channels.len() as f64) as usize;
 
         let buffer = Arc::new(SimpleRingBuffer::new(buffer_capacity, channels.len()));
@@ -353,6 +368,7 @@ impl ComediMultiChannelAcquisition {
                             buffer.write_scan(scan);
                         }
 
+                        #[allow(clippy::cast_possible_truncation)]
                         samples_acquired.fetch_add(n_scans as u64, Ordering::Relaxed);
 
                         // Periodic logging
@@ -530,7 +546,7 @@ mod tests {
 
         // Write 6 scans (more than capacity)
         for i in 0..6 {
-            buffer.write_scan(&[(i * 2) as f64, (i * 2 + 1) as f64]);
+            buffer.write_scan(&[f64::from(i * 2), f64::from(i * 2 + 1)]);
         }
 
         assert_eq!(buffer.scans_written(), 6);

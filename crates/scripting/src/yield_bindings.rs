@@ -74,7 +74,7 @@ fn register_yield_result_type(engine: &mut Engine) {
     // Register property getters
     engine.register_get("run_uid", |r: &mut YieldResult| r.run_uid.clone());
     engine.register_get("exit_status", |r: &mut YieldResult| r.exit_status.clone());
-    engine.register_get("num_events", |r: &mut YieldResult| r.num_events as i64);
+    engine.register_get("num_events", |r: &mut YieldResult| i64::from(r.num_events));
     engine.register_get("error", |r: &mut YieldResult| {
         r.error.clone().unwrap_or_default()
     });

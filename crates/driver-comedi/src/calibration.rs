@@ -200,7 +200,7 @@ impl CalibrationPolynomial {
     /// * `maxdata` - Maximum raw value (2^bits - 1)
     pub fn from_range(min_voltage: f64, max_voltage: f64, maxdata: u32) -> Self {
         let voltage_span = max_voltage - min_voltage;
-        let gain = voltage_span / maxdata as f64;
+        let gain = voltage_span / f64::from(maxdata);
 
         let mut coefficients = [0.0; MAX_POLYNOMIAL_COEFFICIENTS];
         coefficients[0] = min_voltage;
@@ -218,7 +218,7 @@ impl CalibrationPolynomial {
     /// This is the inverse of `from_range`, converting voltage to raw values.
     pub fn for_dac(min_voltage: f64, max_voltage: f64, maxdata: u32) -> Self {
         let voltage_span = max_voltage - min_voltage;
-        let gain = maxdata as f64 / voltage_span;
+        let gain = f64::from(maxdata) / voltage_span;
 
         let mut coefficients = [0.0; MAX_POLYNOMIAL_COEFFICIENTS];
         coefficients[0] = -min_voltage * gain;
@@ -243,7 +243,7 @@ impl CalibrationPolynomial {
     ///
     /// The converted value (physical for ADC, raw for DAC inverse)
     pub fn apply(&self, raw_value: u32) -> f64 {
-        self.apply_f64(raw_value as f64)
+        self.apply_f64(f64::from(raw_value))
     }
 
     /// Apply the polynomial to a floating-point value.
@@ -255,6 +255,7 @@ impl CalibrationPolynomial {
 
         // Horner's method for efficient polynomial evaluation
         let mut result = 0.0;
+        #[allow(clippy::cast_possible_truncation)]
         for i in (0..=self.order as usize).rev() {
             result = result * x + self.coefficients[i];
         }
@@ -291,7 +292,11 @@ impl CalibrationPolynomial {
         };
 
         // Clamp to valid range
-        raw.clamp(0.0, maxdata as f64).round() as u32
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        // SAFETY: Clamped to [0, maxdata]; round() produces exact integer in u32 range.
+        {
+            raw.clamp(0.0, f64::from(maxdata)).round() as u32
+        }
     }
 
     /// Newton-Raphson iteration for polynomial inversion.
@@ -325,10 +330,13 @@ impl CalibrationPolynomial {
     }
 
     /// Compute the derivative of the polynomial at a point.
+    #[allow(clippy::cast_precision_loss)]
+    // SAFETY: Polynomial order and index are small integers (< 4), exact in f64.
     fn derivative_at(&self, value: f64) -> f64 {
         let x = value - self.expansion_origin;
 
         let mut result = 0.0;
+        #[allow(clippy::cast_possible_truncation)]
         for i in (1..=self.order as usize).rev() {
             result = result * x + (i as f64) * self.coefficients[i];
         }
@@ -1036,6 +1044,7 @@ mod tests {
         for raw in [0, 10000, 32768, 50000, 65535] {
             let physical = poly.apply(raw);
             let recovered = poly.apply_inverse(physical, 65535);
+
             assert!(
                 (recovered as i32 - raw as i32).abs() <= 1,
                 "raw={} physical={} recovered={}",
