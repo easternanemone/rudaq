@@ -6,7 +6,8 @@ publish = false
 
 [dependencies]
 common = { path = "../common" }
-hardware = { path = "../hardware", features = ["all_hardware"] }
+hardware = { path = "../hardware" }
+driver-registry = { path = "../driver-registry", features = ["all_hardware"] }
 experiment = { path = "../experiment" }
 daq-modules = { path = "../daq-modules", features = ["scripting", "native_plugins"], optional = true }
 driver-mock = { path = "../driver-mock" }
@@ -49,18 +50,18 @@ server = ["dep:server", "networking"]
 scripting = ["dep:scripting"]
 storage_hdf5 = ["storage/storage_hdf5", "server/storage_hdf5"]
 storage_arrow = ["storage/storage_arrow", "server/storage_arrow", "common/storage_arrow"]
-pvcam = ["dep:driver-pvcam", "hardware/pvcam"]
-pvcam_sdk = ["pvcam", "hardware/pvcam_sdk"]
+pvcam = ["dep:driver-pvcam", "driver-registry/pvcam"]
+pvcam_sdk = ["pvcam", "driver-registry/pvcam_sdk"]
 gui_egui = ["ui/standalone"]
 hardware_tests = []
 libs_drivers = []
 libs_spirit_driver = []
-spectra_physics = ["hardware/spectra_physics"]
+spectra_physics = ["driver-registry/spectra_physics"]
 native_plugins = ["daq-modules/native_plugins"]
-serial = ["hardware/serial"]
-thorlabs = ["hardware/thorlabs"]
-newport = ["hardware/newport"]
-newport_power_meter = ["hardware/newport_power_meter"]
+serial = ["hardware/serial", "driver-registry/serial"]
+thorlabs = ["driver-registry/thorlabs"]
+newport = ["driver-registry/newport"]
+newport_power_meter = ["driver-registry/newport_power_meter"]
 modules = ["daq-modules"]
 universal = ["dep:driver-universal"]
 db-surreal-mem = ["dep:db", "db/kv-mem", "dep:server", "server/db-surreal-mem"]

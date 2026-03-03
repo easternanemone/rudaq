@@ -12,19 +12,20 @@
 //! ## Quick Example
 //!
 //! ```rust,ignore
-//! use daq_hardware::{DeviceRegistry, register_all_factories};
+//! use daq_hardware::{DeviceRegistry, register_mock_factories};
+//! // For concrete hardware drivers, use driver_registry::register_all_factories
 //!
 //! let registry = DeviceRegistry::new();
-//! register_all_factories(&registry, None).await?;
+//! register_mock_factories(&registry);
 //!
 //! // Register a device via factory
 //! registry.register_from_toml(
-//!     "rotator", "ELL14 Rotator", "ell14",
-//!     toml::toml! { port = "/dev/ttyUSB0"; address = "2" }.into(),
+//!     "stage", "Mock Stage", "mock_stage",
+//!     toml::Value::Table(Default::default()),
 //! ).await?;
 //!
 //! // Access by capability
-//! if let Some(device) = registry.get_movable("rotator") {
+//! if let Some(device) = registry.get_movable("stage") {
 //!     device.move_abs(45.0).await?;
 //! }
 //! ```
@@ -58,6 +59,6 @@ pub mod supervisor;
 
 pub use capabilities::*;
 pub use registry::{
-    register_all_factories, register_mock_factories, DeviceConfig, DeviceInfo, DeviceRegistry,
-    DriverConfig,
+    populate_registry_from_config, register_mock_factories, DeviceConfig, DeviceInfo,
+    DeviceRegistry, DriverConfig,
 };

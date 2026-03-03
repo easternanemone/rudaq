@@ -33,43 +33,9 @@ tokio-util = { workspace = true }
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 tokio = { workspace = true, features = ["sync", "time", "macros", "io-util"] }
 
-# Serial: use common::serial (serial2-tokio) - no direct tokio-serial/serialport
-
-# pvcam-sys = { path = "../rust-daq/pvcam-sys", optional = true } # Removed
-
-[dependencies.driver-pvcam]
-path = "../driver-pvcam"
-optional = true
-
-[dependencies.driver-comedi]
-path = "../driver-comedi"
-optional = true
-
-[dependencies.driver-universal]
-path = "../driver-universal"
-
+# Mock drivers (always compiled, used for testing)
 [dependencies.driver-mock]
 path = "../driver-mock"
-
-[dependencies.driver-thorlabs]
-path = "../driver-thorlabs"
-optional = true
-
-[dependencies.driver-newport]
-path = "../driver-newport"
-optional = true
-
-[dependencies.driver-spectra-physics]
-path = "../driver-spectra-physics"
-optional = true
-
-[dependencies.driver-red-pitaya]
-path = "../driver-red-pitaya"
-optional = true
-
-[dependencies.driver-andor-sdk3]
-path = "../driver-andor-sdk3"
-optional = true
 
 [dev-dependencies]
 tempfile.workspace = true
@@ -83,38 +49,12 @@ version = "0.8"
 optional = true
 
 [features]
-# Simplified feature flags (bd-0aqw)
+# After bd-ga7k.10 (dependency inversion), hardware is traits + registry only.
+# Concrete driver features have moved to the driver-registry crate.
 default = ["serial"]
 
 # Serial communication (async via common::serial / serial2-tokio)
 serial = ["common/serial"]
-
-# Hardware drivers (all require serial)
-thorlabs = ["serial", "dep:driver-thorlabs"]           # ELL14 rotators
-thorlabs_config = ["thorlabs"]  # Config-based ELL14 driver
-newport = ["serial", "dep:driver-newport"]            # Newport stages
-spectra_physics = ["serial", "dep:driver-spectra-physics"]    # Spectra-Physics lasers
-newport_power_meter = ["newport"] # Newport 1830-C power meter (included in newport)
-red_pitaya = ["dep:driver-red-pitaya"]      # Red Pitaya PID controller
-
-# PVCAM camera support
-pvcam = ["dep:driver-pvcam"]                           # Mock driver (fast compile)
-pvcam_sdk = ["pvcam", "driver-pvcam/pvcam_sdk"]        # Real SDK (requires installation)
-pvcam_hardware = ["pvcam_sdk"]                             # Back-compat alias for pvcam_sdk
-
-# Comedi DAQ support (Linux only)
-comedi = ["dep:driver-comedi"]                         # Mock driver (fast compile)
-comedi_hardware = ["comedi", "driver-comedi/hardware"] # Real hardware (requires comedilib)
-
-# Andor iStar camera and Shamrock spectrograph (SDK3)
-andor = ["dep:driver-andor-sdk3"]
-andor_hardware = ["andor", "driver-andor-sdk3/hardware"]
-
-# Convenience feature: all hardware drivers (with mock PVCAM and Comedi)
-all_hardware = ["thorlabs", "newport", "spectra_physics", "newport_power_meter", "pvcam", "comedi", "red_pitaya", "andor"]
-
-# Full feature set
-full = ["all_hardware", "simulator"]
 
 # Other features
 simulator = []

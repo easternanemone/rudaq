@@ -786,7 +786,8 @@ async fn open_db(db_path: Option<PathBuf>) -> Result<db::DaqDb> {
 /// `rust-daq config import <file>` — load TOML hardware config into DB.
 #[cfg(feature = "db-surreal")]
 async fn config_import(file: PathBuf, db_path: Option<PathBuf>) -> Result<()> {
-    use hardware::registry::{register_all_factories, DeviceRegistry, HardwareConfig};
+    use driver_registry::register_all_factories;
+    use hardware::registry::{DeviceRegistry, HardwareConfig};
 
     let hw_config = HardwareConfig::from_file(&file)
         .map_err(|e| anyhow::anyhow!("Failed to parse {}: {e}", file.display()))?;

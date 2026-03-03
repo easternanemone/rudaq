@@ -7,7 +7,7 @@ compile_error!("pvcam_grpc_harness requires the 'server' feature");
 
 use anyhow::{Context, Result};
 use common::health::SystemHealthMonitor;
-use hardware::registry::create_registry_from_file;
+use driver_registry::create_registry_from_file;
 use protocol::daq::hardware_service_client::HardwareServiceClient;
 use protocol::daq::{
     SetParameterRequest, StartStreamRequest, StopStreamRequest, StreamFramesRequest, StreamQuality,
