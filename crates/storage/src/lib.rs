@@ -87,10 +87,12 @@ pub use hdf5_writer::HDF5Writer;
 pub use ring_buffer::{AsyncRingBuffer, RingBuffer};
 pub use ring_buffer_reader::{ReaderStats, RingBufferReader};
 
-#[cfg(feature = "storage_arrow")]
-pub use arrow_writer::ArrowDocumentWriter;
 #[cfg(feature = "storage_parquet")]
 pub use arrow_writer::ParquetDocumentWriter;
+#[cfg(feature = "storage_arrow")]
+pub use arrow_writer::{
+    read_tensor_shape, ArrowDocumentWriter, TENSOR_DIM_NAMES_KEY, TENSOR_SHAPE_KEY,
+};
 #[cfg(feature = "storage_tiff")]
 pub use tiff_writer::{LoanedFrame, TiffWriter};
 #[cfg(feature = "storage_zarr")]

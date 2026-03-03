@@ -13266,6 +13266,7 @@ dependencies = [
  "bytes",
  "chrono",
  "common",
+ "criterion",
  "hdf5-metno",
  "image",
  "lazy_static",
