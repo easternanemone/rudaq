@@ -32,6 +32,16 @@ print(`Shots per delay: ${shots_per_delay}`);
 print(`Total delays: ${num_delays}`);
 print("");
 
+// ── Construct hardware handle ─────────────────────────────────────────
+let camera = create_andor_camera();
+
+// ── Prepare Camera ───────────────────────────────────────────────────
+print("Preparing camera...");
+camera.set_trigger_mode("External");
+camera.set_gate_mode("DDG");
+camera.arm();
+print("  Camera armed");
+
 // ── Execute Delay Scan ───────────────────────────────────────────────
 print("Starting delay scan...");
 print("─────────────────────────────────────────");
@@ -40,16 +50,15 @@ for i in 0..num_delays {
     let delay = delay_start_ps + (i * delay_step_ps);
     let delay_us = delay.to_float() / 1000000.0;
 
-    // TODO: When Rhai LIBS extensions are available (bd-3yb8.9):
-    //   camera.set_ddg_delay(delay);
-    //   for _shot in 0..shots_per_delay {
-    //       camera.trigger();
-    //       camera.wait_frame();
-    //   }
+    // Set DDG timing for this delay point (gate width stays fixed)
+    camera.set_ddg_timing(delay, gate_width_ps);
 
     print(`  [${i+1}/${num_delays}] DDG delay: ${delay_us} µs — ${shots_per_delay} shots accumulated`);
     sleep(0.02);
 }
+
+// ── Shutdown ─────────────────────────────────────────────────────────
+camera.stop_stream();
 
 print("─────────────────────────────────────────");
 print(`Delay scan complete: ${num_delays} delay points x ${shots_per_delay} shots`);

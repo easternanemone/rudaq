@@ -27,6 +27,11 @@ let scan_velocity  = 1.0;      // mm/s
 let pulse_width_ns = 1000;     // 1 µs trigger pulse
 let bidirectional  = false;    // single-direction scan
 
+// ── Camera Parameters ────────────────────────────────────────────────
+let mcp_gain     = 3600;
+let ddg_delay_ps = 1300000;   // 1.3 µs delay
+let ddg_width_ps = 10000000;  // 10 µs gate width
+
 let num_triggers = ((scan_end - scan_start) / scan_increment).to_int();
 let scan_time_s  = (scan_end - scan_start) / scan_velocity;
 
@@ -36,31 +41,34 @@ print(`Expected: ${num_triggers} triggers in ${scan_time_s} s`);
 print(`Trigger rate: ${num_triggers.to_float() / scan_time_s} Hz`);
 print("");
 
+// ── Construct hardware handles ────────────────────────────────────────
+let camera  = create_andor_camera();
+let stage_x = create_dover_axis("X");
+
 // ── Step 1: Prepare Camera ──────────────────────────────────────────
 print("[1/5] Preparing camera for external triggering...");
-// TODO: camera.set_trigger_mode("External");
-// TODO: camera.set_exposure(0.0015);  // 1.5 ms
-// TODO: camera.set_ddg_delay(1300000);  // 1.3 µs
-// TODO: camera.set_ddg_width(10000000); // 10 µs
-// TODO: camera.set_mcp_gain(3600);
-// TODO: camera.arm();
-print("  Camera armed (placeholder)");
+camera.set_trigger_mode("External");
+camera.set_gate_mode("DDG");
+camera.set_ddg_timing(ddg_delay_ps, ddg_width_ps);
+camera.set_mcp_gain(mcp_gain);
+camera.arm();
+print("  Camera armed");
 
 // ── Step 2: Configure TOP ───────────────────────────────────────────
 print("[2/5] Configuring Trigger-On-Position...");
-// TODO: stage_x.enable_top(scan_start, scan_end, scan_increment, bidirectional, pulse_width_ns);
+stage_x.enable_top(scan_start, scan_end, scan_increment, bidirectional, pulse_width_ns);
 print(`  TOP: ${scan_start}→${scan_end} mm, Δ${scan_increment} mm, pulse ${pulse_width_ns} ns`);
 
 // ── Step 3: Set Velocity ────────────────────────────────────────────
 print("[3/5] Setting scan velocity...");
-// TODO: stage_x.set_velocity(scan_velocity);
+stage_x.set_velocity(scan_velocity);
 print(`  Velocity: ${scan_velocity} mm/s`);
 
 // ── Step 4: Execute Continuous Scan ─────────────────────────────────
 print("[4/5] Starting continuous scan...");
 // In TOP mode, the stage moves continuously and generates trigger pulses
 // at each increment. The camera acquires on each trigger.
-// Simulated here with discrete steps:
+// Simulated here with discrete steps until continuous-motion API lands:
 let acquired = 0;
 for i in 0..num_triggers {
     let pos = scan_start + (i.to_float() * scan_increment);
@@ -76,9 +84,9 @@ print(`  Scan complete: ${acquired} spectra acquired`);
 
 // ── Step 5: Shutdown ────────────────────────────────────────────────
 print("[5/5] Shutting down...");
-// TODO: stage_x.disable_top();
-// TODO: camera.disarm();
-print("  TOP disabled, camera disarmed");
+stage_x.disable_top();
+camera.stop_stream();
+print("  TOP disabled, camera stopped");
 
 print("");
 print(`TOP acquisition complete: ${acquired} spectra over ${scan_end - scan_start} mm`);

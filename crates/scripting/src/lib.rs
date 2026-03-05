@@ -18,6 +18,8 @@
 
 pub mod bindings;
 pub mod comedi_bindings;
+#[cfg(feature = "libs_scripting")]
+pub mod libs_bindings;
 pub mod path_security;
 pub mod plan_bindings;
 pub mod rhai_engine;
@@ -37,6 +39,10 @@ pub use bindings::Hdf5Handle;
 pub use comedi_bindings::{
     register_comedi_hardware, AnalogInput, AnalogInputHandle, AnalogOutput, AnalogOutputHandle,
     Counter, CounterHandle, DigitalIO, DigitalIOHandle,
+};
+#[cfg(feature = "libs_scripting")]
+pub use libs_bindings::{
+    register_libs_hardware, DoverAxisHandle, GatedCameraHandle, SpectrographHandle,
 };
 pub use rhai_engine::RhaiEngine;
 pub use script_runner::{ScriptPlanRunner, ScriptRunConfig, ScriptRunReport};
