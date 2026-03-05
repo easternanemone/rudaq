@@ -13,13 +13,12 @@ bind_address = "0.0.0.0"
 auth_enabled = false
 # auth_token = "change-me"
 
-# Allowed origins for gRPC-web (CORS). Keep this list tight.
-allowed_origins = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "http://localhost:8080",
-    "http://127.0.0.1:8080",
-]
+# Allowed origins for gRPC-web (CORS).
+# WARNING: ["*"] permits any website visited in a user's browser to reach this
+# daemon and issue hardware commands. Only safe on isolated, trusted lab networks.
+# For production or any network with untrusted clients, restrict to specific origins:
+#   allowed_origins = ["http://localhost:8080", "https://daq.example.com"]
+allowed_origins = ["*"]
 
 [storage]
 # Path to the memory-mapped ring buffer file.

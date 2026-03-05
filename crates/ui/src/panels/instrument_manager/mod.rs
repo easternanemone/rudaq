@@ -38,24 +38,28 @@ mod types;
 
 pub use types::{DeviceCategory, DeviceGroup, ParameterInfo, PopOutRequest};
 
+use crate::runtime::Runtime;
 use eframe::egui;
 use egui_extras::{Size, StripBuilder};
 use std::collections::HashMap;
 use std::fmt::Write;
 use std::sync::Arc;
-use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
 use crate::device_ext::DeviceInfoExt;
+#[cfg(not(target_arch = "wasm32"))]
 use crate::panels::ComediPanel;
+use crate::time::Instant;
 use crate::widgets::{
-    offline_notice, DeviceControlWidget, GenericDevicePanel, MaiTaiControlPanel, OfflineContext,
-    PowerMeterControlPanel, RotatorControlPanel, SmartStreamEditor, StageControlPanel,
+    offline_notice, AndorCameraPanel, DeviceControlWidget, DoverStagePanel, GenericDevicePanel,
+    MaiTaiControlPanel, OfflineContext, PowerMeterControlPanel, RotatorControlPanel,
+    SmartStreamEditor, SpectrographPanel, StageControlPanel,
 };
 use client::DaqClient;
 use protocol::daq::DeviceInfo;
 
 /// Timeout for individual device state fetch (prevents stalls from hung devices)
+#[cfg(not(target_arch = "wasm32"))]
 const DEVICE_STATE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 
 /// Maximum concurrent device state requests (prevents overwhelming the daemon)
@@ -118,7 +122,7 @@ pub struct InstrumentManagerPanel {
     /// Devices grouped by category
     groups: Vec<DeviceGroup>,
     /// Last refresh timestamp
-    last_refresh: Option<std::time::Instant>,
+    last_refresh: Option<Instant>,
     /// Whether initial auto-refresh has been triggered
     initial_refresh_done: bool,
     /// Error message
@@ -153,7 +157,7 @@ pub struct InstrumentManagerPanel {
     /// Exposure input (ms) for cameras
     exposure_input: HashMap<String, String>,
     /// Last read value (keyed by device_id)
-    last_reading: HashMap<String, (f64, std::time::Instant)>,
+    last_reading: HashMap<String, (f64, Instant)>,
     /// Operation in progress (keyed by device_id)
     operation_pending: HashMap<String, String>,
 
@@ -166,7 +170,14 @@ pub struct InstrumentManagerPanel {
     rotator_panels: HashMap<String, RotatorControlPanel>,
     /// Stage control panels
     stage_panels: HashMap<String, StageControlPanel>,
-    /// Comedi DAQ control panels
+    /// Andor iStar camera control panels
+    andor_panels: HashMap<String, AndorCameraPanel>,
+    /// Shamrock spectrograph control panels
+    spectrograph_panels: HashMap<String, SpectrographPanel>,
+    /// Dover stage control panels (with TOP support)
+    dover_panels: HashMap<String, DoverStagePanel>,
+    /// Comedi DAQ control panels (Linux-only, requires kernel drivers)
+    #[cfg(not(target_arch = "wasm32"))]
     comedi_panels: HashMap<String, ComediPanel>,
     /// Generic capability-based control panels (keyed by device_id)
     generic_panels: HashMap<String, GenericDevicePanel>,
@@ -243,6 +254,10 @@ impl Default for InstrumentManagerPanel {
             power_meter_panels: HashMap::new(),
             rotator_panels: HashMap::new(),
             stage_panels: HashMap::new(),
+            andor_panels: HashMap::new(),
+            spectrograph_panels: HashMap::new(),
+            dover_panels: HashMap::new(),
+            #[cfg(not(target_arch = "wasm32"))]
             comedi_panels: HashMap::new(),
             generic_panels: HashMap::new(),
             config_driven_panels: HashMap::new(),
@@ -313,7 +328,7 @@ impl InstrumentManagerPanel {
                                     "InstrumentManagerPanel: refresh succeeded, received devices"
                                 );
                                 self.update_groups(devices);
-                                self.last_refresh = Some(std::time::Instant::now());
+                                self.last_refresh = Some(Instant::now());
                                 self.status = Some(format!(
                                     "Loaded {} devices",
                                     self.groups.iter().map(|g| g.devices.len()).sum::<usize>()
@@ -427,8 +442,7 @@ impl InstrumentManagerPanel {
                             self.operation_pending.remove(&device_id);
                             match result {
                                 Ok(value) => {
-                                    self.last_reading
-                                        .insert(device_id, (value, std::time::Instant::now()));
+                                    self.last_reading.insert(device_id, (value, Instant::now()));
                                     self.status = Some(format!("Read: {:.4}", value));
                                     self.error = None;
                                 }
@@ -575,14 +589,26 @@ impl InstrumentManagerPanel {
                     // Acquire semaphore permit (limits concurrency)
                     let _permit = semaphore.acquire().await;
 
-                    // Fetch with timeout
-                    match tokio::time::timeout(
+                    // Fetch with timeout (on WASM, gRPC-web has its own browser fetch timeout)
+                    #[cfg(not(target_arch = "wasm32"))]
+                    let fetch_result = match tokio::time::timeout(
                         DEVICE_STATE_TIMEOUT,
                         client.get_device_state(&device_id),
                     )
                     .await
                     {
-                        Ok(Ok(proto_state)) => Ok(DeviceState {
+                        Ok(Ok(proto_state)) => Ok(proto_state),
+                        Ok(Err(e)) => Err(e.to_string()),
+                        Err(_) => Err(format!("Timeout after {}s", DEVICE_STATE_TIMEOUT.as_secs())),
+                    };
+                    #[cfg(target_arch = "wasm32")]
+                    let fetch_result = client
+                        .get_device_state(&device_id)
+                        .await
+                        .map_err(|e| e.to_string());
+
+                    match fetch_result {
+                        Ok(proto_state) => Ok(DeviceState {
                             position: proto_state.position,
                             reading: proto_state.last_reading,
                             armed: proto_state.armed,
@@ -590,8 +616,7 @@ impl InstrumentManagerPanel {
                             exposure_ms: proto_state.exposure_ms,
                             online: proto_state.online,
                         }),
-                        Ok(Err(e)) => Err(e.to_string()),
-                        Err(_) => Err(format!("Timeout after {}s", DEVICE_STATE_TIMEOUT.as_secs())),
+                        Err(e) => Err(e),
                     }
                 });
 
@@ -1532,14 +1557,19 @@ impl InstrumentManagerPanel {
             return;
         }
 
-        // Check for Comedi DAQ devices
+        // Check for Comedi DAQ devices (Linux-only, requires kernel drivers)
+        #[cfg(not(target_arch = "wasm32"))]
         if driver_lower.contains("comedi")
             || driver_lower.contains("ni_daq")
             || driver_lower.contains("nidaq")
             || driver_lower.contains("pci-mio")
             || driver_lower.contains("pcimio")
         {
-            let panel = self.comedi_panels.entry(device_id.clone()).or_default();
+            let did = device_id.clone();
+            let panel = self
+                .comedi_panels
+                .entry(device_id.clone())
+                .or_insert_with(|| ComediPanel::new(&did));
             // Use push_id to avoid widget ID collisions with docked panels
             ui.push_id(("instr_mgr", &device_id), |ui| {
                 panel.ui(ui, client.as_deref_mut(), runtime);
@@ -1567,6 +1597,36 @@ impl InstrumentManagerPanel {
         if driver_lower.contains("ell14") || driver_lower.contains("rotator") {
             let panel = self.rotator_panels.entry(device_id.clone()).or_default();
             // Use push_id to avoid widget ID collisions with docked panels
+            ui.push_id(("instr_mgr", &device_id), |ui| {
+                panel.ui(ui, &device, client.as_deref_mut(), runtime);
+            });
+            return;
+        }
+
+        // Check for Andor iStar camera
+        if driver_lower.contains("andor_istar") || driver_lower.contains("andor_camera") {
+            let panel = self.andor_panels.entry(device_id.clone()).or_default();
+            ui.push_id(("instr_mgr", &device_id), |ui| {
+                panel.ui(ui, &device, client.as_deref_mut(), runtime);
+            });
+            return;
+        }
+
+        // Check for Shamrock spectrograph
+        if driver_lower.contains("andor_shamrock") || driver_lower.contains("shamrock") {
+            let panel = self
+                .spectrograph_panels
+                .entry(device_id.clone())
+                .or_default();
+            ui.push_id(("instr_mgr", &device_id), |ui| {
+                panel.ui(ui, &device, client.as_deref_mut(), runtime);
+            });
+            return;
+        }
+
+        // Check for Dover SmartStage
+        if driver_lower.contains("dover") {
+            let panel = self.dover_panels.entry(device_id.clone()).or_default();
             ui.push_id(("instr_mgr", &device_id), |ui| {
                 panel.ui(ui, &device, client.as_deref_mut(), runtime);
             });

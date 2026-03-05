@@ -8,6 +8,7 @@ use tokio::sync::mpsc;
 
 use crate::widgets::{offline_notice, OfflineContext};
 use client::DaqClient;
+use protocol::ni_daq::{ReadCounterRequest, ResetCounterRequest};
 
 use super::CounterMode;
 
@@ -149,7 +150,8 @@ impl CounterPanel {
         if self.auto_refresh {
             let elapsed = self.last_refresh.elapsed();
             if elapsed.as_millis() >= u128::from(self.refresh_interval_ms) {
-                self.read_all_counters(runtime);
+                let auto_client = client.as_deref().cloned();
+                self.read_all_counters(auto_client, runtime);
                 self.last_refresh = crate::time::Instant::now();
             }
             ui.ctx().request_repaint();
@@ -197,11 +199,13 @@ impl CounterPanel {
             })
             .inner;
 
+        let client_clone = client.as_deref().cloned();
+
         if read_all {
-            self.read_all_counters(runtime);
+            self.read_all_counters(client_clone.clone(), runtime);
         }
         if reset_all {
-            self.reset_all_counters(runtime);
+            self.reset_all_counters(client_clone.clone(), runtime);
         }
 
         ui.separator();
@@ -218,12 +222,17 @@ impl CounterPanel {
         ui.separator();
 
         // Selected counter details
-        self.render_counter_details(ui, runtime);
+        self.render_counter_details(ui, client_clone, runtime);
     }
 
     /// Render details for selected counter.
     #[allow(clippy::cast_possible_truncation)]
-    fn render_counter_details(&mut self, ui: &mut Ui, runtime: &Runtime) {
+    fn render_counter_details(
+        &mut self,
+        ui: &mut Ui,
+        client: Option<DaqClient>,
+        runtime: &Runtime,
+    ) {
         let counter_idx = self.selected_counter;
 
         // Actions to execute after UI rendering
@@ -417,10 +426,10 @@ impl CounterPanel {
 
         // Execute deferred actions
         if read_action {
-            self.read_counter(counter_idx as u32, runtime);
+            self.read_counter(counter_idx as u32, client.clone(), runtime);
         }
         if reset_action {
-            self.reset_counter(counter_idx as u32, runtime);
+            self.reset_counter(counter_idx as u32, client.clone(), runtime);
         }
         if stop_action {
             self.stop_pulse_generation(counter_idx as u32, runtime);
@@ -436,39 +445,110 @@ impl CounterPanel {
         });
     }
 
-    fn read_counter(&self, counter: u32, runtime: &Runtime) {
+    fn read_counter(&self, counter: u32, client: Option<DaqClient>, runtime: &Runtime) {
         let tx = self.action_tx.clone();
+        let device_id = self.device_id.clone();
         runtime.spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-            // Simulated count value
-            let count = (u64::from(counter) + 1) * 1000;
-            let _ = tx.send(ActionResult::CountValue { counter, count }).await;
+            if let Some(mut c) = client {
+                let req = ReadCounterRequest { device_id, counter };
+                match c.ni_daq_client().read_counter(req).await {
+                    Ok(resp) => {
+                        let r = resp.into_inner();
+                        if r.success {
+                            let _ = tx
+                                .send(ActionResult::CountValue {
+                                    counter,
+                                    count: r.count,
+                                })
+                                .await;
+                        } else {
+                            let _ = tx
+                                .send(ActionResult::Error {
+                                    counter,
+                                    error: r.error_message,
+                                })
+                                .await;
+                        }
+                    }
+                    Err(e) => {
+                        let _ = tx
+                            .send(ActionResult::Error {
+                                counter,
+                                error: e.to_string(),
+                            })
+                            .await;
+                    }
+                }
+            }
         });
     }
 
-    fn reset_counter(&self, counter: u32, runtime: &Runtime) {
+    fn reset_counter(&self, counter: u32, client: Option<DaqClient>, runtime: &Runtime) {
         let tx = self.action_tx.clone();
+        let device_id = self.device_id.clone();
         runtime.spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-            let _ = tx.send(ActionResult::ResetSuccess { counter }).await;
+            if let Some(mut c) = client {
+                let req = ResetCounterRequest { device_id, counter };
+                match c.ni_daq_client().reset_counter(req).await {
+                    Ok(resp) => {
+                        let r = resp.into_inner();
+                        if r.success {
+                            let _ = tx.send(ActionResult::ResetSuccess { counter }).await;
+                        } else {
+                            let _ = tx
+                                .send(ActionResult::Error {
+                                    counter,
+                                    error: r.error_message,
+                                })
+                                .await;
+                        }
+                    }
+                    Err(e) => {
+                        let _ = tx
+                            .send(ActionResult::Error {
+                                counter,
+                                error: e.to_string(),
+                            })
+                            .await;
+                    }
+                }
+            } else {
+                // Offline: just emit reset success to clear the local count display
+                let _ = tx.send(ActionResult::ResetSuccess { counter }).await;
+            }
         });
     }
 
-    fn read_all_counters(&self, runtime: &Runtime) {
+    fn read_all_counters(&self, client: Option<DaqClient>, runtime: &Runtime) {
         for i in 0..self.n_counters {
-            self.read_counter(i, runtime);
+            self.read_counter(i, client.clone(), runtime);
         }
     }
 
-    fn reset_all_counters(&mut self, runtime: &Runtime) {
+    fn reset_all_counters(&mut self, client: Option<DaqClient>, runtime: &Runtime) {
         let tx = self.action_tx.clone();
+        let device_id = self.device_id.clone();
         let n = self.n_counters;
         for counter in &mut self.counters {
             counter.count = 0;
         }
         runtime.spawn(async move {
-            for i in 0..n {
-                let _ = tx.send(ActionResult::ResetSuccess { counter: i }).await;
+            if let Some(mut c) = client {
+                for i in 0..n {
+                    let req = ResetCounterRequest {
+                        device_id: device_id.clone(),
+                        counter: i,
+                    };
+                    if let Ok(resp) = c.ni_daq_client().reset_counter(req).await {
+                        if resp.into_inner().success {
+                            let _ = tx.send(ActionResult::ResetSuccess { counter: i }).await;
+                        }
+                    }
+                }
+            } else {
+                for i in 0..n {
+                    let _ = tx.send(ActionResult::ResetSuccess { counter: i }).await;
+                }
             }
         });
     }

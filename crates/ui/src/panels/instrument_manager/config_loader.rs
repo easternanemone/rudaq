@@ -5,8 +5,11 @@
 use anyhow::{Context, Result};
 use hardware::config::schema::DeviceConfig;
 use std::collections::HashMap;
+#[cfg(not(target_arch = "wasm32"))]
 use std::fs;
-use std::path::{Path, PathBuf};
+#[cfg(not(target_arch = "wasm32"))]
+use std::path::Path;
+use std::path::PathBuf;
 
 /// Cache of loaded device configurations
 pub struct DeviceConfigCache {
@@ -47,50 +50,63 @@ impl DeviceConfigCache {
         self
     }
 
-    /// Load all device configs from the config directory
+    /// Load all device configs from the config directory.
+    ///
+    /// On WASM, there is no local filesystem — config comes via gRPC metadata.
+    /// This is a no-op and always succeeds.
     pub fn load_all(&mut self) -> Result<()> {
         self.load_attempted = true;
 
-        if !self.config_dir.exists() {
-            // Config directory doesn't exist - return early (not an error in GUI)
+        #[cfg(target_arch = "wasm32")]
+        {
             return Ok(());
         }
 
-        // Read all .toml files in the directory
-        let entries = fs::read_dir(&self.config_dir)
-            .with_context(|| format!("Failed to read config dir: {}", self.config_dir.display()))?;
-
-        for entry in entries {
-            let entry = entry?;
-            let path = entry.path();
-
-            // Skip non-TOML files
-            if path.extension().and_then(|s| s.to_str()) != Some("toml") {
-                continue;
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if !self.config_dir.exists() {
+                // Config directory doesn't exist - return early (not an error in GUI)
+                return Ok(());
             }
 
-            // Try to load the config, distinguishing read errors from parse errors
-            match self.load_config(&path) {
-                Ok(()) => {}
-                Err(e) => {
-                    let msg = format!("{:#}", e);
-                    if msg.contains("Failed to read") {
-                        tracing::warn!("Cannot read device config {:?}: {}", path, e);
-                    } else {
-                        tracing::debug!(
-                            "Skipping device config {:?} (schema mismatch): {}",
-                            path,
-                            e
-                        );
+            // Read all .toml files in the directory
+            let entries = fs::read_dir(&self.config_dir).with_context(|| {
+                format!("Failed to read config dir: {}", self.config_dir.display())
+            })?;
+
+            for entry in entries {
+                let entry = entry?;
+                let path = entry.path();
+
+                // Skip non-TOML files
+                if path.extension().and_then(|s| s.to_str()) != Some("toml") {
+                    continue;
+                }
+
+                // Try to load the config, distinguishing read errors from parse errors
+                match self.load_config(&path) {
+                    Ok(()) => {}
+                    Err(e) => {
+                        let msg = format!("{:#}", e);
+                        if msg.contains("Failed to read") {
+                            tracing::warn!("Cannot read device config {:?}: {}", path, e);
+                        } else {
+                            tracing::debug!(
+                                "Skipping device config {:?} (schema mismatch): {}",
+                                path,
+                                e
+                            );
+                        }
                     }
                 }
             }
-        }
 
-        Ok(())
+            Ok(())
+        }
     }
 
     /// Load a single device config file
+    #[cfg(not(target_arch = "wasm32"))]
     fn load_config(&mut self, path: &Path) -> Result<()> {
         let contents = fs::read_to_string(path)
             .with_context(|| format!("Failed to read config file: {}", path.display()))?;

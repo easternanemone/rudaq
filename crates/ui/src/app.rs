@@ -20,15 +20,14 @@ use crate::daemon_launcher::{AutoConnectState, DaemonLauncher, DaemonMode};
 use crate::device_ext::DeviceInfoExt;
 use crate::icons;
 use crate::layout;
-#[cfg(not(target_arch = "wasm32"))]
 use crate::panels::instrument_manager::{
     config_loader::DeviceConfigCache, config_renderer::ConfigDrivenPanel,
 };
 use crate::panels::{
-    ComediPanel, ConnectionDiagnostics, ConnectionStatus as LogConnectionStatus, DevicesPanel,
+    ComediPanel, ConnectionDiagnostics, ConnectionStatus as LogConnectionStatus,
     DocumentViewerPanel, ExperimentDesignerPanel, GettingStartedPanel, ImageViewerPanel,
-    InstrumentManagerPanel, LoggingPanel, ModulesPanel, PlanRunnerPanel, RunComparisonPanel,
-    RunHistoryPanel, ScanBuilderPanel, ScansPanel, ScriptsPanel, SignalPlotterPanel, StoragePanel,
+    InstrumentManagerPanel, LoggingPanel, ModulesPanel, PlanRunnerPanel, RunHistoryPanel,
+    ScanBuilderPanel, ScriptsPanel, SignalPlotterPanel, StoragePanel,
 };
 use crate::shortcuts::{CheatSheetPanel, ShortcutAction, ShortcutContext, ShortcutManager};
 use crate::theme::{self, ThemePreference};
@@ -797,12 +796,9 @@ pub struct DaqApp {
 
     /// Panel states
     getting_started_panel: GettingStartedPanel,
-    devices_panel: DevicesPanel,
     scripts_panel: ScriptsPanel,
-    scans_panel: ScansPanel,
     storage_panel: StoragePanel,
     run_history_panel: RunHistoryPanel,
-    run_comparison_panel: RunComparisonPanel,
     modules_panel: ModulesPanel,
     plan_runner_panel: PlanRunnerPanel,
     scan_builder_panel: ScanBuilderPanel,
@@ -871,13 +867,10 @@ pub struct DaqApp {
     /// Docked Comedi panels (advanced layout mode)
     docked_comedi_panels: HashMap<usize, ComediPanel>,
     /// Docked config-driven panels (from gRPC `ui_schema_json` or local TOML `[ui.control_panel]`)
-    #[cfg(not(target_arch = "wasm32"))]
     docked_config_driven_panels: HashMap<usize, ConfigDrivenPanel>,
     /// Device config cache for TOML-driven panel dispatch
-    #[cfg(not(target_arch = "wasm32"))]
     config_cache: DeviceConfigCache,
     /// gRPC UI config cache for docked panels (keyed by panel ID)
-    #[cfg(not(target_arch = "wasm32"))]
     grpc_ui_config_cache: HashMap<usize, Option<hardware::config::schema::ControlPanelConfig>>,
     /// User-added command widgets for advanced control panels (keyed by panel ID)
     docked_command_widgets: HashMap<usize, CommandWidgetPalette>,
@@ -1134,14 +1127,11 @@ pub enum Panel {
     Nav,
     GettingStarted,
     Instruments,
-    Devices,
     Scripts,
-    Scans,
     ScanBuilder,
     ExperimentDesigner,
     Storage,
     RunHistory,
-    RunComparison,
     Modules,
     PlanRunner,
     DocumentViewer,
@@ -1400,12 +1390,9 @@ impl DaqApp {
             dock_state: Some(dock_state),
             ui_actions: Vec::new(),
             getting_started_panel: GettingStartedPanel::default(),
-            devices_panel: DevicesPanel::default(),
             scripts_panel: ScriptsPanel::default(),
-            scans_panel: ScansPanel::default(),
             storage_panel: StoragePanel::default(),
             run_history_panel: RunHistoryPanel::default(),
-            run_comparison_panel: RunComparisonPanel::default(),
             modules_panel: ModulesPanel::default(),
             plan_runner_panel: PlanRunnerPanel::default(),
             scan_builder_panel: ScanBuilderPanel::default(),
@@ -1571,12 +1558,9 @@ impl DaqApp {
             dock_state: Some(dock_state),
             ui_actions: Vec::new(),
             getting_started_panel: GettingStartedPanel::default(),
-            devices_panel: DevicesPanel::default(),
             scripts_panel: ScriptsPanel::default(),
-            scans_panel: ScansPanel::default(),
             storage_panel: StoragePanel::default(),
             run_history_panel: RunHistoryPanel::default(),
-            run_comparison_panel: RunComparisonPanel::default(),
             modules_panel: ModulesPanel::default(),
             plan_runner_panel: PlanRunnerPanel::default(),
             scan_builder_panel: ScanBuilderPanel::default(),
@@ -1603,11 +1587,8 @@ impl DaqApp {
             docked_rotator_panels: HashMap::new(),
             docked_stage_panels: HashMap::new(),
             docked_comedi_panels: HashMap::new(),
-            #[cfg(not(target_arch = "wasm32"))]
             docked_config_driven_panels: HashMap::new(),
-            #[cfg(not(target_arch = "wasm32"))]
             grpc_ui_config_cache: HashMap::new(),
-            #[cfg(not(target_arch = "wasm32"))]
             config_cache: {
                 let mut cache = DeviceConfigCache::new();
                 if let Err(e) = cache.load_all() {
@@ -1903,20 +1884,12 @@ impl DaqApp {
                             .push(UiAction::FocusTab(Panel::GettingStarted));
                         ui.close();
                     }
-                    if ui.button("Devices").clicked() {
-                        self.ui_actions.push(UiAction::FocusTab(Panel::Devices));
-                        ui.close();
-                    }
                     if ui.button("Image Viewer").clicked() {
                         self.ui_actions.push(UiAction::FocusTab(Panel::ImageViewer));
                         ui.close();
                     }
                     if ui.button("Scripts").clicked() {
                         self.ui_actions.push(UiAction::FocusTab(Panel::Scripts));
-                        ui.close();
-                    }
-                    if ui.button("Scans").clicked() {
-                        self.ui_actions.push(UiAction::FocusTab(Panel::Scans));
                         ui.close();
                     }
                     if ui.button("Scan Builder").clicked() {
@@ -2521,12 +2494,10 @@ impl DaqApp {
 
         // Reset panels to force them to refresh their data
         // This clears cached data and triggers new loads on next render
-        self.devices_panel = DevicesPanel::default();
         self.scripts_panel = ScriptsPanel::default();
         self.modules_panel = ModulesPanel::default();
         self.storage_panel = StoragePanel::default();
         self.run_history_panel = RunHistoryPanel::default();
-        self.run_comparison_panel = RunComparisonPanel::default();
 
         // Reset InstrumentManagerPanel to trigger auto-refresh on reconnect
         // (keeps panel state like selected device, but clears device list and refresh flag)
@@ -2780,14 +2751,11 @@ impl TabViewer for DaqTabViewer<'_> {
                 format!("{} Getting Started", icons::nav::GETTING_STARTED).into()
             }
             Panel::Instruments => format!("{} Instruments", icons::nav::INSTRUMENT_MANAGER).into(),
-            Panel::Devices => format!("{} Devices", icons::nav::DEVICES).into(),
             Panel::Scripts => format!("{} Scripts", icons::nav::SCRIPTS).into(),
-            Panel::Scans => format!("{} Scans", icons::nav::SCANS).into(),
             Panel::ScanBuilder => "Scan Builder".into(),
             Panel::ExperimentDesigner => "Experiment Designer".into(),
             Panel::Storage => format!("{} Storage", icons::nav::STORAGE).into(),
             Panel::RunHistory => "📚 Run History".into(),
-            Panel::RunComparison => "📊 Compare Runs".into(),
             Panel::Modules => format!("{} Modules", icons::nav::MODULES).into(),
             Panel::PlanRunner => format!("{} Plan Runner", icons::nav::PLAN_RUNNER).into(),
             Panel::DocumentViewer => format!("{} Documents", icons::nav::DOCUMENT_VIEWER).into(),
@@ -2830,19 +2798,9 @@ impl TabViewer for DaqTabViewer<'_> {
                 self.app.client.as_mut(),
                 &self.app.runtime,
             ),
-            Panel::Devices => {
-                self.app
-                    .devices_panel
-                    .ui(ui, self.app.client.as_mut(), &self.app.runtime);
-            }
             Panel::Scripts => {
                 self.app
                     .scripts_panel
-                    .ui(ui, self.app.client.as_mut(), &self.app.runtime);
-            }
-            Panel::Scans => {
-                self.app
-                    .scans_panel
                     .ui(ui, self.app.client.as_mut(), &self.app.runtime);
             }
             Panel::ScanBuilder => {
@@ -2863,11 +2821,6 @@ impl TabViewer for DaqTabViewer<'_> {
             Panel::RunHistory => {
                 self.app
                     .run_history_panel
-                    .ui(ui, self.app.client.as_mut(), &self.app.runtime);
-            }
-            Panel::RunComparison => {
-                self.app
-                    .run_comparison_panel
                     .ui(ui, self.app.client.as_mut(), &self.app.runtime);
             }
             Panel::Modules => {
@@ -2938,7 +2891,6 @@ impl DaqTabViewer<'_> {
                 "Instruments",
                 Panel::Instruments,
             );
-            self.nav_button(ui, icons::nav::DEVICES, "Devices", Panel::Devices);
 
             Self::section_label(ui, "Visualization");
             self.nav_button(
@@ -2956,7 +2908,6 @@ impl DaqTabViewer<'_> {
 
             Self::section_label(ui, "Experiment");
             self.nav_button(ui, icons::nav::SCRIPTS, "Scripts", Panel::Scripts);
-            self.nav_button(ui, icons::nav::SCANS, "Scans", Panel::Scans);
             self.nav_button(ui, icons::nav::SCANS, "Scan Builder", Panel::ScanBuilder);
             self.nav_button(
                 ui,
@@ -3077,8 +3028,7 @@ impl DaqTabViewer<'_> {
             }
         }
 
-        // --- Priority 0 & 1: Config-driven panels (native-only, uses hardware crate) ---
-        #[cfg(not(target_arch = "wasm32"))]
+        // --- Priority 0 & 1: Config-driven panels (cross-platform, uses hardware schema types) ---
         {
             // Priority 0: gRPC-driven panel from device metadata
             let grpc_config = self
@@ -3135,7 +3085,12 @@ impl DaqTabViewer<'_> {
                         panel.ui(ui, device_info, self.app.client.as_mut(), &self.app.runtime);
                     }
                     DockedAdvancedPanelKind::Comedi => {
-                        let panel = self.app.docked_comedi_panels.entry(panel_id).or_default();
+                        let did = device_info.id.clone();
+                        let panel = self
+                            .app
+                            .docked_comedi_panels
+                            .entry(panel_id)
+                            .or_insert_with(|| ComediPanel::new(&did));
                         panel.ui(ui, self.app.client.as_mut(), &self.app.runtime);
                     }
                     DockedAdvancedPanelKind::PowerMeter => {

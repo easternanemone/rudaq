@@ -152,6 +152,7 @@ use protocol::daq::{
     UploadRequest as ScriptUploadRequest,
     UploadResponse as ScriptUploadResponse,
 };
+use protocol::ni_daq::ni_daq_service_client::NiDaqServiceClient;
 
 /// gRPC client wrapper for the DAQ daemon.
 ///
@@ -168,6 +169,10 @@ pub struct DaqClient {
     storage: StorageServiceClient<Transport>,
     module: ModuleServiceClient<Transport>,
     run_engine: RunEngineServiceClient<Transport>,
+    /// NI DAQ service client for Comedi hardware control
+    ni_daq: NiDaqServiceClient<Transport>,
+    /// Dedicated NI DAQ streaming client (no request timeout, for stream_analog_input)
+    ni_daq_streaming: NiDaqServiceClient<Transport>,
 }
 
 /// Maximum message size for gRPC (64 MB for high-resolution camera frames)
@@ -238,12 +243,14 @@ impl DaqClient {
             hardware: HardwareServiceClient::new(channel.clone())
                 .max_decoding_message_size(MAX_MESSAGE_SIZE),
             // Dedicated streaming client without request timeout
-            hardware_streaming: HardwareServiceClient::new(streaming_channel)
+            hardware_streaming: HardwareServiceClient::new(streaming_channel.clone())
                 .max_decoding_message_size(MAX_MESSAGE_SIZE),
             scan: ScanServiceClient::new(channel.clone()),
             storage: StorageServiceClient::new(channel.clone()),
             module: ModuleServiceClient::new(channel.clone()),
-            run_engine: RunEngineServiceClient::new(channel),
+            run_engine: RunEngineServiceClient::new(channel.clone()),
+            ni_daq: NiDaqServiceClient::new(channel),
+            ni_daq_streaming: NiDaqServiceClient::new(streaming_channel),
         })
     }
 
@@ -270,6 +277,8 @@ impl DaqClient {
         let client = tonic_web_wasm_client::Client::new(base_url.to_string());
         Self {
             control: ControlServiceClient::new(client.clone()),
+            control_streaming: ControlServiceClient::new(client.clone())
+                .max_decoding_message_size(MAX_MESSAGE_SIZE),
             hardware: HardwareServiceClient::new(client.clone())
                 .max_decoding_message_size(MAX_MESSAGE_SIZE),
             hardware_streaming: HardwareServiceClient::new(client.clone())
@@ -277,7 +286,9 @@ impl DaqClient {
             scan: ScanServiceClient::new(client.clone()),
             storage: StorageServiceClient::new(client.clone()),
             module: ModuleServiceClient::new(client.clone()),
-            run_engine: RunEngineServiceClient::new(client),
+            run_engine: RunEngineServiceClient::new(client.clone()),
+            ni_daq: NiDaqServiceClient::new(client.clone()),
+            ni_daq_streaming: NiDaqServiceClient::new(client),
         }
     }
 
@@ -296,6 +307,20 @@ impl DaqClient {
     pub async fn get_daemon_info(&mut self) -> Result<protocol::daq::DaemonInfoResponse> {
         let response = self.control.get_daemon_info(DaemonInfoRequest {}).await?;
         Ok(response.into_inner())
+    }
+
+    // =========================================================================
+    // NI DAQ Service (Comedi hardware)
+    // =========================================================================
+
+    /// Access the NI DAQ service client for single-call RPCs (reads, writes, configure).
+    pub fn ni_daq_client(&mut self) -> &mut NiDaqServiceClient<Transport> {
+        &mut self.ni_daq
+    }
+
+    /// Access the NI DAQ streaming client (no request timeout, for stream_analog_input).
+    pub fn ni_daq_streaming_client(&mut self) -> &mut NiDaqServiceClient<Transport> {
+        &mut self.ni_daq_streaming
     }
 
     // =========================================================================

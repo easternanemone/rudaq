@@ -160,10 +160,10 @@ expects_response = false
 [responses.power]
 transform = ["trim", "to_float"]
 
-# Wavelength response: 4-digit nm value
-# Example: "0780" for 780nm
+# Wavelength response: nm value (may be integer "0780" or float "780.0")
+# Using to_float for robust parsing across firmware versions
 [responses.wavelength]
-transform = ["trim", "to_int"]
+transform = ["trim", "to_float"]
 
 # Range response: single digit 1-8
 [responses.range]

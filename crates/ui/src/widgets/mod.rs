@@ -14,7 +14,6 @@ pub mod metadata_editor;
 pub mod node_palette;
 pub mod offline_notice;
 pub mod parameter_editor;
-pub mod pp_editor;
 pub mod property_inspector;
 pub mod roi_selector;
 pub mod runtime_parameter_editor;
@@ -27,8 +26,8 @@ pub mod toggle;
 pub use auto_scale_plot::{AutoScalePlot, AxisLockState};
 pub use colorbar::{Colorbar, ColorbarOrientation, ColormapTrait};
 pub use device_controls::{
-    DeviceControlWidget, GenericDevicePanel, MaiTaiControlPanel, PowerMeterControlPanel,
-    RotatorControlPanel, StageControlPanel,
+    AndorCameraPanel, DeviceControlWidget, DoverStagePanel, GenericDevicePanel, MaiTaiControlPanel,
+    PowerMeterControlPanel, RotatorControlPanel, SpectrographPanel, StageControlPanel,
 };
 #[allow(unused_imports)]
 pub use device_selector::DeviceSelector;
@@ -39,7 +38,6 @@ pub use metadata_editor::MetadataEditor;
 pub use node_palette::{NodePalette, NodeType};
 pub use offline_notice::*;
 pub use parameter_editor::*;
-pub use pp_editor::*;
 #[allow(unused_imports)]
 pub use property_inspector::PropertyInspector;
 pub use roi_selector::*;

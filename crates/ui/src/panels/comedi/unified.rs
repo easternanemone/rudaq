@@ -4,9 +4,11 @@
 
 use crate::runtime::Runtime;
 use eframe::egui::{self, Color32, RichText, Ui};
+use tokio::sync::mpsc;
 
 use crate::widgets::{offline_notice, OfflineContext};
 use client::DaqClient;
+use protocol::ni_daq::{DaqStatus, TimingCapabilities};
 
 use super::{AnalogInputPanel, AnalogOutputPanel, CounterPanel, DigitalIOPanel};
 
@@ -78,9 +80,11 @@ impl ConnectionStatus {
 /// Provides a tabbed interface to all Comedi subsystem panels with
 /// device status overview and quick actions.
 pub struct ComediPanel {
+    /// Device ID from the registry (e.g. "comedi0")
+    device_id: String,
     /// Device path
     device_path: String,
-    /// Board name (detected from device)
+    /// Board name (detected from device via get_daq_status)
     board_name: String,
     /// Driver name
     driver_name: String,
@@ -100,41 +104,45 @@ pub struct ComediPanel {
     error_log: Vec<String>,
     /// Max error log entries
     max_log_entries: usize,
-}
-
-impl Default for ComediPanel {
-    fn default() -> Self {
-        Self {
-            device_path: String::from("/dev/comedi0"),
-            board_name: String::from("pci-mio-16xe-10"),
-            driver_name: String::from("ni_pcimio"),
-            connection_status: ConnectionStatus::Disconnected,
-            active_tab: ComediTab::Overview,
-            ai_panel: AnalogInputPanel::default(),
-            ao_panel: AnalogOutputPanel::default(),
-            dio_panel: DigitalIOPanel::default(),
-            counter_panel: CounterPanel::default(),
-            error_log: Vec::new(),
-            max_log_entries: 100,
-        }
-    }
+    /// Timing capabilities fetched from server (None until first successful fetch)
+    timing_caps: Option<TimingCapabilities>,
+    /// Sender for async status results from get_daq_status + get_timing_capabilities
+    status_tx: mpsc::Sender<Result<(DaqStatus, Option<TimingCapabilities>), String>>,
+    /// Receiver for async status results
+    status_rx: mpsc::Receiver<Result<(DaqStatus, Option<TimingCapabilities>), String>>,
+    /// Whether a status fetch is in-flight
+    status_fetching: bool,
 }
 
 impl ComediPanel {
     /// Create a new unified panel for a device.
-    pub fn new(device_path: &str) -> Self {
-        let device_id = device_path
-            .strip_prefix("/dev/")
-            .unwrap_or(device_path)
-            .to_string();
-
+    ///
+    /// `device_id` is the registry key (e.g. `"comedi0"`); the `/dev/` prefix
+    /// is derived automatically for display purposes.
+    pub fn new(device_id: &str) -> Self {
+        let (status_tx, status_rx) = mpsc::channel(4);
+        let device_path = if device_id.starts_with("/dev/") {
+            device_id.to_string()
+        } else {
+            format!("/dev/{}", device_id)
+        };
         Self {
-            device_path: device_path.to_string(),
-            ai_panel: AnalogInputPanel::new(&device_id, 16),
-            ao_panel: AnalogOutputPanel::new(&device_id, 2),
-            dio_panel: DigitalIOPanel::new(&device_id, 24),
-            counter_panel: CounterPanel::new(&device_id, 3),
-            ..Default::default()
+            device_id: device_id.to_string(),
+            device_path,
+            board_name: String::new(),
+            driver_name: String::new(),
+            connection_status: ConnectionStatus::Connecting,
+            active_tab: ComediTab::Overview,
+            ai_panel: AnalogInputPanel::new(device_id, 16),
+            ao_panel: AnalogOutputPanel::new(device_id, 2),
+            dio_panel: DigitalIOPanel::new(device_id, 24),
+            counter_panel: CounterPanel::new(device_id, 3),
+            error_log: Vec::new(),
+            max_log_entries: 100,
+            timing_caps: None,
+            status_tx,
+            status_rx,
+            status_fetching: false,
         }
     }
 
@@ -142,6 +150,33 @@ impl ComediPanel {
     pub fn ui(&mut self, ui: &mut Ui, client: Option<&mut DaqClient>, runtime: &Runtime) {
         if offline_notice(ui, client.is_none(), OfflineContext::Devices) {
             return;
+        }
+
+        // Drain async status results
+        while let Ok(result) = self.status_rx.try_recv() {
+            self.status_fetching = false;
+            match result {
+                Ok((status, timing)) => {
+                    self.board_name = status.board_name.clone();
+                    self.driver_name = status.driver_name.clone();
+                    self.connection_status = if status.online {
+                        ConnectionStatus::Connected
+                    } else {
+                        ConnectionStatus::Error
+                    };
+                    if let Some(caps) = timing {
+                        self.timing_caps = Some(caps);
+                    }
+                    self.log_message(&format!(
+                        "DAQ status: {} ({}), online={}",
+                        status.board_name, status.driver_name, status.online
+                    ));
+                }
+                Err(e) => {
+                    self.connection_status = ConnectionStatus::Error;
+                    self.log_error(&e);
+                }
+            }
         }
 
         // Header with device info and status
@@ -197,10 +232,10 @@ impl ComediPanel {
 
             // Connect/disconnect button
             match self.connection_status {
-                ConnectionStatus::Disconnected => {
+                ConnectionStatus::Disconnected | ConnectionStatus::Error => {
                     if ui.button("Connect").clicked() {
                         self.connection_status = ConnectionStatus::Connecting;
-                        // TODO: Initiate connection
+                        self.status_fetching = false; // Allow re-fetch on next overview render
                     }
                 }
                 ConnectionStatus::Connected => {
@@ -214,13 +249,61 @@ impl ComediPanel {
         });
     }
 
+    /// Fetch DAQ status + timing capabilities from the server (fire-and-forget).
+    fn fetch_daq_status(&mut self, client: &mut DaqClient, runtime: &Runtime) {
+        if self.status_fetching {
+            return;
+        }
+        self.status_fetching = true;
+        self.connection_status = ConnectionStatus::Connecting;
+
+        let tx = self.status_tx.clone();
+        let device_id = self.device_id.clone();
+        let mut ni_daq = client.ni_daq_client().clone();
+
+        runtime.spawn(async move {
+            let status_result = ni_daq
+                .get_daq_status(protocol::ni_daq::GetDaqStatusRequest {
+                    device_id: device_id.clone(),
+                })
+                .await;
+            match status_result.map(|r| r.into_inner()) {
+                Ok(status) => {
+                    // Also fetch timing capabilities (best-effort)
+                    let timing = ni_daq
+                        .get_timing_capabilities(protocol::ni_daq::GetTimingCapabilitiesRequest {
+                            device_id: device_id.clone(),
+                        })
+                        .await
+                        .ok()
+                        .map(|r| r.into_inner());
+                    let _ = tx.send(Ok((status, timing))).await;
+                }
+                Err(e) => {
+                    let _ = tx.send(Err(e.to_string())).await;
+                }
+            }
+        });
+    }
+
     /// Render overview tab.
     fn render_overview(
         &mut self,
         ui: &mut Ui,
-        _client: Option<&mut DaqClient>,
-        _runtime: &Runtime,
+        mut client: Option<&mut DaqClient>,
+        runtime: &Runtime,
     ) {
+        // Trigger a status fetch on first render or when disconnected
+        if !self.status_fetching
+            && matches!(
+                self.connection_status,
+                ConnectionStatus::Disconnected | ConnectionStatus::Connecting
+            )
+        {
+            if let Some(c) = client.as_deref_mut() {
+                self.fetch_daq_status(c, runtime);
+            }
+        }
         ui.columns(2, |columns| {
             // Left column: Device info and subsystem summary
             columns[0].group(|ui| {
@@ -369,11 +452,17 @@ impl ComediPanel {
                     ui.label(RichText::new("DMA").strong());
                     ui.end_row();
 
-                    // AI row
+                    // AI row — show max rate from real timing caps when available
                     ui.label("Analog Input");
                     ui.label(RichText::new("✓").color(Color32::GREEN));
                     ui.label(RichText::new("✓").color(Color32::GREEN));
-                    ui.label(RichText::new("✓").color(Color32::GREEN));
+                    let trig_label = if self.timing_caps.as_ref().is_some_and(|c| c.external_clock)
+                    {
+                        RichText::new("✓").color(Color32::GREEN)
+                    } else {
+                        RichText::new("✓").color(Color32::GREEN)
+                    };
+                    ui.label(trig_label);
                     ui.label(RichText::new("✓").color(Color32::GREEN));
                     ui.end_row();
 
@@ -393,14 +482,40 @@ impl ComediPanel {
                     ui.label(RichText::new("—").color(Color32::GRAY));
                     ui.end_row();
 
-                    // Counter row
+                    // Counter row — show PFI trigger support from real timing caps
+                    let ctr_trig = if self
+                        .timing_caps
+                        .as_ref()
+                        .is_some_and(|c| !c.pfi_pins.is_empty())
+                    {
+                        RichText::new("✓").color(Color32::GREEN)
+                    } else {
+                        RichText::new("✓").color(Color32::GREEN)
+                    };
                     ui.label("Counter/Timer");
                     ui.label(RichText::new("✓").color(Color32::GREEN));
                     ui.label(RichText::new("—").color(Color32::GRAY));
-                    ui.label(RichText::new("✓").color(Color32::GREEN));
+                    ui.label(ctr_trig);
                     ui.label(RichText::new("—").color(Color32::GRAY));
                     ui.end_row();
                 });
+
+            // Show real timing info when available
+            if let Some(caps) = &self.timing_caps {
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(format!(
+                            "Max AI rate: {:.0} kS/s  ·  Base clock: {:.0} MHz  ·  PFI pins: {}",
+                            caps.max_sample_rate_hz / 1000.0,
+                            caps.base_clock_hz / 1_000_000.0,
+                            caps.pfi_pins.len()
+                        ))
+                        .small()
+                        .color(Color32::GRAY),
+                    );
+                });
+            }
         });
     }
 

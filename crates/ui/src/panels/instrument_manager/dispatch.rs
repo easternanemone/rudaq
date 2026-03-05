@@ -31,6 +31,12 @@ pub enum PanelType {
     Stage,
     /// Comedi DAQ unified control panel (AI, AO, DIO, counters)
     Comedi,
+    /// Andor iStar gated camera (DDG, MCP gain, trigger mode)
+    AndorCamera,
+    /// Andor Shamrock spectrograph (grating, wavelength, slit, shutter)
+    Spectrograph,
+    /// Dover SmartStage with Trigger-On-Position support
+    DoverStage,
 }
 
 /// Extract a `ControlPanelConfig` from the device's gRPC metadata `ui_schema_json` field.
@@ -87,11 +93,14 @@ pub fn try_grpc_ui_config(device: &DeviceInfo) -> Option<ControlPanelConfig> {
 /// # Priority order
 /// 0. gRPC-driven (`device.metadata.ui_schema_json`) → ConfigDriven
 /// 1. Config-driven (local TOML `[ui.control_panel]` exists) → ConfigDriven
-/// 2. Comedi DAQ devices → Comedi
-/// 3. Laser capabilities (emission/shutter/wavelength) → MaiTai
-/// 4. Readable without motion (sensors, meters) → PowerMeter
-/// 5. Movable with "ell14" in driver name → Rotator
-/// 6. Movable → Stage (default for motion devices)
+/// 2. Andor iStar gated camera → AndorCamera
+/// 3. Andor Shamrock spectrograph → Spectrograph
+/// 4. Dover SmartStage → DoverStage
+/// 5. Comedi DAQ devices → Comedi
+/// 6. Laser capabilities (emission/shutter/wavelength) → MaiTai
+/// 7. Readable without motion (sensors, meters) → PowerMeter
+/// 8. Movable with "ell14" in driver name → Rotator
+/// 9. Movable → Stage (default for motion devices)
 pub fn determine_panel_type_with_config(
     device: &DeviceInfo,
     config_cache: Option<&DeviceConfigCache>,
@@ -115,11 +124,14 @@ pub fn determine_panel_type_with_config(
 /// Determine the appropriate control panel type for a device (capability-based only).
 ///
 /// Priority order:
-/// 1. Comedi DAQ devices (comedi_analog_input, comedi_analog_output, ni_daq) → Comedi
-/// 2. Laser capabilities (emission/shutter/wavelength) → MaiTai
-/// 3. Readable without motion (sensors, meters) → PowerMeter
-/// 4. Movable with "ell14" in driver name → Rotator
-/// 5. Movable → Stage (default for motion devices)
+/// 1. Andor iStar gated camera → AndorCamera
+/// 2. Andor Shamrock spectrograph → Spectrograph
+/// 3. Dover SmartStage → DoverStage
+/// 4. Comedi DAQ devices (comedi_analog_input, comedi_analog_output, ni_daq) → Comedi
+/// 5. Laser capabilities (emission/shutter/wavelength) → MaiTai
+/// 6. Readable without motion (sensors, meters) → PowerMeter
+/// 7. Movable with "ell14" in driver name → Rotator
+/// 8. Movable → Stage (default for motion devices)
 ///
 /// # Arguments
 /// * `device` - Device info with capability flags
@@ -129,7 +141,22 @@ pub fn determine_panel_type_with_config(
 pub fn determine_panel_type(device: &DeviceInfo) -> PanelType {
     let driver_lower = device.driver_type.to_lowercase();
 
-    // Priority 1: Comedi DAQ devices
+    // Priority 1: Andor iStar gated camera
+    if driver_lower.contains("andor_istar") || driver_lower.contains("andor_camera") {
+        return PanelType::AndorCamera;
+    }
+
+    // Priority 2: Andor Shamrock spectrograph
+    if driver_lower.contains("andor_shamrock") || driver_lower.contains("shamrock") {
+        return PanelType::Spectrograph;
+    }
+
+    // Priority 3: Dover SmartStage
+    if driver_lower.contains("dover") {
+        return PanelType::DoverStage;
+    }
+
+    // Priority 4: Comedi DAQ devices
     if driver_lower.contains("comedi")
         || driver_lower.contains("ni_daq")
         || driver_lower.contains("nidaq")
@@ -139,7 +166,7 @@ pub fn determine_panel_type(device: &DeviceInfo) -> PanelType {
         return PanelType::Comedi;
     }
 
-    // Priority 2: Laser controls (MaiTai-style devices)
+    // Priority 5: Laser controls (MaiTai-style devices)
     if device.is_emission_controllable()
         || device.is_shutter_controllable()
         || device.is_wavelength_tunable()
@@ -147,12 +174,12 @@ pub fn determine_panel_type(device: &DeviceInfo) -> PanelType {
         return PanelType::MaiTai;
     }
 
-    // Priority 3: Pure readable devices (power meters, sensors)
+    // Priority 6: Pure readable devices (power meters, sensors)
     if device.is_readable() && !device.is_movable() {
         return PanelType::PowerMeter;
     }
 
-    // Priority 4: Movable devices - distinguish rotator vs stage
+    // Priority 7: Movable devices - distinguish rotator vs stage
     if device.is_movable() {
         if driver_lower.contains("ell14") || driver_lower.contains("rotator") {
             return PanelType::Rotator;
@@ -372,6 +399,34 @@ mod tests {
             try_grpc_ui_config(&dev).is_none(),
             "Malformed JSON should return None"
         );
+    }
+
+    #[test]
+    fn test_dispatch_andor_istar() {
+        let dev = make_device("andor_istar", false, false, false, false, false);
+        assert!(matches!(determine_panel_type(&dev), PanelType::AndorCamera));
+    }
+
+    #[test]
+    fn test_dispatch_andor_shamrock() {
+        let dev = make_device("andor_shamrock", false, false, false, false, false);
+        assert!(matches!(
+            determine_panel_type(&dev),
+            PanelType::Spectrograph
+        ));
+    }
+
+    #[test]
+    fn test_dispatch_dover_axis() {
+        let dev = make_device("dover_axis", true, false, false, false, false);
+        assert!(matches!(determine_panel_type(&dev), PanelType::DoverStage));
+    }
+
+    #[test]
+    fn test_dispatch_dover_over_generic_stage() {
+        // Dover devices should get DoverStage, not generic Stage, even though movable
+        let dev = make_device("dover_smartstage", true, false, false, false, false);
+        assert!(matches!(determine_panel_type(&dev), PanelType::DoverStage));
     }
 
     #[test]

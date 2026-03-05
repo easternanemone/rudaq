@@ -3,16 +3,22 @@
 //! This module provides specialized control panels for different device types,
 //! including lasers, power meters, rotators, stages, and analog outputs.
 
+mod andor_panel;
+mod dover_panel;
 mod generic_panel;
 mod maitai_panel;
 mod power_meter_panel;
 mod rotator_panel;
+mod spectrograph_panel;
 mod stage_panel;
 
+pub use andor_panel::AndorCameraPanel;
+pub use dover_panel::DoverStagePanel;
 pub use generic_panel::GenericDevicePanel;
 pub use maitai_panel::MaiTaiControlPanel;
 pub use power_meter_panel::PowerMeterControlPanel;
 pub use rotator_panel::RotatorControlPanel;
+pub use spectrograph_panel::SpectrographPanel;
 pub use stage_panel::StageControlPanel;
 
 use crate::runtime::Runtime;

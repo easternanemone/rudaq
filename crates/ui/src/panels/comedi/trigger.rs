@@ -3,8 +3,12 @@
 //! Provides configuration for hardware triggers, timing, and synchronization
 //! across analog input, analog output, and counter subsystems.
 
+use crate::runtime::Runtime;
+use client::DaqClient;
 use eframe::egui::{self, Color32, RichText, Ui};
+use protocol::ni_daq::ConfigureTriggerRequest;
 use serde::{Deserialize, Serialize};
+use tokio::sync::mpsc;
 
 /// Trigger source options
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -160,6 +164,13 @@ impl Default for SubsystemTriggerConfig {
     }
 }
 
+/// Async result from apply_configuration
+#[derive(Debug)]
+enum ApplyResult {
+    Ok,
+    Err(String),
+}
+
 /// Trigger Configuration Panel
 pub struct TriggerConfigPanel {
     /// Device ID
@@ -180,6 +191,9 @@ pub struct TriggerConfigPanel {
     status: Option<String>,
     /// Error message
     error: Option<String>,
+    /// Async channel for apply results
+    apply_tx: mpsc::Sender<ApplyResult>,
+    apply_rx: mpsc::Receiver<ApplyResult>,
 }
 
 /// Tab selection for trigger panel
@@ -237,6 +251,7 @@ impl SyncMode {
 
 impl Default for TriggerConfigPanel {
     fn default() -> Self {
+        let (apply_tx, apply_rx) = mpsc::channel(4);
         Self {
             device_id: String::from("comedi0"),
             ai_config: SubsystemTriggerConfig::default(),
@@ -247,6 +262,8 @@ impl Default for TriggerConfigPanel {
             sync_mode: SyncMode::Standalone,
             status: None,
             error: None,
+            apply_tx,
+            apply_rx,
         }
     }
 }
@@ -261,7 +278,22 @@ impl TriggerConfigPanel {
     }
 
     /// Main UI entry point
-    pub fn ui(&mut self, ui: &mut Ui) {
+    pub fn ui(&mut self, ui: &mut Ui, client: Option<&mut DaqClient>, runtime: &Runtime) {
+        // Poll async apply results
+        while let Ok(result) = self.apply_rx.try_recv() {
+            match result {
+                ApplyResult::Ok => {
+                    self.status = Some("Trigger configuration applied".to_string());
+                    self.error = None;
+                }
+                ApplyResult::Err(e) => {
+                    self.error = Some(e);
+                }
+            }
+        }
+
+        let client_clone = client.as_deref().cloned();
+
         // Header
         ui.horizontal(|ui| {
             ui.heading("Trigger Configuration");
@@ -308,15 +340,22 @@ impl TriggerConfigPanel {
 
         ui.separator();
 
-        // Apply button
-        ui.horizontal(|ui| {
-            if ui.button("Apply Configuration").clicked() {
-                self.apply_configuration();
-            }
-            if ui.button("Reset to Defaults").clicked() {
-                self.reset_defaults();
-            }
-        });
+        // Apply button - capture click outside the closure
+        let (apply_clicked, reset_clicked) = ui
+            .horizontal(|ui| {
+                (
+                    ui.button("Apply Configuration").clicked(),
+                    ui.button("Reset to Defaults").clicked(),
+                )
+            })
+            .inner;
+
+        if apply_clicked {
+            self.apply_configuration(client_clone, runtime);
+        }
+        if reset_clicked {
+            self.reset_defaults();
+        }
     }
 
     /// Render subsystem trigger configuration (AI)
@@ -594,11 +633,70 @@ impl TriggerConfigPanel {
         });
     }
 
-    /// Apply the current configuration
-    fn apply_configuration(&mut self) {
-        // TODO: Send configuration to hardware via gRPC
-        self.status = Some("Configuration applied (simulated)".to_string());
-        self.error = None;
+    /// Apply the current configuration via gRPC.
+    fn apply_configuration(&mut self, client: Option<DaqClient>, runtime: &Runtime) {
+        // Map UI trigger source to proto enum (qualified to avoid name clash with local TriggerSource)
+        let proto_source = match self.ai_config.start_source {
+            TriggerSource::Software | TriggerSource::InternalClock => {
+                protocol::ni_daq::TriggerSource::Software as i32
+            }
+            TriggerSource::PFI0
+            | TriggerSource::PFI1
+            | TriggerSource::PFI2
+            | TriggerSource::PFI3
+            | TriggerSource::RTSI0
+            | TriggerSource::RTSI1 => protocol::ni_daq::TriggerSource::External as i32,
+            TriggerSource::AnalogTrigger => protocol::ni_daq::TriggerSource::Analog as i32,
+        };
+        let proto_edge = match self.ai_config.start_polarity {
+            TriggerPolarity::Rising => protocol::ni_daq::TriggerEdge::Rising as i32,
+            TriggerPolarity::Falling => protocol::ni_daq::TriggerEdge::Falling as i32,
+            TriggerPolarity::Either => protocol::ni_daq::TriggerEdge::Either as i32,
+        };
+        let pfi_pin = match self.ai_config.start_source {
+            TriggerSource::PFI0 => 0,
+            TriggerSource::PFI1 => 1,
+            TriggerSource::PFI2 => 2,
+            TriggerSource::PFI3 => 3,
+            _ => 0,
+        };
+
+        let config = protocol::ni_daq::TriggerConfig {
+            source: proto_source,
+            edge: proto_edge,
+            pfi_pin,
+            level: self.ai_config.analog_trigger_level,
+            hysteresis: 0.0,
+            delay_samples: 0,
+            retriggerable: self.ai_config.retrigger,
+        };
+
+        let req = ConfigureTriggerRequest {
+            device_id: self.device_id.clone(),
+            config: Some(config),
+        };
+
+        let tx = self.apply_tx.clone();
+        runtime.spawn(async move {
+            if let Some(mut c) = client {
+                match c.ni_daq_client().configure_trigger(req).await {
+                    Ok(resp) => {
+                        let r = resp.into_inner();
+                        if r.success {
+                            let _ = tx.send(ApplyResult::Ok).await;
+                        } else {
+                            let _ = tx.send(ApplyResult::Err(r.error_message)).await;
+                        }
+                    }
+                    Err(e) => {
+                        let _ = tx.send(ApplyResult::Err(e.to_string())).await;
+                    }
+                }
+            } else {
+                // Offline: optimistic apply
+                let _ = tx.send(ApplyResult::Ok).await;
+            }
+        });
     }
 
     /// Reset to default configuration

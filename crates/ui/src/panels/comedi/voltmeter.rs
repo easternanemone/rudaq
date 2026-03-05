@@ -325,7 +325,7 @@ impl VoltmeterPanel {
     /// Start streaming from a hardware device via gRPC
     pub fn start_streaming(
         &mut self,
-        _client: DaqClient,
+        client: &mut DaqClient,
         runtime: &Runtime,
         device_id: String,
         channel: u32,
@@ -343,25 +343,11 @@ impl VoltmeterPanel {
 
         let (abort_tx, mut abort_rx) = mpsc::channel::<()>(1);
         let reading_tx = self.reading_tx.clone();
+        let mut ni_daq_client = client.ni_daq_streaming_client().clone();
 
         // Spawn background task to handle streaming
         runtime.spawn(async move {
-            use protocol::ni_daq::{
-                ni_daq_service_client::NiDaqServiceClient, StreamAnalogInputRequest,
-            };
-            use tonic::transport::Channel;
-
-            let channel_result = Channel::from_static("http://127.0.0.1:50051")
-                .connect()
-                .await;
-
-            let mut ni_daq_client = match channel_result {
-                Ok(channel) => NiDaqServiceClient::new(channel),
-                Err(e) => {
-                    tracing::error!("Failed to connect NI DAQ client: {}", e);
-                    return;
-                }
-            };
+            use protocol::ni_daq::StreamAnalogInputRequest;
 
             let request = StreamAnalogInputRequest {
                 device_id: device_id.clone(),
@@ -520,7 +506,7 @@ impl VoltmeterPanel {
                             (client, runtime, device_id)
                         {
                             self.start_streaming(
-                                client.clone(),
+                                client,
                                 runtime,
                                 device_id.to_string(),
                                 self.selected_channel,

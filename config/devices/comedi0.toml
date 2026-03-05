@@ -1,0 +1,62 @@
+# config/devices/comedi0.toml
+# ============================================================================
+# NI PCI-MIO-16XE-10 via Comedi (/dev/comedi0)
+# ============================================================================
+#
+# Canonical device configuration for the NI PCI-MIO-16XE-10 multifunction DAQ
+# card using the Linux Comedi kernel driver.
+#
+# Prerequisites (Linux only):
+#   sudo modprobe ni_pcimio
+#   sudo comedi_config /dev/comedi0 ni_pcimio
+#
+# Usage:
+#   cargo run --bin daq-daemon -- --config config/devices/comedi0.toml
+#   # or include as additional config overlay on top of your primary config
+#
+# Hardware capabilities of NI PCI-MIO-16XE-10:
+#   - 16-channel analog input (16-bit, up to 100 kS/s)
+#   - 2-channel analog output (16-bit)
+#   - 24-channel digital I/O (3 × 8-bit ports)
+#   - 2 general-purpose counter/timer channels
+
+# ============================================================================
+# Board-level identifier (queried by NiDaqService::get_daq_status)
+# ============================================================================
+# The device ID below is used by InstrumentManager to route to ComediPanel.
+# It must contain "comedi", "ni_daq", "nidaq", "pci-mio", or "pcimio" for
+# the panel dispatch to recognise it.
+
+[[devices]]
+id = "comedi0"
+name = "NI PCI-MIO-16XE-10 (comedi0)"
+[devices.driver]
+type = "comedi_analog_input"
+device = "/dev/comedi0"
+channel = 0
+range_index = 0   # ±10 V
+input_mode = "rse"
+units = "V"
+
+# ============================================================================
+# Additional single-channel devices (optional — add as needed)
+# ============================================================================
+
+# [[devices]]
+# id = "comedi0_ai1"
+# name = "AI Channel 1"
+# [devices.driver]
+# type = "comedi_analog_input"
+# device = "/dev/comedi0"
+# channel = 1
+# range_index = 0
+# input_mode = "rse"
+
+# [[devices]]
+# id = "comedi0_ao0"
+# name = "AO Channel 0"
+# [devices.driver]
+# type = "comedi_analog_output"
+# device = "/dev/comedi0"
+# channel = 0
+# range_index = 0

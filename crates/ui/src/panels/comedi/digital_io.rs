@@ -8,6 +8,10 @@ use tokio::sync::mpsc;
 
 use crate::widgets::{offline_notice, OfflineContext};
 use client::DaqClient;
+use protocol::ni_daq::{
+    ConfigureDigitalIoRequest, DigitalDirection, DigitalPinConfig, ReadDigitalPortRequest,
+    WriteDigitalIoRequest,
+};
 
 use super::DioDirection;
 
@@ -129,7 +133,8 @@ impl DigitalIOPanel {
         if self.auto_refresh {
             let elapsed = self.last_refresh.elapsed();
             if elapsed.as_millis() >= u128::from(self.refresh_interval_ms) {
-                self.read_all_inputs(runtime);
+                let auto_client = client.as_deref().cloned();
+                self.read_all_inputs(auto_client, runtime);
                 self.last_refresh = crate::time::Instant::now();
             }
             ui.ctx().request_repaint();
@@ -186,28 +191,30 @@ impl DigitalIOPanel {
             })
             .inner;
 
+        let client_clone = client.as_deref().cloned();
+
         if read_all {
-            self.read_all_inputs(runtime);
+            self.read_all_inputs(client_clone.clone(), runtime);
         }
         if all_inputs {
-            self.configure_all_as_inputs();
+            self.configure_all_as_inputs(client_clone.clone(), runtime);
         }
         if all_outputs {
-            self.configure_all_as_outputs();
+            self.configure_all_as_outputs(client_clone.clone(), runtime);
         }
 
         ui.separator();
 
         // Main content based on view mode
         match self.view_mode {
-            ViewMode::Grid => self.render_grid_view(ui, runtime),
-            ViewMode::List => self.render_list_view(ui, runtime),
-            ViewMode::Port => self.render_port_view(ui, runtime),
+            ViewMode::Grid => self.render_grid_view(ui, client_clone.clone(), runtime),
+            ViewMode::List => self.render_list_view(ui, client_clone.clone(), runtime),
+            ViewMode::Port => self.render_port_view(ui, client_clone, runtime),
         }
     }
 
     /// Render grid view (8x3 grid for 24 pins).
-    fn render_grid_view(&mut self, ui: &mut Ui, runtime: &Runtime) {
+    fn render_grid_view(&mut self, ui: &mut Ui, client: Option<DaqClient>, runtime: &Runtime) {
         // Collect actions to execute after UI rendering
         let mut write_actions: Vec<(u32, bool)> = Vec::new();
 
@@ -285,12 +292,12 @@ impl DigitalIOPanel {
 
         // Execute deferred writes
         for (pin, state) in write_actions {
-            self.write_pin(pin, state, runtime);
+            self.write_pin(pin, state, client.clone(), runtime);
         }
     }
 
     /// Render list view.
-    fn render_list_view(&mut self, ui: &mut Ui, runtime: &Runtime) {
+    fn render_list_view(&mut self, ui: &mut Ui, client: Option<DaqClient>, runtime: &Runtime) {
         // Collect actions to execute after UI rendering
         let mut write_actions: Vec<(u32, bool)> = Vec::new();
 
@@ -347,12 +354,12 @@ impl DigitalIOPanel {
 
         // Execute deferred writes
         for (pin, state) in write_actions {
-            self.write_pin(pin, state, runtime);
+            self.write_pin(pin, state, client.clone(), runtime);
         }
     }
 
     /// Render port view (8-bit ports).
-    fn render_port_view(&mut self, ui: &mut Ui, runtime: &Runtime) {
+    fn render_port_view(&mut self, ui: &mut Ui, client: Option<DaqClient>, runtime: &Runtime) {
         let n_ports = self.n_channels.div_ceil(8);
         let mut write_actions: Vec<(u32, bool)> = Vec::new();
 
@@ -482,44 +489,129 @@ impl DigitalIOPanel {
 
         // Execute deferred writes
         for (pin, state) in write_actions {
-            self.write_pin(pin, state, runtime);
+            self.write_pin(pin, state, client.clone(), runtime);
         }
     }
 
     // Async operations
-    fn write_pin(&self, pin: u32, state: bool, runtime: &Runtime) {
-        let tx = self.action_tx.clone();
-        runtime.spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-            let _ = tx.send(ActionResult::WriteSuccess { pin, state }).await;
-        });
-    }
 
-    fn read_all_inputs(&self, runtime: &Runtime) {
+    fn write_pin(&self, pin: u32, state: bool, client: Option<DaqClient>, runtime: &Runtime) {
         let tx = self.action_tx.clone();
-        let n_pins = self.n_channels;
+        let device_id = self.device_id.clone();
         runtime.spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-            // Simulate reading - replace with actual gRPC call
-            for pin in 0..n_pins {
-                let state = (pin % 3) == 0; // Simulated pattern
-                let _ = tx.send(ActionResult::PinState { pin, state }).await;
+            if let Some(mut c) = client {
+                let req = WriteDigitalIoRequest {
+                    device_id,
+                    pin,
+                    value: state,
+                };
+                match c.ni_daq_client().write_digital_io(req).await {
+                    Ok(resp) => {
+                        let r = resp.into_inner();
+                        if r.success {
+                            let _ = tx.send(ActionResult::WriteSuccess { pin, state }).await;
+                        } else {
+                            let _ = tx
+                                .send(ActionResult::WriteError {
+                                    pin,
+                                    error: r.error_message,
+                                })
+                                .await;
+                        }
+                    }
+                    Err(e) => {
+                        let _ = tx
+                            .send(ActionResult::WriteError {
+                                pin,
+                                error: e.to_string(),
+                            })
+                            .await;
+                    }
+                }
+            } else {
+                let _ = tx.send(ActionResult::WriteSuccess { pin, state }).await;
             }
         });
     }
 
-    fn configure_all_as_inputs(&mut self) {
+    /// Read all input ports via `read_digital_port` (8 pins per call).
+    fn read_all_inputs(&self, client: Option<DaqClient>, runtime: &Runtime) {
+        let tx = self.action_tx.clone();
+        let device_id = self.device_id.clone();
+        let n_channels = self.n_channels;
+        runtime.spawn(async move {
+            if let Some(mut c) = client {
+                let n_ports = n_channels.div_ceil(8);
+                for port in 0..n_ports {
+                    let base_channel = port * 8;
+                    let req = ReadDigitalPortRequest {
+                        device_id: device_id.clone(),
+                        base_channel,
+                    };
+                    match c.ni_daq_client().read_digital_port(req).await {
+                        Ok(resp) => {
+                            let r = resp.into_inner();
+                            if r.success {
+                                let _ = tx
+                                    .send(ActionResult::PortState {
+                                        port,
+                                        bits: r.value,
+                                    })
+                                    .await;
+                            }
+                        }
+                        Err(_) => {}
+                    }
+                }
+            }
+        });
+    }
+
+    fn configure_all_as_inputs(&mut self, client: Option<DaqClient>, runtime: &Runtime) {
         for pin in &mut self.pins {
             pin.direction = DioDirection::Input;
         }
         self.status = Some("All pins configured as inputs".to_string());
+        let tx = self.action_tx.clone();
+        let device_id = self.device_id.clone();
+        let n = self.n_channels;
+        runtime.spawn(async move {
+            if let Some(mut c) = client {
+                let pins = (0..n)
+                    .map(|p| DigitalPinConfig {
+                        pin: p,
+                        direction: DigitalDirection::Input as i32,
+                    })
+                    .collect();
+                let req = ConfigureDigitalIoRequest { device_id, pins };
+                let _ = c.ni_daq_client().configure_digital_io(req).await;
+            }
+            // No result sent — UI state already updated optimistically above.
+            drop(tx);
+        });
     }
 
-    fn configure_all_as_outputs(&mut self) {
+    fn configure_all_as_outputs(&mut self, client: Option<DaqClient>, runtime: &Runtime) {
         for pin in &mut self.pins {
             pin.direction = DioDirection::Output;
         }
         self.status = Some("All pins configured as outputs".to_string());
+        let tx = self.action_tx.clone();
+        let device_id = self.device_id.clone();
+        let n = self.n_channels;
+        runtime.spawn(async move {
+            if let Some(mut c) = client {
+                let pins = (0..n)
+                    .map(|p| DigitalPinConfig {
+                        pin: p,
+                        direction: DigitalDirection::Output as i32,
+                    })
+                    .collect();
+                let req = ConfigureDigitalIoRequest { device_id, pins };
+                let _ = c.ni_daq_client().configure_digital_io(req).await;
+            }
+            drop(tx);
+        });
     }
 
     fn poll_results(&mut self) {

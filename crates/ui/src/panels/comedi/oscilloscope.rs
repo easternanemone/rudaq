@@ -446,7 +446,7 @@ impl OscilloscopePanel {
     /// Start streaming from a hardware device via gRPC
     pub fn start_streaming(
         &mut self,
-        _client: DaqClient,
+        client: &mut DaqClient,
         runtime: &Runtime,
         device_id: String,
         channels: Vec<u32>,
@@ -464,27 +464,11 @@ impl OscilloscopePanel {
         let (abort_tx, mut abort_rx) = mpsc::channel::<()>(1);
         let sample_tx = self.sample_tx.clone();
 
+        let mut ni_daq_client = client.ni_daq_streaming_client().clone();
+
         // Spawn background task to handle streaming
         runtime.spawn(async move {
-            // Import NI DAQ proto types
-            use protocol::ni_daq::{
-                ni_daq_service_client::NiDaqServiceClient, StreamAnalogInputRequest,
-            };
-            use tonic::transport::Channel;
-
-            // Create NI DAQ client (reuse the gRPC channel from DaqClient)
-            // For now, we'll connect directly - TODO: get channel from DaqClient
-            let channel_result = Channel::from_static("http://127.0.0.1:50051")
-                .connect()
-                .await;
-
-            let mut ni_daq_client = match channel_result {
-                Ok(channel) => NiDaqServiceClient::new(channel),
-                Err(e) => {
-                    tracing::error!("Failed to connect NI DAQ client: {}", e);
-                    return;
-                }
-            };
+            use protocol::ni_daq::StreamAnalogInputRequest;
 
             let request = StreamAnalogInputRequest {
                 device_id: device_id.clone(),
@@ -725,7 +709,7 @@ impl OscilloscopePanel {
                                 (client, runtime, device_id)
                             {
                                 self.start_streaming(
-                                    client.clone(),
+                                    client,
                                     runtime,
                                     device_id.to_string(),
                                     self.external_channels.clone(),

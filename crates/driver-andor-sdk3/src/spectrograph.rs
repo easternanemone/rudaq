@@ -923,7 +923,7 @@ impl AndorSpectrograph {
                         let mut wavelength: f32 = 0.0;
                         let ret = ShamrockGetWavelength(handle, &mut wavelength);
                         sdk_result(ret)?;
-                        Ok(wavelength as f64)
+                        Ok::<f64, anyhow::Error>(wavelength as f64)
                     }
                 })
                 .await

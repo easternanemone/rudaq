@@ -98,7 +98,9 @@ fn build_tls_config(
 fn build_cors_layer(settings: &GrpcSettings) -> Result<CorsLayer, Box<dyn std::error::Error>> {
     let mut cors = CorsLayer::new().allow_headers(Any).allow_methods(Any);
 
-    if settings.allowed_origins.is_empty() {
+    if settings.allowed_origins.iter().any(|o| o == "*") {
+        cors = cors.allow_origin(AllowOrigin::any());
+    } else if settings.allowed_origins.is_empty() {
         eprintln!("⚠️  grpc.allowed_origins is empty; gRPC-web requests will be blocked by CORS");
         cors = cors.allow_origin(AllowOrigin::list(Vec::<HeaderValue>::new()));
     } else {

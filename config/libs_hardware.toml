@@ -1,0 +1,129 @@
+# LIBS (Laser-Induced Breakdown Spectroscopy) Hardware Configuration
+#
+# Instruments:
+#   - Dover Motion SmartStage (3-axis, with Trigger-On-Position)
+#   - Andor iStar sCMOS intensified camera (gated detection)
+#   - Andor Shamrock spectrograph (wavelength selection)
+#   - Spectra-Physics Spirit laser (femtosecond ablation source)
+#   - NI-DAQmx digital I/O (trigger routing)
+#
+# Target machine: Windows LIBS workstation
+#
+# Usage:
+#   rust-daq-daemon daemon --hardware-config config/libs_hardware.toml
+#
+# Notes:
+#   - Dover Motion and Andor use native drivers (require Windows SDKs)
+#   - Spirit laser driver is planned (bd-3yb8); placeholder entry included
+#   - NI-DAQmx trigger routing is planned; placeholder entry included
+#   - In mock mode (no SDK features), all devices use built-in mocks
+
+# ============================================================================
+# Dover Motion SmartStage — X Axis
+# ============================================================================
+# Primary scan axis for LIBS mapping. Supports Trigger-On-Position (TOP)
+# for hardware-synchronized camera triggering during scans.
+# SDK: Dover Motion C API via dover-motion-sys bindgen
+# Connection: USB to SmartStage controller
+
+[[devices]]
+id = "stage_x"
+name = "Dover SmartStage X Axis"
+[devices.driver]
+type = "dover_axis"
+device_path = "C:\\ProgramData\\Dover Motion\\SmartStage.xml"
+axis_name = "X"
+communication_type = "USB"
+
+# ============================================================================
+# Dover Motion SmartStage — Y Axis
+# ============================================================================
+# Cross-scan axis for 2D LIBS mapping.
+
+[[devices]]
+id = "stage_y"
+name = "Dover SmartStage Y Axis"
+[devices.driver]
+type = "dover_axis"
+device_path = "C:\\ProgramData\\Dover Motion\\SmartStage.xml"
+axis_name = "Y"
+communication_type = "USB"
+
+# ============================================================================
+# Dover Motion SmartStage — Z Axis
+# ============================================================================
+# Focus axis for sample surface tracking.
+
+[[devices]]
+id = "stage_z"
+name = "Dover SmartStage Z Axis"
+[devices.driver]
+type = "dover_axis"
+device_path = "C:\\ProgramData\\Dover Motion\\SmartStage.xml"
+axis_name = "Z"
+communication_type = "USB"
+
+# ============================================================================
+# Andor iStar sCMOS Intensified Camera
+# ============================================================================
+# Time-resolved detection for LIBS spectra. Key parameters:
+#   - MCP gain: 0–4095 (typical LIBS: 3600)
+#   - DDG delay: ~1.3µs after laser pulse (skip plasma continuum)
+#   - DDG width: ~10µs (capture atomic emission lines)
+#   - Trigger: External (from Dover TOP or NI-DAQmx)
+# SDK: Andor SDK3 via andor-sdk3-sys bindgen (Windows DLL)
+
+[[devices]]
+id = "istar_camera"
+name = "Andor iStar sCMOS"
+[devices.driver]
+type = "andor_istar"
+camera_index = 0
+enable_cooling = true
+temperature_control = "0.00"
+fan_speed = "On"
+
+# ============================================================================
+# Andor Shamrock Spectrograph
+# ============================================================================
+# Czerny-Turner spectrograph coupled to iStar camera.
+# Provides wavelength selection via motorized grating turret.
+# SDK: Andor SDK3 Shamrock module
+
+[[devices]]
+id = "shamrock"
+name = "Andor Shamrock Spectrograph"
+[devices.driver]
+type = "andor_shamrock"
+device_index = 0
+
+# ============================================================================
+# Spectra-Physics Spirit Laser (PLANNED)
+# ============================================================================
+# Femtosecond laser for LIBS ablation. CAN bus control.
+# Driver crate: driver-spirit-laser (not yet implemented)
+# Uncomment when driver-spirit-laser is available.
+#
+# [[devices]]
+# id = "spirit_laser"
+# name = "Spectra-Physics Spirit Laser"
+# [devices.driver]
+# type = "spirit_laser"
+# can_adapter = "can0"        # Linux: SocketCAN interface
+# # can_adapter = "PCAN_USBBUS1"  # Windows: PEAK CAN adapter
+# timeout_secs = 2
+
+# ============================================================================
+# NI-DAQmx Digital Trigger (PLANNED)
+# ============================================================================
+# NI PCIe/USB DAQ card for trigger routing between laser, camera, and stage.
+# Driver crate: driver-nidaqmx (not yet implemented)
+# Uncomment when driver-nidaqmx is available.
+#
+# [[devices]]
+# id = "trigger_io"
+# name = "NI-DAQmx Trigger Router"
+# [devices.driver]
+# type = "nidaqmx_digital_io"
+# device_name = "Dev1"
+# trigger_line = "PFI0"

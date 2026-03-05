@@ -290,6 +290,8 @@ pub struct ImageViewerPanel {
     pending_rgba: Option<RgbaConversionResult>,
     /// Sender to recycle used buffers back to the converter thread (bd-wdx3)
     rgba_recycle_tx: Option<std::sync::mpsc::Sender<Vec<u8>>>,
+    /// True when thread spawn failed (e.g., WASM); skip retry and convert synchronously
+    rgba_sync_mode: bool,
 
     // -- Crosshair Feature (bd-pgcb) --
     /// Enable crosshair cursor display
@@ -423,6 +425,7 @@ impl Default for ImageViewerPanel {
             rgba_request_tx: None,
             pending_rgba: None,
             rgba_recycle_tx: None,
+            rgba_sync_mode: false,
 
             // Crosshair (bd-pgcb)
             crosshair_enabled: false,
@@ -2168,6 +2171,7 @@ impl ImageViewerPanel {
             }
             Err(e) => {
                 tracing::error!("Failed to spawn RGBA converter thread: {}. Falling back to synchronous conversion.", e);
+                self.rgba_sync_mode = true;
                 false
             }
         }
@@ -2191,29 +2195,29 @@ impl ImageViewerPanel {
     ///
     /// Returns true if frame was submitted, false if queue is full (frame dropped)
     fn submit_for_rgba_conversion(&mut self, frame: &FrameUpdate) -> bool {
-        // Spawn converter thread lazily on first use
-        if self.rgba_request_tx.is_none() {
+        // Spawn converter thread lazily on first use (skip if already known unavailable)
+        if self.rgba_request_tx.is_none() && !self.rgba_sync_mode {
             self.spawn_rgba_converter();
         }
 
-        if let Some(tx) = &self.rgba_request_tx {
-            let request = RgbaConversionRequest {
-                data: frame.data.clone(),
-                width: frame.width,
-                height: frame.height,
-                bit_depth: frame.bit_depth,
-                frame_number: frame.frame_number,
-                colormap: self.colormap,
-                scale_mode: self.scale_mode,
-                display_min: self.display_min,
-                display_max: self.display_max,
-                auto_contrast: self.auto_contrast,
-                contrast_mode: self.contrast_mode,
-                percentile_low: self.percentile_low,
-                percentile_high: self.percentile_high,
-                colorbar_midpoint: self.colorbar.midpoint,
-            };
+        let request = RgbaConversionRequest {
+            data: frame.data.clone(),
+            width: frame.width,
+            height: frame.height,
+            bit_depth: frame.bit_depth,
+            frame_number: frame.frame_number,
+            colormap: self.colormap,
+            scale_mode: self.scale_mode,
+            display_min: self.display_min,
+            display_max: self.display_max,
+            auto_contrast: self.auto_contrast,
+            contrast_mode: self.contrast_mode,
+            percentile_low: self.percentile_low,
+            percentile_high: self.percentile_high,
+            colorbar_midpoint: self.colorbar.midpoint,
+        };
 
+        if let Some(tx) = &self.rgba_request_tx {
             match tx.try_send(request) {
                 Ok(()) => true,
                 Err(mpsc::TrySendError::Full(_)) => {
@@ -2227,7 +2231,18 @@ impl ImageViewerPanel {
                 }
             }
         } else {
-            false
+            // No background thread (e.g., WASM): convert synchronously on the UI thread
+            let mut buffer = Vec::with_capacity(frame.width as usize * frame.height as usize * 4);
+            let (computed_min, computed_max) = convert_frame_to_rgba_into(&request, &mut buffer);
+            self.pending_rgba = Some(RgbaConversionResult {
+                rgba: buffer,
+                width: request.width,
+                height: request.height,
+                frame_number: request.frame_number,
+                computed_min,
+                computed_max,
+            });
+            true
         }
     }
 

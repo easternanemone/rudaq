@@ -48,16 +48,26 @@
 
 pub use common::capabilities;
 pub mod config;
+
+// --- Runtime modules (use tokio::fs, tokio_util, etc. — native-only) ---
+#[cfg(not(target_arch = "wasm32"))]
 pub mod drivers;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod manifest_driver;
 /// Backward-compat alias: `plugin` → `manifest_driver`
+#[cfg(not(target_arch = "wasm32"))]
 pub use manifest_driver as plugin;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod port_resolver;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod registry;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod resource_pool;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod supervisor;
 
 pub use capabilities::*;
+#[cfg(not(target_arch = "wasm32"))]
 pub use registry::{
     populate_registry_from_config, register_mock_factories, DeviceConfig, DeviceInfo,
     DeviceRegistry, DriverConfig,

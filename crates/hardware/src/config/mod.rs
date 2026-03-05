@@ -100,11 +100,13 @@
 //! std::fs::write("config/schemas/device.schema.json", json)?;
 //! ```
 
+#[cfg(not(target_arch = "wasm32"))]
 pub mod loader;
 pub mod schema;
 pub mod validation;
 
 // Re-exports for convenience
+#[cfg(not(target_arch = "wasm32"))]
 pub use loader::{load_all_devices, load_device_config, load_device_config_from_str};
 #[allow(deprecated)]
 pub use schema::{

@@ -1,0 +1,120 @@
+name: LIBS Windows
+
+# LIBS integration CI for Windows targets.
+#
+# Runs mock-mode LIBS smoke tests on Windows to validate:
+#   - Andor SDK3 driver compiles on Windows (mock mode, default features)
+#   - Dover Motion driver compiles on Windows (mock mode)
+#   - LIBS integration smoke tests pass (mock mode)
+#   - LIBS hardware config parses correctly
+#
+# Note: The `camera` and `spectrograph` features enable FFI code paths that
+# require the real Andor SDK3 DLL. Mock-mode tests use default features,
+# which compile the mock fallback paths instead.
+#
+# Hardware tests require a physical LIBS machine and are run manually
+# with the libs-hardware nextest profile.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "crates/driver-andor-sdk3/**"
+      - "crates/driver-dover-motion/**"
+      - "crates/integration-tests/tests/libs_*"
+      - "config/libs_hardware.toml"
+      - ".github/workflows/libs-windows.yml"
+  push:
+    branches: ["main"]
+    paths:
+      - "crates/driver-andor-sdk3/**"
+      - "crates/driver-dover-motion/**"
+      - "crates/integration-tests/tests/libs_*"
+      - "config/libs_hardware.toml"
+      - ".github/workflows/libs-windows.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: libs-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  libs-mock-tests:
+    name: "LIBS mock tests (Windows)"
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      CARGO_BUILD_JOBS: "2"
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.92.0
+          components: clippy
+
+      - name: Install protobuf compiler
+        run: choco install protoc -y
+        shell: pwsh
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+          shared-key: libs-windows
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
+      # Mock mode: default features only (no camera/spectrograph FFI paths)
+      - name: Clippy (driver-andor-sdk3, mock mode)
+        run: cargo clippy -p driver-andor-sdk3 --all-targets -- -D warnings
+
+      - name: Clippy (driver-dover-motion)
+        run: cargo clippy -p driver-dover-motion --all-targets -- -D warnings
+
+      - name: Andor SDK3 smoke tests (mock)
+        run: |
+          cargo nextest run -p driver-andor-sdk3 \
+            --test libs_smoke \
+            --profile ci
+
+      - name: Dover Motion smoke tests (mock)
+        run: |
+          cargo nextest run -p driver-dover-motion \
+            --test libs_smoke \
+            --profile ci
+
+      - name: LIBS integration smoke tests (mock)
+        run: |
+          cargo nextest run -p integration-tests \
+            --test libs_integration_smoke \
+            --profile ci
+
+      - name: Validate LIBS hardware config
+        run: |
+          python3 -c "
+          import tomllib
+          with open('config/libs_hardware.toml', 'rb') as f:
+              config = tomllib.load(f)
+          devices = config.get('devices', [])
+          print(f'LIBS config: {len(devices)} devices defined')
+          for d in devices:
+              print(f'  - {d[\"id\"]}: {d[\"name\"]} (type: {d[\"driver\"][\"type\"]})')
+          "
