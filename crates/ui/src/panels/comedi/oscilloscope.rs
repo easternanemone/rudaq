@@ -353,7 +353,7 @@ pub struct OscilloscopePanel {
     // Trigger settings
     trigger_mode: TriggerMode,
     trigger_edge: TriggerEdge,
-    trigger_channel: u32,
+    trigger_channel: usize,
     trigger_level: f64,
     /// Time of last trigger (for display)
     last_trigger_time: Option<f64>,
@@ -789,6 +789,18 @@ impl OscilloscopePanel {
                         ui.selectable_value(&mut self.trigger_edge, *edge, edge.label());
                     }
                 });
+            egui::ComboBox::from_id_salt("osc_trigger_channel")
+                .selected_text(format!("CH{}", self.trigger_channel))
+                .width(70.0)
+                .show_ui(ui, |ui| {
+                    for channel in 0..self.channels.len() {
+                        ui.selectable_value(
+                            &mut self.trigger_channel,
+                            channel,
+                            format!("CH{}", channel),
+                        );
+                    }
+                });
 
             ui.separator();
 
@@ -1009,6 +1021,7 @@ impl OscilloscopePanel {
 
                 ui.group(|ui| {
                     ui.colored_label(channel.color, &channel.label);
+                    ui.label(format!("N: {}", stats.count));
                     ui.label(format!("Mean: {:.3}V", stats.mean));
                     ui.label(format!("Pk-Pk: {:.3}V", stats.pk_pk));
                     ui.label(format!("Min: {:.3}V", stats.min));

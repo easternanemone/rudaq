@@ -135,8 +135,6 @@ impl MonitorDisplayMode {
 
 /// DIO State Monitor Panel
 pub struct DioMonitorPanel {
-    /// Start time
-    start_time: Instant,
     /// Pin states (up to 32 pins)
     pins: Vec<PinState>,
     /// Number of pins to display
@@ -172,7 +170,6 @@ impl Default for DioMonitorPanel {
         let (tx, rx) = dio_monitor_channel();
 
         Self {
-            start_time: Instant::now(),
             pins: (0..32).map(|_| PinState::default()).collect(),
             n_pins: 24,
             state_rx: rx,

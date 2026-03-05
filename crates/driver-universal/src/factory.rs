@@ -52,7 +52,7 @@ fn transport_meta_registry() -> &'static TransportMetaRegistry {
 /// the daemon runs with a static hardware config. Shared transports are never
 /// removed because new devices on the same port could be registered later.
 ///
-/// Modeled after `crates/driver-thorlabs/src/shared_ports.rs`.
+/// Modeled after the former driver-thorlabs shared_ports pattern.
 static SHARED_TRANSPORTS: OnceLock<TransportRegistry> = OnceLock::new();
 
 fn transport_registry() -> &'static TransportRegistry {

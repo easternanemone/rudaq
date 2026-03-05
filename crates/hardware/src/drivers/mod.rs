@@ -8,7 +8,6 @@
 //
 // For concrete drivers, depend directly on the driver crate:
 //   use driver_comedi::ComediDevice;
-//   use driver_thorlabs::Ell14Factory;
 
 /// Mock drivers for testing (re-exported from driver-mock)
 /// Note: Also available via `drivers::mock` module for backwards compatibility

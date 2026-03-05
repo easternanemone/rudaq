@@ -31,13 +31,13 @@ use hardware::registry::{register_mock_factories, DeviceRegistry, HardwareConfig
 ///
 /// This registers factories for all enabled hardware drivers:
 /// - Mock drivers (always available)
-/// - Thorlabs ELL14 (when `thorlabs` feature enabled)
-/// - Newport ESP300 and 1830-C (when `newport` feature enabled)
-/// - Spectra-Physics MaiTai (when `spectra_physics` feature enabled)
 /// - Andor iStar / Shamrock (when `andor` feature enabled)
 /// - PVCAM cameras (when `pvcam` feature enabled)
 /// - Comedi DAQ (when `comedi` feature enabled)
 /// - Config-driven devices from TOML manifests (always available)
+///
+/// Legacy serial drivers (Thorlabs, Newport, Spectra-Physics, Red Pitaya) have been
+/// removed. Serial/TCP/SCPI devices now use driver-universal TOML manifests.
 ///
 /// # Example
 ///
@@ -56,20 +56,6 @@ pub async fn register_all_factories(
 ) -> Result<(), DaqError> {
     // Register mock factories (always available)
     register_mock_factories(registry);
-
-    // Register Newport factories
-    #[cfg(feature = "newport")]
-    {
-        use driver_newport::Newport1830CFactory;
-        registry.register_factory(Box::new(Newport1830CFactory));
-    }
-
-    // Register Red Pitaya factories
-    #[cfg(feature = "red_pitaya")]
-    {
-        use driver_red_pitaya::RedPitayaPidFactory;
-        registry.register_factory(Box::new(RedPitayaPidFactory));
-    }
 
     // Register Andor SDK3 factories (iStar camera + Shamrock spectrograph)
     #[cfg(feature = "andor")]

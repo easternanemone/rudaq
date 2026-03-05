@@ -1,0 +1,261 @@
+# config/devices/red_pitaya_pid.toml
+# Red Pitaya STEMlab PID Controller - Protocol Definition
+#
+# SCPI over TCP interface on port 5000.
+# Custom PID FPGA bitstream for laser power stabilization.
+# Responses are plain values (no prefix); booleans use ON/OFF format.
+
+schema_version = 3
+
+[device]
+name = "Red Pitaya PID"
+description = "Red Pitaya STEMlab FPGA-based PID controller for laser power stabilization"
+manufacturer = "Red Pitaya"
+model = "STEMlab PID"
+protocol = "scpi_tcp"
+category = "controller"
+capabilities = ["Readable", "Commandable"]
+
+[connection]
+type = "tcp"
+host = "192.168.1.100"
+port = 5000
+timeout_ms = 2000
+terminator = "\r\n"
+
+# ==============================================================================
+# Response Definitions
+# ==============================================================================
+
+[responses.pid_float]
+# Plain numeric response, e.g. "1.234567" -> 1.234567
+transform = ["trim", "to_float"]
+
+[responses.pid_bool]
+# Boolean response: "ON" -> true, "OFF" -> false, or "1"/"0"
+# Uses SCPI Tier-0 boolean parsing which recognises ON/OFF/1/0/true/false.
+response_type = "boolean"
+
+[responses.pid_string]
+# Plain string response
+transform = ["trim"]
+
+# ==============================================================================
+# Command Definitions
+# ==============================================================================
+
+[commands.identity]
+template = "*IDN?"
+description = "Query device identity"
+response = "pid_string"
+
+[commands.read_power]
+template = "PID:INP?"
+description = "Read current measured power (mW)"
+response = "pid_float"
+
+[commands.read_setpoint]
+template = "PID:SETP?"
+description = "Read target power setpoint (mW)"
+response = "pid_float"
+
+[commands.set_setpoint]
+template = "PID:SETP {{ value }}"
+description = "Set target power setpoint (mW)"
+parameters = { value = "float" }
+expects_response = false
+
+[commands.read_error]
+template = "PID:ERR?"
+description = "Read error signal (setpoint - measured)"
+response = "pid_float"
+
+[commands.read_pid_output]
+template = "PID:OUT?"
+description = "Read PID controller output (clamped to limits)"
+response = "pid_float"
+
+[commands.read_kp]
+template = "PID:KP?"
+description = "Read proportional gain"
+response = "pid_float"
+
+[commands.set_kp]
+template = "PID:KP {{ value }}"
+description = "Set proportional gain"
+parameters = { value = "float" }
+expects_response = false
+
+[commands.read_ki]
+template = "PID:KI?"
+description = "Read integral gain"
+response = "pid_float"
+
+[commands.set_ki]
+template = "PID:KI {{ value }}"
+description = "Set integral gain"
+parameters = { value = "float" }
+expects_response = false
+
+[commands.read_kd]
+template = "PID:KD?"
+description = "Read derivative gain"
+response = "pid_float"
+
+[commands.set_kd]
+template = "PID:KD {{ value }}"
+description = "Set derivative gain"
+parameters = { value = "float" }
+expects_response = false
+
+[commands.read_output_min]
+template = "PID:OMIN?"
+description = "Read minimum output limit"
+response = "pid_float"
+
+[commands.set_output_min]
+template = "PID:OMIN {{ value }}"
+description = "Set minimum output limit"
+parameters = { value = "float" }
+expects_response = false
+
+[commands.read_output_max]
+template = "PID:OMAX?"
+description = "Read maximum output limit"
+response = "pid_float"
+
+[commands.set_output_max]
+template = "PID:OMAX {{ value }}"
+description = "Set maximum output limit"
+parameters = { value = "float" }
+expects_response = false
+
+[commands.read_enabled]
+template = "PID:EN?"
+description = "Read PID loop enabled state"
+response = "pid_bool"
+
+[commands.enable_pid]
+template = "PID:EN ON"
+description = "Enable PID feedback loop"
+expects_response = false
+
+[commands.disable_pid]
+template = "PID:EN OFF"
+description = "Disable PID feedback loop"
+expects_response = false
+
+# ==============================================================================
+# Capability Mapping
+# ==============================================================================
+
+[capabilities.readable]
+read = { command = "read_power", output_field = "value" }
+
+# ==============================================================================
+# UI Configuration
+# ==============================================================================
+
+[ui]
+icon = "tune"
+color = "#4CAF50"
+
+[ui.control_panel]
+layout = "vertical"
+show_header = true
+
+[[ui.control_panel.sections]]
+type = "sensor"
+label = "Power"
+precision = 3
+unit = "mW"
+refresh_ms = 500
+
+[[ui.control_panel.sections]]
+type = "separator"
+visible = true
+
+[[ui.control_panel.sections]]
+type = "custom_action"
+label = "Enable PID"
+command = "enable_pid"
+style = "success"
+
+[[ui.control_panel.sections]]
+type = "custom_action"
+label = "Disable PID"
+command = "disable_pid"
+style = "danger"
+
+[[ui.control_panel.sections]]
+type = "separator"
+visible = true
+
+[[ui.control_panel.sections]]
+type = "parameter"
+label = "Setpoint"
+parameter = "setpoint"
+widget = "spinner"
+read_only = false
+read_command = "read_setpoint"
+write_command = "set_setpoint"
+
+[[ui.control_panel.sections]]
+type = "parameter"
+label = "Kp (Proportional)"
+parameter = "kp"
+widget = "spinner"
+read_only = false
+read_command = "read_kp"
+write_command = "set_kp"
+
+[[ui.control_panel.sections]]
+type = "parameter"
+label = "Ki (Integral)"
+parameter = "ki"
+widget = "spinner"
+read_only = false
+read_command = "read_ki"
+write_command = "set_ki"
+
+[[ui.control_panel.sections]]
+type = "parameter"
+label = "Kd (Derivative)"
+parameter = "kd"
+widget = "spinner"
+read_only = false
+read_command = "read_kd"
+write_command = "set_kd"
+
+[[ui.control_panel.sections]]
+type = "parameter"
+label = "Output Min"
+parameter = "output_min"
+widget = "spinner"
+read_only = false
+read_command = "read_output_min"
+write_command = "set_output_min"
+
+[[ui.control_panel.sections]]
+type = "parameter"
+label = "Output Max"
+parameter = "output_max"
+widget = "spinner"
+read_only = false
+read_command = "read_output_max"
+write_command = "set_output_max"
+
+[[ui.control_panel.sections]]
+type = "separator"
+visible = true
+
+[[ui.control_panel.sections]]
+type = "status_display"
+label = "PID Status"
+parameters = ["error", "pid_output"]
+compact = true
+
+[ui.status_display]
+summary_params = ["power"]
+summary_format = "{{ power }} mW"
+show_connection = true

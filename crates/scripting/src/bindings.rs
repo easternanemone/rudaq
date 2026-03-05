@@ -183,18 +183,6 @@ pub struct ReadableHandle {
     pub data_tx: Option<Arc<broadcast::Sender<Measurement>>>,
 }
 
-/// Newport 1830-C specific handle with zeroing capability
-///
-/// This handle extends ReadableHandle with Newport-specific methods like zero().
-#[cfg(feature = "hardware_factories")]
-#[derive(Clone)]
-pub struct Newport1830CHandle {
-    /// Newport 1830-C driver with direct access to all methods
-    pub driver: Arc<driver_newport::Newport1830CDriver>,
-    /// Optional data sender for broadcasting measurements
-    pub data_tx: Option<Arc<broadcast::Sender<Measurement>>>,
-}
-
 /// Handle to a shutter device (laser shutters) for Rhai scripts
 ///
 /// Wraps any device implementing `ShutterControl` trait.
@@ -728,121 +716,17 @@ pub fn register_hardware(engine: &mut Engine) {
 
 #[cfg(feature = "hardware_factories")]
 fn register_hardware_factories(engine: &mut Engine) {
-    use driver_newport::Newport1830CDriver;
-
-    // =========================================================================
-    // Newport 1830-C Power Meter Factory
-    // =========================================================================
-
-    // Register Newport1830CHandle type
-    engine.register_type_with_name::<Newport1830CHandle>("Newport1830C");
-
-    // create_newport_1830c(port) - Create Newport 1830-C power meter driver
-    // SECURITY (bd-qa36.8.1): Port path validated.
-    engine.register_fn(
-        "create_newport_1830c",
-        |port: &str| -> Result<Newport1830CHandle, Box<EvalAltResult>> {
-            crate::path_security::validate_serial_port(port)?;
-            let port = port.to_string();
-
-            let driver = run_blocking(
-                "Newport 1830-C create",
-                Newport1830CDriver::new_async(&port),
-            )?;
-
-            Ok(Newport1830CHandle {
-                driver: Arc::new(driver),
-                data_tx: None,
-            })
-        },
-    );
-
-    // power_meter.read() - Read power value
-    engine.register_fn(
-        "read",
-        |pm: &mut Newport1830CHandle| -> Result<f64, Box<EvalAltResult>> {
-            run_blocking("Newport 1830-C read", pm.driver.read())
-        },
-    );
-
-    // power_meter.read_averaged(samples) - Average multiple readings
-    engine.register_fn(
-        "read_averaged",
-        |pm: &mut Newport1830CHandle, samples: i64| -> Result<f64, Box<EvalAltResult>> {
-            if samples < 1 {
-                return Err(Box::new(EvalAltResult::ErrorRuntime(
-                    "read_averaged: samples must be >= 1".into(),
-                    Position::NONE,
-                )));
-            }
-
-            let mut sum = 0.0;
-            for _ in 0..samples {
-                let val = run_blocking("Newport 1830-C read", pm.driver.read())?;
-                sum += val;
-                std::thread::sleep(Duration::from_millis(50));
-            }
-            #[allow(clippy::cast_precision_loss)]
-            let avg = sum / samples as f64;
-            Ok(avg)
-        },
-    );
-
-    // power_meter.zero() - Zero the power meter (no attenuator)
-    engine.register_fn(
-        "zero",
-        |pm: &mut Newport1830CHandle| -> Result<Dynamic, Box<EvalAltResult>> {
-            run_blocking("Newport 1830-C zero", pm.driver.zero(false))?;
-            Ok(Dynamic::UNIT)
-        },
-    );
-
-    // power_meter.zero_with_attenuator() - Zero the power meter with attenuator
-    engine.register_fn(
-        "zero_with_attenuator",
-        |pm: &mut Newport1830CHandle| -> Result<Dynamic, Box<EvalAltResult>> {
-            run_blocking("Newport 1830-C zero", pm.driver.zero(true))?;
-            Ok(Dynamic::UNIT)
-        },
-    );
-
-    // power_meter.set_attenuator(enabled) - Enable or disable the attenuator
-    engine.register_fn(
-        "set_attenuator",
-        |pm: &mut Newport1830CHandle, enabled: bool| -> Result<Dynamic, Box<EvalAltResult>> {
-            run_blocking(
-                "Newport 1830-C set_attenuator",
-                pm.driver.set_attenuator(enabled),
-            )?;
-            Ok(Dynamic::UNIT)
-        },
-    );
-
-    // power_meter.set_wavelength(nm) - Set calibration wavelength in nanometers
-    engine.register_fn(
-        "set_wavelength",
-        |pm: &mut Newport1830CHandle, wavelength_nm: f64| -> Result<Dynamic, Box<EvalAltResult>> {
-            use hardware::capabilities::WavelengthTunable;
-            run_blocking(
-                "Newport 1830-C set_wavelength",
-                pm.driver.set_wavelength(wavelength_nm),
-            )?;
-            Ok(Dynamic::UNIT)
-        },
-    );
-
-    // power_meter.get_wavelength() - Get current calibration wavelength in nanometers
-    engine.register_fn(
-        "get_wavelength",
-        |pm: &mut Newport1830CHandle| -> Result<f64, Box<EvalAltResult>> {
-            use hardware::capabilities::WavelengthTunable;
-            run_blocking("Newport 1830-C get_wavelength", pm.driver.get_wavelength())
-        },
-    );
+    // Legacy serial driver factories (Newport, Thorlabs, Spectra-Physics) have been
+    // removed. Serial/TCP/SCPI devices now use driver-universal TOML manifests
+    // in config/devices/ and are accessed via ExecuteDeviceCommand RPC.
 
     // Register Comedi functions if feature is enabled
     #[cfg(feature = "comedi_scripting")]
     register_comedi_functions(engine);
+
+    // Suppress unused variable warning when comedi_scripting is not enabled
+    #[cfg(not(feature = "comedi_scripting"))]
+    let _ = engine;
 }
 
 // =============================================================================
@@ -1672,24 +1556,6 @@ mod tests {
         };
         assert!(max_only.validate(50.0).is_ok());
         assert!(max_only.validate(150.0).is_err());
-    }
-
-    #[test]
-    fn test_maitai_handle_type_exists() {
-        // Compile-time check that MaiTaiHandle exists with expected fields
-        #[cfg(feature = "hardware_factories")]
-        {
-            // MaiTaiHandle should exist when hardware_factories is enabled
-            // This test just verifies the type is defined
-            fn _assert_maitai_handle_fields() {
-                // This function exists only to verify the type structure at compile time
-                // It's never called, but will fail to compile if MaiTaiHandle doesn't exist
-                let _: fn(&MaiTaiHandle) -> bool = |handle| {
-                    let _ = &handle.driver;
-                    true
-                };
-            }
-        }
     }
 
     // =========================================================================

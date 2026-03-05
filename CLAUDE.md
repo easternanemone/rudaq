@@ -48,11 +48,6 @@ Native SDK Drivers (FFI-bound, irreplaceable by manifests)
   driver-comedi         ← Linux DAQ cards (+ comedi-sys bindgen)
   driver-dover-motion   ← Dover/Cellino stages (+ dover-motion-sys bindgen)
 
-Legacy Serial Drivers (soft-deprecated → driver-universal manifests)
-  driver-thorlabs, driver-newport, driver-spectra-physics, driver-generic,
-  driver-red-pitaya
-  ↳ Still functional but new text-protocol devices should use config/devices/*.toml
-
 Engine
   experiment       ← Bluesky-style RunEngine + Plan trait (PlanCommand yields)
   scripting        ← Rhai engine with hardware bindings, optional PyO3
@@ -107,7 +102,7 @@ registry.register_from_config(DeviceConfig { id, name, driver: DriverConfig { ty
 
 ### Feature Flags
 
-**Compile-time** (Cargo features in `hardware/Cargo.toml`): `serial`, `thorlabs`, `newport`, `spectra_physics`, `pvcam`/`pvcam_sdk`/`pvcam_hardware`, `comedi`/`comedi_hardware`, `andor`/`andor_hardware`, `all_hardware`, `full`. Mock drivers (`driver-mock`) are always compiled.
+**Compile-time** (Cargo features in `hardware/Cargo.toml`): `serial`, `pvcam`/`pvcam_sdk`/`pvcam_hardware`, `comedi`/`comedi_hardware`, `andor`/`andor_hardware`, `all_hardware`, `full`. Mock drivers (`driver-mock`) are always compiled. Serial/SCPI devices use `driver-universal` TOML manifests (always compiled, no feature flag needed).
 
 **Runtime** (`config/feature_flags.toml`): Loaded via `FeatureFlags::load()`. Toggles: `frame_pool_preallocation`, `async_ring_buffer`, `experimental_streaming`, `debug_frame_timing`, etc.
 

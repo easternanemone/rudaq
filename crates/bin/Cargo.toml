@@ -91,28 +91,21 @@ metrics = ["dep:prometheus", "server/metrics"]
 # Enabled drivers:
 #   - pvcam_hardware    : Real PVCAM SDK (Prime BSI camera)
 #   - comedi_hardware   : NI PCI-MIO-16XE-10 DAQ card
-#   - thorlabs          : ELL14 rotation mounts (rotators 2, 3, 8)
-#   - newport           : ESP300 motion controller (axis 1, 2, 3)
-#   - spectra_physics   : MaiTai Ti:Sapphire laser
-#   - newport_power_meter : Newport 1830-C optical power meter
 #   - serial            : Base serial port communication
+#
+# Serial/SCPI devices (ELL14, ESP300, MaiTai, Newport 1830-C, Red Pitaya PID)
+# now use driver-universal with TOML manifests from config/devices/.
+# No feature flags needed — driver-universal is always compiled.
 #
 # Expected devices (9+ total):
 #   1. prime_bsi (PVCAM camera)
 #   2. photodiode, ni_daq_ao0 (Comedi DAQ channels)
-#   3. maitai (laser)
-#   4. power_meter (Newport 1830-C)
-#   5. rotator_2, rotator_3, rotator_8 (ELL14 rotators)
-#   6. esp300_axis1, esp300_axis2, esp300_axis3 (Newport motion)
+#   3+ Universal devices from config/devices/*.toml manifests
 # ============================================================================
 maitai = [
-    "pvcam_hardware",                  # Real PVCAM SDK (NOT mock)
-    "comedi_hardware",                 # NI DAQ card (NOT mock)
-    "driver-registry/thorlabs",        # ELL14 rotators
-    "driver-registry/newport",         # ESP300 motion controller
-    "driver-registry/spectra_physics", # MaiTai laser
-    "driver-registry/newport_power_meter", # 1830-C power meter
-    "serial",                          # Serial port base
+    "pvcam_hardware",              # Real PVCAM SDK (NOT mock)
+    "comedi_hardware",             # NI DAQ card (NOT mock)
+    "hardware/serial"              # Serial port base
 ]
 
 # ============================================================================

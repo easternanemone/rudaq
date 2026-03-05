@@ -157,8 +157,8 @@ impl ComediPanel {
             self.status_fetching = false;
             match result {
                 Ok((status, timing)) => {
-                    self.board_name = status.board_name.clone();
-                    self.driver_name = status.driver_name.clone();
+                    status.board_name.clone_into(&mut self.board_name);
+                    status.driver_name.clone_into(&mut self.driver_name);
                     self.connection_status = if status.online {
                         ConnectionStatus::Connected
                     } else {
@@ -300,7 +300,7 @@ impl ComediPanel {
                 ConnectionStatus::Disconnected | ConnectionStatus::Connecting
             )
         {
-            if let Some(c) = client.as_deref_mut() {
+            if let Some(c) = client.as_mut() {
                 self.fetch_daq_status(c, runtime);
             }
         }
@@ -456,13 +456,7 @@ impl ComediPanel {
                     ui.label("Analog Input");
                     ui.label(RichText::new("✓").color(Color32::GREEN));
                     ui.label(RichText::new("✓").color(Color32::GREEN));
-                    let trig_label = if self.timing_caps.as_ref().is_some_and(|c| c.external_clock)
-                    {
-                        RichText::new("✓").color(Color32::GREEN)
-                    } else {
-                        RichText::new("✓").color(Color32::GREEN)
-                    };
-                    ui.label(trig_label);
+                    ui.label(RichText::new("✓").color(Color32::GREEN));
                     ui.label(RichText::new("✓").color(Color32::GREEN));
                     ui.end_row();
 
@@ -483,19 +477,10 @@ impl ComediPanel {
                     ui.end_row();
 
                     // Counter row — show PFI trigger support from real timing caps
-                    let ctr_trig = if self
-                        .timing_caps
-                        .as_ref()
-                        .is_some_and(|c| !c.pfi_pins.is_empty())
-                    {
-                        RichText::new("✓").color(Color32::GREEN)
-                    } else {
-                        RichText::new("✓").color(Color32::GREEN)
-                    };
                     ui.label("Counter/Timer");
                     ui.label(RichText::new("✓").color(Color32::GREEN));
                     ui.label(RichText::new("—").color(Color32::GRAY));
-                    ui.label(ctr_trig);
+                    ui.label(RichText::new("✓").color(Color32::GREEN));
                     ui.label(RichText::new("—").color(Color32::GRAY));
                     ui.end_row();
                 });

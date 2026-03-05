@@ -16,6 +16,7 @@ Camera-native and SDK-bound drivers are not in scope.
 | `newport1830_c` | `universal_newport_1830-c` |
 | `esp300` | `universal_newport_esp300` |
 | `thorlabs_pm400` | `universal_thorlabs_pm400` |
+| `red_pitaya_pid` | `universal_red_pitaya_pid` |
 
 ## Runtime Validation Behavior
 
@@ -96,6 +97,11 @@ grpcurl -plaintext -import-path crates/protocol/proto -proto daq.proto \
   localhost:50051 daq.HardwareService/ListDevices | \
   python3 -c "import json,sys; [print(json.dumps(json.loads(d['metadata']['uiSchemaJson']),indent=2)) for d in json.load(sys.stdin)['devices'] if 'uiSchemaJson' in d.get('metadata',{})]"
 ```
+
+5. Phase 5 (complete): Legacy serial driver crates (`driver-thorlabs`, `driver-newport`,
+   `driver-spectra-physics`, `driver-red-pitaya`) fully deleted from workspace. All serial/TCP/SCPI
+   devices now use `driver-universal` TOML manifests exclusively. Only native SDK drivers (PVCAM,
+   Andor, Comedi, Dover) retain dedicated crates with FFI bindings.
 
 ## Support Policy
 

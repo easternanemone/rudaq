@@ -20,9 +20,6 @@ anyhow.workspace = true
 serde_json.workspace = true
 
 # Optional hardware driver dependencies for factory functions
-driver-thorlabs = { path = "../driver-thorlabs", optional = true }
-driver-newport = { path = "../driver-newport", optional = true }
-driver-spectra-physics = { path = "../driver-spectra-physics", optional = true }
 driver-comedi = { path = "../driver-comedi", optional = true }
 
 # Optional HDF5 support for data storage (use hdf5-metno to match ui/daq-storage)
@@ -41,9 +38,6 @@ hardware_factories = []
 # Full scripting - RECOMMENDED
 scripting_full = [
     "hardware_factories",
-    "dep:driver-thorlabs",
-    "dep:driver-newport",
-    "dep:driver-spectra-physics",
     "hdf5_scripting",
 ]
 # Full scripting with Comedi DAQ support (requires comedilib on Linux)

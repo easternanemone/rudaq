@@ -589,7 +589,8 @@ fn save_3d_hdf5(
     Ok(())
 }
 
-// Simple Comedi wrapper for this test
+// Simple Comedi wrapper for this test (FFI calls require unsafe)
+#[allow(unsafe_code)]
 struct ComediSimple {
     handle: *mut comedi_sys::comedi_t,
 }
@@ -649,6 +650,7 @@ impl ComediSimple {
     }
 }
 
+#[allow(unsafe_code)]
 impl Drop for ComediSimple {
     fn drop(&mut self) {
         unsafe {

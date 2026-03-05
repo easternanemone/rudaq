@@ -3,13 +3,13 @@
 #
 # Usage: bash scripts/build-maitai.sh
 #
-# The 'maitai' feature flag enables ALL hardware drivers:
+# The 'maitai' feature flag enables native SDK hardware drivers:
 #   - PVCAM (real SDK, not mock)
-#   - Thorlabs ELL14 rotators
-#   - Newport ESP300 motion controller
-#   - Newport 1830-C power meter
-#   - Spectra-Physics MaiTai laser
+#   - Comedi DAQ card
 #   - Serial port communication
+#
+# Serial/SCPI devices (ELL14, ESP300, MaiTai, 1830-C, Red Pitaya PID)
+# use driver-universal with TOML manifests from config/devices/.
 #
 # This script ensures proper build by:
 #   1. Loading PVCAM environment variables
@@ -39,13 +39,13 @@ echo "🔧 Building daemon with ALL REAL HARDWARE (maitai feature)..."
 echo "   PVCAM_SDK_DIR=$PVCAM_SDK_DIR"
 echo "   PVCAM_VERSION=$PVCAM_VERSION"
 echo ""
-echo "   Enabled drivers:"
+echo "   Enabled native SDK drivers:"
 echo "     ✓ PVCAM camera (real SDK)"
-echo "     ✓ Thorlabs ELL14 rotators"
-echo "     ✓ Newport ESP300 motion controller"
-echo "     ✓ Newport 1830-C power meter"
-echo "     ✓ Spectra-Physics MaiTai laser"
+echo "     ✓ Comedi DAQ card"
 echo "     ✓ Serial port communication"
+echo ""
+echo "   Serial/SCPI devices (via driver-universal TOML manifests):"
+echo "     ✓ ELL14 rotators, ESP300 motion, MaiTai laser, 1830-C power meter, etc."
 echo ""
 
 # Clean build artifacts to avoid feature flag caching issues

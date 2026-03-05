@@ -120,10 +120,6 @@ test-group = "pvcam-hardware"
 filter = "package(driver-andor-sdk3) & (test(/andor/) | test(/raw_sdk/))"
 test-group = "andor-hardware"
 
-[[profile.default.overrides]]
-filter = "test(/hardware_esp300/) | test(/hardware_maitai/) | test(/hardware_newport/)"
-test-group = "serial-hardware"
-
 # Long-running benchmark tests
 [[profile.default.overrides]]
 filter = "test(/benchmark/)"

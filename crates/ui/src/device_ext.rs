@@ -16,12 +16,6 @@ pub(crate) trait DeviceInfoExt {
     fn is_frame_producer(&self) -> bool {
         self.has_capability("frame_producer")
     }
-    fn is_triggerable(&self) -> bool {
-        self.has_capability("triggerable")
-    }
-    fn is_exposure_controllable(&self) -> bool {
-        self.has_capability("exposure_controllable")
-    }
     fn is_shutter_controllable(&self) -> bool {
         self.has_capability("shutter_controllable")
     }

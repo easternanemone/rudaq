@@ -18,7 +18,6 @@ use super::DioDirection;
 /// Action results from async operations.
 #[derive(Debug)]
 enum ActionResult {
-    PinState { pin: u32, state: bool },
     PortState { port: u32, bits: u32 },
     WriteSuccess { pin: u32, state: bool },
     WriteError { pin: u32, error: String },
@@ -548,19 +547,16 @@ impl DigitalIOPanel {
                         device_id: device_id.clone(),
                         base_channel,
                     };
-                    match c.ni_daq_client().read_digital_port(req).await {
-                        Ok(resp) => {
-                            let r = resp.into_inner();
-                            if r.success {
-                                let _ = tx
-                                    .send(ActionResult::PortState {
-                                        port,
-                                        bits: r.value,
-                                    })
-                                    .await;
-                            }
+                    if let Ok(resp) = c.ni_daq_client().read_digital_port(req).await {
+                        let r = resp.into_inner();
+                        if r.success {
+                            let _ = tx
+                                .send(ActionResult::PortState {
+                                    port,
+                                    bits: r.value,
+                                })
+                                .await;
                         }
-                        Err(_) => {}
                     }
                 }
             }
@@ -617,11 +613,6 @@ impl DigitalIOPanel {
     fn poll_results(&mut self) {
         while let Ok(result) = self.action_rx.try_recv() {
             match result {
-                ActionResult::PinState { pin, state } => {
-                    if let Some(p) = self.pins.get_mut(pin as usize) {
-                        p.state = state;
-                    }
-                }
                 ActionResult::PortState { port, bits } => {
                     let start = port * 8;
                     for i in 0..8 {

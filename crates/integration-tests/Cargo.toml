@@ -31,7 +31,6 @@ tokio-stream = { version = "0.1", features = ["sync"] }
 hdf5 = { package = "hdf5-metno", version = "0.11.0" }
 arrow = { version = "57", features = ["ipc"] }
 nix = { version = "0.29", features = ["term"] }
-driver-newport = { path = "../driver-newport", optional = true }
 driver-pvcam = { path = "../driver-pvcam", optional = true }
 driver-universal = { path = "../driver-universal", features = ["emulator"], optional = true }
 db = { path = "../db", optional = true }
@@ -45,7 +44,7 @@ tracing-subscriber = { version = "0.3", features = ["registry"] }
 
 
 [features]
-default = ["networking", "server", "scripting", "storage_hdf5", "storage_arrow", "serial", "thorlabs", "newport", "newport_power_meter", "modules", "pvcam", "universal", "db-surreal-mem"]
+default = ["networking", "server", "scripting", "storage_hdf5", "storage_arrow", "serial", "modules", "pvcam", "universal", "db-surreal-mem"]
 networking = ["server/networking"]
 server = ["dep:server", "networking"]
 scripting = ["dep:scripting"]
@@ -57,11 +56,7 @@ gui_egui = ["ui/standalone"]
 hardware_tests = []
 libs_drivers = []
 libs_spirit_driver = []
-spectra_physics = ["driver-registry/spectra_physics"]
-serial = ["hardware/serial", "driver-registry/serial"]
-thorlabs = ["driver-registry/thorlabs"]
-newport = ["driver-registry/newport"]
-newport_power_meter = ["dep:driver-newport", "driver-registry/newport_power_meter"]
+serial = ["hardware/serial"]
 modules = ["daq-modules"]
 universal = ["dep:driver-universal"]
 db-surreal-mem = ["dep:db", "db/kv-mem", "dep:server", "server/db-surreal-mem"]

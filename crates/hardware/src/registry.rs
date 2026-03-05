@@ -10,28 +10,26 @@
 //! # Architecture (DynExp-style three-tier)
 //!
 //! ```text
-//! ┌─────────────────────────────────────────────────────────────────┐
-//! │                      DeviceRegistry                             │
-//! │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐            │
-//! │  │ Device<Ell14>│  │ Device<1830C>│  │ Device<ESP300>│  ...    │
-//! │  └─────────────┘  └─────────────┘  └─────────────┘            │
-//! ├─────────────────────────────────────────────────────────────────┤
-//! │                    Capability Traits                            │
-//! │  Movable | Readable | Triggerable | FrameProducer | ...        │
-//! ├─────────────────────────────────────────────────────────────────┤
-//! │                    Hardware Drivers                             │
-//! │  Ell14Driver | Newport1830CDriver | MaiTaiDriver | Esp300Driver │
-//! └─────────────────────────────────────────────────────────────────┘
+//! ┌──────────────────────────────────────────────────────────────────┐
+//! │                       DeviceRegistry                             │
+//! │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐          │
+//! │  │ UniversalDev  │  │ PvcamCamera  │  │ MockDevice   │  ...    │
+//! │  └──────────────┘  └──────────────┘  └──────────────┘          │
+//! ├──────────────────────────────────────────────────────────────────┤
+//! │                     Capability Traits                            │
+//! │  Movable | Readable | Triggerable | FrameProducer | ...         │
+//! ├──────────────────────────────────────────────────────────────────┤
+//! │                     Hardware Drivers                             │
+//! │  driver-universal (TOML) | driver-pvcam | driver-andor-sdk3     │
+//! │  driver-comedi | driver-mock                                     │
+//! └──────────────────────────────────────────────────────────────────┘
 //! ```
 //!
-//! # Known Instruments (from docs/HARDWARE_INVENTORY.md)
+//! # Instruments
 //!
-//! | Device | Driver | Port | Capabilities |
-//! |--------|--------|------|--------------|
-//! | Newport 1830-C Power Meter | `Newport1830CDriver` | `/dev/ttyS0` | Readable |
-//! | Spectra-Physics MaiTai Laser | `MaiTaiDriver` | `/dev/ttyUSB5` | Readable |
-//! | Thorlabs ELL14 Rotation Mount (3x) | `Ell14Driver` | `/dev/ttyUSB0` @ 2,3,8 | Movable |
-//! | Newport ESP300 Motion Controller | `Esp300Driver` | `/dev/ttyUSB1` | Movable |
+//! Serial/TCP/SCPI devices are defined as TOML manifests in `config/devices/`
+//! and loaded by `driver-universal`. Native SDK drivers (PVCAM, Andor, Comedi)
+//! use dedicated crates with FFI bindings.
 //!
 //! # Example Usage
 //!
@@ -42,19 +40,13 @@
 //! async fn main() -> anyhow::Result<()> {
 //!     let mut registry = DeviceRegistry::new();
 //!
-//!     // Register devices using factory-based driver types
+//!     // Register devices from TOML manifests via driver-universal
+//!     // Serial/TCP/SCPI devices are defined in config/devices/*.toml
 //!     registry.register_from_toml(
-//!         "power_meter",
-//!         "Newport 1830-C",
-//!         "newport_1830c",
-//!         toml::toml! { port = "/dev/ttyS0" }.into(),
-//!     ).await?;
-//!
-//!     registry.register_from_toml(
-//!         "rotator_2",
-//!         "ELL14 Address 2",
-//!         "ell14",
-//!         toml::toml! { port = "/dev/ttyUSB0"; address = "2" }.into(),
+//!         "pid_controller",
+//!         "Red Pitaya PID",
+//!         "universal_red_pitaya_pid",
+//!         toml::toml! { host = "192.168.1.100"; port = 5000 }.into(),
 //!     ).await?;
 //!
 //!     // List all devices

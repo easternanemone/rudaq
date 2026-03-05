@@ -81,7 +81,6 @@ struct CounterState {
     rate_history: VecDeque<(Instant, u64)>,
     total: u64,
     start_count: u64,
-    running: bool,
     overflow_count: u64,
 }
 
@@ -94,7 +93,6 @@ impl Default for CounterState {
             rate_history: VecDeque::with_capacity(RATE_HISTORY_SIZE),
             total: 0,
             start_count: 0,
-            running: true,
             overflow_count: 0,
         }
     }
@@ -172,8 +170,6 @@ impl CounterState {
 
 /// Counter Value Display Panel
 pub struct CounterDisplayPanel {
-    /// Start time
-    start_time: Instant,
     /// Counter states
     counters: Vec<CounterState>,
     /// Number of counters
@@ -201,7 +197,6 @@ impl Default for CounterDisplayPanel {
         let (tx, rx) = counter_display_channel();
 
         Self {
-            start_time: Instant::now(),
             counters: (0..8).map(|_| CounterState::default()).collect(),
             n_counters: 3,
             update_rx: rx,

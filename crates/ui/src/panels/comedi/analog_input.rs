@@ -17,7 +17,6 @@ use super::{AnalogReference, NI_VOLTAGE_RANGES};
 #[derive(Debug)]
 enum ActionResult {
     Reading { channel: u32, voltage: f64 },
-    ReadingError { channel: u32, error: String },
     AllReadings { voltages: Vec<(u32, f64)> },
 }
 
@@ -389,9 +388,6 @@ impl AnalogInputPanel {
                         config.last_reading = Some(voltage);
                     }
                     self.error = None;
-                }
-                ActionResult::ReadingError { channel, error } => {
-                    self.error = Some(format!("CH{}: {}", channel, error));
                 }
                 ActionResult::AllReadings { voltages } => {
                     for (channel, voltage) in voltages {

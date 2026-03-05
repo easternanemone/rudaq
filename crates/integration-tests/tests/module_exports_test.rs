@@ -177,14 +177,6 @@ fn verify_pvcam_export() {
     _check_type_exists::<driver_pvcam::PvcamDriver>();
 }
 
-#[cfg(feature = "newport_power_meter")]
-#[test]
-fn verify_newport_1830c_export() {
-    // Verify Newport 1830-C power meter is exported
-    fn _check_type_exists<T>() {}
-    _check_type_exists::<driver_newport::Newport1830CDriver>();
-}
-
 // =============================================================================
 // gRPC Services (feature: networking)
 // =============================================================================

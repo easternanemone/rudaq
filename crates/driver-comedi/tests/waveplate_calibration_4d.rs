@@ -724,7 +724,7 @@ impl Ell14Bus {
         for _ in 0..5 {
             match self.port.read(&mut discard) {
                 Ok(0) | Err(_) => break,
-                Ok(_) => continue,
+                Ok(_) => {}
             }
         }
     }

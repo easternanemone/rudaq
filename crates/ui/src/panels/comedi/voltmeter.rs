@@ -243,8 +243,6 @@ impl StreamingHandle {
 
 /// Digital Voltmeter Display Panel
 pub struct VoltmeterPanel {
-    /// Start time for relative timestamps
-    start_time: Instant,
     /// Per-channel state
     channels: Vec<ChannelState>,
     /// Selected channel
@@ -265,8 +263,6 @@ pub struct VoltmeterPanel {
     bar_range: (f64, f64),
     /// Show statistics
     show_stats: bool,
-    /// Auto-ranging enabled
-    auto_range: bool,
     /// Hold display (freeze reading)
     hold: bool,
     /// Relative mode (subtract reference)
@@ -287,7 +283,6 @@ impl Default for VoltmeterPanel {
         let (tx, rx) = voltmeter_channel();
 
         Self {
-            start_time: Instant::now(),
             channels: (0..16).map(|_| ChannelState::default()).collect(),
             selected_channel: 0,
             reading_rx: rx,
@@ -298,7 +293,6 @@ impl Default for VoltmeterPanel {
             show_bar: true,
             bar_range: (-10.0, 10.0),
             show_stats: true,
-            auto_range: true,
             hold: false,
             relative_mode: false,
             relative_ref: 0.0,

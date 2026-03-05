@@ -33,7 +33,7 @@ mod data_logger;
 mod digital_io;
 mod dio_monitor;
 mod oscilloscope;
-// Trigger panel: wired to real gRPC but not yet integrated into the unified panel tabs.
+// TODO(bd-phzf): Trigger panel is gRPC-backed but not yet surfaced in the unified tabs.
 #[allow(dead_code)]
 mod trigger;
 mod unified;
@@ -57,6 +57,7 @@ pub use oscilloscope::{
     oscilloscope_channel, OscilloscopePanel, OscilloscopeReceiver, OscilloscopeSample,
     OscilloscopeSender, SignalSource, SyntheticSignal, TriggerEdge, TriggerMode,
 };
+// TODO(bd-phzf): Export kept for upcoming unified-panel integration work.
 #[allow(dead_code)]
 pub use trigger::{
     ClockSource, SubsystemTriggerConfig, SyncMode, TriggerConfigPanel, TriggerPolarity,

@@ -75,19 +75,8 @@ pub fn data_logger_channel() -> (DataLoggerSender, DataLoggerReceiver) {
     mpsc::channel(4096)
 }
 
-/// Column configuration
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ColumnFormat {
-    Timestamp,
-    Channel,
-    Value,
-    Unit,
-}
-
 /// Data Logger View Panel
 pub struct DataLoggerPanel {
-    /// Start time for relative timestamps
-    start_time: Instant,
     /// Log buffer
     log_buffer: VecDeque<LogEntry>,
     /// Entry receiver
@@ -116,8 +105,6 @@ pub struct DataLoggerPanel {
     stats: LogStatistics,
     /// Show statistics panel
     show_stats: bool,
-    /// Export path
-    export_path: String,
     /// Export status message
     export_status: Option<String>,
 }
@@ -159,7 +146,6 @@ impl Default for DataLoggerPanel {
         let (tx, rx) = data_logger_channel();
 
         Self {
-            start_time: Instant::now(),
             log_buffer: VecDeque::with_capacity(MAX_LOG_ROWS),
             entry_rx: rx,
             entry_tx: tx,
@@ -174,7 +160,6 @@ impl Default for DataLoggerPanel {
             dropped_entries: 0,
             stats: LogStatistics::default(),
             show_stats: true,
-            export_path: String::from("data_log.csv"),
             export_status: None,
         }
     }

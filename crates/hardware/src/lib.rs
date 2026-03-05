@@ -33,7 +33,7 @@
 //! ## Feature Flags
 //!
 //! - `serial` - Serial communication via tokio-serial
-//! - `thorlabs`, `newport`, `spectra_physics` - Hardware-specific drivers
+//! - `pvcam`, `comedi`, `andor` - Native SDK hardware drivers
 //! - `pvcam` - Photometrics camera support
 //! - `comedi` - NI DAQ card support
 //!
