@@ -32,8 +32,8 @@ common_root="$("$bd_safe" --print-root)"
 
 worktree_beads="$worktree_root/.beads"
 common_beads="$common_root/.beads"
-worktree_db="$worktree_beads/beads.db"
-common_db="$common_beads/beads.db"
+# Discover canonical DB path dynamically (supports SQLite and Dolt backends).
+common_db="$("$bd_safe" --print-db)"
 worktree_issues="$worktree_beads/issues.jsonl"
 common_issues="$common_beads/issues.jsonl"
 
@@ -67,7 +67,8 @@ print_status() {
   echo "worktree_issues_jsonl_lines=$worktree_lines"
   echo "canonical_issues_jsonl_lines=$common_lines"
 
-  if [[ -f "$worktree_db" ]]; then
+  # Check for any local DB artifacts (both SQLite and Dolt)
+  if [[ -f "$worktree_beads/beads.db" ]] || [[ -d "$worktree_beads/dolt" ]]; then
     echo "worktree_local_db=present (stale risk)"
   else
     echo "worktree_local_db=absent"
@@ -85,11 +86,14 @@ cleanup_worktree_artifacts() {
     apply=true
   fi
 
+  # Runtime artifacts that may accumulate in worktree-local .beads/ directories.
+  # Covers both SQLite (beads.db*) and Dolt (dolt/) backend artifacts.
   local -a candidates=(
     "$worktree_beads/beads.db"
     "$worktree_beads/beads.db-shm"
     "$worktree_beads/beads.db-wal"
     "$worktree_beads/sqlite"
+    "$worktree_beads/dolt"
     "$worktree_beads/.jsonl.lock"
     "$worktree_beads/daemon.log"
     "$worktree_beads/daemon.pid"

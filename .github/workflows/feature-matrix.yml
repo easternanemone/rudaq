@@ -59,8 +59,8 @@ jobs:
             features: kv-rocksdb
             cache-suffix: kv-rocksdb
             timeout: 15
-          - name: "server / all_hardware mock"
-            package: server
+          - name: "bin / all_hardware mock"
+            package: bin
             features: all_hardware
             cache-suffix: all_hardware
             timeout: 25

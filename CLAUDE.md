@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-`AGENTS.md` is the canonical policy document. If there is any conflict, follow `AGENTS.md`.
+`AGENTS.md` is the canonical agent policy (local/gitignored, auto-injected by Claude Code hooks). `bd prime` provides the authoritative beads workflow.
 
 ## Build / Test / Lint
 
@@ -123,20 +123,33 @@ registry.register_from_config(DeviceConfig { id, name, driver: DriverConfig { ty
 
 ## Tools & Workflow
 
-**Issue tracking**: Use `bd` (beads) for ALL task tracking. Never use markdown TODOs. Statuses: `open`, `in_progress`, `blocked`, `closed`. Priorities: 0=critical through 4=backlog.
+**Issue tracking**: This project uses `bd` (beads). Run `bd prime` for the authoritative workflow — it is auto-injected at session start by hooks. Run `bd onboard` to generate agent policy guidance including multi-agent coordination and recording guidelines.
 
 **Code search**: Primary tool is `grepai search "query" --json --compact`. Trace calls with `grepai trace callers/callees "Symbol" --json`. Fall back to `rg`/`grep` if grepai is unavailable.
 
 **Structural search**: `sg` (ast-grep) for AST-aware code patterns. E.g., `sg -p '$EXPR.unwrap()' --lang rust`.
 
-**Quality gates**: `bd close` runs lightweight check (fmt + ast-grep). `git push` runs full gate (fmt + clippy + tests).
+**Quality gates**: `bd close` runs lightweight check (fmt + ast-grep). `git push` runs full gate (fmt + clippy + tests). `bd preflight` checks PR readiness.
 
 **LSP**: `rust-analyzer` enabled via `.claude/settings.json`.
+
+## Hardware-in-the-Loop via WASM GUI
+
+Claude Code can directly interact with real DAQ hardware through the WASM GUI in Chrome (via claude-in-chrome MCP). Deploy daemons, then navigate Chrome to the WASM GUI to verify device panels.
+
+| Machine | SSH | Daemon URL | Devices |
+|---------|-----|-----------|---------|
+| **maitai** | `maitai@100.117.5.12` | `http://100.117.5.12:50051` | 12 (PVCAM, Comedi, ELL14 x3, MaiTai, ESP300, Newport PM) |
+| **leabs-dev** | `ssh leabs-dev` | `http://10.0.0.40:50051` | 3 (Andor iStar, IPG YLPP-200, Thorlabs PM400) |
+
+WASM GUI: `http://100.117.5.12:8080`. Known reconnect bug (beefcake-48ad): must reload page to change daemon URL.
 
 ## Key Scripts
 
 | Script | Purpose |
 |--------|---------|
+| `scripts/deploy-maitai.sh` | Full deploy to maitai (pull, clean, build, daemon, GUI) |
+| `scripts/deploy-leabs.sh` | Full deploy to leabs-dev (pull, build, daemon, GUI) |
 | `scripts/build-maitai.sh` | Full hardware build for maitai machine |
 | `scripts/build-lab.sh [--release]` | Build daemon with pvcam_sdk for lab |
 | `scripts/demo.sh` | Mock-hardware demo (daemon + GUI/script) |
@@ -144,11 +157,11 @@ registry.register_from_config(DeviceConfig { id, name, driver: DriverConfig { ty
 | `scripts/install-hooks.sh [quick]` | Pre-commit hooks (full or format-only) |
 | `scripts/run-ast-grep.sh` | AST-grep structural search helper |
 | `scripts/target-maintenance.sh` | Clean bloated target/ directory |
-| `scripts/bd-safe.sh` | Worktree-safe beads commands |
+| `scripts/bd-safe.sh` | Worktree-safe beads commands (auto-discovers Dolt/SQLite backend) |
 
 ## References
 
-- Canonical agent policy: `AGENTS.md`
+- Agent policy: `AGENTS.md` (local/gitignored, auto-injected by hooks; generate with `bd onboard`)
 - Testing details: `docs/how-to/testing.md`
 - Feature flags: `config/feature_flags.toml`
 - Architecture deep-dive: `docs/explanation/architecture.md`

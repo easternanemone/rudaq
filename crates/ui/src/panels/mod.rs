@@ -100,6 +100,10 @@ mod wasm_stubs {
     pub struct ComediPanel;
 
     impl ComediPanel {
+        pub fn new(_device_id: &str) -> Self {
+            Self
+        }
+
         pub fn ui(
             &mut self,
             ui: &mut egui::Ui,
