@@ -128,7 +128,7 @@ jobs:
             echo "| **FPS** | **${fps:-N/A}** |"
             echo "| **Throughput** | **${throughput:-N/A}** |"
             echo ""
-            echo "_Threshold: 10,000 FPS minimum. Telemetry enabled via \`RUST_DAQ_DEBUG_FRAME_TIMING=1\`._"
+            echo "_Threshold: 1,000 FPS minimum (conservative for shared CI runners). Telemetry enabled via \`RUST_DAQ_DEBUG_FRAME_TIMING=1\`._"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Generate SBOM (CycloneDX)

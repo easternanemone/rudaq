@@ -103,8 +103,13 @@ jobs:
 
       - name: LIBS integration smoke tests (mock)
         run: |
+          # Run without storage_hdf5: the LIBS smoke test doesn't use HDF5
+          # and hdf5-metno-sys requires a native HDF5 installation that is
+          # not available on Windows GitHub runners.
           cargo nextest run -p integration-tests \
             --test libs_integration_smoke \
+            --no-default-features \
+            --features networking,server,scripting,serial,modules,universal,db-surreal-mem \
             --profile ci
 
       - name: Validate LIBS hardware config
