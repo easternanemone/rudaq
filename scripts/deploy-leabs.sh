@@ -189,8 +189,10 @@ if ! $GUI_ONLY; then
     fi
     ok "SSH to ${LEABS_SSH} works"
 
-    # Check Rust toolchain
-    if ! remote "command -v rustc" &>/dev/null; then
+    # Check Rust toolchain — try PATH first, then source cargo env as fallback
+    # (SSH BatchMode doesn't load login profile, and rustc may be installed
+    # via system packages without $HOME/.cargo/env)
+    if ! remote 'command -v rustc >/dev/null 2>&1 || { [ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"; command -v rustc >/dev/null 2>&1; }' &>/dev/null; then
         warn "Rust toolchain not found on leabs-dev"
         info "Install with: ssh ${LEABS_SSH} 'curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs | sh'"
         fail "Rust toolchain required for remote build"
