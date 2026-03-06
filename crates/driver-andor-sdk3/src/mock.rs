@@ -31,6 +31,99 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::time::Duration;
 
+// ── LIBS synthetic spectrum generator ────────────────────────────────────────
+
+/// Generate a synthetic 1-D LIBS emission spectrum.
+///
+/// Simulates time-resolved plasma emission observed with a gated iStar camera:
+///
+/// - **Continuum background**: exponential decay from a hot continuum emitter.
+///   At early delays (< 1 µs) the background is bright; by 5 µs it is negligible.
+/// - **Emission lines**: Gaussian line profiles at pixel positions corresponding
+///   to common LIBS analytes (Al I at 309/394/396 nm, Fe I at 438/487 nm,
+///   Ca I at 422 nm, Si I at 288 nm).  Line intensities are scaled by MCP gain.
+/// - **Shot noise**: Poisson noise proportional to the square root of signal × gain.
+///
+/// # Arguments
+/// * `delay_ps`   — DDG gate delay in picoseconds (typical: 1_300_000 = 1.3 µs)
+/// * `mcp_gain`   — MCP intensifier gain, 0–4095 (typical: 3600)
+/// * `num_pixels` — number of spectral pixels (typical: 2560)
+/// * `frame_seed` — seed for deterministic noise (use frame number)
+///
+/// # Returns
+/// A `Vec<f64>` of `num_pixels` intensity values in counts (ADU), suitable
+/// for packing into a 16-bit Mono16 frame.
+pub fn generate_libs_spectrum(
+    delay_ps: u64,
+    mcp_gain: u32,
+    num_pixels: usize,
+    frame_seed: u32,
+) -> Vec<f64> {
+    let mut spectrum = vec![0.0f64; num_pixels];
+
+    // ── Continuum background (decays ~1/e per µs) ────────────────────────
+    // delay_ps is u64; precision loss is acceptable for simulation purposes.
+    #[allow(clippy::cast_precision_loss)]
+    let delay_us = delay_ps as f64 / 1.0e6;
+    let continuum_amp = 8000.0 * (-delay_us / 1.0).exp();
+    for v in &mut spectrum {
+        *v += continuum_amp;
+    }
+
+    // ── Gain scale factor (0–1, linear with MCP gain) ────────────────────
+    let gain_scale = f64::from(mcp_gain) / 4095.0;
+
+    // ── Emission lines (pixel center, peak intensity, width σ in pixels) ─
+    // Pixel positions assume ~0.15 nm/pixel dispersion centred at 400 nm
+    // (wavelength range ≈ 208–592 nm for 2560-pixel detector).
+    // Positions are scaled proportionally for other pixel counts.
+    // num_pixels is usize; precision loss acceptable for scaling calculation.
+    #[allow(clippy::cast_precision_loss)]
+    let scale = num_pixels as f64 / 2560.0;
+    let emission_lines: &[(f64, f64, f64)] = &[
+        // Si I 288 nm
+        (530.0 * scale, 25_000.0, 2.5),
+        // Al I 309 nm
+        (674.0 * scale, 50_000.0, 2.5),
+        // Al I 394 nm
+        (1240.0 * scale, 45_000.0, 2.5),
+        // Al I 396 nm
+        (1253.0 * scale, 40_000.0, 2.5),
+        // Ca I 422 nm
+        (1427.0 * scale, 30_000.0, 2.5),
+        // Fe I 438 nm
+        (1533.0 * scale, 20_000.0, 2.5),
+        // Fe I 487 nm
+        (1860.0 * scale, 15_000.0, 2.5),
+    ];
+
+    for &(center, amplitude, sigma) in emission_lines {
+        for (i, v) in spectrum.iter_mut().enumerate() {
+            // i is usize; precision loss acceptable for Gaussian profile calculation.
+            #[allow(clippy::cast_precision_loss)]
+            let dx = i as f64 - center;
+            *v += amplitude * gain_scale * (-0.5 * (dx / sigma).powi(2)).exp();
+        }
+    }
+
+    // ── Shot noise (simple LCG seeded by frame_seed for repeatability) ───
+    let noise_scale = (gain_scale * 150.0).max(10.0);
+    let mut rng = frame_seed
+        .wrapping_mul(1_664_525)
+        .wrapping_add(1_013_904_223);
+    for v in &mut spectrum {
+        rng = rng.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        // Box-Muller-ish: use uniform noise for simplicity
+        // rng and u32::MAX are u32; f64::from gives lossless conversion.
+        let noise = (f64::from(rng) / f64::from(u32::MAX) - 0.5) * noise_scale;
+        *v = (*v + noise).max(0.0);
+    }
+
+    spectrum
+}
+
+// ── Camera parameter names ────────────────────────────────────────────────────
+
 /// Core parameter names that are explicitly constructed in MockCamera::new().
 /// Dynamic features with these SDK3 names are skipped to avoid duplicates.
 const MOCK_CORE_FEATURES: &[&str] = &["ExposureTime", "MCPGain"];
@@ -127,7 +220,16 @@ impl MockCamera {
     }
 
     /// Generate synthetic gradient frame respecting the current `PixelEncoding`.
+    ///
+    /// When `height == 1` (spectroscopy binning mode as used in LIBS), generates
+    /// a realistic LIBS emission spectrum via [`generate_libs_spectrum`] instead
+    /// of the standard 2-D gradient.
     fn generate_frame(&self, width: u32, height: u32, frame_number: u32) -> Frame {
+        // Spectroscopy mode: single-row frame → generate LIBS spectrum
+        if height == 1 {
+            return self.generate_libs_spectrum_frame(width, frame_number);
+        }
+
         let encoding = self.current_encoding();
         let size = (width * height) as usize;
         let offset = frame_number % 100;
@@ -207,6 +309,49 @@ impl MockCamera {
             width,
             height,
             bit_depth,
+            data: Bytes::from(data),
+            timestamp_ns,
+            frame_number: u64::from(frame_number),
+            exposure_ms: Some(self.inner.exposure_s.get() * 1000.0),
+            roi_x: 0,
+            roi_y: 0,
+            metadata: None,
+        }
+    }
+
+    /// Generate a synthetic 1-D LIBS spectrum as a [`Frame`] (height=1, width=num_pixels).
+    ///
+    /// Simulates time-resolved plasma emission:
+    /// - Continuum background decays exponentially with DDG delay (early: bright, late: dark)
+    /// - Emission lines at fixed wavelength-pixel positions (Al I, Fe I, Ca I, Si I)
+    /// - Gaussian noise amplitude proportional to MCP gain
+    ///
+    /// This is used when the frame dimensions are (width=N, height=1), which is
+    /// the standard binned spectroscopy mode for LIBS with an iStar camera.
+    fn generate_libs_spectrum_frame(&self, num_pixels: u32, frame_number: u32) -> Frame {
+        let mcp_gain = self.inner.mcp_gain.get();
+        let delay_ps = 1_300_000u64; // 1.3 µs default; real driver would read from parameter
+        let spectrum =
+            generate_libs_spectrum(delay_ps, mcp_gain, num_pixels as usize, frame_number);
+
+        // Pack as Mono16 (2 bytes per pixel, 1 row)
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        // SAFETY: spectrum values are clamped to 0..65535 (non-negative)
+        let data: Vec<u8> = spectrum
+            .iter()
+            .flat_map(|&v| (v.min(65535.0) as u16).to_le_bytes())
+            .collect();
+
+        #[allow(clippy::cast_possible_truncation)]
+        let timestamp_ns = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_else(|_| std::time::Duration::from_secs(0))
+            .as_nanos() as u64;
+
+        Frame {
+            width: num_pixels,
+            height: 1,
+            bit_depth: 16,
             data: Bytes::from(data),
             timestamp_ns,
             frame_number: u64::from(frame_number),

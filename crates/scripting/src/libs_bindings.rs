@@ -1,7 +1,8 @@
 //! LIBS Hardware Bindings for Rhai Scripts
 //!
 //! Provides Rhai-compatible handles for LIBS (Laser-Induced Breakdown Spectroscopy)
-//! hardware: Andor iStar gated camera, Andor Shamrock spectrograph, and Dover SmartStage.
+//! hardware: Andor iStar gated camera, Andor Shamrock spectrograph, Dover SmartStage,
+//! and the radiance calibration engine.
 //!
 //! # Architecture
 //!
@@ -11,6 +12,7 @@
 //! - `SpectrographHandle` wraps `Arc<AndorSpectrograph>` for grating/wavelength/slit control.
 //! - `DoverAxisHandle` wraps `Arc<dyn TriggerOnPosition>` for movement and TOP, plus a
 //!   stored closure for `set_velocity` (not yet in any common trait).
+//! - `CalibratorHandle` wraps `Arc<RadianceCalibrator>` for offline spectral correction.
 //!
 //! # Script Example
 //! ```rhai
@@ -28,8 +30,15 @@
 //! stage.set_velocity(5.0);
 //! stage.move_abs(10.0);
 //! stage.enable_top(0.0, 20.0, 0.1, false, 1000);
+//!
+//! // Radiance calibration
+//! let cal = create_radiance_calibrator("lamp.lmp", "g1.asc", "g2.asc");
+//! let wl  = [300.0, 310.0, 320.0];
+//! let raw = [100.0, 200.0, 150.0];
+//! let corr = cal.calibrate(wl, raw, 1, false);
 //! ```
 
+use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -40,6 +49,9 @@ use rhai::{Array, Dynamic, Engine, EvalAltResult};
 
 use crate::run_blocking;
 use common::capabilities::TriggerOnPosition;
+use common::processing::radiance_calibration::{
+    load_calibration_file, RadianceCalibrator, Spectrum,
+};
 
 // Boxed async closure type used for capability bundling
 type BoxFuture<T> = Pin<Box<dyn Future<Output = anyhow::Result<T>> + Send>>;
@@ -105,6 +117,41 @@ pub struct DoverAxisHandle {
     set_velocity_fn: VelocityFn,
 }
 
+/// Coordinates spectrograph grating changes with camera stop/re-arm.
+///
+/// Grating rotation causes the camera to lose its acquisition window, so the
+/// correct sequence is: **stop_stream → set_grating → set_wavelength → arm**.
+/// `ScanController` encapsulates this sequence as a single `set_config` call,
+/// preventing accidental acquisitions during grating motion.
+///
+/// # Script Example
+/// ```rhai
+/// let sc = create_scan_controller(camera, spectrograph);
+/// sc.set_config(1, 310.0);   // grating 1, 310 nm — stops, tunes, re-arms
+/// sc.set_config(2, 450.0);   // grating 2, 450 nm — same coordinated sequence
+/// ```
+#[derive(Clone)]
+pub struct ScanController {
+    camera: Arc<AndorCamera>,
+    spectrograph: Arc<AndorSpectrograph>,
+}
+
+/// Handle to a [`RadianceCalibrator`] for Rhai scripts.
+///
+/// Wraps `Arc<RadianceCalibrator>` for thread-safe sharing across script calls.
+/// All computation is synchronous (no hardware I/O) so no async bridge is needed.
+///
+/// # Script Example
+/// ```rhai
+/// let cal = create_radiance_calibrator("lamp.lmp", "g1.asc", "g2.asc");
+/// // wavelengths and raw intensities as Rhai arrays
+/// let corrected = cal.calibrate(wavelengths, values, 1, false);
+/// ```
+#[derive(Clone)]
+pub struct CalibratorHandle {
+    pub calibrator: Arc<RadianceCalibrator>,
+}
+
 // =============================================================================
 // Rhai Registration
 // =============================================================================
@@ -115,11 +162,15 @@ pub struct DoverAxisHandle {
 /// - `GatedCamera` — Andor iStar DDG/MCP control
 /// - `Spectrograph` — Andor Shamrock grating/wavelength/slit control
 /// - `DoverAxis` — Dover stage movement and Trigger-On-Position
-/// - Factory functions: `create_andor_camera`, `create_andor_spectrograph`, `create_dover_axis`
+/// - `RadianceCalibrator` — offline spectral correction engine
+/// - Factory functions: `create_andor_camera`, `create_andor_spectrograph`,
+///   `create_dover_axis`, `create_radiance_calibrator`
 pub fn register_libs_hardware(engine: &mut Engine) {
     engine.register_type_with_name::<GatedCameraHandle>("GatedCamera");
     engine.register_type_with_name::<SpectrographHandle>("Spectrograph");
     engine.register_type_with_name::<DoverAxisHandle>("DoverAxis");
+    engine.register_type_with_name::<CalibratorHandle>("RadianceCalibrator");
+    engine.register_type_with_name::<ScanController>("ScanController");
 
     // =========================================================================
     // GatedCameraHandle — Andor iStar methods
@@ -158,9 +209,12 @@ pub fn register_libs_hardware(engine: &mut Engine) {
          width_ps: i64|
          -> Result<Dynamic, Box<EvalAltResult>> {
             let driver = cam.driver.clone();
-            #[allow(clippy::cast_sign_loss)]
-            // SAFETY: DDG timing values are always non-negative from script callers
-            let (d, w) = (delay_ps as u64, width_ps as u64);
+            let d = u64::try_from(delay_ps).map_err(|_| {
+                crate::rhai_error_str("set_ddg_timing: delay_ps must be non-negative")
+            })?;
+            let w = u64::try_from(width_ps).map_err(|_| {
+                crate::rhai_error_str("set_ddg_timing: width_ps must be non-negative")
+            })?;
             run_blocking("set_ddg_timing", async move {
                 driver.set_ddg_output_delay(d).await?;
                 driver.set_ddg_output_width(w).await
@@ -174,8 +228,12 @@ pub fn register_libs_hardware(engine: &mut Engine) {
         "set_mcp_gain",
         |cam: &mut GatedCameraHandle, gain: i64| -> Result<Dynamic, Box<EvalAltResult>> {
             let driver = cam.driver.clone();
-            #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-            // SAFETY: MCP gain is in range 0–4095, well within u32
+            if !(0..=4095).contains(&gain) {
+                return Err(crate::rhai_error_str(
+                    "set_mcp_gain: gain must be in range 0–4095",
+                ));
+            }
+            #[allow(clippy::cast_sign_loss)]
             let gain_u32 = gain as u32;
             run_blocking("set_mcp_gain", async move {
                 driver.set_mcp_gain(gain_u32).await
@@ -290,10 +348,11 @@ pub fn register_libs_hardware(engine: &mut Engine) {
          width_um: f64|
          -> Result<Dynamic, Box<EvalAltResult>> {
             let driver = spec.driver.clone();
-            #[allow(clippy::cast_possible_truncation)]
-            // SAFETY: Slit port index is small (0-3)
+            let port_i32 = i32::try_from(port).map_err(|_| {
+                crate::rhai_error_str("set_slit_width: port must be a valid integer")
+            })?;
             run_blocking("set_slit_width", async move {
-                driver.set_slit_width(port as i32, width_um).await
+                driver.set_slit_width(port_i32, width_um).await
             })?;
             Ok(Dynamic::UNIT)
         },
@@ -305,9 +364,9 @@ pub fn register_libs_hardware(engine: &mut Engine) {
         "get_calibration",
         |spec: &mut SpectrographHandle, pixels: i64| -> Result<Array, Box<EvalAltResult>> {
             let driver = spec.driver.clone();
-            #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-            // SAFETY: pixel count is a small positive integer (e.g., 2560)
-            let n = pixels as u32;
+            let n = u32::try_from(pixels).map_err(|_| {
+                crate::rhai_error_str("get_calibration: pixels must be a positive integer")
+            })?;
             let calibration = run_blocking("get_calibration", async move {
                 driver.get_wavelength_calibration(n).await
             })?;
@@ -384,9 +443,8 @@ pub fn register_libs_hardware(engine: &mut Engine) {
          pulse_ns: i64|
          -> Result<Dynamic, Box<EvalAltResult>> {
             let driver = axis.axis.clone();
-            #[allow(clippy::cast_sign_loss)]
-            // SAFETY: pulse width is always a non-negative nanosecond count
-            let pulse_ns_u64 = pulse_ns as u64;
+            let pulse_ns_u64 = u64::try_from(pulse_ns)
+                .map_err(|_| crate::rhai_error_str("enable_top: pulse_ns must be non-negative"))?;
             run_blocking("enable_top", async move {
                 driver
                     .enable_top(start, end, increment, bidirectional, pulse_ns_u64)
@@ -416,32 +474,86 @@ pub fn register_libs_hardware(engine: &mut Engine) {
     );
 
     // =========================================================================
+    // CalibratorHandle — RadianceCalibrator methods
+    // =========================================================================
+
+    // cal.calibrate(wavelengths, values, grating, normalize) -> Array
+    // Applies radiometric correction and returns corrected intensity values.
+    // wavelengths and values must be Rhai arrays of equal length.
+    engine.register_fn(
+        "calibrate",
+        |cal: &mut CalibratorHandle,
+         wavelengths: Array,
+         values: Array,
+         grating: i64,
+         normalize: bool|
+         -> Result<Array, Box<EvalAltResult>> {
+            let wl: Vec<f64> = wavelengths.into_iter().map(|v| v.cast::<f64>()).collect();
+            let vals: Vec<f64> = values.into_iter().map(|v| v.cast::<f64>()).collect();
+            let spectrum = Spectrum::new(wl, vals)
+                .map_err(|e| crate::rhai_error("calibrate: invalid spectrum", e))?;
+            let grating_u8 = u8::try_from(grating).map_err(|_| {
+                crate::rhai_error_str("calibrate: grating index must be in range 0–255")
+            })?;
+            let result = cal
+                .calibrator
+                .calibrate(&spectrum, grating_u8, normalize)
+                .map_err(|e| crate::rhai_error("calibrate", e))?;
+            Ok(result.values.into_iter().map(Dynamic::from).collect())
+        },
+    );
+
+    // cal.lamp_wavelengths() -> Array — wavelength axis of the lamp spectrum
+    engine.register_fn("lamp_wavelengths", |cal: &mut CalibratorHandle| -> Array {
+        cal.calibrator
+            .lamp_spectrum()
+            .wavelengths
+            .iter()
+            .copied()
+            .map(Dynamic::from)
+            .collect()
+    });
+
+    // cal.has_grating(index) -> bool — check if grating calibration is loaded
+    engine.register_fn(
+        "has_grating",
+        |cal: &mut CalibratorHandle, grating: i64| -> bool {
+            u8::try_from(grating)
+                .ok()
+                .and_then(|g| cal.calibrator.grating_calibration(g))
+                .is_some()
+        },
+    );
+
+    // =========================================================================
     // Factory Functions — construct mock handles for development/testing
     // =========================================================================
 
     // create_andor_camera() -> GatedCamera — mock Andor iStar
-    engine.register_fn("create_andor_camera", || -> GatedCameraHandle {
-        let driver = tokio::task::block_in_place(|| {
-            let rt = tokio::runtime::Handle::current();
-            rt.block_on(AndorCamera::new_mock())
-                .expect("Failed to create mock AndorCamera")
-        });
-        GatedCameraHandle {
-            driver: Arc::new(driver),
-        }
-    });
+    engine.register_fn(
+        "create_andor_camera",
+        || -> Result<GatedCameraHandle, Box<EvalAltResult>> {
+            let driver = run_blocking("create_andor_camera", async move {
+                AndorCamera::new_mock().await
+            })?;
+            Ok(GatedCameraHandle {
+                driver: Arc::new(driver),
+            })
+        },
+    );
 
     // create_andor_spectrograph() -> Spectrograph — mock Andor Shamrock
-    engine.register_fn("create_andor_spectrograph", || -> SpectrographHandle {
-        let driver = tokio::task::block_in_place(|| {
-            let rt = tokio::runtime::Handle::current();
-            rt.block_on(AndorSpectrograph::new_mock())
-                .expect("Failed to create mock AndorSpectrograph")
-        });
-        SpectrographHandle {
-            driver: Arc::new(driver),
-        }
-    });
+    engine.register_fn(
+        "create_andor_spectrograph",
+        || -> Result<SpectrographHandle, Box<EvalAltResult>> {
+            let driver = run_blocking("create_andor_spectrograph", async move {
+                AndorSpectrograph::new_mock().await
+            })?;
+            Ok(SpectrographHandle {
+                driver: Arc::new(driver),
+            })
+        },
+    );
 
     // create_dover_axis(axis_name) -> DoverAxis — mock Dover SmartStage axis
     engine.register_fn(
@@ -456,6 +568,103 @@ pub fn register_libs_hardware(engine: &mut Engine) {
                     Box::pin(async move { drv.set_velocity(v).await })
                 }),
             }
+        },
+    );
+
+    // =========================================================================
+    // ScanController — coordinated spectrograph/camera tuning
+    // =========================================================================
+
+    // sc.set_config(grating, wavelength_nm) — stop camera, tune spectrograph, re-arm
+    // This is the safe sequence for changing spectral range during a scan.
+    engine.register_fn(
+        "set_config",
+        |sc: &mut ScanController,
+         grating: i64,
+         wavelength_nm: f64|
+         -> Result<Dynamic, Box<EvalAltResult>> {
+            use common::capabilities::{FrameProducer, Triggerable, WavelengthTunable};
+            let camera = sc.camera.clone();
+            let spec = sc.spectrograph.clone();
+            #[allow(clippy::cast_possible_truncation)]
+            // SAFETY: grating index is a small integer
+            let grating_i32 = grating as i32;
+            run_blocking("set_config", async move {
+                // 1. Stop camera acquisition during grating rotation
+                FrameProducer::stop_stream(camera.as_ref()).await?;
+                // 2. Rotate grating and tune wavelength
+                spec.set_grating(grating_i32).await?;
+                spec.set_wavelength(wavelength_nm).await?;
+                // 3. Re-arm camera — ready to acquire at new spectral position
+                Triggerable::arm(camera.as_ref()).await
+            })?;
+            Ok(Dynamic::UNIT)
+        },
+    );
+
+    // sc.set_wavelength(nm) — tune wavelength only (no grating change, skip stop/re-arm)
+    engine.register_fn(
+        "set_wavelength",
+        |sc: &mut ScanController, nm: f64| -> Result<Dynamic, Box<EvalAltResult>> {
+            use common::capabilities::WavelengthTunable;
+            let spec = sc.spectrograph.clone();
+            run_blocking(
+                "set_wavelength",
+                async move { spec.set_wavelength(nm).await },
+            )?;
+            Ok(Dynamic::UNIT)
+        },
+    );
+
+    // sc.camera() -> GatedCamera — access the managed camera handle
+    engine.register_fn("camera", |sc: &mut ScanController| -> GatedCameraHandle {
+        GatedCameraHandle {
+            driver: sc.camera.clone(),
+        }
+    });
+
+    // sc.spectrograph() -> Spectrograph — access the managed spectrograph handle
+    engine.register_fn(
+        "spectrograph",
+        |sc: &mut ScanController| -> SpectrographHandle {
+            SpectrographHandle {
+                driver: sc.spectrograph.clone(),
+            }
+        },
+    );
+
+    // create_scan_controller(camera, spectrograph) -> ScanController
+    engine.register_fn(
+        "create_scan_controller",
+        |cam: GatedCameraHandle, spec: SpectrographHandle| -> ScanController {
+            ScanController {
+                camera: cam.driver,
+                spectrograph: spec.driver,
+            }
+        },
+    );
+
+    // create_radiance_calibrator(lamp_file, grating1_cal_file, grating2_cal_file) -> RadianceCalibrator
+    // Loads calibration files from disk. Grating 1 = first cal file, grating 2 = second.
+    // Returns an error if any file cannot be loaded.
+    engine.register_fn(
+        "create_radiance_calibrator",
+        |lamp_file: String,
+         g1_file: String,
+         g2_file: String|
+         -> Result<CalibratorHandle, Box<EvalAltResult>> {
+            let lamp = load_calibration_file(&lamp_file)
+                .map_err(|e| crate::rhai_error("create_radiance_calibrator: lamp", e))?;
+            let g1 = load_calibration_file(&g1_file)
+                .map_err(|e| crate::rhai_error("create_radiance_calibrator: grating 1", e))?;
+            let g2 = load_calibration_file(&g2_file)
+                .map_err(|e| crate::rhai_error("create_radiance_calibrator: grating 2", e))?;
+            let mut cals = HashMap::new();
+            cals.insert(1u8, g1);
+            cals.insert(2u8, g2);
+            Ok(CalibratorHandle {
+                calibrator: Arc::new(RadianceCalibrator::new(lamp, cals)),
+            })
         },
     );
 }
@@ -479,23 +688,26 @@ mod tests {
     async fn test_gated_camera_handle_creation() {
         let engine = make_engine();
         let result = engine.eval::<Dynamic>(
-            r"
+            r#"
             let cam = create_andor_camera();
             cam.supports_ddg()
-        ",
+        "#,
         );
-        // Mock camera may or may not support DDG — just verify no panic
-        assert!(result.is_ok() || result.is_err());
+        assert!(
+            result.is_ok(),
+            "gated camera DDG support query failed: {:?}",
+            result
+        );
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_spectrograph_handle_creation() {
         let engine = make_engine();
         let result = engine.eval::<i64>(
-            r"
+            r#"
             let spec = create_andor_spectrograph();
             spec.get_grating()
-        ",
+        "#,
         );
         assert!(
             result.is_ok(),
@@ -543,5 +755,83 @@ mod tests {
         "#,
         );
         assert!(result.is_ok(), "set_velocity + move failed: {:?}", result);
+    }
+
+    #[test]
+    fn test_calibrator_handle_in_memory() {
+        use common::processing::radiance_calibration::Spectrum;
+        use std::collections::HashMap;
+
+        // Build an in-memory calibrator (flat lamp = flat cal → unity correction)
+        let n = 50usize;
+        let wl: Vec<f64> = (0..n).map(|i| 300.0 + i as f64).collect();
+        let lamp = Spectrum::new(wl.clone(), vec![1000.0; n]).unwrap();
+        let cal = Spectrum::new(wl, vec![1000.0; n]).unwrap();
+        let mut cals = HashMap::new();
+        cals.insert(1u8, cal);
+        let handle = CalibratorHandle {
+            calibrator: Arc::new(RadianceCalibrator::new(lamp, cals)),
+        };
+
+        assert!(handle.calibrator.has_grating(1));
+        assert!(!handle.calibrator.has_grating(2));
+    }
+
+    #[test]
+    fn test_calibrator_rhai_api_unity() {
+        use std::io::Write;
+
+        // Write temp calibration files
+        let write_cal = |content: &str| {
+            let mut f = tempfile::NamedTempFile::new().unwrap();
+            write!(f, "{content}").unwrap();
+            f
+        };
+        let lamp_content = "300.0\t1000.0\n400.0\t1000.0\n500.0\t1000.0\n";
+        let cal_content = "300.0\t1000.0\n400.0\t1000.0\n500.0\t1000.0\n";
+
+        let lamp_f = write_cal(lamp_content);
+        let g1_f = write_cal(cal_content);
+        let g2_f = write_cal(cal_content);
+
+        let lamp_path = lamp_f.path().to_str().unwrap().replace('\\', "/");
+        let g1_path = g1_f.path().to_str().unwrap().replace('\\', "/");
+        let g2_path = g2_f.path().to_str().unwrap().replace('\\', "/");
+
+        let script = format!(
+            r#"
+            let cal = create_radiance_calibrator("{lamp_path}", "{g1_path}", "{g2_path}");
+            let wl  = [300.0, 400.0, 500.0];
+            let raw = [500.0, 500.0, 500.0];
+            cal.calibrate(wl, raw, 1, false)
+        "#
+        );
+
+        let mut engine = Engine::new();
+        register_libs_hardware(&mut engine);
+
+        let result: Result<Array, _> = engine.eval(&script);
+        assert!(result.is_ok(), "calibrate Rhai call failed: {:?}", result);
+        let arr = result.unwrap();
+        for v in arr {
+            let val = v.cast::<f64>();
+            assert!(
+                (val - 500.0).abs() < 1.0,
+                "unity correction should return ~500.0, got {val}"
+            );
+        }
+    }
+}
+
+// Extension helper used in test_calibrator_handle_in_memory
+#[cfg(test)]
+trait HasGrating {
+    fn has_grating(&self, grating: u8) -> bool;
+}
+
+#[cfg(test)]
+impl HasGrating for RadianceCalibrator {
+    fn has_grating(&self, grating: u8) -> bool {
+        self.grating_calibration(grating).is_some()
     }
 }

@@ -18,9 +18,23 @@ use super::DioDirection;
 /// Action results from async operations.
 #[derive(Debug)]
 enum ActionResult {
-    PortState { port: u32, bits: u32 },
-    WriteSuccess { pin: u32, state: bool },
-    WriteError { pin: u32, error: String },
+    #[allow(dead_code)] // bd-phzf: used when per-pin read gRPC path is added
+    PinState {
+        pin: u32,
+        state: bool,
+    },
+    PortState {
+        port: u32,
+        bits: u32,
+    },
+    WriteSuccess {
+        pin: u32,
+        state: bool,
+    },
+    WriteError {
+        pin: u32,
+        error: String,
+    },
 }
 
 /// Per-pin configuration.
@@ -613,6 +627,11 @@ impl DigitalIOPanel {
     fn poll_results(&mut self) {
         while let Ok(result) = self.action_rx.try_recv() {
             match result {
+                ActionResult::PinState { pin, state } => {
+                    if let Some(p) = self.pins.get_mut(pin as usize) {
+                        p.state = state;
+                    }
+                }
                 ActionResult::PortState { port, bits } => {
                     let start = port * 8;
                     for i in 0..8 {

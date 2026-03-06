@@ -60,6 +60,7 @@ chrono = { version = "0.4", features = ["serde"] }
 # Dev dependencies
 tempfile = "3.15"
 proptest = "1.6"
+criterion = { version = "0.5", features = ["html_reports"] }
 
 # Workspace-wide lints (applied to all crates)
 [workspace.lints.clippy]

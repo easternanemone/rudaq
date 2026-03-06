@@ -16,6 +16,14 @@ pub(crate) trait DeviceInfoExt {
     fn is_frame_producer(&self) -> bool {
         self.has_capability("frame_producer")
     }
+    #[allow(dead_code)] // bd-phzf: used when Comedi trigger panel wires to real gRPC
+    fn is_triggerable(&self) -> bool {
+        self.has_capability("triggerable")
+    }
+    #[allow(dead_code)] // bd-phzf: used when Comedi exposure UI is wired
+    fn is_exposure_controllable(&self) -> bool {
+        self.has_capability("exposure_controllable")
+    }
     fn is_shutter_controllable(&self) -> bool {
         self.has_capability("shutter_controllable")
     }

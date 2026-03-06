@@ -42,7 +42,8 @@ pub use comedi_bindings::{
 };
 #[cfg(feature = "libs_scripting")]
 pub use libs_bindings::{
-    register_libs_hardware, DoverAxisHandle, GatedCameraHandle, SpectrographHandle,
+    register_libs_hardware, CalibratorHandle, DoverAxisHandle, GatedCameraHandle, ScanController,
+    SpectrographHandle,
 };
 pub use rhai_engine::RhaiEngine;
 pub use script_runner::{ScriptPlanRunner, ScriptRunConfig, ScriptRunReport};
@@ -95,6 +96,18 @@ pub fn rhai_error(label: &str, error: impl std::fmt::Display) -> Box<EvalAltResu
         format!("{}: {}", label, error).into(),
         Position::NONE,
     ))
+}
+
+/// Create a Rhai runtime error from a plain string message (no secondary error value).
+///
+/// Use this variant when the error is self-describing (e.g., validation failures).
+///
+/// # Example
+/// ```ignore
+/// u64::try_from(val).map_err(|_| rhai_error_str("value must be non-negative"))?;
+/// ```
+pub fn rhai_error_str(message: &str) -> Box<EvalAltResult> {
+    Box::new(EvalAltResult::ErrorRuntime(message.into(), Position::NONE))
 }
 
 /// Execute an async future in a blocking context for Rhai bindings

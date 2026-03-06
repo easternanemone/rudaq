@@ -476,7 +476,7 @@ impl ComediPanel {
                     ui.label(RichText::new("—").color(Color32::GRAY));
                     ui.end_row();
 
-                    // Counter row — show PFI trigger support from real timing caps
+                    // Counter row
                     ui.label("Counter/Timer");
                     ui.label(RichText::new("✓").color(Color32::GREEN));
                     ui.label(RichText::new("—").color(Color32::GRAY));

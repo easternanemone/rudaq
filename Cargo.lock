@@ -2392,6 +2392,7 @@ dependencies = [
  "async-trait",
  "bytes",
  "chrono",
+ "criterion",
  "futures",
  "getrandom 0.2.17",
  "hdf5-metno",
