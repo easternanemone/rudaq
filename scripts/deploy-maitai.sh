@@ -178,6 +178,23 @@ if ! $GUI_ONLY; then
         fail "Cannot SSH to ${MAITAI_SSH}. Is Tailscale running?"
     fi
     ok "SSH to ${MAITAI_SSH} works"
+
+    # Check Rust toolchain — try PATH first, then source cargo env as fallback
+    # (SSH BatchMode doesn't load login profile, and rustc may be installed
+    # via system packages without $HOME/.cargo/env)
+    if ! remote 'command -v rustc >/dev/null 2>&1 || { [ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"; command -v rustc >/dev/null 2>&1; }' &>/dev/null; then
+        warn "Rust toolchain not found on maitai"
+        info "Install with: ssh ${MAITAI_SSH} 'curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs | sh'"
+        fail "Rust toolchain required for remote build"
+    fi
+    ok "Rust toolchain available"
+
+    # Check PVCAM SDK (Phase 1 validates PVCAM_SDK_DIR from maitai.env;
+    # this just confirms the installation directory exists at all)
+    if ! remote "test -d /opt/pvcam/sdk"; then
+        fail "PVCAM SDK not found at /opt/pvcam/sdk — install Teledyne PVCAM"
+    fi
+    ok "PVCAM SDK found"
 fi
 
 # ============================================================================
@@ -214,6 +231,7 @@ if ! $GUI_ONLY && ! $SKIP_BUILD; then
     # Build with maitai + db-surreal-rocksdb so the binary has full capabilities.
     # The DB is only activated at runtime when --db-path is passed.
     remote "
+        source \$HOME/.cargo/env 2>/dev/null || true && \
         cd ${REMOTE_DIR} && \
         source config/hosts/maitai.env && \
         cargo clean 2>/dev/null || true && \
