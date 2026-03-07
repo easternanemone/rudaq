@@ -19,14 +19,14 @@
 #![cfg(feature = "pvcam_sdk")]
 #![cfg(not(target_arch = "wasm32"))]
 
-use once_cell::sync::Lazy;
 use pvcam_sys::*;
 use std::ffi::{c_void, CStr};
+use std::sync::LazyLock;
 use tracing::{debug, info, warn};
 use tracing_subscriber::EnvFilter;
 
 // Initialize tracing subscriber once for test logging
-static TRACING: Lazy<()> = Lazy::new(|| {
+static TRACING: LazyLock<()> = LazyLock::new(|| {
     let _ = tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
         .with_writer(std::io::stderr)
@@ -200,7 +200,7 @@ fn test_parameter(hcam: i16, name: &'static str, param_id: u32) -> ParamTestResu
 #[test]
 fn test_parameter_availability_reporting() {
     // Initialize tracing for test output
-    Lazy::force(&TRACING);
+    LazyLock::force(&TRACING);
 
     println!("\n=== PVCAM Parameter Availability Test ===\n");
 
@@ -445,7 +445,7 @@ fn test_parameter_availability_reporting() {
 /// These are key parameters for the PvcamFeatures thermal control methods
 #[test]
 fn test_thermal_param_availability() {
-    Lazy::force(&TRACING);
+    LazyLock::force(&TRACING);
 
     println!("\n=== Thermal Parameter Availability Test ===\n");
 
@@ -501,7 +501,7 @@ fn test_thermal_param_availability() {
 /// Test that verifies centroids and smart streaming feature detection
 #[test]
 fn test_advanced_feature_availability() {
-    Lazy::force(&TRACING);
+    LazyLock::force(&TRACING);
 
     println!("\n=== Advanced Feature Availability Test ===\n");
 
@@ -569,7 +569,7 @@ fn test_advanced_feature_availability() {
 /// - PARAM_ROI_COUNT (bd-vcbd)
 #[test]
 fn test_new_parameter_functions_availability() {
-    Lazy::force(&TRACING);
+    LazyLock::force(&TRACING);
 
     println!("\n=== New Parameter Functions Availability Test (bd-aowg) ===\n");
 

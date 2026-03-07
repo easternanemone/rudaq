@@ -14,10 +14,10 @@
 
 #![cfg(feature = "pvcam_sdk")]
 #![cfg(not(target_arch = "wasm32"))]
-use once_cell::sync::Lazy;
 use pvcam_sys::*;
 use std::alloc::{alloc_zeroed, dealloc, Layout};
 use std::ffi::CStr;
+use std::sync::LazyLock;
 use std::time::Instant;
 use tracing::{debug, trace};
 use tracing_subscriber::EnvFilter;
@@ -27,7 +27,7 @@ const BUFFER_FRAMES: usize = 255; // matches FastStreamingToDisk default
 const EXPOSURE_MS: u32 = 10; // FastStreaming default prompt uses 10ms on Prime BSI
 
 // Initialize tracing subscriber once so driver logs emit during test.
-static TRACING: Lazy<()> = Lazy::new(|| {
+static TRACING: LazyLock<()> = LazyLock::new(|| {
     let _ = tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
         .with_writer(std::io::stderr)
@@ -90,7 +90,7 @@ fn read_param_uns16(hcam: i16, param_id: u32) -> Option<u16> {
 #[test]
 fn fast_streaming_equivalent() {
     // Ensure tracing is hooked before any driver logging occurs
-    Lazy::force(&TRACING);
+    LazyLock::force(&TRACING);
 
     let hcam = open_first_camera().expect("camera open");
 

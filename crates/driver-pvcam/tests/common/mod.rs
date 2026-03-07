@@ -17,9 +17,11 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
 
-// Re-export Frame type for convenience
+// Re-export Frame type for convenience.
+// Use `::common` (absolute path) because test files declare `mod common;`
+// which shadows the workspace `common` crate within this module.
 #[cfg(feature = "pvcam_sdk")]
-pub use common::capabilities::Frame;
+pub use ::common::capabilities::Frame;
 
 /// Test statistics collected during continuous acquisition validation.
 #[derive(Debug, Clone)]
