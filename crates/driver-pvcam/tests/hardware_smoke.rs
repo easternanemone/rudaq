@@ -475,9 +475,9 @@ async fn pvcam_frame_statistics_test() {
         .await
         .expect("Failed to stop streaming");
 
-    // Convert to u16 pixels
+    // Convert to u16 pixels (FrameData uses `pixels` field, not `data`)
     let pixels: Vec<u16> = frame
-        .data
+        .pixels
         .chunks_exact(2)
         .map(|c| u16::from_le_bytes([c[0], c[1]]))
         .collect();

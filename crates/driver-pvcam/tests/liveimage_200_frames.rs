@@ -107,7 +107,7 @@ async fn liveimage_200_frames() {
 
                 // Save first frame for analysis
                 if frames_received == 1 {
-                    first_frame_data = Some(frame.data.to_vec());
+                    first_frame_data = Some(frame.pixels.to_vec());
                 }
 
                 // Progress indicator
