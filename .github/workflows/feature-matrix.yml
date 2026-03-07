@@ -123,3 +123,34 @@ jobs:
             ${{ matrix.cargo-args || '' }} \
             --features ${{ matrix.features }} \
             --profile ci
+
+  wasm-check:
+    name: "ui / wasm32 compilation"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CARGO_BUILD_JOBS: "2"
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust with WASM target
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.92.0
+          targets: wasm32-unknown-unknown
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+          shared-key: feature-matrix-ui-wasm
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Check WASM compilation
+        run: |
+          cargo check -p ui --lib \
+            --target wasm32-unknown-unknown \
+            --features web
