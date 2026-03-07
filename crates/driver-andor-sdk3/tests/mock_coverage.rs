@@ -399,8 +399,15 @@ mod mock_spectrograph_unit {
 
 // =============================================================================
 // AndorCamera — Mock Mode Integration Tests
+//
+// These tests exercise iStar-specific features (DDG, MCP gain, gate modes,
+// trigger modes) through AndorCamera::new_mock(). When the `camera` feature
+// is enabled, new_mock() opens real hardware at index 0 — the SIMCAM
+// (or actual camera) may not support these iStar-specific features.
+// Gate the entire module to mock-only builds.
 // =============================================================================
 
+#[cfg(not(feature = "camera"))]
 mod andor_camera_mock {
     use super::*;
 
@@ -840,7 +847,12 @@ mod trait_compatibility {
         exercise_triggerable(&cam).await;
     }
 
-    /// Verify AndorCamera (mock) can be used as a generic Triggerable
+    /// Verify AndorCamera (mock) can be used as a generic Triggerable.
+    ///
+    /// Only runs without `camera` feature — when `camera` is enabled,
+    /// `new_mock()` opens real hardware and `trigger()` calls the real SDK
+    /// (which fails unless the camera is in Software trigger mode + streaming).
+    #[cfg(not(feature = "camera"))]
     #[tokio::test]
     async fn andor_camera_as_triggerable() {
         let cam = AndorCamera::new_mock().await.unwrap();
