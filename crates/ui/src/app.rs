@@ -195,7 +195,6 @@ fn clear_session_file() {
 }
 
 /// Result of a health check sent through the channel (bd-j3xz.3.3: includes RTT).
-#[cfg(not(target_arch = "wasm32"))]
 enum HealthCheckResult {
     /// Health check succeeded with round-trip time in milliseconds.
     Success { rtt_ms: f64 },
