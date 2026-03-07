@@ -137,6 +137,27 @@ jobs:
             echo "_Threshold: 1,000 FPS minimum (conservative for shared CI runners). Telemetry enabled via \`RUST_DAQ_DEBUG_FRAME_TIMING=1\`._"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Integration benchmarks (lock contention + ring buffer latency)
+        if: github.event_name == 'push'
+        run: |
+          set -euo pipefail
+          echo "Running integration benchmarks..."
+          output=$(cargo bench -p integration-tests 2>&1) || {
+            echo "$output"
+            echo "::error::Integration benchmarks failed"
+            exit 1
+          }
+          echo "$output"
+
+          # Report to GitHub Step Summary
+          {
+            echo "## Integration Benchmarks"
+            echo ""
+            echo '```'
+            echo "$output" | grep -E '^(---|bench:|operations:|frames:|p50|p95|p99|throughput|fps:|delivery_ratio:)'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Generate SBOM (CycloneDX)
         if: github.event_name == 'push'
         run: |
