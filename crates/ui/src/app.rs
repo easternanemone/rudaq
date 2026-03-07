@@ -1218,6 +1218,9 @@ impl DaqApp {
             .and_then(|s| eframe::get_value(s, "control_panel_layout_mode"))
             .unwrap_or(ControlPanelLayoutMode::Simple);
 
+        // Load native preferences early for fallback during address resolution
+        let native_prefs = crate::preferences::AppPreferences::load_or_default();
+
         // Migrate legacy "daemon_address" key → AppSettings (one-time)
         if let Some(storage) = cc.storage {
             if let Some(legacy_addr) = migrate_legacy_daemon_address(storage) {
@@ -1232,6 +1235,21 @@ impl DaqApp {
                     app_settings.connection.daemon_address = legacy_addr;
                 }
             }
+        }
+
+        // Apply native_prefs as fallback if eframe storage has default daemon address
+        let default_addr = crate::settings::ConnectionSettings::default().daemon_address;
+        if app_settings.connection.daemon_address == default_addr
+            && native_prefs.daemon_url != crate::preferences::AppPreferences::default().daemon_url
+        {
+            tracing::info!(
+                "Restoring daemon address '{}' from native preferences",
+                native_prefs.daemon_url
+            );
+            app_settings
+                .connection
+                .daemon_address
+                .clone_from(&native_prefs.daemon_url);
         }
 
         // Load GUI config (presets + defaults) from gui.toml
@@ -1383,9 +1401,6 @@ impl DaqApp {
 
         // Mark session as running for crash detection on next launch
         write_session_file(daemon_address.as_str());
-
-        // Load native preferences (cross-platform file persistence)
-        let native_prefs = crate::preferences::AppPreferences::load_or_default();
 
         Self {
             client: None,
@@ -3384,10 +3399,15 @@ impl eframe::App for DaqApp {
             clear_legacy_daemon_address(storage);
             write_session_file(self.daemon_address.as_str());
 
-            // Sync current state into native preferences and save to OS-appropriate location
-            self.native_prefs.daemon_url = self.app_settings.connection.daemon_address.clone();
-            self.native_prefs.theme = format!("{:?}", self.theme_preference);
-            self.native_prefs.persist();
+            // Sync current state into native preferences — only persist if changed
+            let updated = crate::preferences::AppPreferences {
+                daemon_url: self.app_settings.connection.daemon_address.clone(),
+                theme: format!("{:?}", self.theme_preference),
+            };
+            if updated != self.native_prefs {
+                self.native_prefs = updated;
+                self.native_prefs.persist();
+            }
         }
 
         if let Some(dock_state) = &self.dock_state {

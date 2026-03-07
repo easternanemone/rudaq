@@ -467,7 +467,7 @@ pub(super) fn compute_clahe_lut(
 /// Compute pixel statistics for the current frame (bd-li4i)
 ///
 /// Handles both 8-bit and 16-bit (including 12-bit stored as 16-bit) pixel data.
-/// Uses sort-based approach for median and percentile computation.
+/// Uses histogram-based O(n+k) percentile computation instead of O(n log n) sort.
 #[allow(
     clippy::cast_precision_loss,
     clippy::cast_possible_truncation,
@@ -477,52 +477,61 @@ pub(super) fn compute_pixel_statistics(
     data: &[u8],
     bit_depth: u32,
 ) -> super::types::PixelStatistics {
-    // Extract pixel values based on bit depth
-    let mut values: Vec<f64> = match bit_depth {
-        8 => data.iter().map(|&b| f64::from(b)).collect(),
-        12 | 16 => data
-            .chunks_exact(2)
-            .map(|c| f64::from(u16::from_le_bytes([c[0], c[1]])))
-            .collect(),
-        _ => return super::types::PixelStatistics::default(),
-    };
+    match bit_depth {
+        8 => compute_stats_u8(data),
+        12 | 16 => compute_stats_u16(data),
+        _ => super::types::PixelStatistics::default(),
+    }
+}
 
-    if values.is_empty() {
+/// Compute statistics for 8-bit pixel data using a 256-bin histogram.
+#[allow(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
+fn compute_stats_u8(data: &[u8]) -> super::types::PixelStatistics {
+    if data.is_empty() {
         return super::types::PixelStatistics::default();
     }
 
-    let count = values.len() as u64;
-    let sum: f64 = values.iter().sum();
-    let mean = sum / values.len() as f64;
+    // Single pass: histogram, sum, min, max
+    let mut histogram = [0u64; 256];
+    let mut sum = 0u64;
+    let mut min_val = u8::MAX;
+    let mut max_val = u8::MIN;
 
-    // Variance (population)
-    let variance = values.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / values.len() as f64;
-    let std_dev = variance.sqrt();
+    for &b in data {
+        histogram[b as usize] += 1;
+        sum += u64::from(b);
+        min_val = min_val.min(b);
+        max_val = max_val.max(b);
+    }
 
-    // Sort for min, max, median, and percentiles
-    values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let count = data.len() as u64;
+    let mean = sum as f64 / count as f64;
 
-    let min = values[0];
-    let max = values[values.len() - 1];
+    // Second pass for variance (requires mean from first pass)
+    let variance = data
+        .iter()
+        .map(|&b| {
+            let d = f64::from(b) - mean;
+            d * d
+        })
+        .sum::<f64>()
+        / count as f64;
 
-    let percentile = |p: f64| -> f64 {
-        let idx = (p / 100.0) * (values.len() - 1) as f64;
-        let lo = idx.floor() as usize;
-        let hi = (lo + 1).min(values.len() - 1);
-        let frac = idx - lo as f64;
-        values[lo] * (1.0 - frac) + values[hi] * frac
-    };
-
+    let percentile = |p: f64| -> f64 { histogram_percentile_u64(&histogram, count, p) };
     let median = percentile(50.0);
 
     super::types::PixelStatistics {
         count,
-        min,
-        max,
+        min: f64::from(min_val),
+        max: f64::from(max_val),
         mean,
-        std_dev,
+        std_dev: variance.sqrt(),
         median,
-        sum,
+        sum: sum as f64,
         p1: percentile(1.0),
         p5: percentile(5.0),
         p25: percentile(25.0),
@@ -531,6 +540,101 @@ pub(super) fn compute_pixel_statistics(
         p95: percentile(95.0),
         p99: percentile(99.0),
     }
+}
+
+/// Compute statistics for 16-bit pixel data using a 65536-bin histogram.
+#[allow(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
+fn compute_stats_u16(data: &[u8]) -> super::types::PixelStatistics {
+    let pixels = data.chunks_exact(2);
+    if pixels.len() == 0 {
+        return super::types::PixelStatistics::default();
+    }
+
+    // Single pass: histogram, sum, min, max
+    let mut histogram = vec![0u64; 65536];
+    let mut sum = 0u64;
+    let mut min_val = u16::MAX;
+    let mut max_val = u16::MIN;
+
+    for chunk in data.chunks_exact(2) {
+        let v = u16::from_le_bytes([chunk[0], chunk[1]]);
+        histogram[v as usize] += 1;
+        sum += u64::from(v);
+        min_val = min_val.min(v);
+        max_val = max_val.max(v);
+    }
+
+    let count = (data.len() / 2) as u64;
+    let mean = sum as f64 / count as f64;
+
+    // Second pass for variance
+    let variance = data
+        .chunks_exact(2)
+        .map(|c| {
+            let d = f64::from(u16::from_le_bytes([c[0], c[1]])) - mean;
+            d * d
+        })
+        .sum::<f64>()
+        / count as f64;
+
+    let percentile = |p: f64| -> f64 { histogram_percentile_u64(&histogram, count, p) };
+    let median = percentile(50.0);
+
+    super::types::PixelStatistics {
+        count,
+        min: f64::from(min_val),
+        max: f64::from(max_val),
+        mean,
+        std_dev: variance.sqrt(),
+        median,
+        sum: sum as f64,
+        p1: percentile(1.0),
+        p5: percentile(5.0),
+        p25: percentile(25.0),
+        p50: median,
+        p75: percentile(75.0),
+        p95: percentile(95.0),
+        p99: percentile(99.0),
+    }
+}
+
+/// Walk histogram bins to find the value at the given percentile.
+#[allow(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
+fn histogram_percentile_u64(histogram: &[u64], total: u64, p: f64) -> f64 {
+    let target = (p / 100.0) * (total - 1) as f64;
+    let target_lo = target.floor() as u64;
+    let frac = target - target_lo as f64;
+
+    let mut cumulative = 0u64;
+    let mut lo_val = 0usize;
+    let mut hi_val = 0usize;
+    let mut found_lo = false;
+
+    for (bin, &count) in histogram.iter().enumerate() {
+        if count == 0 {
+            continue;
+        }
+        cumulative += count;
+        if !found_lo && cumulative > target_lo {
+            lo_val = bin;
+            found_lo = true;
+        }
+        if cumulative > target_lo + 1 || (cumulative > target_lo && frac == 0.0) {
+            hi_val = bin;
+            break;
+        }
+        hi_val = bin;
+    }
+
+    lo_val as f64 * (1.0 - frac) + hi_val as f64 * frac
 }
 
 /// Whitelist for quick access camera parameters

@@ -393,6 +393,7 @@ async fn test_stress_2000_frames_extended() {
             Ok(None) => {
                 stats.channel_errors += 1;
                 eprintln!("Channel closed");
+                break;
             }
             Err(_) => {
                 stats.timeout_errors += 1;

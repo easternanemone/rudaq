@@ -28,7 +28,7 @@ const PREFS_KEY: &str = "app-preferences";
 /// have `#[serde(default)]` so that loading older files succeeds.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AppPreferences {
-    /// Last-used daemon URL (e.g. `http://localhost:50051`).
+    /// Last-used daemon address (e.g. `localhost:50051`).
     #[serde(default = "default_daemon_url")]
     pub daemon_url: String,
 
