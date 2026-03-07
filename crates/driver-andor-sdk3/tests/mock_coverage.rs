@@ -399,8 +399,15 @@ mod mock_spectrograph_unit {
 
 // =============================================================================
 // AndorCamera — Mock Mode Integration Tests
+//
+// These tests exercise iStar-specific features (DDG, MCP gain, gate modes,
+// trigger modes) through AndorCamera::new_mock(). When the `camera` feature
+// is enabled, new_mock() opens real hardware at index 0 — the SIMCAM
+// (or actual camera) may not support these iStar-specific features.
+// Gate the entire module to mock-only builds.
 // =============================================================================
 
+#[cfg(not(feature = "camera"))]
 mod andor_camera_mock {
     use super::*;
 
