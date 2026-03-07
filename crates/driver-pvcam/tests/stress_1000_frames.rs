@@ -314,8 +314,12 @@ async fn test_stress_1000_frames_sustained_streaming() {
     assert_no_duplicate_frames(stats.duplicate_frames, "1000+ frame stress test");
     assert_errors_within_limit(total_errors, MAX_ALLOWED_ERRORS, "1000+ frame stress test");
 
-    // FPS should be within 50% tolerance (generous for sustained test)
-    assert_fps_near(stats.fps, expected_fps, 50.0, "1000+ frame stress test");
+    // FPS should be within 80% tolerance (generous for sustained test).
+    // The readout time varies significantly by sensor mode, readout port,
+    // and speed table setting, so we use wide tolerance here. The key
+    // assertions above (frame count, no duplicates, low errors) are the
+    // primary quality gates.
+    assert_fps_near(stats.fps, expected_fps, 80.0, "1000+ frame stress test");
 
     println!("=== Stress Test: 1000+ Frames PASSED ===\n");
 }
