@@ -19,10 +19,6 @@ impl Default for SmartStreamEditor {
 }
 
 impl SmartStreamEditor {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     pub fn ui(&mut self, ui: &mut egui::Ui, _device_id: &str) -> bool {
         let mut changed = false;
 

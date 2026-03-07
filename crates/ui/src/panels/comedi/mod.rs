@@ -28,45 +28,26 @@
 mod analog_input;
 mod analog_output;
 mod counter;
+#[allow(dead_code)] // Viewer panel: not yet integrated into unified panel
 mod counter_display;
+#[allow(dead_code)] // Viewer panel: not yet integrated into unified panel
 mod data_logger;
 mod digital_io;
+#[allow(dead_code)] // Viewer panel: not yet integrated into unified panel
 mod dio_monitor;
+#[allow(dead_code)] // Viewer panel: not yet integrated into unified panel
 mod oscilloscope;
-// TODO(bd-phzf): Trigger panel is gRPC-backed but not yet surfaced in the unified tabs.
-#[allow(dead_code)]
 mod trigger;
 mod unified;
+#[allow(dead_code)] // Viewer panel: not yet integrated into unified panel
 mod voltmeter;
 
 pub use analog_input::AnalogInputPanel;
 pub use analog_output::AnalogOutputPanel;
 pub use counter::CounterPanel;
-pub use counter_display::{
-    counter_display_channel, CounterDisplayPanel, CounterDisplayReceiver, CounterDisplaySender,
-    CounterUpdate,
-};
-pub use data_logger::{
-    data_logger_channel, DataLoggerPanel, DataLoggerReceiver, DataLoggerSender, LogEntry,
-};
 pub use digital_io::DigitalIOPanel;
-pub use dio_monitor::{
-    dio_monitor_channel, DioMonitorPanel, DioMonitorReceiver, DioMonitorSender, DioStateUpdate,
-};
-pub use oscilloscope::{
-    oscilloscope_channel, OscilloscopePanel, OscilloscopeReceiver, OscilloscopeSample,
-    OscilloscopeSender, SignalSource, SyntheticSignal, TriggerEdge, TriggerMode,
-};
-// TODO(bd-phzf): Export kept for upcoming unified-panel integration work.
-#[allow(dead_code)]
-pub use trigger::{
-    ClockSource, SubsystemTriggerConfig, SyncMode, TriggerConfigPanel, TriggerPolarity,
-    TriggerSource,
-};
+pub use trigger::TriggerConfigPanel;
 pub use unified::ComediPanel;
-pub use voltmeter::{
-    voltmeter_channel, VoltmeterPanel, VoltmeterReading, VoltmeterReceiver, VoltmeterSender,
-};
 
 use serde::{Deserialize, Serialize};
 
@@ -92,11 +73,6 @@ impl VoltageRange {
     /// Create a new voltage range.
     pub const fn new(index: u32, min: f64, max: f64) -> Self {
         Self { index, min, max }
-    }
-
-    /// Get the span of the range.
-    pub fn span(&self) -> f64 {
-        self.max - self.min
     }
 
     /// Format as display string.

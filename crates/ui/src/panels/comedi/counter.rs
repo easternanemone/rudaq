@@ -525,7 +525,7 @@ impl CounterPanel {
         }
     }
 
-    fn reset_all_counters(&mut self, client: Option<DaqClient>, runtime: &Runtime) {
+    pub fn reset_all_counters(&mut self, client: Option<DaqClient>, runtime: &Runtime) {
         let tx = self.action_tx.clone();
         let device_id = self.device_id.clone();
         let n = self.n_counters;

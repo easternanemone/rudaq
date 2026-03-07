@@ -57,19 +57,6 @@ impl TriggerSource {
             Self::AnalogTrigger,
         ]
     }
-
-    pub fn is_external(self) -> bool {
-        matches!(
-            self,
-            Self::PFI0
-                | Self::PFI1
-                | Self::PFI2
-                | Self::PFI3
-                | Self::RTSI0
-                | Self::RTSI1
-                | Self::AnalogTrigger
-        )
-    }
 }
 
 /// Trigger edge polarity
@@ -708,15 +695,5 @@ impl TriggerConfigPanel {
         self.sync_mode = SyncMode::Standalone;
         self.status = Some("Reset to defaults".to_string());
         self.error = None;
-    }
-
-    /// Get current AI trigger configuration
-    pub fn ai_trigger_config(&self) -> &SubsystemTriggerConfig {
-        &self.ai_config
-    }
-
-    /// Get current AO trigger configuration
-    pub fn ao_trigger_config(&self) -> &SubsystemTriggerConfig {
-        &self.ao_config
     }
 }

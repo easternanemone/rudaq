@@ -24,11 +24,12 @@ use crate::panels::instrument_manager::{
     config_loader::DeviceConfigCache, config_renderer::ConfigDrivenPanel,
 };
 use crate::panels::{
-    ComediPanel, ConnectionDiagnostics, ConnectionStatus as LogConnectionStatus,
-    DocumentViewerPanel, ExperimentDesignerPanel, GettingStartedPanel, ImageViewerPanel,
-    InstrumentManagerPanel, LoggingPanel, ModulesPanel, PlanRunnerPanel, RunHistoryPanel,
-    ScanBuilderPanel, ScriptsPanel, SignalPlotterPanel, StoragePanel,
+    ComediPanel, DocumentViewerPanel, ExperimentDesignerPanel, GettingStartedPanel,
+    ImageViewerPanel, InstrumentManagerPanel, LoggingPanel, ModulesPanel, PlanRunnerPanel,
+    RunHistoryPanel, ScanBuilderPanel, ScriptsPanel, SignalPlotterPanel, StoragePanel,
 };
+#[cfg(not(target_arch = "wasm32"))]
+use crate::panels::{ConnectionDiagnostics, ConnectionStatus as LogConnectionStatus};
 use crate::shortcuts::{CheatSheetPanel, ShortcutAction, ShortcutContext, ShortcutManager};
 use crate::theme::{self, ThemePreference};
 use crate::widgets::{
@@ -194,6 +195,7 @@ fn clear_session_file() {
 }
 
 /// Result of a health check sent through the channel (bd-j3xz.3.3: includes RTT).
+#[cfg(not(target_arch = "wasm32"))]
 enum HealthCheckResult {
     /// Health check succeeded with round-trip time in milliseconds.
     Success { rtt_ms: f64 },
@@ -3222,7 +3224,7 @@ impl eframe::App for DaqApp {
         #[cfg(target_arch = "wasm32")]
         {
             egui::TopBottomPanel::top("wasm_menu_bar").show(ctx, |ui| {
-                egui::menu::bar(ui, |ui| {
+                egui::MenuBar::new().ui(ui, |ui| {
                     ui.label(egui::RichText::new("DAQ Control Panel").strong());
                     ui.separator();
                     ui.label("Server:");

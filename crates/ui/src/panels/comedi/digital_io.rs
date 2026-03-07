@@ -18,7 +18,7 @@ use super::DioDirection;
 /// Action results from async operations.
 #[derive(Debug)]
 enum ActionResult {
-    #[allow(dead_code)] // bd-phzf: used when per-pin read gRPC path is added
+    #[allow(dead_code)] // handler exists in poll_results; no per-pin read UI button yet
     PinState {
         pin: u32,
         state: bool,

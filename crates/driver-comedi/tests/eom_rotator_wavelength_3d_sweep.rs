@@ -596,13 +596,15 @@ struct ComediSimple {
 }
 
 #[allow(
+    unsafe_code,
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
     clippy::cast_lossless,
     clippy::cast_possible_wrap
 )]
-// SAFETY: FFI boundary casts. Comedi returns i32 for non-negative values; handles
-// are pointers; maxdata fits in u32.
+// SAFETY: All unsafe blocks are FFI calls into the Comedi C library. The handle
+// is validated non-null after open(), range pointers are checked before deref,
+// and Comedi's ABI guarantees are documented in comedi_sys.
 impl ComediSimple {
     fn open(device: &str) -> Result<Self, Box<dyn std::error::Error>> {
         let c_device = std::ffi::CString::new(device)?;

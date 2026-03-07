@@ -391,11 +391,85 @@ impl NiDaqService for NiDaqServiceImpl {
     #[instrument(skip(self))]
     async fn read_analog_input(
         &self,
-        _request: Request<ReadAnalogInputRequest>,
+        request: Request<ReadAnalogInputRequest>,
     ) -> Result<Response<ReadAnalogInputResponse>, Status> {
-        Err(Status::unimplemented(
-            "ReadAnalogInput not yet implemented (use HardwareService.ReadValue instead)",
-        ))
+        #[cfg(feature = "comedi")]
+        {
+            let req = request.into_inner();
+
+            if req.device_id.is_empty() {
+                return Err(Status::invalid_argument("device_id is required"));
+            }
+
+            // NI PCI-MIO-16XE-10 has 16 single-ended AI channels
+            if req.channel > 15 {
+                return Err(Status::invalid_argument(format!(
+                    "Invalid channel {}. NI PCI-MIO-16XE-10 supports channels 0-15",
+                    req.channel
+                )));
+            }
+
+            self.registry
+                .get_device_info(&req.device_id)
+                .ok_or_else(|| {
+                    Status::not_found(format!("Device '{}' not found", req.device_id))
+                })?;
+
+            let device_path = if req.device_id.starts_with("/dev/") {
+                req.device_id.clone()
+            } else {
+                format!("/dev/{}", req.device_id)
+            };
+
+            let channel = req.channel;
+            let range_index = req.range_index;
+
+            let (voltage, raw_value, timestamp_ns) = self
+                .await_with_timeout("ReadAnalogInput", async move {
+                    tokio::task::spawn_blocking(move || {
+                        use driver_comedi::ComediDevice;
+                        use std::time::SystemTime;
+
+                        let device = ComediDevice::open(device_path)?;
+                        let ai = device.analog_input()?;
+
+                        // Get the range for voltage conversion
+                        let range = ai.range_info(channel, range_index)?;
+                        let raw = ai.read_raw(
+                            channel,
+                            range_index,
+                            driver_comedi::subsystem::AnalogReference::Ground,
+                        )?;
+                        let voltage = ai.raw_to_voltage(raw, &range);
+
+                        let timestamp_ns = SystemTime::now()
+                            .duration_since(SystemTime::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_nanos() as u64;
+
+                        Ok((voltage, raw, timestamp_ns))
+                    })
+                    .await
+                    .map_err(|e| anyhow::anyhow!("Task join error: {}", e))?
+                })
+                .await?;
+
+            Ok(Response::new(ReadAnalogInputResponse {
+                success: true,
+                error_message: String::new(),
+                voltage,
+                raw_value,
+                timestamp_ns,
+            }))
+        }
+
+        #[cfg(not(feature = "comedi"))]
+        {
+            let _ = request;
+            Err(Status::unimplemented(
+                "ReadAnalogInput requires 'comedi' feature to be enabled",
+            ))
+        }
     }
 
     // ==========================================================================
@@ -1463,10 +1537,28 @@ impl NiDaqService for NiDaqServiceImpl {
     #[instrument(skip(self))]
     async fn get_calibration_status(
         &self,
-        _request: Request<GetCalibrationStatusRequest>,
+        request: Request<GetCalibrationStatusRequest>,
     ) -> Result<Response<CalibrationStatus>, Status> {
-        Err(Status::unimplemented(
-            "GetCalibrationStatus not yet implemented (future)",
-        ))
+        let req = request.into_inner();
+
+        if req.device_id.is_empty() {
+            return Err(Status::invalid_argument("device_id is required"));
+        }
+        self.registry
+            .get_device_info(&req.device_id)
+            .ok_or_else(|| Status::not_found(format!("Device '{}' not found", req.device_id)))?;
+
+        // The NI PCI-MIO-16XE-10 stores calibration in onboard EEPROM.
+        // Comedi reads this at device open time; no runtime query is exposed.
+        // Return a static response indicating factory calibration is assumed valid.
+        Ok(Response::new(CalibrationStatus {
+            calibrated: true,
+            last_calibration_ns: 0,
+            calibration_type: "factory".to_string(),
+            eeprom_valid: true,
+            temperature_c: 0.0,
+            message: "Factory calibration assumed valid; Comedi loads EEPROM coefficients at open"
+                .to_string(),
+        }))
     }
 }

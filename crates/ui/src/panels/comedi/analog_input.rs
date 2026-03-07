@@ -5,6 +5,7 @@
 
 use crate::runtime::Runtime;
 use eframe::egui::{self, Color32, RichText, Ui};
+use protocol::ni_daq::ReadAnalogInputRequest;
 use std::collections::HashMap;
 use tokio::sync::mpsc;
 
@@ -16,18 +17,9 @@ use super::{AnalogReference, NI_VOLTAGE_RANGES};
 /// Action results from async operations.
 #[derive(Debug)]
 enum ActionResult {
-    Reading {
-        channel: u32,
-        voltage: f64,
-    },
-    #[allow(dead_code)] // bd-phzf: displayed in error state UI (Phase 2)
-    ReadingError {
-        channel: u32,
-        error: String,
-    },
-    AllReadings {
-        voltages: Vec<(u32, f64)>,
-    },
+    Reading { channel: u32, voltage: f64 },
+    ReadingError { channel: u32, error: String },
+    AllReadings { voltages: Vec<(u32, f64)> },
 }
 
 /// Channel configuration state.
@@ -202,17 +194,18 @@ impl AnalogInputPanel {
         ui.separator();
 
         // Main content: channel grid + detail panel
+        let client_clone = client.as_deref().cloned();
         ui.columns(2, |columns| {
             // Left: Channel grid
-            self.render_channel_grid(&mut columns[0], runtime);
+            self.render_channel_grid(&mut columns[0], client_clone.clone(), runtime);
 
             // Right: Selected channel details
-            self.render_channel_details(&mut columns[1], runtime);
+            self.render_channel_details(&mut columns[1], client_clone, runtime);
         });
     }
 
     /// Render the channel selection grid.
-    fn render_channel_grid(&mut self, ui: &mut Ui, runtime: &Runtime) {
+    fn render_channel_grid(&mut self, ui: &mut Ui, client: Option<DaqClient>, runtime: &Runtime) {
         ui.group(|ui| {
             ui.label(RichText::new("Channels").strong());
             ui.separator();
@@ -256,7 +249,7 @@ impl AnalogInputPanel {
                         // Context menu for quick read
                         response.context_menu(|ui| {
                             if ui.button("Read Now").clicked() {
-                                self.read_channel(channel, runtime);
+                                self.read_channel(channel, client.clone(), runtime);
                                 ui.close();
                             }
                         });
@@ -271,7 +264,12 @@ impl AnalogInputPanel {
     }
 
     /// Render details for the selected channel.
-    fn render_channel_details(&mut self, ui: &mut Ui, runtime: &Runtime) {
+    fn render_channel_details(
+        &mut self,
+        ui: &mut Ui,
+        client: Option<DaqClient>,
+        runtime: &Runtime,
+    ) {
         ui.group(|ui| {
             let channel = self.selected_channel;
             let config = self.channels.entry(channel).or_default();
@@ -329,58 +327,102 @@ impl AnalogInputPanel {
 
             // Read button
             if ui.button("Read Channel").clicked() {
-                self.read_channel(channel, runtime);
+                self.read_channel(channel, client, runtime);
             }
         });
     }
 
-    /// Read a single channel.
-    fn read_channel(&self, channel: u32, runtime: &Runtime) {
+    /// Read a single channel via NiDaqService.ReadAnalogInput RPC.
+    fn read_channel(&self, channel: u32, client: Option<DaqClient>, runtime: &Runtime) {
         let tx = self.action_tx.clone();
+        let device_id = self.device_id.clone();
+        #[allow(clippy::cast_possible_truncation)] // range_index is always < 14
+        let range_index = self
+            .channels
+            .get(&channel)
+            .map(|c| c.range_index as u32)
+            .unwrap_or(0);
 
         runtime.spawn(async move {
-            // TODO: Implement actual gRPC call
-            // For now, simulate a reading
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-
-            // Simulated voltage (replace with actual read)
-            let voltage = (f64::from(channel) * 0.1) + rand_voltage();
-
-            let _ = tx.send(ActionResult::Reading { channel, voltage }).await;
+            if let Some(mut c) = client {
+                let req = ReadAnalogInputRequest {
+                    device_id,
+                    channel,
+                    range_index,
+                };
+                match c.ni_daq_client().read_analog_input(req).await {
+                    Ok(resp) => {
+                        let r = resp.into_inner();
+                        if r.success {
+                            let _ = tx
+                                .send(ActionResult::Reading {
+                                    channel,
+                                    voltage: r.voltage,
+                                })
+                                .await;
+                        } else {
+                            let _ = tx
+                                .send(ActionResult::ReadingError {
+                                    channel,
+                                    error: r.error_message,
+                                })
+                                .await;
+                        }
+                    }
+                    Err(e) => {
+                        let _ = tx
+                            .send(ActionResult::ReadingError {
+                                channel,
+                                error: e.to_string(),
+                            })
+                            .await;
+                    }
+                }
+            }
         });
     }
 
-    /// Read all enabled channels.
+    /// Read all enabled channels via NiDaqService.ReadAnalogInput RPC.
+    #[allow(clippy::cast_possible_truncation)] // range_index is always < 14
     fn read_all_channels(&self, runtime: &Runtime, client: &DaqClient) {
         let tx = self.action_tx.clone();
-        let channels: Vec<u32> = self
+        let channels: Vec<(u32, u32)> = self
             .channels
             .iter()
             .filter(|(_, c)| c.enabled)
-            .map(|(ch, _)| *ch)
+            .map(|(ch, c)| (*ch, c.range_index as u32))
             .collect();
 
         let client = client.clone();
-        let device_id_base = self.device_id.clone();
+        let device_id = self.device_id.clone();
 
         runtime.spawn(async move {
             use futures::future::join_all;
 
-            // Create futures for concurrent execution
-            let futures = channels.iter().map(|&ch| {
+            let futures = channels.iter().map(|&(ch, range_index)| {
                 let mut client = client.clone();
-                let device_id = format!("{}/ai{}", device_id_base, ch);
+                let device_id = device_id.clone();
                 async move {
-                    match client.read_value(&device_id).await {
-                        Ok(response) if response.success => Some((ch, response.value)),
-                        _ => None,
+                    let req = ReadAnalogInputRequest {
+                        device_id,
+                        channel: ch,
+                        range_index,
+                    };
+                    match client.ni_daq_client().read_analog_input(req).await {
+                        Ok(resp) => {
+                            let r = resp.into_inner();
+                            if r.success {
+                                Some((ch, r.voltage))
+                            } else {
+                                None
+                            }
+                        }
+                        Err(_) => None,
                     }
                 }
             });
 
-            // Wait for all reads to complete
             let results = join_all(futures).await;
-
             let voltages: Vec<(u32, f64)> = results.into_iter().flatten().collect();
 
             if !voltages.is_empty() {
@@ -413,14 +455,4 @@ impl AnalogInputPanel {
             }
         }
     }
-}
-
-/// Generate a small random voltage offset for simulation.
-fn rand_voltage() -> f64 {
-    use std::time::SystemTime;
-    let nanos = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap_or_default()
-        .subsec_nanos();
-    f64::from(nanos % 1000) / 10000.0 - 0.05
 }

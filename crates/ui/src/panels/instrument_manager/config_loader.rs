@@ -2,7 +2,9 @@
 //!
 //! Loads device TOML configurations and provides access to UiConfig
 
-use anyhow::{Context, Result};
+#[cfg(not(target_arch = "wasm32"))]
+use anyhow::Context;
+use anyhow::Result;
 use hardware::config::schema::DeviceConfig;
 use std::collections::HashMap;
 #[cfg(not(target_arch = "wasm32"))]

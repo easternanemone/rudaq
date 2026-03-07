@@ -4,7 +4,7 @@
 
 use crate::runtime::Runtime;
 use eframe::egui::{self, Color32, RichText, Ui};
-use serde_json::json;
+use protocol::ni_daq::SetAnalogOutputRequest;
 use tokio::sync::mpsc;
 
 use crate::widgets::{offline_notice, OfflineContext};
@@ -375,7 +375,7 @@ impl AnalogOutputPanel {
         });
     }
 
-    /// Write voltage to a channel.
+    /// Write voltage to a channel via NiDaqService.SetAnalogOutput RPC.
     fn write_voltage(
         &self,
         channel: u32,
@@ -385,23 +385,39 @@ impl AnalogOutputPanel {
     ) {
         let tx = self.action_tx.clone();
         let device_id = self.device_id.clone();
+        #[allow(clippy::cast_possible_truncation)] // range_index is always < 14
+        let range_index = self
+            .channels
+            .get(channel as usize)
+            .map(|c| c.range_index as u32)
+            .unwrap_or(0);
 
         runtime.spawn(async move {
-            if let Some(mut client) = client {
-                let args = json!({
-                    "channel": channel,
-                    "voltage": voltage
-                })
-                .to_string();
-
-                match client
-                    .execute_device_command(&device_id, "write_voltage", &args)
-                    .await
-                {
-                    Ok(_) => {
-                        let _ = tx
-                            .send(ActionResult::WriteSuccess { channel, voltage })
-                            .await;
+            if let Some(mut c) = client {
+                let req = SetAnalogOutputRequest {
+                    device_id,
+                    channel,
+                    voltage,
+                    range_index,
+                };
+                match c.ni_daq_client().set_analog_output(req).await {
+                    Ok(resp) => {
+                        let r = resp.into_inner();
+                        if r.success {
+                            let _ = tx
+                                .send(ActionResult::WriteSuccess {
+                                    channel,
+                                    voltage: r.actual_voltage,
+                                })
+                                .await;
+                        } else {
+                            let _ = tx
+                                .send(ActionResult::WriteError {
+                                    channel,
+                                    error: r.error_message,
+                                })
+                                .await;
+                        }
                     }
                     Err(e) => {
                         let _ = tx
@@ -412,19 +428,13 @@ impl AnalogOutputPanel {
                             .await;
                     }
                 }
-            } else {
-                // Simulation
-                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-                let _ = tx
-                    .send(ActionResult::WriteSuccess { channel, voltage })
-                    .await;
             }
         });
     }
 
     /// Zero all outputs.
     #[allow(clippy::cast_possible_truncation)]
-    fn zero_all_outputs(&mut self, runtime: &Runtime, client: Option<DaqClient>) {
+    pub fn zero_all_outputs(&mut self, runtime: &Runtime, client: Option<DaqClient>) {
         for ch in 0..self.n_channels as usize {
             self.channels[ch].voltage = 0.0;
             self.write_voltage(ch as u32, 0.0, runtime, client.clone());

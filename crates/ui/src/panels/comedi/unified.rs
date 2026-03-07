@@ -10,7 +10,9 @@ use crate::widgets::{offline_notice, OfflineContext};
 use client::DaqClient;
 use protocol::ni_daq::{DaqStatus, TimingCapabilities};
 
-use super::{AnalogInputPanel, AnalogOutputPanel, CounterPanel, DigitalIOPanel};
+use super::{
+    AnalogInputPanel, AnalogOutputPanel, CounterPanel, DigitalIOPanel, TriggerConfigPanel,
+};
 
 /// Active tab in the unified panel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -21,6 +23,7 @@ pub enum ComediTab {
     AnalogOutput,
     DigitalIO,
     Counter,
+    Trigger,
 }
 
 impl ComediTab {
@@ -31,6 +34,7 @@ impl ComediTab {
             Self::AnalogOutput => "Analog Out",
             Self::DigitalIO => "Digital I/O",
             Self::Counter => "Counters",
+            Self::Trigger => "Trigger",
         }
     }
 
@@ -41,6 +45,7 @@ impl ComediTab {
             Self::AnalogOutput => "📉",
             Self::DigitalIO => "🔌",
             Self::Counter => "⏱",
+            Self::Trigger => "⚡",
         }
     }
 }
@@ -100,6 +105,8 @@ pub struct ComediPanel {
     dio_panel: DigitalIOPanel,
     /// Counter panel
     counter_panel: CounterPanel,
+    /// Trigger configuration panel
+    trigger_panel: TriggerConfigPanel,
     /// Error log
     error_log: Vec<String>,
     /// Max error log entries
@@ -137,6 +144,7 @@ impl ComediPanel {
             ao_panel: AnalogOutputPanel::new(device_id, 2),
             dio_panel: DigitalIOPanel::new(device_id, 24),
             counter_panel: CounterPanel::new(device_id, 3),
+            trigger_panel: TriggerConfigPanel::new(device_id),
             error_log: Vec::new(),
             max_log_entries: 100,
             timing_caps: None,
@@ -192,6 +200,7 @@ impl ComediPanel {
                 ComediTab::AnalogOutput,
                 ComediTab::DigitalIO,
                 ComediTab::Counter,
+                ComediTab::Trigger,
             ] {
                 let label = format!("{} {}", tab.icon(), tab.label());
                 if ui.selectable_label(self.active_tab == tab, label).clicked() {
@@ -209,6 +218,7 @@ impl ComediPanel {
             ComediTab::AnalogOutput => self.ao_panel.ui(ui, client, runtime),
             ComediTab::DigitalIO => self.dio_panel.ui(ui, client, runtime),
             ComediTab::Counter => self.counter_panel.ui(ui, client, runtime),
+            ComediTab::Trigger => self.trigger_panel.ui(ui, client, runtime),
         }
     }
 
@@ -241,7 +251,11 @@ impl ComediPanel {
                 ConnectionStatus::Connected => {
                     if ui.button("Disconnect").clicked() {
                         self.connection_status = ConnectionStatus::Disconnected;
-                        // TODO: Disconnect
+                        self.board_name.clear();
+                        self.driver_name.clear();
+                        self.timing_caps = None;
+                        self.status_fetching = false;
+                        self.log_message("Disconnected from DAQ device");
                     }
                 }
                 _ => {}
@@ -378,7 +392,9 @@ impl ComediPanel {
                         self.active_tab = ComediTab::AnalogInput;
                     }
                     if ui.button("Zero All AO").clicked() {
-                        // TODO: Zero all analog outputs
+                        self.ao_panel
+                            .zero_all_outputs(runtime, client.as_deref().cloned());
+                        self.log_message("Zeroing all analog outputs");
                     }
                 });
 
@@ -387,15 +403,16 @@ impl ComediPanel {
                         self.active_tab = ComediTab::DigitalIO;
                     }
                     if ui.button("Reset Counters").clicked() {
-                        // TODO: Reset all counters
+                        self.counter_panel
+                            .reset_all_counters(client.as_deref().cloned(), runtime);
+                        self.log_message("Resetting all counters");
                     }
                 });
 
                 ui.separator();
 
                 if ui.button("Self Test").clicked() {
-                    // TODO: Run self-test
-                    self.log_message("Self-test not yet implemented");
+                    self.log_message("Self-test: use calibrate-comedi.sh for hardware calibration");
                 }
             });
 
