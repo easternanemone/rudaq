@@ -176,7 +176,7 @@ async fn test_stress_1000_frames_sustained_streaming() {
     while stream_start.elapsed() < STRESS_TEST_DURATION {
         match tokio::time::timeout(durations::FRAME_TIMEOUT, rx.recv()).await {
             Ok(Some(frame)) => {
-                tracker.record_frame(&frame);
+                tracker.record_frame_nr(frame.frame_number as i32);
                 interval_frame_count += 1;
             }
             Ok(None) => {
@@ -373,7 +373,7 @@ async fn test_stress_2000_frames_extended() {
     while start.elapsed() < extended_duration {
         match tokio::time::timeout(durations::FRAME_TIMEOUT, rx.recv()).await {
             Ok(Some(frame)) => {
-                tracker.record_frame(&frame);
+                tracker.record_frame_nr(frame.frame_number as i32);
 
                 // Report every 10 seconds
                 if last_report.elapsed() >= Duration::from_secs(10) {

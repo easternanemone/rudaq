@@ -186,7 +186,7 @@ async fn test_continuous_streaming() {
     while start.elapsed() < test_duration {
         match tokio::time::timeout(durations::FRAME_TIMEOUT, rx.recv()).await {
             Ok(Some(frame)) => {
-                tracker.record_frame(&frame);
+                tracker.record_frame_nr(frame.frame_number as i32);
             }
             Ok(None) => {
                 stats.channel_errors += 1;
@@ -298,7 +298,7 @@ async fn test_sustained_full_sensor_streaming() {
     while start.elapsed() < test_duration {
         match tokio::time::timeout(durations::FRAME_TIMEOUT, rx.recv()).await {
             Ok(Some(frame)) => {
-                tracker.record_frame(&frame);
+                tracker.record_frame_nr(frame.frame_number as i32);
             }
             Ok(None) => {
                 stats.channel_errors += 1;
@@ -400,12 +400,12 @@ async fn test_frame_data_integrity() {
         match tokio::time::timeout(durations::FRAME_TIMEOUT, rx.recv()).await {
             Ok(Some(frame)) => {
                 // Validate dimensions and data size
-                match validator.validate(&frame) {
+                match validator.validate_frame_data(&frame) {
                     Ok(()) => {
                         valid_frames += 1;
 
                         // Check for zero frame (uninitialized buffer)
-                        if FrameValidator::is_zero_frame(&frame) {
+                        if FrameValidator::is_zero_frame_data(&frame) {
                             zero_frames += 1;
                             println!(
                                 "  Frame {}: {}x{} - WARNING: appears to be all zeros",
@@ -415,7 +415,7 @@ async fn test_frame_data_integrity() {
                             );
                         } else {
                             // Calculate basic stats to verify data
-                            let pixels = frame_to_u16(&frame);
+                            let pixels = frame_data_to_u16(&frame);
                             let mean: f64 =
                                 pixels.iter().map(|&p| p as f64).sum::<f64>() / pixels.len() as f64;
                             let max = *pixels.iter().max().unwrap_or(&0);
@@ -516,7 +516,7 @@ async fn test_frame_numbering_sequence() {
             Ok(Some(frame)) => {
                 let frame_nr = frame.frame_number as i32;
                 frame_numbers.push(frame_nr);
-                tracker.record_frame(&frame);
+                tracker.record_frame_nr(frame.frame_number as i32);
             }
             Ok(None) => {
                 stats.channel_errors += 1;
@@ -586,10 +586,11 @@ async fn test_frame_numbering_sequence() {
 // Helper Functions
 // =============================================================================
 
-/// Convert frame data to u16 pixels (assumes 16-bit depth)
-fn frame_to_u16(frame: &Frame) -> Vec<u16> {
+/// Convert FrameData pixel buffer to u16 pixels (assumes 16-bit depth).
+/// Works with Loaned<FrameData> via Deref.
+fn frame_data_to_u16(frame: &pool::FrameData) -> Vec<u16> {
     frame
-        .data
+        .pixels
         .chunks_exact(2)
         .map(|c| u16::from_le_bytes([c[0], c[1]]))
         .collect()

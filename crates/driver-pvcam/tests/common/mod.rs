@@ -279,6 +279,49 @@ impl FrameValidator {
         let check_count = frame.data.len().min(100);
         frame.data.iter().take(check_count).all(|&p| p == 0)
     }
+
+    /// Validate a FrameData's dimensions and pixel buffer (streaming path).
+    /// FrameData uses `pixels` field instead of `data`.
+    #[cfg(feature = "pvcam_sdk")]
+    pub fn validate_frame_data(&self, frame: &pool::FrameData) -> Result<(), String> {
+        if frame.width != self.expected_width {
+            return Err(format!(
+                "Width mismatch: expected {}, got {}",
+                self.expected_width, frame.width
+            ));
+        }
+
+        if frame.height != self.expected_height {
+            return Err(format!(
+                "Height mismatch: expected {}, got {}",
+                self.expected_height, frame.height
+            ));
+        }
+
+        let expected_bytes = self.expected_bytes();
+        if frame.pixels.len() != expected_bytes {
+            return Err(format!(
+                "Data size mismatch: expected {} bytes ({} pixels × {} bytes/pixel), got {} bytes",
+                expected_bytes,
+                self.expected_pixel_count,
+                self.bytes_per_pixel,
+                frame.pixels.len()
+            ));
+        }
+
+        if frame.pixels.is_empty() {
+            return Err("Frame data is empty".to_string());
+        }
+
+        Ok(())
+    }
+
+    /// Check if a FrameData appears to be all zeros (streaming path).
+    #[cfg(feature = "pvcam_sdk")]
+    pub fn is_zero_frame_data(frame: &pool::FrameData) -> bool {
+        let check_count = frame.pixels.len().min(100);
+        frame.pixels.iter().take(check_count).all(|&p| p == 0)
+    }
 }
 
 // ============================================================================
