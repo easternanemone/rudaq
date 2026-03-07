@@ -26,6 +26,11 @@ pub mod reconnect;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod gui_log_layer;
 
+// Cross-platform settings persistence via the `preferences` crate (native-only).
+// On WASM, eframe's built-in storage handles persistence in the browser.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod preferences;
+
 // connection_state_ext depends on client::reconnect::ConnectionState (native-only)
 #[cfg(not(target_arch = "wasm32"))]
 pub mod connection_state_ext;

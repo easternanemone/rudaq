@@ -1,0 +1,115 @@
+# Maitai Lab - Declarative Driver Side-by-Side Test Config
+#
+# Purpose: Test serial devices alongside a declarative SCPI ESP300 via
+#          driver-universal to validate side-by-side native vs. manifest
+#          driver operation. NO PVCAM camera, NO Comedi DAQ card.
+#
+# The native ESP300 axes (esp300_axis1-3) use the registered
+# "universal_newport_esp300" driver type. An additional declarative instance
+# (esp300_declarative) loads the same manifest explicitly to exercise the
+# raw driver-universal path with manifest_path.
+#
+# Usage:
+#   rust-daq-daemon daemon --hardware-config config/maitai_declarative_test.toml
+
+# ============================================================================
+# Thorlabs ELL14 Rotation Mounts (RS-485 Multidrop Bus)
+# ============================================================================
+# Three rotators share one serial connection (FT230X)
+# Addresses: 2, 3, 8 (set via Thorlabs software)
+
+[[devices]]
+id = "rotator_2"
+name = "ELL14 Rotator (Address 2)"
+[devices.driver]
+type = "universal_thorlabs_ell14"
+port = "/dev/serial/by-id/usb-FTDI_FT230X_Basic_UART_DK0AHAJZ-if00-port0"
+address = "2"
+
+[[devices]]
+id = "rotator_3"
+name = "ELL14 Rotator (Address 3)"
+[devices.driver]
+type = "universal_thorlabs_ell14"
+port = "/dev/serial/by-id/usb-FTDI_FT230X_Basic_UART_DK0AHAJZ-if00-port0"
+address = "3"
+
+[[devices]]
+id = "rotator_8"
+name = "ELL14 Rotator (Address 8)"
+[devices.driver]
+type = "universal_thorlabs_ell14"
+port = "/dev/serial/by-id/usb-FTDI_FT230X_Basic_UART_DK0AHAJZ-if00-port0"
+address = "8"
+
+# ============================================================================
+# Spectra-Physics MaiTai Ti:Sapphire Laser
+# ============================================================================
+# USB-to-USB connection requires 115200 baud
+
+[[devices]]
+id = "maitai"
+name = "MaiTai Ti:Sapphire Laser"
+[devices.driver]
+type = "universal_spectra-physics_maitai"
+port = "/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0"
+baud_rate = 115200
+
+# ============================================================================
+# Newport 1830-C Optical Power Meter
+# ============================================================================
+# Connected via built-in serial port (RS-232)
+
+[[devices]]
+id = "power_meter"
+name = "Newport 1830-C Power Meter"
+[devices.driver]
+type = "universal_newport_1830-c"
+port = "/dev/ttyS0"
+
+# ============================================================================
+# Newport ESP300 Motion Controller — Native Driver (3 axes)
+# ============================================================================
+# 3-axis motion controller via FTDI 4-port cable
+# Uses the registered "universal_newport_esp300" driver type
+
+[[devices]]
+id = "esp300_axis1"
+name = "ESP300 Axis 1"
+[devices.driver]
+type = "universal_newport_esp300"
+port = "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Cable_FT1RALWL-if00-port0"
+address = "1"
+
+[[devices]]
+id = "esp300_axis2"
+name = "ESP300 Axis 2"
+[devices.driver]
+type = "universal_newport_esp300"
+port = "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Cable_FT1RALWL-if00-port0"
+address = "2"
+
+[[devices]]
+id = "esp300_axis3"
+name = "ESP300 Axis 3"
+[devices.driver]
+type = "universal_newport_esp300"
+port = "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Cable_FT1RALWL-if00-port0"
+address = "3"
+
+# ============================================================================
+# Newport ESP300 — Declarative SCPI via driver-universal (manifest_path)
+# ============================================================================
+# Additional ESP300 instance loaded via explicit manifest_path to test the
+# raw driver-universal code path side-by-side with the registered type above.
+# Uses axis 1 on the same serial bus (read-only queries only recommended to
+# avoid conflicts with esp300_axis1).
+
+[[devices]]
+id = "esp300_declarative"
+name = "ESP300 Declarative (Axis 1, test)"
+[devices.driver]
+type = "universal"
+manifest_path = "config/devices/esp300.toml"
+port = "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Cable_FT1RALWL-if00-port0"
+address = "1"

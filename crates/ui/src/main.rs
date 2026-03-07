@@ -48,6 +48,8 @@ mod layout;
 #[cfg(feature = "standalone")]
 mod panels;
 #[cfg(feature = "standalone")]
+mod preferences;
+#[cfg(feature = "standalone")]
 mod reconnect;
 #[cfg(feature = "standalone")]
 mod settings;

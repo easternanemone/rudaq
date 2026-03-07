@@ -883,6 +883,11 @@ pub struct DaqApp {
     /// Application settings
     app_settings: crate::settings::AppSettings,
 
+    /// Native preferences (cross-platform file persistence via `preferences` crate).
+    /// Loaded on startup, saved on shutdown. Complements eframe storage.
+    #[cfg(not(target_arch = "wasm32"))]
+    native_prefs: crate::preferences::AppPreferences,
+
     /// Connection presets loaded from gui.toml
     #[cfg(not(target_arch = "wasm32"))]
     gui_presets: Vec<crate::gui_config::DaemonPreset>,
@@ -1379,6 +1384,9 @@ impl DaqApp {
         // Mark session as running for crash detection on next launch
         write_session_file(daemon_address.as_str());
 
+        // Load native preferences (cross-platform file persistence)
+        let native_prefs = crate::preferences::AppPreferences::load_or_default();
+
         Self {
             client: None,
             connection: ConnectionManager::new(),
@@ -1436,6 +1444,7 @@ impl DaqApp {
             control_panel_layout_mode,
             settings_window: crate::settings::SettingsWindow::default(),
             app_settings,
+            native_prefs,
             gui_presets,
             #[cfg(all(feature = "rerun_viewer", feature = "pvcam"))]
             pvcam_streaming: false,
@@ -3374,6 +3383,11 @@ impl eframe::App for DaqApp {
             }
             clear_legacy_daemon_address(storage);
             write_session_file(self.daemon_address.as_str());
+
+            // Sync current state into native preferences and save to OS-appropriate location
+            self.native_prefs.daemon_url = self.app_settings.connection.daemon_address.clone();
+            self.native_prefs.theme = format!("{:?}", self.theme_preference);
+            self.native_prefs.persist();
         }
 
         if let Some(dock_state) = &self.dock_state {

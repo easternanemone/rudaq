@@ -192,6 +192,80 @@ pub(super) enum ImageViewerAction {
     RecordingStatus(Option<protocol::daq::RecordingStatus>),
 }
 
+/// Pixel statistics for the current frame (bd-li4i)
+#[derive(Debug, Clone, Default)]
+pub struct PixelStatistics {
+    /// Total number of pixels
+    pub count: u64,
+    /// Minimum pixel value
+    pub min: f64,
+    /// Maximum pixel value
+    pub max: f64,
+    /// Mean pixel value
+    pub mean: f64,
+    /// Standard deviation
+    pub std_dev: f64,
+    /// Median pixel value
+    pub median: f64,
+    /// Sum of all pixel values
+    pub sum: f64,
+    /// 1st percentile
+    pub p1: f64,
+    /// 5th percentile
+    pub p5: f64,
+    /// 25th percentile (Q1)
+    pub p25: f64,
+    /// 50th percentile (same as median)
+    pub p50: f64,
+    /// 75th percentile (Q3)
+    pub p75: f64,
+    /// 95th percentile
+    pub p95: f64,
+    /// 99th percentile
+    pub p99: f64,
+}
+
+impl PixelStatistics {
+    /// Format statistics as a human-readable text block for clipboard copy.
+    pub fn to_clipboard_text(&self) -> String {
+        format!(
+            "Pixel Statistics\n\
+             ================\n\
+             Count:    {}\n\
+             Min:      {:.1}\n\
+             Max:      {:.1}\n\
+             Mean:     {:.2}\n\
+             Std Dev:  {:.2}\n\
+             Median:   {:.1}\n\
+             Sum:      {:.0}\n\
+             \n\
+             Percentiles\n\
+             -----------\n\
+             P1:       {:.1}\n\
+             P5:       {:.1}\n\
+             P25 (Q1): {:.1}\n\
+             P50:      {:.1}\n\
+             P75 (Q3): {:.1}\n\
+             P95:      {:.1}\n\
+             P99:      {:.1}",
+            self.count,
+            self.min,
+            self.max,
+            self.mean,
+            self.std_dev,
+            self.median,
+            self.sum,
+            self.p1,
+            self.p5,
+            self.p25,
+            self.p50,
+            self.p75,
+            self.p95,
+            self.p99,
+        )
+    }
+}
+
 /// Connection state for camera device (bd-12qt)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ConnectionState {

@@ -186,6 +186,10 @@ pub struct ImageViewerPanel {
     last_frame_data: Option<Arc<[u8]>>,
     /// Show ROI statistics panel
     show_roi_panel: bool,
+    /// Show pixel statistics panel (bd-li4i)
+    show_pixel_stats: bool,
+    /// Cached pixel statistics for current frame (bd-li4i)
+    pixel_statistics: Option<PixelStatistics>,
     /// Histogram for intensity distribution
     histogram: Histogram,
     /// Histogram display position
@@ -305,6 +309,16 @@ pub struct ImageViewerPanel {
     /// Show colorbar in the image viewer
     show_colorbar: bool,
 
+    // -- Metadata Overlay (bd-6h1c) --
+    /// Show acquisition metadata overlay on the image
+    show_metadata_overlay: bool,
+
+    // -- Scale Bar Overlay (bd-0tcg) --
+    /// Show scale bar overlay on the image
+    show_scale_bar: bool,
+    /// Last frame timestamp in nanoseconds (for overlay display)
+    last_frame_timestamp_ns: u64,
+
     // -- Echelle Calibration Profile Cache (bd-2kla.2.4) --
     /// Optional cached echelle calibration profile with hot-reload-safe semantics.
     echelle_profile_cache: EchelleProfileCache,
@@ -367,6 +381,8 @@ impl Default for ImageViewerPanel {
             roi_selector: RoiSelector::new(),
             last_frame_data: None,
             show_roi_panel: true,
+            show_pixel_stats: false,
+            pixel_statistics: None,
             histogram: Histogram::new(),
             histogram_position: HistogramPosition::SidePanel,
             available_cameras: Vec::new(),
@@ -436,6 +452,13 @@ impl Default for ImageViewerPanel {
                 .orientation(crate::widgets::ColorbarOrientation::Vertical)
                 .units("counts"),
             show_colorbar: true,
+
+            // Metadata overlay (bd-6h1c)
+            show_metadata_overlay: false,
+
+            // Scale bar overlay (bd-0tcg)
+            show_scale_bar: false,
+            last_frame_timestamp_ns: 0,
 
             echelle_profile_cache: EchelleProfileCache::default(),
             echelle_preview: None,
@@ -3290,6 +3313,7 @@ impl ImageViewerPanel {
         self.height = frame.height;
         self.bit_depth = frame.bit_depth;
         self.frame_count = frame.frame_number;
+        self.last_frame_timestamp_ns = frame.timestamp_ns;
         self.error = None;
 
         // bd-7rk0: Update stream metrics from server
@@ -3318,6 +3342,11 @@ impl ImageViewerPanel {
             frame.height,
             frame.bit_depth,
         );
+
+        // Compute pixel statistics when panel is visible (bd-li4i)
+        if self.show_pixel_stats {
+            self.pixel_statistics = Some(compute_pixel_statistics(&frame.data, frame.bit_depth));
+        }
 
         // Update histogram
         self.histogram
@@ -3796,7 +3825,10 @@ impl ImageViewerPanel {
                 ui.separator();
 
                 ui.checkbox(&mut self.show_roi_panel, "Stats");
+                ui.checkbox(&mut self.show_pixel_stats, "Px Stats");
                 ui.checkbox(&mut self.show_controls, "Controls");
+                ui.checkbox(&mut self.show_metadata_overlay, "Metadata Overlay");
+                ui.checkbox(&mut self.show_scale_bar, "Scale Bar");
 
                 // === Histogram Position ===
                 egui::ComboBox::from_id_salt("histogram_pos")
@@ -3966,20 +3998,25 @@ impl ImageViewerPanel {
         let has_roi_panel = self.show_roi_panel && self.roi_selector.roi().is_some();
         let has_histogram_panel = matches!(self.histogram_position, HistogramPosition::SidePanel);
         let has_controls_panel = self.show_controls && !self.camera_params.is_empty();
+        let has_pixel_stats = self.show_pixel_stats;
         // Always show the echelle panel so the calibration workspace can be used
         // to create/load the first profile before any preview exists.
         let has_echelle_panel = true;
 
-        let stats_panel_width =
-            if has_roi_panel || has_histogram_panel || has_controls_panel || has_echelle_panel {
-                if has_controls_panel || has_echelle_panel {
-                    320.0
-                } else {
-                    200.0
-                }
+        let stats_panel_width = if has_roi_panel
+            || has_histogram_panel
+            || has_controls_panel
+            || has_echelle_panel
+            || has_pixel_stats
+        {
+            if has_controls_panel || has_echelle_panel {
+                320.0
             } else {
-                0.0
-            };
+                200.0
+            }
+        } else {
+            0.0
+        };
 
         // Side panel for stats/controls (fixed width, drawn first so remainder goes to image)
         if stats_panel_width > 0.0 {
@@ -3993,6 +4030,7 @@ impl ImageViewerPanel {
                         has_roi_panel,
                         has_histogram_panel,
                         has_echelle_panel,
+                        has_pixel_stats,
                     );
                 });
         }
@@ -4039,6 +4077,18 @@ impl ImageViewerPanel {
                     let scale_unit = self.scale_unit.clone();
                     let last_frame_data = self.last_frame_data.clone();
                     let roi_selection_mode = self.roi_selector.selection_mode;
+
+                    // Extract metadata overlay state for use in closure (bd-6h1c)
+                    let show_metadata_overlay = self.show_metadata_overlay;
+                    let overlay_frame_count = self.frame_count;
+                    let overlay_fps = self.fps_counter.fps();
+                    let overlay_timestamp_ns = self.last_frame_timestamp_ns;
+
+                    // Extract scale bar state for use in closure (bd-0tcg)
+                    let show_scale_bar = self.show_scale_bar;
+                    let scale_bar_pixel_scale_x = self.pixel_scale_x;
+                    let scale_bar_unit = self.scale_unit.clone();
+
                     let echelle_trace_overlay_paths = self.build_echelle_trace_overlay_paths();
                     let echelle_trace_overlay_selected_relative = self
                         .echelle_cal_ui
@@ -4153,6 +4203,187 @@ impl ImageViewerPanel {
                                             self.zoom,
                                             self.pan,
                                         );
+
+                                        // bd-6h1c: Draw metadata overlay on the image
+                                        if show_metadata_overlay && overlay_frame_count > 0 {
+                                            let painter = ui.painter();
+                                            let overlay_padding = 8.0_f32;
+                                            let overlay_pos = egui::pos2(
+                                                image_rect.min.x + overlay_padding,
+                                                image_rect.min.y + overlay_padding,
+                                            );
+
+                                            // Build overlay text lines
+                                            let mut lines = Vec::with_capacity(3);
+                                            lines.push(format!("Frame: {}", overlay_frame_count));
+                                            lines.push(format!("FPS: {:.1}", overlay_fps));
+                                            if overlay_timestamp_ns > 0 {
+                                                let secs = overlay_timestamp_ns / 1_000_000_000;
+                                                let subsec_ms = (overlay_timestamp_ns
+                                                    % 1_000_000_000)
+                                                    / 1_000_000;
+                                                let h = secs / 3600;
+                                                let m = (secs % 3600) / 60;
+                                                let s = secs % 60;
+                                                lines.push(format!(
+                                                    "T: {:02}:{:02}:{:02}.{:03}",
+                                                    h, m, s, subsec_ms
+                                                ));
+                                            }
+
+                                            let text = lines.join("\n");
+                                            let text_color = egui::Color32::WHITE;
+                                            let galley = painter.layout_no_wrap(
+                                                text,
+                                                egui::FontId::monospace(12.0),
+                                                text_color,
+                                            );
+                                            let bg_rect = egui::Rect::from_min_size(
+                                                overlay_pos,
+                                                galley.size() + egui::vec2(8.0, 8.0),
+                                            );
+                                            painter.rect_filled(
+                                                bg_rect,
+                                                4.0,
+                                                egui::Color32::from_black_alpha(160),
+                                            );
+                                            painter.galley(
+                                                overlay_pos + egui::vec2(4.0, 4.0),
+                                                galley,
+                                                text_color,
+                                            );
+                                        }
+
+                                        // bd-0tcg: Draw scale bar overlay on the image (bottom-left)
+                                        if show_scale_bar && width > 0 && height > 0 {
+                                            let painter = ui.painter();
+                                            let padding = 12.0_f32;
+                                            let bar_height = 4.0_f32;
+                                            let bar_y = image_rect.max.y - padding - bar_height;
+
+                                            if let Some(um_per_px) = scale_bar_pixel_scale_x {
+                                                // Calibrated: compute a "nice" bar length
+                                                #[allow(clippy::cast_precision_loss)]
+                                                let image_width_um = f64::from(width) * um_per_px;
+                                                let target_um = image_width_um * 0.2; // ~20% of image
+
+                                                // Pick the nearest "nice" value from a fixed set
+                                                let nice_values: &[f64] = &[
+                                                    0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0,
+                                                    100.0, 200.0, 500.0, 1000.0, 2000.0, 5000.0,
+                                                ];
+                                                let bar_um = nice_values
+                                                    .iter()
+                                                    .copied()
+                                                    .min_by(|a, b| {
+                                                        let da = (a - target_um).abs();
+                                                        let db = (b - target_um).abs();
+                                                        da.partial_cmp(&db)
+                                                            .unwrap_or(std::cmp::Ordering::Equal)
+                                                    })
+                                                    .unwrap_or(100.0);
+
+                                                // Convert bar length from physical units to screen pixels
+                                                let bar_pixels = bar_um / um_per_px; // image pixels
+                                                #[allow(clippy::cast_possible_truncation)]
+                                                let bar_screen_width = (bar_pixels as f32) * zoom;
+
+                                                let bar_x = image_rect.min.x + padding;
+
+                                                // Draw black outline behind white bar for contrast
+                                                let outline_rect = egui::Rect::from_min_size(
+                                                    egui::pos2(bar_x - 1.0, bar_y - 1.0),
+                                                    egui::vec2(
+                                                        bar_screen_width + 2.0,
+                                                        bar_height + 2.0,
+                                                    ),
+                                                );
+                                                painter.rect_filled(
+                                                    outline_rect,
+                                                    0.0,
+                                                    egui::Color32::BLACK,
+                                                );
+
+                                                // Draw white bar
+                                                let bar_rect = egui::Rect::from_min_size(
+                                                    egui::pos2(bar_x, bar_y),
+                                                    egui::vec2(bar_screen_width, bar_height),
+                                                );
+                                                painter.rect_filled(
+                                                    bar_rect,
+                                                    0.0,
+                                                    egui::Color32::WHITE,
+                                                );
+
+                                                // Format label: use integer if whole number, else one decimal
+                                                let label = if bar_um.fract() < f64::EPSILON {
+                                                    #[allow(clippy::cast_possible_truncation)]
+                                                    let v = bar_um as u64;
+                                                    format!("{} {}", v, &scale_bar_unit)
+                                                } else {
+                                                    format!("{:.1} {}", bar_um, &scale_bar_unit)
+                                                };
+
+                                                let label_pos = egui::pos2(
+                                                    bar_x + bar_screen_width / 2.0,
+                                                    bar_y - 3.0,
+                                                );
+
+                                                // Draw label with black shadow for readability
+                                                for dx in [-1.0_f32, 0.0, 1.0] {
+                                                    for dy in [-1.0_f32, 0.0, 1.0] {
+                                                        if dx != 0.0 || dy != 0.0 {
+                                                            painter.text(
+                                                                label_pos + egui::vec2(dx, dy),
+                                                                egui::Align2::CENTER_BOTTOM,
+                                                                &label,
+                                                                egui::FontId::proportional(12.0),
+                                                                egui::Color32::BLACK,
+                                                            );
+                                                        }
+                                                    }
+                                                }
+                                                painter.text(
+                                                    label_pos,
+                                                    egui::Align2::CENTER_BOTTOM,
+                                                    &label,
+                                                    egui::FontId::proportional(12.0),
+                                                    egui::Color32::WHITE,
+                                                );
+                                            } else {
+                                                // Uncalibrated: show warning text at bottom-left
+                                                let warn_pos =
+                                                    egui::pos2(image_rect.min.x + padding, bar_y);
+                                                let warn_text = "Scale bar: uncalibrated";
+                                                let warn_galley = painter.layout_no_wrap(
+                                                    warn_text.to_string(),
+                                                    egui::FontId::proportional(11.0),
+                                                    egui::Color32::from_rgb(255, 200, 80),
+                                                );
+                                                let warn_bg = egui::Rect::from_min_size(
+                                                    warn_pos
+                                                        - egui::vec2(
+                                                            0.0,
+                                                            warn_galley.size().y + 4.0,
+                                                        ),
+                                                    warn_galley.size() + egui::vec2(8.0, 4.0),
+                                                );
+                                                painter.rect_filled(
+                                                    warn_bg,
+                                                    4.0,
+                                                    egui::Color32::from_black_alpha(180),
+                                                );
+                                                painter.galley(
+                                                    warn_pos
+                                                        - egui::vec2(
+                                                            -4.0,
+                                                            warn_galley.size().y + 2.0,
+                                                        ),
+                                                    warn_galley,
+                                                    egui::Color32::from_rgb(255, 200, 80),
+                                                );
+                                            }
+                                        }
 
                                         // Draw histogram overlay if positioned on image
                                         if self.histogram_position.is_overlay() {
@@ -4589,6 +4820,7 @@ impl ImageViewerPanel {
         has_roi_panel: bool,
         has_histogram_panel: bool,
         has_echelle_panel: bool,
+        has_pixel_stats: bool,
     ) {
         ui.set_max_width(ui.available_width());
         egui::ScrollArea::vertical()
@@ -4703,6 +4935,98 @@ impl ImageViewerPanel {
                                         self.queue_clear_hardware_roi();
                                     }
                                 });
+                            });
+                    });
+                    ui.add_space(layout::SECTION_SPACING);
+                }
+
+                if has_pixel_stats {
+                    layout::card_frame(ui).show(ui, |ui| {
+                        egui::CollapsingHeader::new("Pixel Statistics")
+                            .default_open(true)
+                            .show(ui, |ui| {
+                                if let Some(stats) = &self.pixel_statistics {
+                                    egui::Grid::new("pixel_stats_grid")
+                                        .num_columns(2)
+                                        .spacing([8.0, 2.0])
+                                        .show(ui, |ui| {
+                                            ui.label("Count:");
+                                            ui.label(format!("{}", stats.count));
+                                            ui.end_row();
+
+                                            ui.label("Min:");
+                                            ui.label(format!("{:.1}", stats.min));
+                                            ui.end_row();
+
+                                            ui.label("Max:");
+                                            ui.label(format!("{:.1}", stats.max));
+                                            ui.end_row();
+
+                                            ui.label("Mean:");
+                                            ui.label(format!("{:.2}", stats.mean));
+                                            ui.end_row();
+
+                                            ui.label("Std Dev:");
+                                            ui.label(format!("{:.2}", stats.std_dev));
+                                            ui.end_row();
+
+                                            ui.label("Median:");
+                                            ui.label(format!("{:.1}", stats.median));
+                                            ui.end_row();
+
+                                            ui.label("Sum:");
+                                            ui.label(format!("{:.0}", stats.sum));
+                                            ui.end_row();
+                                        });
+
+                                    ui.separator();
+                                    ui.label("Percentiles");
+                                    egui::Grid::new("pixel_stats_percentiles_grid")
+                                        .num_columns(2)
+                                        .spacing([8.0, 2.0])
+                                        .show(ui, |ui| {
+                                            ui.label("P1:");
+                                            ui.label(format!("{:.1}", stats.p1));
+                                            ui.end_row();
+
+                                            ui.label("P5:");
+                                            ui.label(format!("{:.1}", stats.p5));
+                                            ui.end_row();
+
+                                            ui.label("P25 (Q1):");
+                                            ui.label(format!("{:.1}", stats.p25));
+                                            ui.end_row();
+
+                                            ui.label("P50:");
+                                            ui.label(format!("{:.1}", stats.p50));
+                                            ui.end_row();
+
+                                            ui.label("P75 (Q3):");
+                                            ui.label(format!("{:.1}", stats.p75));
+                                            ui.end_row();
+
+                                            ui.label("P95:");
+                                            ui.label(format!("{:.1}", stats.p95));
+                                            ui.end_row();
+
+                                            ui.label("P99:");
+                                            ui.label(format!("{:.1}", stats.p99));
+                                            ui.end_row();
+                                        });
+
+                                    ui.add_space(4.0);
+                                    if ui
+                                        .button("Copy to Clipboard")
+                                        .on_hover_text(
+                                            "Copy pixel statistics as formatted text",
+                                        )
+                                        .clicked()
+                                    {
+                                        ui.ctx().copy_text(stats.to_clipboard_text());
+                                    }
+                                } else {
+                                    ui.label("No frame data available");
+                                }
                             });
                     });
                     ui.add_space(layout::SECTION_SPACING);

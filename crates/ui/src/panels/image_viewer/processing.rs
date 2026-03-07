@@ -464,6 +464,75 @@ pub(super) fn compute_clahe_lut(
     compute_histogram_equalization_lut(&clipped_hist, total_pixels)
 }
 
+/// Compute pixel statistics for the current frame (bd-li4i)
+///
+/// Handles both 8-bit and 16-bit (including 12-bit stored as 16-bit) pixel data.
+/// Uses sort-based approach for median and percentile computation.
+#[allow(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
+pub(super) fn compute_pixel_statistics(
+    data: &[u8],
+    bit_depth: u32,
+) -> super::types::PixelStatistics {
+    // Extract pixel values based on bit depth
+    let mut values: Vec<f64> = match bit_depth {
+        8 => data.iter().map(|&b| f64::from(b)).collect(),
+        12 | 16 => data
+            .chunks_exact(2)
+            .map(|c| f64::from(u16::from_le_bytes([c[0], c[1]])))
+            .collect(),
+        _ => return super::types::PixelStatistics::default(),
+    };
+
+    if values.is_empty() {
+        return super::types::PixelStatistics::default();
+    }
+
+    let count = values.len() as u64;
+    let sum: f64 = values.iter().sum();
+    let mean = sum / values.len() as f64;
+
+    // Variance (population)
+    let variance = values.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / values.len() as f64;
+    let std_dev = variance.sqrt();
+
+    // Sort for min, max, median, and percentiles
+    values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+    let min = values[0];
+    let max = values[values.len() - 1];
+
+    let percentile = |p: f64| -> f64 {
+        let idx = (p / 100.0) * (values.len() - 1) as f64;
+        let lo = idx.floor() as usize;
+        let hi = (lo + 1).min(values.len() - 1);
+        let frac = idx - lo as f64;
+        values[lo] * (1.0 - frac) + values[hi] * frac
+    };
+
+    let median = percentile(50.0);
+
+    super::types::PixelStatistics {
+        count,
+        min,
+        max,
+        mean,
+        std_dev,
+        median,
+        sum,
+        p1: percentile(1.0),
+        p5: percentile(5.0),
+        p25: percentile(25.0),
+        p50: median,
+        p75: percentile(75.0),
+        p95: percentile(95.0),
+        p99: percentile(99.0),
+    }
+}
+
 /// Whitelist for quick access camera parameters
 pub(super) const QUICK_ACCESS_PARAMS: &[&str] = &[
     "exposure",    // Matches exposure_ms, exposure_mode, etc.
