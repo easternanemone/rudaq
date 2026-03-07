@@ -1,22 +1,28 @@
-# Legacy SCPI/TCP Driver Deprecation Plan
+# Legacy SCPI/TCP Driver Migration — COMPLETE
 
-This guide defines the migration path from legacy native SCPI/TCP drivers to universal TOML drivers.
+This document archives the completed migration from legacy native SCPI/TCP drivers to universal TOML drivers.
 
-## Scope
+## Scope (Archived)
 
-Deprecation scope is limited to SCPI/TCP-style drivers where universal equivalents exist.
-Camera-native and SDK-bound drivers are not in scope.
+Migration scope was limited to SCPI/TCP-style serial drivers. All such drivers have been replaced
+with `driver-universal` TOML manifests. Native SDK drivers (PVCAM, Andor, Comedi, Dover) were not
+in scope and remain as dedicated crates with FFI bindings.
 
-## Legacy -> Universal Mapping
+## Legacy -> Universal Mapping (Archived)
 
-| Legacy driver type | Universal replacement |
-|---|---|
-| `ell14` | `universal_thorlabs_ell14` |
-| `maitai` | `universal_spectra-physics_maitai` |
-| `newport1830_c` | `universal_newport_1830-c` |
-| `esp300` | `universal_newport_esp300` |
-| `thorlabs_pm400` | `universal_thorlabs_pm400` |
-| `red_pitaya_pid` | `universal_red_pitaya_pid` |
+All legacy driver types have been replaced. For reference:
+
+| Legacy driver type (removed) | Universal replacement (active) | Manifest location |
+|---|---|---|
+| `ell14` | `universal_thorlabs_ell14` | `config/devices/ell14.toml` |
+| `maitai` | `universal_spectra-physics_maitai` | `config/devices/maitai.toml` |
+| `newport1830_c` | `universal_newport_1830-c` | `config/devices/newport_1830c.toml` |
+| `esp300` | `universal_newport_esp300` | `config/devices/esp300.toml` |
+| `thorlabs_pm400` | `universal_thorlabs_pm400` | `config/devices/thorlabs_pm400.toml` |
+| `red_pitaya_pid` | `universal_red_pitaya_pid` | `config/devices/red_pitaya_pid.toml` |
+
+**Note:** The `driver-thorlabs`, `driver-newport`, `driver-spectra-physics`, `driver-red-pitaya`,
+`driver-generic`, and `drivers` metacrate have been permanently removed from the workspace.
 
 ## Runtime Validation Behavior
 
@@ -26,35 +32,47 @@ At daemon startup, driver types are classified as universal (`universal_*`), nat
 2. In `native` / `custom` modes: unrecognized driver types emit a warning but startup continues.
 3. Runtime policy summary prints driver classification counts.
 
-## Migration Workflow
+## Migration Workflow (Archived — Completed)
 
-1. Switch profile to universal equivalent (`--runtime-mode universal` or universal TOML config).
-2. Validate command/status parity in advanced panel widgets.
-3. Run matrix/integration checks:
+The following workflow was used to complete the migration:
+
+1. ✅ Switched profile to universal equivalent (`--runtime-mode universal` or universal TOML config).
+2. ✅ Validated command/status parity in advanced panel widgets.
+3. ✅ Ran matrix/integration checks:
    - no-db universal-only
    - hybrid camera-native + universal
    - db-on metadata parity
-4. Complete hardware runbook signoff on maitai before defaulting production launchers.
+4. ✅ Completed hardware runbook signoff on maitai before defaulting production launchers.
+5. ✅ Deleted legacy serial driver crates from workspace.
 
-## Proposed Timeline
+## Migration Timeline (COMPLETE)
 
-1. Phase 1 (complete): warning-only, migration documentation and runbook in place.
-2. Phase 2 (complete): universal is the recommended default in operator workflows.
-3. Phase 3 (complete): legacy SCPI/TCP required explicit opt-in for one release cycle.
-4. Phase 4 (complete): in `universal` / `hybrid-db` modes, legacy SCPI/TCP drivers are no longer
+**All 5 phases completed:**
+
+1. **Phase 1 (complete)**: warning-only, migration documentation and runbook in place.
+2. **Phase 2 (complete)**: universal is the recommended default in operator workflows.
+3. **Phase 3 (complete)**: legacy SCPI/TCP required explicit opt-in for one release cycle.
+4. **Phase 4 (complete)**: in `universal` / `hybrid-db` modes, legacy SCPI/TCP drivers are no longer
    accepted. Only `universal_*` and native-exception drivers (PVCAM, Andor, Comedi, Dover) are
    recognized in these modes. A `--runtime-mode native` rollback path remains for exceptional cases.
+5. **Phase 5 (complete)**: Legacy serial driver crates (`driver-thorlabs`, `driver-newport`,
+   `driver-spectra-physics`, `driver-red-pitaya`, `driver-generic`, `drivers` metacrate) fully
+   deleted from workspace. All serial/TCP/SCPI devices now use `driver-universal` TOML manifests
+   exclusively. Only native SDK drivers (PVCAM, Andor, Comedi, Dover) retain dedicated crates with
+   FFI bindings.
 
-## Rollback Policy
+## Rollback Policy (Archived — No Longer Applicable)
 
-If universal/hybrid rollout regresses operations:
+Legacy rollback path has been removed. If issues occur with universal drivers:
 
-1. Relaunch daemon with `--runtime-mode native` or explicit native `--hardware-config`.
-2. Export/backup DB state if `hybrid-db` was active.
-3. File regression issue with:
-   - runtime mode used
-   - startup policy log lines
-   - affected devices and commands
+1. Debug/fix the TOML manifest in `config/devices/`.
+2. File issue with:
+   - affected device manifest path
+   - startup logs
+   - command/response traces
+3. Use `driver-mock` for temporary workarounds if device unavailable.
+
+**No legacy native mode available** — all serial/TCP/SCPI devices use `driver-universal` exclusively.
 
 ## GUI Panel Dispatch for Universal Drivers
 
@@ -98,13 +116,23 @@ grpcurl -plaintext -import-path crates/protocol/proto -proto daq.proto \
   python3 -c "import json,sys; [print(json.dumps(json.loads(d['metadata']['uiSchemaJson']),indent=2)) for d in json.load(sys.stdin)['devices'] if 'uiSchemaJson' in d.get('metadata',{})]"
 ```
 
-5. Phase 5 (complete): Legacy serial driver crates (`driver-thorlabs`, `driver-newport`,
-   `driver-spectra-physics`, `driver-red-pitaya`) fully deleted from workspace. All serial/TCP/SCPI
-   devices now use `driver-universal` TOML manifests exclusively. Only native SDK drivers (PVCAM,
-   Andor, Comedi, Dover) retain dedicated crates with FFI bindings.
+## Current State (Post-Migration)
 
-## Support Policy
+**Workspace structure (25 crates):**
+- **Native SDK drivers (4):** `driver-pvcam` (+`pvcam-sys`), `driver-andor-sdk3` (+`andor-sdk3-sys`), `driver-comedi` (+`comedi-sys`), `driver-dover-motion` (+`dover-motion-sys`)
+- **Universal/mock drivers (3):** `driver-universal`, `driver-mock`, `driver-registry`
+- **Removed crates (6):** `driver-thorlabs`, `driver-newport`, `driver-spectra-physics`, `driver-red-pitaya`, `driver-generic`, `drivers` metacrate
 
-- During warning-only phase, legacy path remains supported for operational continuity.
-- New development for SCPI/TCP instruments should target universal manifests.
-- Bug fixes prioritize universal path first, legacy path best-effort.
+**Device manifests (config/devices/*.toml):**
+- `ell14.toml` (replaces `driver-thorlabs`)
+- `maitai.toml` (replaces `driver-spectra-physics`)
+- `newport_1830c.toml`, `esp300.toml` (replaces `driver-newport`)
+- `red_pitaya_pid.toml` (replaces `driver-red-pitaya`)
+- `thorlabs_pm400.toml` (declarative power meter)
+
+## Support Policy (Post-Migration)
+
+- **New SCPI/TCP devices:** MUST use `driver-universal` TOML manifests in `config/devices/`.
+- **Native SDK drivers:** PVCAM, Andor, Comedi, Dover retain dedicated crates (cannot be replaced by manifests).
+- **Rollback:** Legacy native mode removed; no rollback path available.
+- **Bug fixes:** Universal path only; legacy crates deleted.

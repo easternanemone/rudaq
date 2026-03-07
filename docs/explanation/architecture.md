@@ -17,7 +17,7 @@ The architecture follows a **Headless-First** design: the core daemon runs as a 
 
 ## System Components
 
-The project is structured as a Cargo workspace with 30 crates organized by layer:
+The project is structured as a Cargo workspace with 25 crates organized by layer:
 
 ### 1. Application Layer
 *   **`bin`**: The entry point for the daemon (`rust-daq-daemon`). Wires together the system based on compile-time features.
@@ -37,30 +37,26 @@ The project is structured as a Cargo workspace with 30 crates organized by layer
 
 Each driver lives in its own crate for independent compilation, testing, and optional inclusion:
 
-#### Camera Drivers
+#### Registry & Feature Gating
+*   **`driver-registry`**: Concrete factory registration and hardware feature gating. Always registers `driver-mock` and `driver-universal`; optionally includes `driver-pvcam`, `driver-andor-sdk3`, `driver-comedi` behind feature flags (pvcam, andor, comedi, all_hardware, full).
+
+#### Camera Drivers (Native SDK)
 *   **`driver-pvcam`**: Photometrics PVCAM cameras (Prime 95B, Prime BSI). Requires PVCAM SDK.
 *   **`driver-andor-sdk3`**: Andor iStar camera and Shamrock spectrograph via SDK3.
 
-#### Motion Control
-*   **`driver-thorlabs`**: Thorlabs ELL14 rotation mounts (RS-485 multidrop bus).
-*   **`driver-newport`**: Newport ESP300 motion controller and 1830-C power meter.
+#### Motion Control (Native SDK)
 *   **`driver-dover-motion`**: Dover Motion SmartStage driver via MotionSynergyAPI FFI.
 
-#### Laser & Light Sources
-*   **`driver-spectra-physics`**: Spectra-Physics MaiTai Ti:Sapphire tunable laser.
-
-#### DAQ & Signal
+#### DAQ & Signal (Native SDK)
 *   **`driver-comedi`**: Linux Comedi DAQ boards (NI PCI-MIO-16XE-10). Analog/digital I/O.
-*   **`driver-red-pitaya`**: Red Pitaya FPGA board for signal generation.
 
-#### Generic & Testing
-*   **`driver-universal`**: Universal config-driven driver (schema v3). Define new instruments via TOML files without writing Rust code. Supports serial, TCP, and SCPI transports with MiniJinja templates, tiered response parsing, and evalexpr formula evaluation. Successor to `driver-generic`.
-*   **`driver-generic`**: Original config-driven serial driver (schema v2). Superseded by `driver-universal` for new devices, but still in the workspace.
-*   **`driver-mock`**: Mock hardware drivers for testing, simulation, and demo mode.
+#### Manifest-Driven & Testing
+*   **`driver-universal`**: Universal config-driven driver (schema v3). Define new instruments via TOML files without writing Rust code. Supports serial, TCP, and SCPI transports with MiniJinja templates, tiered response parsing, and evalexpr formula evaluation. Always compiled. Devices in `config/devices/`: ELL14 rotators, ESP300/ESP301 stages, Newport 1830-C power meter, MaiTai laser, Red Pitaya PID, IPG laser, Thorlabs PM400, and more.
+*   **`driver-mock`**: Mock hardware drivers for testing, simulation, and demo mode. Always compiled.
 
 ### 5. Infrastructure
 *   **`pool`**: Zero-allocation object pool for high-performance frame handling. Provides `Pool<T>` for generic objects and `BufferPool` for byte buffers with `bytes::Bytes` integration. Critical for high-FPS camera streaming where per-frame allocations cause latency.
-*   **`storage`**: Handles data persistence. Implements the "Mullet Strategy": fast **Arrow** ring buffer in the front, reliable **HDF5** writer in the back. Also supports CSV, MATLAB (.mat), and NetCDF formats.
+*   **`storage`**: Handles data persistence. Implements the "Mullet Strategy": fast **Arrow IPC** ring buffer in the front, reliable **HDF5** writer in the back. Also supports **Parquet**, **Tiff**, and **Zarr** formats.
 *   **`protocol`**: Defines the wire protocol (Protobuf) for all network communication. Includes domain↔proto conversion utilities.
 *   **`db`**: Embedded SurrealDB control-plane database. Uses in-memory engine (`kv-mem`) for tests and RocksDB (`kv-rocksdb`) for production persistence. Manages device/experiment metadata with a two-plane model: SurrealDB as control plane (desired state), DashMap DeviceRegistry as data plane (observed state).
 
@@ -101,14 +97,11 @@ graph TD
         end
 
         subgraph "Driver Layer"
+            DrvRegistry[driver-registry]
             DrvPvcam[driver-pvcam]
             DrvAndor[driver-andor-sdk3]
-            DrvThorlabs[driver-thorlabs]
-            DrvNewport[driver-newport]
             DrvDover[driver-dover-motion]
-            DrvSpectra[driver-spectra-physics]
             DrvComedi[driver-comedi]
-            DrvGeneric[driver-generic]
             DrvUniversal[driver-universal]
             DrvMock[driver-mock]
         end
@@ -119,16 +112,13 @@ graph TD
     Server --> Script
     Server --> Modules
     Script --> HW
-    HW --> DrvPvcam
-    HW --> DrvAndor
-    HW --> DrvThorlabs
-    HW --> DrvNewport
+    HW --> DrvRegistry
+    DrvRegistry --> DrvPvcam
+    DrvRegistry --> DrvAndor
+    DrvRegistry --> DrvComedi
     HW --> DrvDover
-    HW --> DrvSpectra
-    HW --> DrvComedi
-    HW --> DrvGeneric
-    HW --> DrvUniversal
-    HW --> DrvMock
+    DrvRegistry --> DrvUniversal
+    DrvRegistry --> DrvMock
     HW -->|Frame Data| Ring
     Ring -->|Zero-Copy| Writer
     Ring -.->|Stream| Server
@@ -153,11 +143,25 @@ Hardware is modeled by **Capabilities**, not identities. A device is defined by 
 *   `Triggerable`: Can accept a start signal (e.g., Cameras).
 *   `Readable`: Can return a scalar value (e.g., Sensors, power meters).
 *   `FrameProducer`: Can stream 2D image data (e.g., Detectors, cameras).
+*   `FrameObserver`: Can consume frame data from producers.
 *   `ExposureControl`: Can set integration time.
 *   `WavelengthTunable`: Can tune wavelength (e.g., Lasers, monochromators).
 *   `ShutterControl`: Can open/close a beam shutter.
 *   `EmissionControl`: Can enable/disable laser emission.
+*   `Stageable`: Multi-axis stage with position reporting.
+*   `Settable`: Generic settable parameter (scalar or complex).
+*   `Switchable`: Binary on/off control.
+*   `Actionable`: Single-shot action trigger.
+*   `Loggable`: Periodic value logging capability.
 *   `Parameterized`: Exposes reactive `Parameter<T>` state for observation and persistence.
+*   `Camera`: Combined camera capabilities (FrameProducer + ExposureControl + Triggerable).
+*   `GatedCamera`: Camera with external gating control.
+*   `Commandable`: Direct command-response protocol.
+*   `SpectrometerControl`: Wavelength control for spectrometers.
+*   `TriggerOnPosition`: Positional triggering for synchronized motion.
+*   `PulseGenerator`: Pulse/waveform generation.
+*   `SafetyInterlock`: Safety monitoring and interlock control.
+*   `Reconfigurable`: Runtime reconfiguration of device settings.
 
 This allows generic experiment scripts to work with any compatible hardware (e.g., `scan(movable, triggerable)`).
 
@@ -187,18 +191,15 @@ Experiments are written in [Rhai](https://rhai.rs), a scripting language designe
 │   ├── driver-andor-sdk3/    # Andor iStar camera / Shamrock spectrograph
 │   ├── driver-comedi/        # Comedi DAQ driver for Linux boards
 │   ├── driver-dover-motion/  # Dover Motion SmartStage driver
-│   ├── driver-generic/       # Config-driven serial driver (schema v2)
 │   ├── driver-universal/     # Universal config-driven driver (schema v3)
 │   ├── driver-mock/          # Mock hardware for testing/demo
-│   ├── driver-newport/       # Newport ESP300 + 1830-C power meter
 │   ├── driver-pvcam/         # PVCAM camera driver
 │   │   └── pvcam-sys/        # Raw FFI bindings to PVCAM
-│   ├── driver-red-pitaya/    # Red Pitaya FPGA board
-│   ├── driver-spectra-physics/ # Spectra-Physics MaiTai laser
-│   ├── driver-thorlabs/      # Thorlabs ELL14 rotators
+│   ├── driver-registry/      # Factory registration and hardware feature gating
 │   ├── andor-sdk3-sys/       # Raw FFI bindings to Andor SDK3
 │   ├── comedi-sys/           # Raw FFI bindings to Comedi
 │   ├── dover-motion-sys/     # Raw FFI bindings to Dover MotionSynergyAPI
+│   ├── db/                   # SurrealDB control-plane database
 │   ├── experiment/           # RunEngine and Plan definitions
 │   ├── hardware/             # HAL with capability traits and DeviceRegistry
 │   ├── integration-tests/    # Cross-crate integration tests
@@ -209,7 +210,16 @@ Experiments are written in [Rhai](https://rhai.rs), a scripting language designe
 │   ├── storage/              # Ring buffers, CSV, HDF5, Arrow storage
 │   └── ui/                   # Desktop GUI (egui + egui_dock)
 ├── config/                   # Runtime configuration (TOML)
-│   └── devices/              # Declarative driver configs (TOML)
+│   ├── devices/              # Declarative driver configs (TOML manifest files)
+│   │   ├── ell14.toml        # Thorlabs ELL14 rotation mounts
+│   │   ├── esp300.toml       # Newport ESP300 motion controller
+│   │   ├── esp301_example.toml
+│   │   ├── ipg_laser.toml    # IPG YLPP-200 laser
+│   │   ├── maitai.toml       # Spectra-Physics MaiTai laser
+│   │   ├── newport_1830c.toml # Newport 1830-C power meter
+│   │   ├── red_pitaya_pid.toml
+│   │   ├── thorlabs_pm400.toml
+│   │   └── ...
 ├── docs/                     # Documentation
 │   ├── adr/                  # Architecture Decision Records
 │   ├── architecture/         # Architecture policies

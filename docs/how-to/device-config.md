@@ -1,6 +1,6 @@
 # Creating Device Configurations
 
-A step-by-step guide to creating TOML configuration files for the GenericSerialDriver.
+A step-by-step guide to creating TOML configuration files for the driver-universal system.
 
 ## Table of Contents
 
@@ -16,11 +16,11 @@ A step-by-step guide to creating TOML configuration files for the GenericSerialD
 
 ## Overview
 
-The GenericSerialDriver allows you to add support for new hardware devices **without writing any Rust code**. Instead, you define the device protocol in a TOML configuration file.
+The `driver-universal` crate allows you to add support for new hardware devices **without writing any Rust code**. Instead, you define the device protocol in a TOML configuration file.
 
-### V3 Universal Driver (schema_version = 3) — Recommended
+### V3 Universal Driver (schema_version = 3) — Current Standard
 
-The v3 format is the current standard, implemented by the `driver-universal` crate. It uses MiniJinja templates, tiered response parsing, and a validated config pipeline (TOML → RawManifest → DeviceManifest → DeviceComponents).
+The v3 format is the current production standard, fully implemented by the `driver-universal` crate. It uses MiniJinja templates, tiered response parsing, and a validated config pipeline (TOML → RawManifest → DeviceManifest → DeviceComponents).
 
 **Example v3 manifest** (see `config/devices/newport_1830c.toml`):
 
@@ -133,13 +133,23 @@ disable = false
 | Simple state machines | Proprietary SDKs |
 | Quick prototyping | Multi-threaded I/O |
 
-### Available Templates
+### Available Templates and Examples
 
-| Template | Lines | Use Case |
-|----------|-------|----------|
-| `minimal_device_template.toml` | ~85 | Starting point - only required fields |
-| `sample_temperature_controller.toml` | ~690 | Comprehensive reference with all features |
-| `ell14.toml` | ~400 | Real-world example (Thorlabs rotator) |
+Schema v3 configs in `config/devices/`:
+
+| Template | Use Case |
+|----------|----------|
+| `minimal_device_template.toml` | Starting point - only required fields |
+| `sample_temperature_controller.toml` | Comprehensive reference with all v1 features |
+| `ell14.toml` | Thorlabs ELL14 rotator (RS-485, hex commands) |
+| `esp300.toml` | Newport ESP300 motion controller (multi-axis) |
+| `esp301_example.toml` | Newport ESP301 example configuration |
+| `newport_1830c.toml` | Newport 1830-C power meter (ASCII, simple) |
+| `maitai.toml` | Spectra-Physics MaiTai laser (complex protocol) |
+| `thorlabs_pm400.toml` | Thorlabs PM400 power meter |
+| `ipg_laser.toml` | IPG YLPP-200 laser |
+| `red_pitaya_pid.toml` | Red Pitaya PID controller |
+| `modbus_example.toml` | Modbus protocol example |
 
 ---
 
@@ -661,9 +671,14 @@ MEAS:POW?
 |-------------|----------------|--------|--------------|
 | Rotation mount | `ell14.toml` | v3 | RS-485 multidrop, hex commands, degrees↔pulses conversion |
 | Motion controller | `esp300.toml` | v3 | Multi-axis, SCPI-like, Movable trait |
+| Motion controller | `esp301_example.toml` | v3 | Newport ESP301 example |
 | Power meter | `newport_1830c.toml` | v3 | Simple ASCII, init sequence, Readable + WavelengthTunable |
+| Power meter | `thorlabs_pm400.toml` | v3 | Thorlabs PM400 power meter |
 | Ti:Sapphire laser | `maitai.toml` | v3 | Complex protocol, multiple capabilities |
-| Temperature controller | `sample_temperature_controller.toml` | v1 | All v1 features demonstrated |
+| Fiber laser | `ipg_laser.toml` | v3 | IPG YLPP-200 fiber laser |
+| PID controller | `red_pitaya_pid.toml` | v3 | Red Pitaya PID controller |
+| Modbus device | `modbus_example.toml` | v3 | Modbus protocol example |
+| Temperature controller | `sample_temperature_controller.toml` | v1 | All v1 features demonstrated (legacy) |
 
 ---
 

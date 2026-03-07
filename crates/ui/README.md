@@ -1,8 +1,14 @@
 # ui
 
-The egui-based GUI for rust-daq, providing a desktop control panel for the headless daemon.
+Multi-platform GUI for rust-daq, providing native desktop and web-based control panels for the headless daemon.
 
 **egui Version:** 0.33 | **Rerun Version:** 0.27.3
+
+## Platforms
+
+- **Native (eframe):** Desktop application for Linux, macOS, Windows
+- **WASM (trunk):** Web browser deployment (Chrome, Firefox, Safari)
+- **Rerun Viewer:** Integrated data plane visualization
 
 ## Binaries
 

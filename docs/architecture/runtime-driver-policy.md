@@ -16,8 +16,8 @@ Without an explicit policy, runtime behavior can drift between launch modes and 
 
 ## Decision
 
-1. SCPI/TCP/serial instrument classes default to universal TOML drivers.
-2. Native-exception devices remain native drivers (PVCAM/Andor cameras, Comedi DAQ, Dover Motion stages).
+1. SCPI/TCP/serial instrument classes default to `driver-universal` TOML manifests.
+2. Native-exception devices remain native SDK drivers (PVCAM cameras via `driver-pvcam`, Andor cameras via `driver-andor-sdk3`, Comedi DAQ via `driver-comedi`, Dover Motion stages via `driver-dover-motion`).
 3. SurrealDB is the control-plane persistence layer when enabled, but startup from TOML remains supported.
 4. Runtime mode is explicit at launch:
    - `mock`
@@ -44,10 +44,10 @@ Daemon startup must log:
 
 - Config source/path.
 - Counts by runtime policy class:
-  - universal driver count
-  - native exception count (PVCAM, Andor, Comedi, Dover Motion)
+  - `driver-universal` manifest count
+  - native SDK driver count (`driver-pvcam`, `driver-andor-sdk3`, `driver-comedi`, `driver-dover-motion`)
   - deprecated native count
-- Legacy SCPI/TCP native driver warnings with universal replacement hints.
+- Legacy SCPI/TCP native driver warnings with `driver-universal` manifest replacement hints.
 
 ## Backward Compatibility and Rollback
 
@@ -62,6 +62,6 @@ Daemon startup must log:
 
 - [ ] Runtime policy logs appear in daemon startup output.
 - [ ] UI/CLI mode labels map to expected config profiles.
-- [ ] Native exception path is verified (mock/PVCAM/Andor/Comedi/Dover).
+- [ ] Native SDK driver path is verified (`driver-mock`, `driver-pvcam`, `driver-andor-sdk3`, `driver-comedi`, `driver-dover-motion`).
 - [ ] Legacy driver warnings and migration docs are visible to operators.
 - [ ] SurrealDB mode behavior is covered by integration matrix tests.

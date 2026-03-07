@@ -47,7 +47,7 @@ In `rust-daq`, a "Device" is not a monolithic struct. Instead, devices implement
 
 **Location:** `crates/common/src/capabilities.rs`
 
-### Key Traits
+### Key Traits (23 total)
 
 | Trait | Function | Example Device |
 |-------|----------|----------------|
@@ -55,8 +55,25 @@ In `rust-daq`, a "Device" is not a monolithic struct. Instead, devices implement
 | `Readable` | Can produce a scalar reading (`read`) | Power meter, Thermocouple |
 | `Triggerable` | Can be armed and triggered | Camera, Pulsed laser |
 | `FrameProducer` | Generates 2D image data | PVCAM Camera, Simulator |
+| `FrameObserver` | Tap into frame stream without ownership | Decimated preview, Ring buffer tap |
 | `ExposureControl` | Has adjustable exposure time | Camera, Spectrometer |
 | `WavelengthTunable` | Can change emission wavelength | Tunable Laser (MaiTai) |
+| `ShutterControl` | Open/close beam shutter | Laser shutter |
+| `EmissionControl` | Enable/disable emission | Laser |
+| `Stageable` | Prepare/cleanup for acquisition (Bluesky lifecycle) | Camera, Stage |
+| `Settable` | Configurable parameters (JSON values) | DAQ analog output |
+| `Switchable` | On/off states | Power supply |
+| `Actionable` | One-time commands | Device reset |
+| `Loggable` | Static metadata (serial number, firmware) | Any device |
+| `Parameterized` | Parameter registry for introspection | Camera, Stage |
+| `Camera` | Composite: `Triggerable` + `FrameProducer` | PVCAM, Andor |
+| `Commandable` | Generic command execution (JSON args) | Universal driver devices |
+| `GatedCamera` | ICCD with DDG and MCP gain control | Andor iStar |
+| `SpectrometerControl` | Grating, wavelength, slit control | Spectrograph |
+| `TriggerOnPosition` | Coordinate motion with triggers | Synchronized scan systems |
+| `PulseGenerator` | Configurable pulse timing | Digital delay generator |
+| `SafetyInterlock` | Safety system integration | Laser interlock |
+| `Reconfigurable` | Runtime configuration changes | Modular instruments |
 
 ### When to Implement What?
 - If your device just reads a value: Implement `Readable`.
@@ -239,12 +256,18 @@ This means adding a new driver automatically gets a working GUI panel — no UI 
 How do you add new functionality?
 
 ### Adding a New Driver
-1. Create a struct in `crates/driver-<name>`.
+
+**For serial/TCP/SCPI instruments (recommended path):**
+1. Create a schema v3 TOML manifest in `config/devices/<device_name>.toml`.
+2. Define capabilities, commands, and UI panels declaratively.
+3. No Rust code needed — `driver-universal` loads it automatically.
+4. See `crates/driver-universal/` and Section 3 above for details.
+
+**For native SDK drivers only (PVCAM, Andor, Comedi, Dover Motion):**
+1. Create a new crate `crates/driver-<name>`.
 2. Implement capability traits (`Movable`, `Readable`, etc.).
 3. Implement the `DriverFactory` trait (see `common::driver`).
-4. Register the factory in `crates/bin/src/main.rs`.
-
-Alternatively, for serial/TCP/SCPI instruments, use the **declarative driver** system (`driver-universal`) — define the device in a TOML file under `config/devices/` and skip writing Rust entirely. See Section 3 above.
+4. Register the factory in `crates/driver-registry`.
 
 ### Adding a New Storage Backend
 1. Create a struct implementing `DocumentConsumer`.

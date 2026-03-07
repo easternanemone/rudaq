@@ -26,7 +26,7 @@ cargo build --release -p scripting --features scripting_full
 **IMPORTANT**: You must use `--features scripting_full` to enable the
 hardware factory functions (`create_maitai`, `create_newport_1830c`, etc.).
 The `scripting_full` feature includes all necessary dependencies: hardware factories,
-serial drivers, HDF5 support, and the generic driver.
+serial drivers, HDF5 support, and the universal driver (always compiled).
 
 ### Running a Script
 
@@ -163,20 +163,20 @@ let ts = timestamp();       // "20260127_115319" format
 let iso = timestamp_iso();  // Full ISO8601 timestamp
 ```
 
-## GenericDriver: Config-Driven Devices
+## Universal Driver: Config-Driven Devices
 
-The GenericDriver allows you to control any serial device defined by a TOML
-configuration file, without writing any Rust code. This is useful for:
+The Universal Driver (`driver-universal`) allows you to control any serial device defined by a TOML
+manifest file (schema v3), without writing any Rust code. This is useful for:
 
 - Prototyping new device support quickly
-- Controlling devices with simple ASCII protocols
+- Controlling devices with simple ASCII/SCPI protocols
 - Sharing device configurations across scripts
 
-### Creating a GenericDriver
+### Creating a Universal Driver Device
 
 ```rhai
 let driver = create_generic_driver(
-    "config/devices/ell14.toml",  // Device config path
+    "config/devices/ell14.toml",  // Device manifest path
     "/dev/serial/by-id/...",      // Serial port
     "2"                           // Device address
 );
@@ -201,7 +201,7 @@ let driver = create_generic_driver(
 | `set_soft_limits(min, max)` | Set motion limits |
 | `address()` | Get device address |
 
-### Example: Using ELL14 via GenericDriver
+### Example: Using ELL14 via Universal Driver
 
 ```rhai
 let rotator = create_generic_driver(
@@ -228,10 +228,10 @@ for angle in [0.0, 45.0, 90.0, 135.0, 180.0] {
 
 ### Feature Flag
 
-Requires `generic_driver` feature (included in `scripting_full`):
+The universal driver is always compiled (no feature flag needed). The `scripting_full` feature includes all hardware factories and serial drivers:
 
 ```bash
-cargo build -p scripting --features generic_driver
+cargo build -p scripting --features scripting_full
 ```
 
 ## Shutter Safety

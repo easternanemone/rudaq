@@ -116,11 +116,7 @@ This script:
 
 The `maitai` feature flag enables **all** real hardware drivers:
 - PVCAM (real SDK, not mock)
-- Thorlabs ELL14 rotators
-- Newport ESP300 motion controller
-- Newport 1830-C power meter
-- Spectra-Physics MaiTai laser
-- Serial port communication
+- Serial/TCP devices via `driver-universal` TOML manifests (ELL14 rotators, ESP300, Newport power meter, MaiTai laser)
 
 ### Step 3 -- Start the daemon
 

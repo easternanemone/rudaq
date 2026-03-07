@@ -60,13 +60,14 @@ cargo install cargo-nextest --locked
 
 ### Configuration
 
-Nextest is configured via `.config/nextest.toml`. We have four profiles:
+Nextest is configured via `.config/nextest.toml`. We have five profiles:
 
 | Profile | Use Case | Retries | Timeout |
 |---------|----------|---------|---------|
 | `default` | Local development | 2 | 2 min |
 | `ci` | GitHub Actions | 3 | 3 min |
 | `hardware` | Physical hardware tests | 3 | 6 min |
+| `libs-hardware` | LIBS integration tests | 3 | 6 min (inherits hardware) |
 | `coverage` | Code coverage runs | 0 | 6 min |
 
 ```bash
@@ -79,9 +80,11 @@ cargo nextest run --profile hardware
 
 Hardware tests that share resources are serialized using test groups:
 
-- `serial-hardware` - ESP300, MaiTai, Newport tests
-- `elliptec-hardware` - ELL14/Elliptec rotator tests
-- `pvcam-hardware` - PVCAM camera tests
+- `serial-hardware` - ESP300, MaiTai, Newport 1830-C tests (max-threads=1)
+- `pvcam-hardware` - PVCAM camera tests (max-threads=1)
+- `andor-hardware` - Andor SDK3 camera tests (max-threads=1)
+- `elliptec-hardware` - ELL14/Elliptec rotator tests (max-threads=1)
+- `daemon-e2e` - Daemon subprocess end-to-end tests (max-threads=1)
 
 ---
 
@@ -202,9 +205,10 @@ cargo nextest run --features storage_csv
 cargo nextest run --features storage_hdf5
 cargo nextest run --features storage_arrow
 
-# Hardware drivers
-cargo nextest run --features thorlabs
-cargo nextest run --features newport
+# Hardware drivers (native SDK features)
+cargo nextest run --features pvcam
+cargo nextest run --features andor
+cargo nextest run --features comedi
 
 # Full feature set (excludes native SDK dependencies)
 cargo nextest run --features full
@@ -362,13 +366,13 @@ ssh maitai@100.117.5.12 'cd ~/rust-daq && \
 
 ### Serial Port Inventory
 
-| Device | Port | Feature Flag |
-|--------|------|--------------|
-| ELL14 Rotators | `/dev/serial/by-id/usb-FTDI_FT230X_Basic_UART_DK0AHAJZ-if00-port0` | `thorlabs` |
-| ESP300 Controller | `/dev/ttyUSB0` | `newport` |
-| MaiTai Laser | `/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0` | `spectra_physics` |
-| Newport 1830-C | `/dev/ttyS0` | `newport` |
-| NI PCI-MIO-16XE-10 | `/dev/comedi0` | `comedi` |
+| Device | Port | Driver |
+|--------|------|--------|
+| ELL14 Rotators | `/dev/serial/by-id/usb-FTDI_FT230X_Basic_UART_DK0AHAJZ-if00-port0` | `driver-universal` (ell14.toml) |
+| ESP300 Controller | `/dev/ttyUSB0` | `driver-universal` (esp300.toml) |
+| MaiTai Laser | `/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0` | `driver-universal` (maitai.toml) |
+| Newport 1830-C | `/dev/ttyS0` | `driver-universal` (newport_1830c.toml) |
+| NI PCI-MIO-16XE-10 | `/dev/comedi0` | `driver-comedi` (comedi feature) |
 
 ### PVCAM Tests
 

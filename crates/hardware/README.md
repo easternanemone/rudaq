@@ -108,19 +108,21 @@ pattern = "^POS:(?P<value>[0-9.]+)$"
 
 ## Multidrop Bus Pattern
 
-Share a serial port across multiple devices (RS-485):
+Share a serial port across multiple devices (RS-485). This is now handled automatically by `driver-universal`'s transport registry. Multiple device configs with the same port path will share a single transport:
 
-```rust
-use hardware::drivers::ell14::Ell14Bus;
+```toml
+# config/devices/ell14_rotator_a.toml
+[connection]
+port = "/dev/serial/by-id/usb-FTDI_FT230X_Basic_UART_DK0AHAJZ-if00-port0"
+address = "1"
 
-let bus = Ell14Bus::open("/dev/serial/by-id/usb-FTDI_FT230X_Basic_UART_DK0AHAJZ-if00-port0").await?;
-let rotator_2 = bus.device("2").await?;  // Address 2
-let rotator_3 = bus.device("3").await?;  // Address 3
-
-// Both share the same serial port
-rotator_2.move_abs(45.0).await?;
-rotator_3.move_abs(90.0).await?;
+# config/devices/ell14_rotator_b.toml
+[connection]
+port = "/dev/serial/by-id/usb-FTDI_FT230X_Basic_UART_DK0AHAJZ-if00-port0"
+address = "2"
 ```
+
+The registry automatically shares the transport to prevent command interleaving.
 
 ## Serial Port Resolution
 
@@ -137,39 +139,38 @@ let port = resolve_port(
 
 ## Feature Flags
 
+**Note:** Hardware feature flags (pvcam, comedi, andor, etc.) have been moved to [`driver-registry`](../driver-registry). The `hardware` crate only maintains:
+
 ```toml
 [features]
-# Serial communication
+# Serial communication for tokio-serial support
 serial = ["common/serial"]
-
-# Hardware drivers
-thorlabs = ["driver-thorlabs"]
-newport = ["driver-newport"]
-spectra_physics = ["driver-spectra-physics"]
-pvcam = ["driver-pvcam"]
-comedi = ["driver-comedi"]
-
-# All hardware (for maitai builds)
-all_hardware = ["thorlabs", "newport", "spectra_physics", "pvcam", "comedi"]
 ```
 
-## Built-in Drivers
+For hardware driver selection, see `driver-registry/Cargo.toml`.
 
-| Driver | Traits | Hardware |
-|--------|--------|----------|
-| ELL14 | Movable, Parameterized | Thorlabs rotation mount |
-| MaiTai | Readable, ShutterControl, WavelengthTunable | Spectra-Physics laser |
-| ESP300 | Movable, Parameterized | Newport motion controller |
-| Newport 1830-C | Readable, WavelengthTunable | Power meter |
-| PVCAM | FrameProducer, Triggerable | Photometrics cameras |
-| Comedi | Readable, Settable | NI DAQ cards |
+## Available Drivers
+
+**TOML manifest-based** (via `driver-universal`, always compiled):
+- ELL14 (Thorlabs rotation mount) - Movable, Parameterized
+- MaiTai (Spectra-Physics laser) - Readable, ShutterControl, WavelengthTunable
+- ESP300 (Newport motion controller) - Movable, Parameterized
+- Newport 1830-C (power meter) - Readable, WavelengthTunable
+- IPG YLPP-200 laser, Red Pitaya PID, Thorlabs PM400
+
+**Native SDK drivers** (feature-gated in `driver-registry`):
+- PVCAM (Photometrics cameras) - FrameProducer, Triggerable
+- Comedi (Linux DAQ cards) - Readable, Settable
+- Andor SDK3 (Andor cameras) - FrameProducer, Triggerable
+- Dover Motion (Cellino stages) - Movable
 
 ## Related Crates
 
 - [`common`](../common) - Capability traits and error types
+- [`driver-registry`](../driver-registry) - Hardware feature gating and factory registration
+- [`driver-universal`](../driver-universal) - TOML manifest-based driver system
 - [`driver-pvcam`](../driver-pvcam) - PVCAM camera driver
-- [`driver-thorlabs`](../driver-thorlabs) - Thorlabs ELL14 driver
-- [`driver-newport`](../driver-newport) - Newport drivers
+- [`driver-mock`](../driver-mock) - Mock devices for testing
 
 ## License
 

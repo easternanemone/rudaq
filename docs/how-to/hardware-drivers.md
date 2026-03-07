@@ -2,11 +2,15 @@
 
 A comprehensive guide for developers implementing new hardware drivers for rust-daq.
 
-> **Note on driver locations:** Drivers now live in standalone crates under `crates/driver-*/`.
-> The `crates/hardware/src/drivers/` directory contains legacy driver code that is being migrated
-> to these standalone crates. For new driver development, always create a new `crates/driver-<name>/`
-> crate. For config-driven serial instruments (no custom Rust needed), see
-> [Declarative Drivers](#declarative-drivers-schema-v3--driver-universal) and the `crates/driver-universal/` crate.
+> **IMPORTANT: New Driver Path**
+>
+> **For serial/TCP/SCPI devices:** Create a TOML manifest in `config/devices/` for `driver-universal`.
+> No Rust code needed. See [Declarative Drivers](#declarative-drivers-schema-v3--driver-universal).
+>
+> **For native SDK drivers only (PVCAM, Andor, Comedi, Dover Motion):** Implement `DriverFactory`
+> in a new `crates/driver-<name>/` crate. Legacy serial drivers (`driver-thorlabs`, `driver-newport`,
+> `driver-spectra-physics`, `driver-red-pitaya`) have been removed — all serial/TCP/SCPI devices
+> now use `driver-universal` TOML manifests exclusively.
 
 ## Table of Contents
 
@@ -41,14 +45,23 @@ A **driver** is the bridge between the hardware and rust-daq's application layer
 
 ### Development Path
 
+**For serial/TCP/SCPI devices (recommended — no Rust code):**
 ```
-1. Create driver crate (driver-yourdevice)
-2. Implement DriverFactory
+1. Create `config/devices/your_device.toml` manifest
+2. Define capabilities and commands declaratively
+3. Test with daemon startup (auto-loaded by driver-universal)
+4. Add UI panel configuration in manifest
+5. Document device-specific quirks in comments
+```
+
+**For native SDK drivers only (PVCAM, Andor, Comedi, Dover):**
+```
+1. Create crate `crates/driver-yourdevice` with FFI bindings
+2. Implement DriverFactory in `crates/driver-registry`
 3. Implement capability trait(s)
 4. Write unit tests with mock hardware
-5. Write hardware integration tests (optional)
-6. Register factory at startup
-7. Add TOML config example
+5. Write hardware integration tests (gated by feature flag)
+6. Register factory in `load_all_factories()`
 ```
 
 ---
@@ -1161,7 +1174,7 @@ impl NetworkDevice {
 
 ### ELL14 Rotator (RS-485 Multidrop with new_async)
 
-Location: `crates/driver-thorlabs/src/ell14.rs`
+Location: `config/devices/ell14.toml` (TOML manifest via `driver-universal`; legacy native code removed)
 
 **Key Features:**
 - Multidrop RS-485 bus with address 0-F
@@ -1189,7 +1202,7 @@ let rotator = bus.device("2").await?;  // Returns validated driver
 
 ### Newport 1830-C Power Meter (Simple Serial ASCII with new_async)
 
-Location: `crates/driver-newport/src/newport_1830c.rs`
+Location: `config/devices/newport_1830c.toml` (TOML manifest via `driver-universal`; legacy native code removed)
 
 **Key Features:**
 - Simple ASCII command protocol (NOT SCPI)
@@ -1229,7 +1242,7 @@ Location: `crates/driver-pvcam/src/lib.rs`
 
 ### MaiTai Laser (Wavelength + Shutter Control)
 
-Location: `crates/driver-spectra-physics/src/maitai.rs`
+Location: `config/devices/maitai.toml` (TOML manifest via `driver-universal`; legacy native code removed)
 
 **Key Features:**
 - Wavelength tuning (700-1050nm)
@@ -1453,32 +1466,28 @@ async fn main() -> Result<()> {
 
 The rust-daq project is transitioning from **native (hand-coded Rust) drivers** to **universal (TOML-based) drivers** where appropriate.
 
-### Current Status (as of PR #357)
+### Current Status (Migration Complete)
 
-| Device | Native Driver | Universal Driver | Status |
-|--------|---------------|------------------|--------|
-| ELL14 Rotator | `driver-thorlabs` | `universal_thorlabs_ell14` | Both available |
-| MaiTai Laser | `driver-spectra-physics` | `universal_spectra-physics_maitai` | Both available |
-| Newport 1830-C | `driver-newport` | `universal_newport_1830-c` | Both available |
-| Newport ESP300 | `driver-newport` | `universal_newport_esp300` | Both available |
+| Device | Current Driver | Config | Status |
+|--------|---------------|--------|--------|
+| ELL14 Rotator | `driver-universal` | `config/devices/ell14.toml` | Production |
+| MaiTai Laser | `driver-universal` | `config/devices/maitai.toml` | Production |
+| Newport 1830-C | `driver-universal` | `config/devices/newport_1830c.toml` | Production |
+| Newport ESP300 | `driver-universal` | `config/devices/esp300.toml` | Production |
+| IPG Laser | `driver-universal` | `config/devices/ipg_laser.toml` | Production |
+| Thorlabs PM400 | `driver-universal` | `config/devices/thorlabs_pm400.toml` | Production |
+| Red Pitaya PID | `driver-universal` | `config/devices/red_pitaya_pid.toml` | Production |
 | PVCAM Camera | `driver-pvcam` | N/A | Native only (complex binary protocol) |
+| Andor iStar | `driver-andor-sdk3` | N/A | Native only (vendor SDK) |
 | Comedi DAQ | `driver-comedi` | N/A | Native only (kernel interface) |
+| Dover Motion | `driver-dover-motion` | N/A | Native only (vendor SDK) |
 
-### Migration Path
+### Migration History
 
-**Phase 1 (Current):** Dual-mode support
-- Native drivers remain available and fully supported
-- Universal drivers added alongside for testing and validation
-- Users can choose either approach via TOML config
-
-**Phase 2 (Future):** Native driver sunset
-- Once universal drivers are validated in production, native drivers will be deprecated
-- Documentation will be updated to recommend universal drivers
-- Native driver code will be moved to `legacy/` directories
-
-**Phase 3 (Long-term):** Archive native drivers
-- Native drivers archived to `archive/` or removed entirely
-- Only universal drivers remain for simple serial/TCP devices
+The migration from legacy native serial drivers to `driver-universal` TOML manifests is **complete**.
+Legacy crates (`driver-thorlabs`, `driver-newport`, `driver-spectra-physics`, `driver-red-pitaya`,
+`driver-generic`, `drivers` metacrate) have been permanently removed from the workspace.
+See `docs/how-to/legacy-scpi-deprecation.md` for full migration history.
 
 ### When to Use Each Approach
 
@@ -1525,7 +1534,7 @@ let rotator_3 = bus.device("3").await?;
 let rotator_8 = bus.device("8").await?;
 ```
 
-The `Ell14Bus` wraps the serial port in `Arc<Mutex<>>` and passes it to each driver instance. See `crates/driver-thorlabs/src/shared_ports.rs` for implementation.
+The `Ell14Bus` wraps the serial port in `Arc<Mutex<>>` and passes it to each driver instance. This pattern has been superseded by `driver-universal`'s automatic transport sharing (see Solution 2 below).
 
 ### Solution 2: Universal Driver Transport Registry
 

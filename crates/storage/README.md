@@ -7,7 +7,7 @@ High-throughput data storage and buffering infrastructure for rust-daq.
 This crate provides the storage layer for rust-daq, handling:
 
 - **Ring Buffers**: Memory-mapped circular buffers for high-speed frame streaming
-- **Format Writers**: HDF5, Arrow/Parquet, Zarr V3, and TIFF output
+- **Format Writers**: HDF5, Arrow IPC, Parquet, Zarr V3, and TIFF output
 - **Cross-Process Access**: Python and Julia can read ring buffers via mmap
 
 ## Features
@@ -15,10 +15,12 @@ This crate provides the storage layer for rust-daq, handling:
 | Feature | Description | Default |
 |---------|-------------|---------|
 | `storage_hdf5` | HDF5 file output with compression | No |
-| `storage_arrow` | Arrow IPC and Parquet output | No |
+| `storage_arrow` | Arrow IPC format | No |
 | `storage_parquet` | Parquet columnar format | No |
 | `storage_tiff` | TIFF image stacks | No |
 | `storage_zarr` | Zarr V3 chunked arrays | No |
+
+**Parquet support:** Enabled via `storage_parquet` feature. Provides efficient columnar storage for tabular data alongside Arrow IPC.
 
 ## Key Components
 

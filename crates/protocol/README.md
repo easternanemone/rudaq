@@ -15,8 +15,11 @@ Protobuf definitions are in the `proto/` directory:
 | File | Purpose |
 |------|---------|
 | `daq.proto` | Core DAQ services and messages |
+| `experiment.proto` | RunEngine and plan execution services |
+| `hardware.proto` | Hardware device services |
 | `health.proto` | gRPC health checking protocol (standard) |
 | `ni_daq.proto` | NI DAQ-specific extensions for Comedi hardware |
+| `storage.proto` | Data storage and recording services |
 
 ### Services
 

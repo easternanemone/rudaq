@@ -1,6 +1,11 @@
 # Web GUI (WASM Build)
 
-The `ui` crate compiles to WebAssembly, letting the control panel run in Chrome
+The `ui` crate supports multiple deployment modes:
+- **Native GUI** (`rust-daq-gui`) — standalone eframe application
+- **WASM GUI** (`rust-daq-web`) — WebAssembly build for browser deployment
+- **Rerun Viewer** — integrated live visualization panel
+
+This guide covers the WASM build, which lets the control panel run in Chrome
 while the hardware daemon runs natively on a lab machine.
 
 ## Prerequisites

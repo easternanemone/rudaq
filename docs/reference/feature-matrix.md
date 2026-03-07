@@ -1,23 +1,26 @@
 # Feature Matrix
 
 **Status:** Active
-**Last Updated:** February 2026
+**Last Updated:** March 2026
 **Purpose:** Single source of truth for build profiles, feature groups, and CI matrix.
 
 ## Quick Reference
 
 ```bash
-# Development (fast build, mock hardware)
-cargo build
+# Development (fast build, mock hardware, daemon)
+cargo build -p bin
 
 # Full feature build (excludes HDF5)
-cargo build --features full
+cargo build -p bin --features full
 
-# GUI development
+# GUI development (native standalone app)
 cargo build -p ui --features standalone
 
-# Server with all hardware
-cargo build --features "server,all_hardware"
+# Daemon with all hardware
+cargo build -p bin --features all_hardware
+
+# WASM GUI for browser
+cargo build -p ui --target wasm32-unknown-unknown --features web
 ```
 
 ---
@@ -41,9 +44,8 @@ Use these for common build configurations:
 
 | Profile | Features Included | Use Case |
 |---------|-------------------|----------|
-| `backend` | server, modules, all_hardware, storage_csv | Headless daemon with full hardware |
-| `frontend` | gui_egui, networking | Desktop GUI client |
-| `cli` | all_hardware, storage_csv, scripting, scripting_python | Command-line automation |
+| `backend` | modules, all_hardware | Headless daemon with full hardware |
+| `cli` | all_hardware, scripting_python | Command-line automation |
 | `full` | storage_arrow, serial, modules, all_hardware | Most features (excludes HDF5) |
 
 **Note:** `storage_hdf5` is intentionally excluded from `full` because it requires native HDF5 libraries. Enable explicitly when available.
@@ -54,10 +56,11 @@ Use these for common build configurations:
 
 | Feature | Description | Dependencies |
 |---------|-------------|--------------|
-| `storage_csv` | CSV file export (default) | `csv` crate |
 | `storage_hdf5` | HDF5 scientific format | `hdf5-metno`, requires `libhdf5-dev` |
 | `storage_arrow` | Apache Arrow IPC format | `arrow` crate |
-| `storage_matlab` | MATLAB .mat files | `matrw` crate |
+| `storage_parquet` | Apache Parquet columnar format | `parquet` crate (requires `storage_arrow`) |
+| `storage_tiff` | TIFF image export | `image` crate |
+| `storage_zarr` | Zarr V3 array storage | `zarrs` crate |
 
 **Storage Feature Propagation:**
 - `storage_hdf5` propagates to `storage/storage_hdf5`
@@ -86,26 +89,38 @@ Top-level feature flags on the `bin` crate:
 | `comedi_hardware` | Real Comedi DAQ (requires libcomedi) |
 | `maitai` | Complete maitai lab profile (all real hardware) |
 
-#### Drivers Metacrate Features (`crates/drivers`)
+#### Driver Registry Features (`crates/driver-registry`)
 
-The `drivers` metacrate provides unified feature flags for all driver crates:
+The `driver-registry` crate provides unified feature flags for all hardware drivers:
 
 | Feature | Description | Driver Crate |
 |---------|-------------|--------------|
-| `thorlabs` | Thorlabs ELL14 rotation mounts | `driver-thorlabs` |
-| `newport` | Newport ESP300 + 1830-C | `driver-newport` |
-| `spectra_physics` | MaiTai laser | `driver-spectra-physics` |
+| `serial` | Serial port support (default) | `hardware/serial` |
 | `pvcam` | PVCAM cameras (mock mode) | `driver-pvcam` |
 | `pvcam_sdk` | PVCAM cameras (real SDK) | `driver-pvcam` with `pvcam_sdk` |
+| `pvcam_hardware` | PVCAM cameras (real hardware) | Alias for `pvcam_sdk` |
 | `comedi` | Linux Comedi DAQ (mock mode) | `driver-comedi` |
 | `comedi_hardware` | Linux Comedi DAQ (real hardware) | `driver-comedi` with `hardware` |
-| `mock` | Mock hardware for testing | `driver-mock` |
-| `generic` | Config-driven serial driver (v2) | `driver-generic` |
-| `all` | All drivers with mock implementations | All of the above |
-| `maitai` | Maitai lab hardware profile | thorlabs + newport + spectra_physics + pvcam_sdk |
-| `hardware` | All drivers with real hardware | All + pvcam_sdk + comedi_hardware |
+| `andor` | Andor SDK3 cameras (mock mode) | `driver-andor-sdk3` |
+| `andor_hardware` | Andor SDK3 cameras (real hardware) | `driver-andor-sdk3` with `hardware` |
+| `all_hardware` | All drivers with mock implementations | `pvcam` + `comedi` + `andor` |
+| `full` | Full feature set | Alias for `all_hardware` |
 
-**Note:** `driver-andor-sdk3`, `driver-dover-motion`, and `driver-universal` are not yet integrated into the `drivers` metacrate. They are available as direct workspace dependencies. `driver-universal` (schema v3) is the successor to `driver-generic` (schema v2) and is wired into the hardware registry via `load_all_factories()`.
+**Always included (non-optional):**
+- `driver-mock` — Mock hardware for testing
+- `driver-universal` — TOML-manifest driven driver (schema v3)
+
+**Manifest-based devices** (via `driver-universal`, config files in `config/devices/`):
+- Thorlabs ELL14 rotation mounts (`ell14.toml`)
+- Newport ESP300/ESP301 motion controllers (`esp300.toml`, `esp301_example.toml`)
+- Newport 1830-C power meter (`newport_1830c.toml`)
+- Spectra-Physics MaiTai laser (`maitai.toml`)
+- Thorlabs PM400 power meter (`thorlabs_pm400.toml`)
+- IPG laser controllers (`ipg_laser.toml`)
+- Red Pitaya PID controllers (`red_pitaya_pid.toml`)
+- Generic Modbus devices (`modbus_example.toml`)
+
+These devices require **no feature flags** — they load at runtime via TOML config.
 
 ### Camera Hardware
 
@@ -123,14 +138,21 @@ The `drivers` metacrate provides unified feature flags for all driver crates:
 |---------|-------------|--------------|
 | `networking` | gRPC networking layer | None (base for server) |
 | `server` | Full gRPC server | `server`, includes `networking` |
-| `scripting` | Rhai scripting engine | `scripting` |
+| `modules` | Module system with runtime assignment | `daq-modules` |
 | `scripting_python` | Python bindings for scripting | `scripting/python` (PyO3) |
-| `gui_egui` | Desktop GUI application | `egui`, `eframe`, `egui_plot`, `egui_extras` |
-| `modules` | Module system with runtime assignment | Requires `scripting` |
-| `plugins_hot_reload` | Hot reload plugin configs | `notify` crate |
+| `db-surreal-mem` | In-memory SurrealDB (default) | `db` with kv-mem |
+| `db-surreal-rocksdb` | Persistent SurrealDB with RocksDB | `db` with kv-rocksdb |
+| `production` | Production profile | `db-surreal-rocksdb` + `modules` + `all_hardware` |
+| `metrics` | Prometheus metrics for observability | `prometheus` |
 
-**Plugin System Notes:**
-- `scripting` enables Rhai-based script plugins in `daq-modules/src/plugins/`
+**GUI Applications** (separate `ui` crate):
+- `standalone` — Native desktop GUI (default, uses `eframe` + `egui`)
+- `web` — WASM browser GUI (same panels as standalone)
+- `rerun_viewer` — Embedded Rerun viewer with camera streaming
+
+**Scripting:**
+- Base Rhai scripting is always available via `scripting` crate
+- `scripting_python` enables PyO3 Python bindings (optional)
 
 ---
 
@@ -139,27 +161,30 @@ The `drivers` metacrate provides unified feature flags for all driver crates:
 ### For Development
 
 ```bash
-# Fast iteration (defaults only)
-cargo build
+# Fast iteration (daemon, defaults only)
+cargo build -p bin
 
-# With GUI for testing
-cargo build --features gui_egui
+# Native GUI for testing
+cargo build -p ui
 
-# Full feature testing
-cargo build --features full
+# Full feature testing (daemon)
+cargo build -p bin --features full
 ```
 
 ### For Deployment
 
 ```bash
-# Headless server
-cargo build --release --features backend
+# Headless daemon (backend profile)
+cargo build --release -p bin --features backend
 
 # GUI operator workstation
-cargo build --release --features "frontend,storage_csv"
+cargo build --release -p ui
+
+# Production daemon (with RocksDB persistence)
+cargo build --release -p bin --features production
 
 # Full lab system (with HDF5)
-cargo build --release --features "full,storage_hdf5"
+cargo build --release -p bin --features "full,storage_hdf5"
 ```
 
 ### For Hardware Testing
@@ -173,7 +198,7 @@ source scripts/env-check.sh
 cargo nextest run --profile hardware --features hardware_tests
 
 # Specific driver tests
-cargo nextest run -p driver-thorlabs --features hardware
+cargo nextest run -p driver-pvcam --features pvcam_sdk
 ```
 
 ---
@@ -186,7 +211,7 @@ The CI system tests these combinations:
 |-----|----------|---------|
 | **check-fast** | defaults | Quick compilation check |
 | **test-core** | defaults | Unit tests without hardware |
-| **test-storage** | storage_csv, storage_arrow | Storage backend tests |
+| **test-storage** | storage_arrow | Storage backend tests |
 | **test-server** | server, scripting | gRPC + scripting tests |
 | **lint-all** | full | Clippy with most features |
 | **format** | - | cargo fmt check |
@@ -199,24 +224,28 @@ The CI system tests these combinations:
 
 ```
 bin crate features:
-  maitai → pvcam_hardware + hardware/maitai
-  pvcam_hardware → pvcam_sdk → hardware/pvcam_sdk
-  comedi_hardware → hardware/comedi_hardware
-  all_hardware → hardware/all_hardware
+  maitai → pvcam_hardware + comedi_hardware + hardware/serial
+  pvcam_hardware → pvcam_sdk → driver-registry/pvcam_hardware
+  comedi_hardware → driver-registry/comedi_hardware
+  all_hardware → driver-registry/all_hardware
   full → storage_arrow + serial + modules + all_hardware
   backend → modules + all_hardware
+  production → db-surreal-rocksdb + modules + all_hardware
   modules → dep:daq-modules
+  serial → hardware/serial + driver-registry/serial
 
-drivers metacrate features:
-  maitai → thorlabs + newport + spectra_physics + pvcam_sdk + serial + comedi
-  all → mock + thorlabs + newport + spectra_physics + pvcam + comedi + generic
-  thorlabs → dep:driver-thorlabs
-  newport → dep:driver-newport
-  spectra_physics → dep:driver-spectra-physics
-  pvcam → dep:driver-pvcam
+driver-registry features:
+  full → all_hardware
+  all_hardware → pvcam + comedi + andor
+  pvcam_hardware → pvcam_sdk
   pvcam_sdk → pvcam + driver-pvcam/pvcam_sdk
-  comedi → dep:driver-comedi
+  pvcam → dep:driver-pvcam
   comedi_hardware → comedi + driver-comedi/hardware
+  comedi → dep:driver-comedi
+  andor_hardware → andor + driver-andor-sdk3/hardware
+  andor → dep:driver-andor-sdk3
+  serial → hardware/serial
+  default → serial
 ```
 
 ---

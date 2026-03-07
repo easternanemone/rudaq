@@ -90,6 +90,7 @@ Different profiles are available for different scenarios:
 | `default` | Local development (2 retries, 2 min timeout) | `cargo nextest run` |
 | `ci` | GitHub Actions (3 retries, 3 min timeout) | `cargo nextest run --profile ci` |
 | `hardware` | Physical hardware tests (single-threaded) | `cargo nextest run --profile hardware` |
+| `libs-hardware` | Hardware tests (inherits hardware profile) | `cargo nextest run --profile libs-hardware` |
 | `coverage` | Code coverage runs | `cargo nextest run --profile coverage` |
 
 ### Testing with Hardware
@@ -296,16 +297,17 @@ bd close bd-123 --reason "Completed"
 ```
 rust-daq/
 ├── crates/
-│   ├── common/        # Core types, traits, errors
-│   ├── pool/        # Zero-allocation frame pooling
-│   ├── hardware/    # Device registry, drivers
-│   ├── storage/     # Ring buffers, file writers
-│   ├── experiment/  # Plans, RunEngine, documents
+│   ├── common/          # Core types, traits, errors
+│   ├── pool/            # Zero-allocation frame pooling
+│   ├── hardware/        # Device registry, HAL
+│   ├── driver-registry/ # Feature gating for all hardware drivers
+│   ├── driver-*/        # Hardware drivers (mock, universal, pvcam, andor, comedi, dover)
+│   ├── storage/         # Ring buffers, file writers
+│   ├── experiment/      # Plans, RunEngine, documents
 │   ├── scripting/       # Rhai scripting integration
 │   ├── server/          # gRPC services
 │   ├── bin/             # CLI and daemon
-│   ├── ui/              # GUI application
-│   └── driver-*/        # Hardware drivers
+│   └── ui/              # GUI application
 ```
 
 ### Key Abstractions
@@ -318,13 +320,20 @@ rust-daq/
 
 ### Adding a New Driver
 
-See `docs/explanation/newcomer-guide.md` for detailed instructions.
+See `docs/explanation/newcomer-guide.md` and `docs/how-to/hardware-drivers.md` for detailed instructions.
 
 Quick summary:
-1. Create a new crate `driver-mydevice`
-2. Implement capability traits (`Movable`, `Readable`, etc.)
-3. Implement `DriverFactory` for registration
-4. Add to `drivers` for automatic registration
+
+**For serial/TCP/SCPI devices** (the forward path):
+1. Create a TOML manifest in `config/devices/` for `driver-universal`
+2. Define commands, parameters, and capabilities in schema v3 format
+3. No Rust code needed for most text-protocol devices
+
+**For native SDK devices** (FFI-bound, like PVCAM, Andor, Comedi):
+1. Create a new crate `driver-mydevice` with `-sys` bindgen crate if needed
+2. Implement capability traits (`Movable`, `Readable`, `FrameProducer`, etc.)
+3. Implement `DriverFactory` for device construction
+4. Register the factory in `driver-registry` and add feature flags as needed
 
 ## Getting Help
 

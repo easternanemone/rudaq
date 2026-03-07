@@ -64,8 +64,7 @@ Cache key is scoped to `ops-windows-driver-check`.
 # Build all LIBS drivers (mock mode)
 cargo build --package driver-dover-motion --target x86_64-pc-windows-msvc
 cargo build --package driver-andor-sdk3 --target x86_64-pc-windows-msvc
-cargo build --package driver-spirit-laser --target x86_64-pc-windows-msvc
-cargo build --package driver-nidaqmx --target x86_64-pc-windows-msvc
+# Note: SPIRIT laser and other serial/TCP devices use driver-universal (always compiled)
 ```
 
 ### Running Tests
@@ -74,8 +73,6 @@ cargo build --package driver-nidaqmx --target x86_64-pc-windows-msvc
 # Run tests (mock mode - no hardware required)
 cargo nextest run --package driver-dover-motion --target x86_64-pc-windows-msvc
 cargo nextest run --package driver-andor-sdk3 --target x86_64-pc-windows-msvc
-cargo nextest run --package driver-spirit-laser --target x86_64-pc-windows-msvc
-cargo nextest run --package driver-nidaqmx --target x86_64-pc-windows-msvc
 ```
 
 ### Linting
@@ -110,8 +107,8 @@ The LIBS integration includes these driver crates:
 | `driver-dover-motion` | High-level driver wrapper | No (mock available) |
 | `andor-sdk3-sys` | FFI bindings for Andor SDK3 | Yes (hardware mode) |
 | `driver-andor-sdk3` | High-level driver wrapper | No (mock available) |
-| `driver-spirit-laser` | Spirit Laser driver | TBD |
-| `driver-nidaqmx` | NI-DAQmx driver | TBD |
+
+**Note:** Serial/TCP devices (SPIRIT laser, etc.) use `driver-universal` TOML manifests instead of dedicated crate packages.
 
 ## Troubleshooting
 

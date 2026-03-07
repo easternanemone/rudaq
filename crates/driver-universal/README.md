@@ -2,6 +2,8 @@
 
 Declarative TOML-based driver system for rust-daq (schema v3). Add support for serial, TCP, and SCPI instruments **without writing any Rust code**.
 
+**This is the forward path.** All legacy serial/SCPI devices have been migrated to TOML manifests: ELL14, ESP300, MaiTai, Newport 1830-C, Red Pitaya PID, IPG laser, Thorlabs PM400. New text-protocol devices should use this system rather than creating dedicated driver crates.
+
 ## When to Use This
 
 | Approach | Use When |

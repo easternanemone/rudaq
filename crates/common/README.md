@@ -46,17 +46,33 @@ wavelength.set(850.0)?;  // Validates against range
 
 ### Device Capabilities
 
-Fine-grained traits for composable device behavior:
+Fine-grained traits for composable device behavior (23 total):
 
 | Trait | Purpose |
 |-------|---------|
 | `Movable` | Position control (stages, rotators) |
 | `Readable` | Scalar measurements (power meters, sensors) |
 | `FrameProducer` | Image acquisition (cameras) |
+| `FrameObserver` | Frame consumption and processing |
 | `Triggerable` | External trigger support |
 | `ShutterControl` | Shutter open/close |
 | `WavelengthTunable` | Wavelength control (lasers, monochromators) |
+| `EmissionControl` | Laser emission on/off |
+| `ExposureControl` | Exposure time configuration |
 | `Parameterized` | Device-specific settings access |
+| `Settable` | Set scalar values (DAC output) |
+| `Switchable` | Binary on/off control |
+| `Actionable` | Trigger actions (reset, calibrate) |
+| `Loggable` | Device logging and diagnostics |
+| `Camera` | Camera-specific operations |
+| `GatedCamera` | Gated/triggered cameras |
+| `Stageable` | Multi-axis stage control |
+| `Commandable` | Raw command interface |
+| `SpectrometerControl` | Spectrometer configuration |
+| `TriggerOnPosition` | Position-based triggering |
+| `PulseGenerator` | Pulse/waveform generation |
+| `SafetyInterlock` | Safety system integration |
+| `Reconfigurable` | Runtime reconfiguration |
 
 ### Driver Factory (Plugin System)
 

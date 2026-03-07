@@ -122,12 +122,17 @@ port = "/dev/ttyS0"
 
 ## Features
 
+Hardware features are gated in `driver-registry`, not `bin`. The `bin` crate passes through features to `driver-registry`:
+
 | Feature | Description |
 |---------|-------------|
-| `server` | Enable gRPC server (required for daemon) |
-| `scripting` | Enable Rhai script execution |
-| `pvcam` | PVCAM camera support |
-| `serial` | Serial device support (ESP300, Newport, etc.) |
+| `pvcam`, `pvcam_sdk`, `pvcam_hardware` | PVCAM camera support (via driver-registry) |
+| `comedi`, `comedi_hardware` | Comedi DAQ card support (via driver-registry) |
+| `andor`, `andor_hardware` | Andor camera support (via driver-registry) |
+| `all_hardware` | All native SDK drivers |
+| `full` | All drivers + serial support |
+
+Serial/TCP/SCPI devices (ELL14, ESP300, MaiTai, etc.) use `driver-universal` TOML manifests and are always available.
 
 ## Daemon Architecture
 

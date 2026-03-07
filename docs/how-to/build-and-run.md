@@ -13,11 +13,8 @@ The `maitai` feature is defined in `crates/bin/Cargo.toml` and includes:
 ```toml
 maitai = [
     "pvcam_hardware",              # Real PVCAM SDK (NOT mock)
-    "rust_daq/thorlabs",           # ELL14 rotators
-    "rust_daq/newport",            # ESP300 motion controller
-    "rust_daq/spectra_physics",    # MaiTai laser
-    "rust_daq/newport_power_meter",# 1830-C power meter
-    "rust_daq/serial"              # Serial port base
+    "comedi_hardware",             # Real Comedi-based DAQ hardware
+    "hardware/serial",             # Serial port base for driver-universal manifests
 ]
 ```
 
@@ -52,11 +49,11 @@ The build script should show:
 
    Enabled drivers:
      ✓ PVCAM camera (real SDK)
-     ✓ Thorlabs ELL14 rotators
-     ✓ Newport ESP300 motion controller
-     ✓ Newport 1830-C power meter
-     ✓ Spectra-Physics MaiTai laser
-     ✓ Serial port communication
+     ✓ Serial/TCP devices via driver-universal TOML manifests
+       - Thorlabs ELL14 rotators
+       - Newport ESP300 motion controller
+       - Newport 1830-C power meter
+       - Spectra-Physics MaiTai laser
 ```
 
 ### Step 2: Start Daemon and Check Log

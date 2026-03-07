@@ -6,15 +6,24 @@ This document provides comprehensive reference for the rust-daq gRPC API. It cov
 
 The rust-daq gRPC API provides remote control over the DAQ system with multiple specialized services:
 
-- **HardwareService** - Direct device control (motion, readouts, streaming)
-- **ControlService** - Script upload and execution
-- **ScanService** - Coordinated multi-axis scanning (DEPRECATED - use RunEngineService)
-- **RunEngineService** - Bluesky-style plan execution with pause/resume
-- **ModuleService** - Hardware-agnostic experiment modules
-- **StorageService** - HDF5 data recording and export
-- **PresetService** - Device configuration snapshots
-- **PluginService** - Runtime plugin/driver management
-- **HealthService** - System health monitoring
+- **HardwareService** - Direct device control (motion, readouts, streaming) - `hardware.proto`
+- **ControlService** - Script upload and execution - `daq.proto`
+- **ScanService** - Coordinated multi-axis scanning (DEPRECATED - use RunEngineService) - `experiment.proto`
+- **RunEngineService** - Bluesky-style plan execution with pause/resume - `experiment.proto`
+- **ModuleService** - Hardware-agnostic experiment modules - `experiment.proto`
+- **StorageService** - HDF5 data recording and export - `storage.proto`
+- **PresetService** - Device configuration snapshots - `hardware.proto`
+- **PluginService** - Runtime plugin/driver management - `storage.proto`
+- **HealthService** - System health monitoring (custom service) - `storage.proto`
+- **NIDAQService** - National Instruments DAQ devices - `ni_daq.proto`
+
+**Proto Files (6 total):**
+- `crates/protocol/proto/daq.proto` - Core control services (ControlService)
+- `crates/protocol/proto/experiment.proto` - RunEngine, Scan, and Module services
+- `crates/protocol/proto/hardware.proto` - Hardware device control and presets
+- `crates/protocol/proto/health.proto` - Standard gRPC health check service
+- `crates/protocol/proto/ni_daq.proto` - NI-DAQ specific services
+- `crates/protocol/proto/storage.proto` - Data storage, plugin management, and custom health services
 
 ## Connection
 

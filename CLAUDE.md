@@ -29,16 +29,17 @@ source scripts/env-check.sh && cargo nextest run --profile hardware --features h
 
 ## Architecture
 
-### Crate Dependency Layers (~17 core crates)
+### Crate Dependency Layers (25 workspace crates)
 
 ```
 Foundation
   common           ← Capability traits, Parameter<T>, DaqError, Frame, DriverFactory
   pool             ← Lock-free object pool for zero-allocation frame handling
-  protocol         ← Protobuf definitions (daq.proto, health.proto, ni_daq.proto)
+  protocol         ← Protobuf definitions (daq.proto, experiment.proto, hardware.proto, health.proto, ni_daq.proto, storage.proto)
 
 Hardware Core
   hardware         ← HAL: DeviceRegistry (DashMap-backed), factory orchestration, plugin system
+  driver-registry  ← Concrete factory registration, hardware feature gating
   driver-mock      ← Always compiled; used for testing and demos
   driver-universal ← TOML-manifest driver for text-protocol devices (the forward path)
 
@@ -57,7 +58,7 @@ Services & Storage
   server           ← gRPC services: Hardware, Scan, RunEngine, Storage, Plugin, etc.
   client           ← gRPC client library
   db               ← SurrealDB control-plane (kv-mem for tests, kv-rocksdb for prod)
-  storage          ← RingBuffer (mmap, seqlock), HDF5, Arrow, Tiff, Zarr writers
+  storage          ← RingBuffer (mmap, seqlock), HDF5, Arrow IPC, Parquet, Tiff, Zarr writers
 
 Applications
   bin              ← CLI daemon (mimalloc allocator), reconciler, safety sentinel
@@ -71,13 +72,13 @@ Testing
 
 ### Key Abstractions
 
-**Capability traits** (`common/src/capabilities.rs`): `Movable`, `Readable`, `FrameProducer`, `Triggerable`, `ExposureControl`, `ShutterControl`, `WavelengthTunable`, etc. All are `async_trait + Send + Sync`. Devices are defined by what they *do*, not what they *are*.
+**Capability traits** (`common/src/capabilities.rs`): `Movable`, `Readable`, `FrameProducer`, `Triggerable`, `ExposureControl`, `ShutterControl`, `WavelengthTunable`, `EmissionControl`, `Stageable`, `Settable`, `Switchable`, `Actionable`, `Loggable`, `Parameterized`, `Camera`, `Commandable`, `GatedCamera`, `SpectrometerControl`, `TriggerOnPosition`, `PulseGenerator`, `SafetyInterlock`, `Reconfigurable`, etc. All are `async_trait + Send + Sync`. Devices are defined by what they *do*, not what they *are*.
 
 **`DeviceComponents`** (`common/src/driver.rs`): Capability bag returned by `DriverFactory::build()` — one `Option<Arc<dyn Trait>>` per capability. The `DeviceRegistry` stores these and provides typed accessors (`get_movable("stage_1")`).
 
 **`Parameter<T>`** (`common/src/parameter.rs`): Reactive state inspired by QCodes/ScopeFoundry. Wraps `Observable<T>` + hardware callbacks. Flow: `set(value)` → validate constraints → call `hardware_writer` (async BoxFuture) → update internal value (notifies subscribers) → call change listeners. Use `Parameter<T>` for device state, never raw `Arc<Mutex<T>>`.
 
-**`Plan` + `RunEngine`** (`experiment/src/`): Bluesky-inspired. Plans yield `PlanCommand` variants (`MoveTo`, `Read`, `Trigger`, `Wait`, `Checkpoint`, `EmitEvent`). RunEngine executes them as a state machine (`Idle → Running → Paused → Aborting`) and emits Bluesky-style documents (`Start`, `Descriptor`, `Event`, `Stop`, `Manifest`).
+**`Plan` + `RunEngine`** (`experiment/src/`): Bluesky-inspired. Plans yield `PlanCommand` variants (`MoveTo`, `Read`, `Trigger`, `Wait`, `Checkpoint`, `EmitEvent`, `Set`). RunEngine executes them as a state machine (`Idle → Running → Paused → Aborting`) and emits Bluesky-style documents (`Start`, `Descriptor`, `Event`, `Stop`, `Manifest`). `Set` variant: `Set { device_id, parameter, value }` — set a device parameter.
 
 **`RingBuffer`** (`storage/src/ring_buffer.rs`): mmap-backed circular buffer with seqlock for lock-free reads. Uses Apache Arrow IPC format. "Tap" consumers receive every Nth frame via async channel for live visualization without blocking writers.
 
@@ -102,7 +103,7 @@ registry.register_from_config(DeviceConfig { id, name, driver: DriverConfig { ty
 
 ### Feature Flags
 
-**Compile-time** (Cargo features in `hardware/Cargo.toml`): `serial`, `pvcam`/`pvcam_sdk`/`pvcam_hardware`, `comedi`/`comedi_hardware`, `andor`/`andor_hardware`, `all_hardware`, `full`. Mock drivers (`driver-mock`) are always compiled. Serial/SCPI devices use `driver-universal` TOML manifests (always compiled, no feature flag needed).
+**Compile-time** (Cargo features in `driver-registry/Cargo.toml`): `serial` (default), `pvcam`/`pvcam_sdk`/`pvcam_hardware`, `comedi`/`comedi_hardware`, `andor`/`andor_hardware`, `all_hardware`, `full`. Mock drivers (`driver-mock`) and `driver-universal` are always compiled. Serial/SCPI devices use `driver-universal` TOML manifests (always compiled, no feature flag needed).
 
 **Runtime** (`config/feature_flags.toml`): Loaded via `FeatureFlags::load()`. Toggles: `frame_pool_preallocation`, `async_ring_buffer`, `experimental_streaming`, `debug_frame_timing`, etc.
 
@@ -116,7 +117,7 @@ registry.register_from_config(DeviceConfig { id, name, driver: DriverConfig { ty
 ## Testing Patterns
 
 - **Nextest profiles**: `default` (local, 2 retries), `ci` (3 retries, no fail-fast), `hardware` (single-threaded, 6min timeout), `libs-hardware` (inherits hardware), `coverage` (no retries).
-- **Test groups**: `serial-hardware`, `pvcam-hardware`, `elliptec-hardware` — each max-threads=1 for shared resource serialization.
+- **Test groups**: `serial-hardware`, `pvcam-hardware`, `andor-hardware`, `elliptec-hardware`, `daemon-e2e` — each max-threads=1 for shared resource serialization.
 - **Mock devices**: Always available without feature flags. Use `register_mock_factories(&registry)` for integration tests.
 - **Timing tests**: Use `#[tokio::test(start_paused = true)]` with `tokio::time::Instant` for deterministic timing. Wall-clock tests use `TimingTolerance` helpers from `integration-tests/tests/common/`.
 - **Hardware gating**: `#[cfg(feature = "hardware_tests")]` + `#[ignore]` for real-device tests.
@@ -155,6 +156,11 @@ WASM GUI: `http://100.117.5.12:8080`. Known reconnect bug (beefcake-48ad): must 
 | `scripts/demo.sh` | Mock-hardware demo (daemon + GUI/script) |
 | `scripts/env-check.sh` | Source before hardware tests |
 | `scripts/install-hooks.sh [quick]` | Pre-commit hooks (full or format-only) |
+| `scripts/pre-push-gate.sh` | Pre-commit/push quality gate |
+| `scripts/install-service.sh` | Install daemon as systemd service |
+| `scripts/calibrate-comedi.sh` | Comedi DAQ calibration |
+| `scripts/leabs-daemon-watchdog.sh` | Leabs daemon health monitor |
+| `scripts/install-target-maintenance.sh` | Install target cleanup cron job |
 | `scripts/run-ast-grep.sh` | AST-grep structural search helper |
 | `scripts/target-maintenance.sh` | Clean bloated target/ directory |
 | `scripts/bd-safe.sh` | Worktree-safe beads commands (auto-discovers Dolt/SQLite backend) |

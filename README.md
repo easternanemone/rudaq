@@ -75,11 +75,9 @@ graph TD
         DOVER[driver-dover-motion]
     end
 
-    subgraph "Serial Drivers - legacy"
-        THORLABS[driver-thorlabs]
-        NEWPORT[driver-newport]
-        SPECTRA[driver-spectra-physics]
+    subgraph "Mock & Config Drivers"
         MOCK[driver-mock]
+        REGISTRY[driver-registry]
     end
 
     subgraph "Data Pipeline"
@@ -96,15 +94,13 @@ graph TD
     SERVER --> ENGINE
     ENGINE --> HAL
     ENGINE -.->|lifecycle| DB
-    HAL --> UNIVERSAL
-    HAL --> PVCAM
-    HAL --> ANDOR
-    HAL --> COMEDI
+    HAL --> REGISTRY
+    REGISTRY --> UNIVERSAL
+    REGISTRY --> PVCAM
+    REGISTRY --> ANDOR
+    REGISTRY --> COMEDI
+    REGISTRY --> MOCK
     HAL --> DOVER
-    HAL --> THORLABS
-    HAL --> NEWPORT
-    HAL --> SPECTRA
-    HAL --> MOCK
     HAL -->|frames| RING
     RING --> STORAGE
     RING -.->|stream| SERVER
@@ -116,13 +112,15 @@ graph TD
 | Tier | Crates | Purpose |
 |------|--------|---------|
 | **Core** | `common`, `pool`, `protocol` | Foundation types, zero-alloc buffers, protobuf |
-| **Hardware** | `hardware`, `driver-mock`, `driver-universal` | HAL, registry, TOML-manifest drivers |
-| **Native Drivers** | `driver-pvcam`, `driver-andor-sdk3`, `driver-comedi`, `driver-dover-motion` | FFI-bound SDK drivers |
-| **Serial Drivers** | `driver-thorlabs`, `driver-newport`, `driver-spectra-physics` | Legacy serial (→ driver-universal) |
+| **Hardware** | `hardware`, `driver-registry`, `driver-mock`, `driver-universal` | HAL, feature gating, TOML-manifest drivers |
+| **Native Drivers** | `driver-pvcam`, `pvcam-sys`, `driver-andor-sdk3`, `andor-sdk3-sys`, `driver-comedi`, `comedi-sys`, `driver-dover-motion`, `dover-motion-sys` | FFI-bound SDK drivers |
 | **Engine** | `experiment`, `scripting`, `daq-modules` | RunEngine, Rhai scripts, module system |
 | **Services** | `server`, `client`, `db` | gRPC server, client lib, SurrealDB |
-| **Data** | `storage` | Ring buffers, HDF5, Arrow, CSV, Zarr |
+| **Data** | `storage` | Ring buffers, HDF5, Arrow, Parquet, Tiff, Zarr |
 | **Applications** | `bin`, `ui` | Daemon CLI, Desktop GUI |
+| **Testing** | `integration-tests` | Cross-crate integration suite |
+
+**Total: 25 crates** (includes 4 FFI sys crates: `pvcam-sys`, `andor-sdk3-sys`, `comedi-sys`, `dover-motion-sys`)
 
 Full architecture docs: [System Architecture](docs/explanation/architecture.md)
 
@@ -133,16 +131,16 @@ Full architecture docs: [System Architecture](docs/explanation/architecture.md)
 | Device Type | Models | Capabilities | Status | Feature Flag |
 |-------------|--------|--------------|--------|--------------|
 | **Cameras** | Photometrics Prime 95B, Prime BSI | FrameProducer, Triggerable, ExposureControl | Production | `pvcam_hardware` |
-| **Motion** | Newport ESP300 | Movable, Parameterized | Production | `newport` |
-| **Rotators** | Thorlabs ELL14 (RS-485) | Movable, Parameterized | Production | `thorlabs` |
-| **Lasers** | Spectra-Physics MaiTai | Readable, ShutterControl, WavelengthTunable | Production | `spectra_physics` |
-| **Sensors** | Newport 1830-C Power Meter | Readable, WavelengthTunable, Parameterized | Production | `newport_power_meter` |
+| **Cameras** | Andor iStar sCMOS | FrameProducer, ExposureControl, GatedCamera | Production | `andor_hardware` |
 | **DAQ** | NI PCI-MIO-16XE-10 | Readable, Settable (Comedi) | Production | `comedi_hardware` |
-| **Simulation** | Mock Stage, Mock Camera, Mock Sensors | All traits | Production | Built-in |
-| **Cameras** | Andor iStar sCMOS | FrameProducer, ExposureControl, GatedCamera | Active Development | `andor_hardware` |
 | **Motion** | Dover SmartStage | Movable, Parameterized | In Development | Built-in |
-| **Signal Gen** | Red Pitaya | Readable, Settable (TCP) | Production | Built-in |
-| **Config-Driven** | Any serial/TCP/SCPI device | Per-manifest | Production | `serial` |
+| **Motion** | Newport ESP300 | Movable, Parameterized | Production | `serial` (via driver-universal) |
+| **Rotators** | Thorlabs ELL14 (RS-485) | Movable, Parameterized | Production | `serial` (via driver-universal) |
+| **Lasers** | Spectra-Physics MaiTai | Readable, ShutterControl, WavelengthTunable | Production | `serial` (via driver-universal) |
+| **Sensors** | Newport 1830-C Power Meter | Readable, WavelengthTunable, Parameterized | Production | `serial` (via driver-universal) |
+| **Signal Gen** | Red Pitaya PID | Readable, Settable (TCP) | Production | `serial` (via driver-universal) |
+| **Config-Driven** | Any serial/TCP/SCPI device | Per-manifest | Production | `serial` (via driver-universal) |
+| **Simulation** | Mock Stage, Mock Camera, Mock Sensors | All traits | Production | Built-in (no flag) |
 
 **Maitai Lab Configuration:** 12 devices integrated and tested. See [Maitai Setup Guide](docs/how-to/hardware-setup.md).
 
@@ -161,7 +159,7 @@ Full architecture docs: [System Architecture](docs/explanation/architecture.md)
 - **Apache Arrow**: Zero-copy frame encoding for efficient streaming
 - **HDF5 Storage**: Industry-standard scientific data format with metadata
 - **Ring Buffers**: High-performance circular buffers for continuous acquisition
-- **CSV & NetCDF**: Additional format support
+- **Multiple Formats**: HDF5, Arrow IPC, Parquet, Tiff, Zarr support
 - **Data Persistence**: Automatic frame buffering and disk writing
 
 ### Automation
@@ -268,9 +266,9 @@ Output shows mock stage moving, power meter readings, and camera frames acquired
 Create `my_experiment.rhai`:
 
 ```rhai
-// Initialize hardware
-let stage = create_elliptec("/dev/serial/by-id/...", "2");
-let pm = create_newport_1830c("/dev/ttyS0");
+// Create device handles (mock devices for demo; real devices via gRPC)
+let stage = create_mock_stage();
+let pm = create_mock_power_meter();
 
 // Move stage and measure
 for angle in [0.0, 45.0, 90.0, 135.0, 180.0] {
@@ -284,7 +282,7 @@ for angle in [0.0, 45.0, 90.0, 135.0, 180.0] {
 
 Run it:
 ```bash
-./target/release/rhai-runner my_experiment.rhai
+cargo run -p bin -- run my_experiment.rhai
 ```
 
 ### 3. Use the gRPC API (Python)

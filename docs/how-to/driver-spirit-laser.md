@@ -4,6 +4,8 @@
 
 Coherent SPIRIT 1040 Ti:Sapphire femtosecond laser with CANopen and TCP/IP control interfaces.
 
+**Driver Implementation:** This device uses `driver-universal` with a TOML manifest (`config/devices/spirit_laser.toml` or similar). No dedicated `driver-spirit-laser` crate exists.
+
 **Reference:** `docs/reference/markdown/spirit-laser.md`
 
 ---
@@ -368,15 +370,15 @@ Error bits use the **same structure** as warning bits for each subsystem. When a
 
 ## Configuration Example
 
+**Note:** SPIRIT laser is configured via a `driver-universal` TOML manifest. See `config/devices/` for manifest templates or create a schema v3 manifest file.
+
 ```toml
+# Example hardware config reference (legacy format shown for reference)
 [[devices]]
 id = "spirit_laser"
-type = "spirit_laser"
+type = "universal"  # Uses driver-universal
 enabled = true
 
 [devices.config]
-ip = "192.168.1.100"
-port = 9000
-warmup_timeout_minutes = 35
-default_power_watts = 5.0
+manifest = "config/devices/spirit_laser.toml"  # Points to schema v3 manifest
 ```

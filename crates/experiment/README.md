@@ -121,7 +121,7 @@ Plans yield these commands to the RunEngine:
 | `Wait` | Wait for duration or condition |
 | `Checkpoint` | Safe pause point |
 | `EmitEvent` | Emit an event document |
-| `CreateDescriptor` | Define a new data stream |
+| `Set` | Set a parameter or device state |
 
 ## Built-in Plans
 

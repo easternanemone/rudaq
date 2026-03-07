@@ -9,6 +9,7 @@
 - Bluesky-inspired experiment orchestration (Plans + RunEngine)
 - gRPC remote control with Rhai scripting
 - Apache Arrow / HDF5 data storage
+- 25 workspace crates (see CLAUDE.md for full architecture)
 
 ## Tech Stack
 
@@ -93,10 +94,12 @@ cargo clippy --all-targets --all-features
 
 ## Feature Flags
 
-- **Storage**: `storage_hdf5`, `storage_arrow`
-- **Hardware**: `thorlabs`, `newport`, `spectra_physics`, `pvcam_hardware`, `comedi_hardware`, `all_hardware`
+**Hardware features** (gated in `driver-registry` crate):
+- **Hardware**: `pvcam`, `pvcam_sdk`, `pvcam_hardware`, `comedi`, `comedi_hardware`, `andor`, `andor_hardware`, `all_hardware`
 - **Profiles**: `maitai` (all real hardware), `full` (all mock drivers + storage)
 - **System**: `networking` (gRPC), `hardware_tests`
+
+**Note:** Serial/SCPI devices (Thorlabs, Newport, Spectra-Physics, Red Pitaya) are defined as TOML manifests in `config/devices/` and use `driver-universal` (no feature flags needed).
 
 ## Important Rules
 

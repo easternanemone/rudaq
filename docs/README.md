@@ -58,6 +58,10 @@ Organized using the [Diataxis](https://diataxis.fr/) framework.
 | [Testing](how-to/testing.md) | Test runner, profiles, hardware tests, coverage |
 | [Plugins](how-to/plugins.md) | Config-only, native Rust, and Rhai plugins |
 | [SurrealDB Integration](how-to/surrealdb-integration.md) | Embedded database setup |
+| [Web GUI](how-to/web-gui.md) | WASM build, deployment, and architecture |
+| [Migration/Rollback Toolkit](how-to/migration-rollback-toolkit.md) | Backup, restore, and incident rollback procedures |
+| [LEABS Universal+DB Signoff](how-to/leabs-universal-db-signoff.md) | LEABS hardware validation runbook for hybrid-db mode |
+| [LIBS Scripting](how-to/libs-scripting.md) | Rhai API for LIBS experiments |
 
 ## Reference — Look up details
 
@@ -92,3 +96,10 @@ See [ADR Index](adr/README.md) for all decisions with status and summaries.
 | Policy | Description |
 |--------|-------------|
 | [Runtime Driver Policy](architecture/runtime-driver-policy.md) | Universal vs native boundaries and SurrealDB role by runtime mode |
+
+## Plans — Project Roadmaps
+
+| Plan | Description |
+|------|-------------|
+| [Mechelle Echelle Spectrum Workstream A](plans/mechelle-echelle-spectrum-workstream-a.md) | Echelle extraction epic: scope, assumptions, MVP outcomes |
+| [Test Suite Overhaul](plans/test-suite-overhaul.md) | Test reorganization for hybrid-db runtime mode |
