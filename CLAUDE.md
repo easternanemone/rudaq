@@ -12,6 +12,7 @@ cargo nextest run                        # Parallel test runner (install: cargo 
 cargo nextest run test_name              # Single test by name
 cargo nextest run -p common              # Single crate
 cargo nextest run --profile ci           # CI profile (3 retries, no fail-fast)
+cargo check -p ui --lib --target wasm32-unknown-unknown --no-default-features --features web  # UI WASM compile smoke (CI parity)
 cargo test --doc                         # Doctests (nextest doesn't support these)
 cargo fmt --all                          # Format
 cargo clippy --all-targets               # Lint
