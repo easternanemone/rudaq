@@ -431,10 +431,11 @@ async fn test_24_driver_callback_infrastructure() {
     let callback_ctx_for_loop = callback_ctx.clone();
 
     let frames_acquired = tokio::task::spawn_blocking(move || {
+        let rt = tokio::runtime::Handle::current();
         let mut frames = 0i32;
 
         while frames < TARGET_FRAMES {
-            let pending = callback_ctx_for_loop.wait_for_frames(TIMEOUT_MS);
+            let pending = rt.block_on(callback_ctx_for_loop.wait_for_frames(TIMEOUT_MS));
             if pending == 0 {
                 eprintln!("[TIMEOUT] at frame {}", frames);
                 break;
@@ -903,6 +904,7 @@ async fn test_26_watch_channel_loop_condition() {
     let loop_start = std::time::Instant::now();
 
     let frames_acquired = tokio::task::spawn_blocking(move || {
+        let rt = tokio::runtime::Handle::current();
         let mut frames: i32 = 0;
         let mut loop_iteration: u64 = 0;
         let mut consecutive_timeouts: u32 = 0;
@@ -925,7 +927,7 @@ async fn test_26_watch_channel_loop_condition() {
                 );
             }
 
-            let pending = callback_ctx_for_loop.wait_for_frames(TIMEOUT_MS);
+            let pending = rt.block_on(callback_ctx_for_loop.wait_for_frames(TIMEOUT_MS));
             if pending == 0 {
                 consecutive_timeouts += 1;
                 eprintln!(
@@ -1246,6 +1248,7 @@ async fn test_27_callback_rereg_during_fallback() {
     let loop_start = std::time::Instant::now();
 
     let frames_acquired = tokio::task::spawn_blocking(move || {
+        let rt = tokio::runtime::Handle::current();
         let mut frames: i32 = 0;
         let mut loop_iteration: u64 = 0;
         let mut consecutive_timeouts: u32 = 0;
@@ -1267,7 +1270,7 @@ async fn test_27_callback_rereg_during_fallback() {
                 );
             }
 
-            let pending = callback_ctx_for_loop.wait_for_frames(TIMEOUT_MS);
+            let pending = rt.block_on(callback_ctx_for_loop.wait_for_frames(TIMEOUT_MS));
             if pending == 0 {
                 consecutive_timeouts += 1;
                 eprintln!(
@@ -1529,6 +1532,7 @@ async fn test_28_full_driver_channel_infrastructure() {
     let frames_acquired_clone = frames_acquired.clone();
 
     let poll_handle = tokio::task::spawn_blocking(move || {
+        let rt = tokio::runtime::Handle::current();
         let mut loop_iteration = 0i32;
         let mut frame_info: FRAME_INFO = unsafe { std::mem::zeroed() };
 
@@ -1560,7 +1564,7 @@ async fn test_28_full_driver_channel_infrastructure() {
                 }
             }
 
-            let pending = callback_ctx_clone.wait_for_frames(TIMEOUT_MS);
+            let pending = rt.block_on(callback_ctx_clone.wait_for_frames(TIMEOUT_MS));
             if pending == 0 {
                 let _ = error_tx_clone.send("Timeout waiting for callback".to_string());
                 break;

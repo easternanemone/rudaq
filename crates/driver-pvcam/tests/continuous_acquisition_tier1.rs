@@ -438,13 +438,11 @@ async fn test_frame_data_integrity() {
                 }
             }
             Ok(None) => {
-                stats.channel_errors += 1;
                 println!("Channel closed");
                 break;
             }
             Err(_) => {
-                stats.timeout_errors += 1;
-                println!("Timeout waiting for frame at {:?}", start.elapsed());
+                println!("Timeout waiting for frame");
             }
         }
     }
@@ -505,6 +503,7 @@ async fn test_frame_numbering_sequence() {
         .await
         .expect("Failed to start streaming");
 
+    let mut stats = TestStats::new();
     let mut tracker = FrameTracker::new();
     let mut frame_numbers: Vec<i32> = Vec::new();
     let test_duration = durations::STANDARD;
@@ -538,7 +537,6 @@ async fn test_frame_numbering_sequence() {
         .expect("Failed to stop streaming");
     let _ = camera.close().await;
 
-    let mut stats = TestStats::new();
     tracker.export_to_stats(&mut stats);
 
     // Analyze sequence

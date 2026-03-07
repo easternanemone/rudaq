@@ -120,16 +120,8 @@ async fn liveimage_200_frames() {
                     );
                 }
             }
-            Ok(Err(tokio::sync::broadcast::error::RecvError::Lagged(n))) => {
-                // Handle lagged frames (still count them)
-                frames_received += n as u32;
-                println!(
-                    "      [Note: {} frames lagged, total now: {}]",
-                    n, frames_received
-                );
-            }
-            Ok(Err(e)) => {
-                panic!("Channel error at frame {}: {}", frames_received, e);
+            Ok(None) => {
+                panic!("Channel closed at frame {}", frames_received);
             }
             Err(_) => {
                 panic!(

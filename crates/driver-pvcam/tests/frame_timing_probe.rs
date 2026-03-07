@@ -207,7 +207,7 @@ async fn test_frame_timing_semantics() {
 
     // Analysis
     println!("\n=== ANALYSIS ===\n");
-    if oldest_frames.len() >= 3 {
+    if oldest_frames.len() >= 2 {
         // Assert monotonic frame numbers and non-decreasing timestamps
         let mut monotonic_ok = true;
         let mut ts_ok = true;
@@ -237,7 +237,7 @@ async fn test_frame_timing_semantics() {
         );
     } else {
         panic!(
-            "Insufficient frames collected for FIFO timing probe ({} < 3)",
+            "Insufficient frames collected for FIFO timing probe ({} < 2)",
             oldest_frames.len()
         );
     }

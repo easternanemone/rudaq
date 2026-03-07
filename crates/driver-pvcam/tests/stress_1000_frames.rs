@@ -386,9 +386,9 @@ async fn test_stress_2000_frames_extended() {
                     last_report = Instant::now();
                 }
             }
-            Ok(Err(e)) => {
+            Ok(None) => {
                 stats.channel_errors += 1;
-                eprintln!("Channel error: {}", e);
+                eprintln!("Channel closed");
             }
             Err(_) => {
                 stats.timeout_errors += 1;

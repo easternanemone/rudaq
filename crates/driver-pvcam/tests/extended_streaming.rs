@@ -76,8 +76,8 @@ async fn extended_streaming_test() {
                     last_report = Instant::now();
                 }
             }
-            Ok(Err(e)) => {
-                println!("  ERROR: Receive error at frame {}: {}", frame_count, e);
+            Ok(None) => {
+                println!("  ERROR: Channel closed at frame {}", frame_count);
                 break;
             }
             Err(_) => {
