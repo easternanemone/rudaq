@@ -55,6 +55,13 @@
 {"issue_id":"bd-1ud9.2.4","label":"radiation"}
 {"issue_id":"bd-1ud9.2.4","label":"review"}
 {"issue_id":"bd-1ud9.2.4","label":"transfer"}
+{"issue_id":"bd-1ud9.2.5","label":"algorithms"}
+{"issue_id":"bd-1ud9.2.5","label":"backend"}
+{"issue_id":"bd-1ud9.2.5","label":"jax"}
+{"issue_id":"bd-1ud9.2.5","label":"metal"}
+{"issue_id":"bd-1ud9.2.5","label":"physics"}
+{"issue_id":"bd-1ud9.2.5","label":"radiation"}
+{"issue_id":"bd-1ud9.2.5","label":"review"}
 {"issue_id":"bd-1ud9.3","label":"algorithms"}
 {"issue_id":"bd-1ud9.3","label":"inversion"}
 {"issue_id":"bd-1ud9.3","label":"physics"}

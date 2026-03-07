@@ -61,4 +61,4 @@ if [[ ! -e "$canonical_db" ]]; then
   exit 1
 fi
 
-exec bd --db "$canonical_db" "$@"
+exec bd --no-daemon --no-auto-import --db "$canonical_db" "$@"
