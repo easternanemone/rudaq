@@ -30,11 +30,12 @@ cargo build -p ui --target wasm32-unknown-unknown --features web
 The default `bin` crate build provides a headless daemon:
 
 ```toml
-default = ["networking", "server"]
+default = ["networking", "server", "db-surreal-mem"]
 ```
 
 - **networking**: gRPC networking layer
 - **server**: Full gRPC server
+- **db-surreal-mem**: In-memory SurrealDB for device/experiment metadata
 
 ---
 
@@ -47,6 +48,9 @@ Use these for common build configurations:
 | `backend` | modules, all_hardware | Headless daemon with full hardware |
 | `cli` | all_hardware, scripting_python | Command-line automation |
 | `full` | storage_arrow, serial, modules, all_hardware | Most features (excludes HDF5) |
+| `production` | db-surreal-rocksdb, modules, all_hardware | Production with persistent DB |
+| `leabs` | andor (mock) | Leabs lab profile (mock mode) |
+| `leabs_hardware` | andor_hardware | Leabs lab profile (real Andor SDK3) |
 
 **Note:** `storage_hdf5` is intentionally excluded from `full` because it requires native HDF5 libraries. Enable explicitly when available.
 
@@ -207,14 +211,28 @@ cargo nextest run -p driver-pvcam --features pvcam_sdk
 
 The CI system tests these combinations:
 
+**CI workflow (`ci.yml`):**
+
+| Step | Purpose |
+|------|---------|
+| **Format check** | `cargo fmt --all -- --check` |
+| **Clippy** | Workspace-wide lint |
+| **Unit & integration tests** | `cargo nextest run` (default features) |
+| **Ring buffer benchmark** | Performance regression check |
+| **SBOM generation** | CycloneDX bill of materials |
+
+**Feature Matrix workflow (`feature-matrix.yml`):**
+
 | Job | Features | Purpose |
 |-----|----------|---------|
-| **check-fast** | defaults | Quick compilation check |
-| **test-core** | defaults | Unit tests without hardware |
-| **test-storage** | storage_arrow | Storage backend tests |
-| **test-server** | server, scripting | gRPC + scripting tests |
-| **lint-all** | full | Clippy with most features |
-| **format** | - | cargo fmt check |
+| **storage / hdf5** | storage_hdf5 | HDF5 storage backend |
+| **storage / arrow** | storage_arrow | Arrow IPC storage backend |
+| **db / rocksdb** | kv-rocksdb | RocksDB persistence |
+| **bin / all_hardware mock** | all_hardware | All mock drivers compile |
+| **server / full stack** | modules, scripting, storage_hdf5, storage_arrow | Full server features |
+| **runtime / universal-smoke** | universal | driver-universal smoke test |
+| **runtime / hybrid-db-mem-smoke** | universal, db-surreal-mem | In-memory DB runtime |
+| **runtime / hybrid-db-rocksdb-smoke** | (many) | RocksDB runtime integration |
 
 **Note:** HDF5 and PVCAM tests run only on dedicated hardware runners.
 
@@ -231,6 +249,8 @@ bin crate features:
   full → storage_arrow + serial + modules + all_hardware
   backend → modules + all_hardware
   production → db-surreal-rocksdb + modules + all_hardware
+  leabs → driver-registry/andor
+  leabs_hardware → driver-registry/andor_hardware
   modules → dep:daq-modules
   serial → hardware/serial + driver-registry/serial
 

@@ -243,9 +243,19 @@ maintainability and review surface. Public API paths are preserved via re-export
 
 | File | Lines | Responsibility |
 |------|-------|----------------|
-| `lib.rs` | ~600 | PvcamDriver struct, trait impls, entry point |
-| `components/acquisition/` | ~350 | Frame acquisition loop, callback handling |
-| `components/features/` | ~200 | PVCAM feature enumeration and parameter mapping |
+| `lib.rs` | ~2230 | PvcamDriver struct, trait impls, entry point |
+| `macros.rs` | ~14k | Macro-generated parameter bindings |
+| `components/acquisition/mod.rs` | ~3350 | Frame acquisition loop, callback handling |
+| `components/acquisition/buffer.rs` | — | Frame buffer management |
+| `components/acquisition/callback_context.rs` | — | FFI callback context |
+| `components/acquisition/ffi_safe.rs` | — | FFI-safe type wrappers |
+| `components/features/mod.rs` | ~3340 | PVCAM feature enumeration and parameter mapping |
+| `components/features/enums.rs` | — | Feature enum definitions |
+| `components/features/types.rs` | — | Feature type mappings |
+| `components/connection.rs` | — | Camera connection lifecycle |
+| `components/frame_pool.rs` | — | Frame pool integration |
+| `components/speed_table.rs` | — | Readout speed table |
+| `components/taps.rs` | — | Camera tap configuration |
 
 ### ui::panels::image_viewer
 
@@ -253,10 +263,13 @@ maintainability and review surface. Public API paths are preserved via re-export
 
 | File | Lines | Responsibility |
 |------|-------|----------------|
-| `mod.rs` | ~3360 | ImageViewerPanel struct, impl, tests |
-| `processing.rs` | ~440 | RGBA conversion pipeline, histogram computation |
+| `mod.rs` | ~6220 | ImageViewerPanel struct, impl, tests |
+| `processing.rs` | ~480 | RGBA conversion pipeline, histogram computation |
 | `colormap.rs` | ~260 | Colormap LUTs, ContrastMode, ScaleMode enums |
 | `types.rs` | ~220 | FrameUpdate, StreamMetrics, state enums, channels |
+| `echelle_extraction.rs` | ~56k | Echelle spectrograph order extraction |
+| `echelle_profile_cache.rs` | ~5.5k | Cached echelle spatial profiles |
+| `echelle_sidecar.rs` | ~7.7k | Echelle sidecar panel UI |
 
 ### server::grpc::hardware_service
 
@@ -264,9 +277,9 @@ maintainability and review surface. Public API paths are preserved via re-export
 
 | File | Lines | Responsibility |
 |------|-------|----------------|
-| `mod.rs` | ~2930 | HardwareServiceImpl struct, gRPC trait impl, tests |
+| `mod.rs` | ~3510 | HardwareServiceImpl struct, gRPC trait impl, tests |
 | `helpers.rs` | ~370 | Validation, error mapping, proto conversions |
-| `streaming.rs` | ~225 | GrpcStreamObserver, StreamLimiter |
+| `streaming.rs` | ~290 | GrpcStreamObserver, StreamLimiter |
 
 ---
 
@@ -277,18 +290,17 @@ annotations and are scheduled for removal at v1.0:
 
 | Item | Crate | Replacement |
 |------|-------|-------------|
-| `DataPoint` | common | `Observable<T>` / `Parameter<T>` |
 | `DeviceConfig` (schema v2) | hardware | `UniversalDriverConfig` (schema v3) |
-| `GenericSerialDriver` | hardware | `driver-universal` crate |
-| `GenericDriver::new` | hardware | `UniversalDriver::from_config` |
-| `ScriptHost` | scripting | `ScriptEngine` |
+| `GenericDriver::new` | hardware | `GenericDriver::new_serial` |
 | `ScanServiceImpl` | server | `RunEngineService` |
 | `TiffWriter::write_frame` | storage | `TiffWriter::write_frame_data` |
 | `take_frame_receiver` / `subscribe_frames` | common | `FrameObserver` trait |
-| `Ell14Driver` legacy constructors | hardware | `Ell14Driver::from_config` |
 | `PvcamDriver::new` | driver-pvcam | `PvcamDriver::from_config` |
 
-**Zero-caller deprecated items removed in this cycle:**
+**Previously deprecated items already removed:**
+- `DataPoint` (common) — replaced by `Observable<T>` / `Parameter<T>`
+- `ScriptHost` (scripting) — replaced by `ScriptEngine`
+- `Ell14Driver` legacy constructors (hardware) — serial drivers moved to `driver-universal`
 - `InstrumentConfigV3` type alias (common)
 - `CodePreviewPanel::ui()` method (ui)
 - `execute_script` free function (hardware)
