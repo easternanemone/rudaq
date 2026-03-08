@@ -83,7 +83,11 @@ impl RotatorControlPanel {
                     self.refresh_in_flight = false;
                     match result {
                         Ok(state) => {
-                            self.state = state;
+                            // Only update position from the server poll.
+                            // The `moving` flag is set by Move/Home commands and cleared
+                            // by their completion handlers — don't let a position poll
+                            // reset it to false while a move is still in progress.
+                            self.state.position_deg = state.position_deg;
                             if let Some(pos) = self.state.position_deg {
                                 self.position_input = format!("{:.2}", pos);
                             }
@@ -143,7 +147,7 @@ impl RotatorControlPanel {
             let state_result = result
                 .map(|proto| RotatorState {
                     position_deg: proto.position,
-                    moving: false, // TODO: Get from proto when available
+                    moving: false, // moving is managed client-side by move/home handlers
                 })
                 .map_err(|e| e.to_string());
             let _ = tx.send(ActionResult::FetchState(state_result)).await;

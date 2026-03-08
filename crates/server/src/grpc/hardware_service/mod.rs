@@ -1617,6 +1617,68 @@ impl HardwareService for HardwareServiceImpl {
         let device_id_arc: Arc<str> = Arc::from(device_id.as_str());
         let device_id_clone = device_id.clone();
         let frame_producer_clone = frame_producer.clone();
+
+        // Dedicated compression thread: receives ObserverFramePacket, compresses with
+        // buffer reuse, and sends FrameData to the async forwarding task.
+        // Eliminates per-frame spawn_blocking overhead (~50-200μs) and per-frame
+        // compression buffer allocation.
+        let (compress_tx, mut compress_rx) = tokio::sync::mpsc::channel::<(
+            ObserverFramePacket,
+            StreamingMetrics,
+        )>(GRPC_CHANNEL_CAPACITY);
+        let device_id_for_compressor = Arc::clone(&device_id_arc);
+        let (compressed_tx, mut compressed_rx) =
+            tokio::sync::mpsc::channel::<(FrameData, usize, usize)>(GRPC_CHANNEL_CAPACITY);
+
+        std::thread::Builder::new()
+            .name(format!("lz4-compress-{device_id}"))
+            .spawn({
+                let compressed_tx = compressed_tx;
+                move || {
+                    let mut compress_buf = Vec::new();
+
+                    while let Some((packet, metrics)) = compress_rx.blocking_recv() {
+                        let mut frame_data = FrameData {
+                            device_id: device_id_for_compressor.to_string(),
+                            width: packet.width,
+                            height: packet.height,
+                            bit_depth: packet.bit_depth,
+                            data: packet.data,
+                            frame_number: packet.frame_number,
+                            timestamp_ns: packet.timestamp_ns,
+                            exposure_ms: packet.exposure_ms,
+                            roi_x: packet.roi_x,
+                            roi_y: packet.roi_y,
+                            temperature_c: packet.temperature_c,
+                            gain_mode: None,
+                            readout_speed: None,
+                            trigger_mode: None,
+                            binning_x: packet.binning.map(|(x, _)| u32::from(x)),
+                            binning_y: packet.binning.map(|(_, y)| u32::from(y)),
+                            metadata: HashMap::new(),
+                            metrics: Some(metrics),
+                            compression: CompressionType::CompressionNone as i32,
+                            uncompressed_size: 0,
+                        };
+
+                        let uncompressed_size = frame_data.data.len();
+                        crate::grpc::compression::compress_frame_into(
+                            &mut frame_data,
+                            &mut compress_buf,
+                        );
+                        let compressed_size = frame_data.data.len();
+
+                        if compressed_tx
+                            .blocking_send((frame_data, uncompressed_size, compressed_size))
+                            .is_err()
+                        {
+                            break; // Forwarding task dropped — exit
+                        }
+                    }
+                }
+            })
+            .expect("failed to spawn LZ4 compression thread");
+
         tokio::spawn(async move {
             // Hold the per-client stream slot for the lifetime of this forwarding task.
             // Dropping the guard releases the slot on every exit path (including panic unwind).
@@ -1644,8 +1706,231 @@ impl HardwareService for HardwareServiceImpl {
             let exit_reason: &str;
 
             loop {
-                let next_packet = tokio::select! {
-                    maybe_packet = observer_rx.recv() => maybe_packet,
+                // Multiplex: read from observer (new frames), compression thread (compressed
+                // frames ready to send), and watch for gRPC client disconnect.
+                tokio::select! {
+                    // Handle compressed frames ready to send to gRPC client
+                    compressed_result = compressed_rx.recv() => {
+                        match compressed_result {
+                            Some((frame_data, uncompressed_size, compressed_size)) => {
+                                // Log early frame sends
+                                if frames_sent < 10 {
+                                    tracing::info!(
+                                        device_id = %device_id_clone,
+                                        frame = frames_sent + 1,
+                                        frame_number = frame_data.frame_number,
+                                        bytes = frame_data.data.len(),
+                                        queue_capacity = grpc_tx.capacity(),
+                                        "About to send frame to gRPC client (early frame debug)"
+                                    );
+                                }
+
+                                // Send to gRPC client
+                                if grpc_tx.send(Ok(frame_data)).await.is_err() {
+                                    tracing::warn!(
+                                        device_id = %device_id_clone,
+                                        frames_sent = frames_sent,
+                                        "Client disconnected from frame stream - gRPC send failed"
+                                    );
+
+                                    if let Err(e) = frame_producer_clone
+                                        .unregister_observer(observer_handle)
+                                        .await
+                                    {
+                                        tracing::warn!(
+                                            device_id = %device_id_clone,
+                                            observer_handle = observer_handle.id(),
+                                            error = %e,
+                                            "Failed to unregister observer on client disconnect"
+                                        );
+                                    } else {
+                                        tracing::info!(
+                                            device_id = %device_id_clone,
+                                            observer_handle = observer_handle.id(),
+                                            "Unregistered observer after client disconnect"
+                                        );
+                                    }
+
+                                    exit_reason = "client_disconnected";
+                                    break;
+                                }
+
+                                // Log early frame sends success
+                                if frames_sent <= 10 {
+                                    tracing::info!(
+                                        device_id = %device_id_clone,
+                                        frame = frames_sent,
+                                        "Successfully sent frame to gRPC client (early frame debug)"
+                                    );
+                                }
+
+                                // Log compression stats periodically
+                                if frames_sent > 10 && frames_sent.is_multiple_of(30) {
+                                    #[allow(clippy::cast_precision_loss)]
+                                    // SAFETY: precision loss acceptable for metrics/display
+                                    let ratio = if compressed_size > 0 {
+                                        uncompressed_size as f64 / compressed_size as f64
+                                    } else {
+                                        1.0
+                                    };
+                                    tracing::debug!(
+                                        device_id = %device_id_clone,
+                                        frames = frames_sent,
+                                        uncompressed_kb = uncompressed_size / 1024,
+                                        compressed_kb = compressed_size / 1024,
+                                        compression_ratio = format!("{:.1}x", ratio),
+                                        "Sent frame to client (LZ4 compressed)"
+                                    );
+                                }
+                            }
+                            None => {
+                                // Compression thread exited
+                                tracing::info!(
+                                    device_id = %device_id_clone,
+                                    frames_sent = frames_sent,
+                                    "Compression thread exited"
+                                );
+                                exit_reason = "compressor_closed";
+                                break;
+                            }
+                        }
+                    }
+                    // Handle new frames from the observer channel
+                    next_packet = observer_rx.recv() => {
+                        match next_packet {
+                            Some(packet) => {
+                                // Log early frames for debugging
+                                if frames_sent < 10 {
+                                    tracing::info!(
+                                        device_id = %device_id_clone,
+                                        frame_number = packet.frame_number,
+                                        bytes = packet.data.len(),
+                                        width = packet.width,
+                                        height = packet.height,
+                                        "Received frame from observer (early frame debug)"
+                                    );
+                                }
+
+                                // Rate limiting: skip frame if too soon
+                                if let Some(interval) = min_interval {
+                                    let elapsed = last_frame_time.elapsed();
+                                    if elapsed < interval {
+                                        frames_dropped = frames_dropped.saturating_add(1);
+                                        continue;
+                                    }
+                                }
+                                last_frame_time = std::time::Instant::now();
+
+                                // Backpressure handling: skip frames if gRPC channel is nearly full
+                                let queue_len = GRPC_CHANNEL_CAPACITY - grpc_tx.capacity();
+                                if queue_len >= GRPC_SKIP_THRESHOLD {
+                                    frames_dropped = frames_dropped.saturating_add(1);
+                                    if frames_dropped % 10 == 1 {
+                                        tracing::debug!(
+                                            device_id = %device_id_clone,
+                                            queue_len,
+                                            threshold = GRPC_SKIP_THRESHOLD,
+                                            "Skipping frame due to gRPC backpressure"
+                                        );
+                                    }
+                                    continue;
+                                }
+
+                                // Validate frame dimensions (bd-7rk0)
+                                let bytes_per_pixel = (packet.bit_depth as usize).div_ceil(8);
+                                let expected_size = (packet.width as usize)
+                                    .saturating_mul(packet.height as usize)
+                                    .saturating_mul(bytes_per_pixel);
+                                if packet.data.len() != expected_size {
+                                    tracing::warn!(
+                                        device_id = %device_id_clone,
+                                        width = packet.width,
+                                        height = packet.height,
+                                        bit_depth = packet.bit_depth,
+                                        actual_size = packet.data.len(),
+                                        expected_size = expected_size,
+                                        "Frame data size mismatch after downsampling, skipping"
+                                    );
+                                    frames_dropped = frames_dropped.saturating_add(1);
+                                    continue;
+                                }
+
+                                // Update FPS tracking
+                                let now_instant = std::time::Instant::now();
+                                fps_window.push_back(now_instant);
+                                while let Some(front) = fps_window.front() {
+                                    if now_instant.duration_since(*front) > FPS_WINDOW {
+                                        fps_window.pop_front();
+                                    } else {
+                                        break;
+                                    }
+                                }
+                                #[allow(clippy::cast_precision_loss)]
+                                // SAFETY: precision loss acceptable for metrics/display
+                                let current_fps = fps_window.len() as f64;
+
+                                // Update latency tracking
+                                if packet.timestamp_ns > 0 {
+                                    #[allow(clippy::cast_precision_loss)]
+                                    // SAFETY: precision loss acceptable for metrics/display
+                                    let latency_ms =
+                                        now_ns().saturating_sub(packet.timestamp_ns) as f64
+                                            / 1_000_000.0;
+                                    latency_samples = latency_samples.saturating_add(1);
+                                    #[allow(clippy::cast_precision_loss)]
+                                    // SAFETY: precision loss acceptable for running average
+                                    let samples_f64 = latency_samples as f64;
+                                    avg_latency_ms += (latency_ms - avg_latency_ms) / samples_f64;
+                                }
+
+                                // Increment before building metrics (matches original behavior
+                                // where frames_sent reflects "frames submitted for sending")
+                                frames_sent = frames_sent.saturating_add(1);
+
+                                let metrics = StreamingMetrics {
+                                    current_fps,
+                                    frames_sent,
+                                    frames_dropped,
+                                    avg_latency_ms,
+                                };
+
+                                // Send to dedicated compression thread (non-blocking)
+                                if compress_tx.send((packet, metrics)).await.is_err() {
+                                    tracing::warn!(
+                                        device_id = %device_id_clone,
+                                        "Compression thread channel closed"
+                                    );
+                                    exit_reason = "compressor_closed";
+                                    break;
+                                }
+                            }
+                            None => {
+                                // Observer channel closed - producer stopped or observer was dropped
+                                tracing::info!(
+                                    device_id = %device_id_clone,
+                                    frames_sent = frames_sent,
+                                    "Observer channel closed - producer stopped streaming"
+                                );
+
+                                // Clean up observer registration
+                                if let Err(e) = frame_producer_clone
+                                    .unregister_observer(observer_handle)
+                                    .await
+                                {
+                                    tracing::debug!(
+                                        device_id = %device_id_clone,
+                                        observer_handle = observer_handle.id(),
+                                        error = %e,
+                                        "Failed to unregister observer (may already be unregistered)"
+                                    );
+                                }
+
+                                exit_reason = "observer_channel_closed";
+                                break;
+                            }
+                        }
+                    }
+                    // Handle gRPC client disconnect
                     () = grpc_tx.closed() => {
                         tracing::info!(
                             device_id = %device_id_clone,
@@ -1674,249 +1959,11 @@ impl HardwareService for HardwareServiceImpl {
                         exit_reason = "grpc_receiver_dropped";
                         break;
                     }
-                };
-
-                match next_packet {
-                    Some(packet) => {
-                        // Log early frames for debugging
-                        if frames_sent < 10 {
-                            tracing::info!(
-                                device_id = %device_id_clone,
-                                frame_number = packet.frame_number,
-                                bytes = packet.data.len(),
-                                width = packet.width,
-                                height = packet.height,
-                                "Received frame from observer (early frame debug)"
-                            );
-                        }
-
-                        // Rate limiting: skip frame if too soon
-                        if let Some(interval) = min_interval {
-                            let elapsed = last_frame_time.elapsed();
-                            if elapsed < interval {
-                                frames_dropped = frames_dropped.saturating_add(1);
-                                continue;
-                            }
-                        }
-                        last_frame_time = std::time::Instant::now();
-
-                        // Backpressure handling: skip frames if gRPC channel is nearly full
-                        let queue_len = GRPC_CHANNEL_CAPACITY - grpc_tx.capacity();
-                        if queue_len >= GRPC_SKIP_THRESHOLD {
-                            frames_dropped = frames_dropped.saturating_add(1);
-                            if frames_dropped % 10 == 1 {
-                                tracing::debug!(
-                                    device_id = %device_id_clone,
-                                    queue_len,
-                                    threshold = GRPC_SKIP_THRESHOLD,
-                                    "Skipping frame due to gRPC backpressure"
-                                );
-                            }
-                            continue;
-                        }
-
-                        // Validate frame dimensions (bd-7rk0)
-                        let bytes_per_pixel = (packet.bit_depth as usize).div_ceil(8);
-                        let expected_size = (packet.width as usize)
-                            .saturating_mul(packet.height as usize)
-                            .saturating_mul(bytes_per_pixel);
-                        if packet.data.len() != expected_size {
-                            tracing::warn!(
-                                device_id = %device_id_clone,
-                                width = packet.width,
-                                height = packet.height,
-                                bit_depth = packet.bit_depth,
-                                actual_size = packet.data.len(),
-                                expected_size = expected_size,
-                                "Frame data size mismatch after downsampling, skipping"
-                            );
-                            frames_dropped = frames_dropped.saturating_add(1);
-                            continue;
-                        }
-
-                        // Update FPS tracking
-                        let now_instant = std::time::Instant::now();
-                        fps_window.push_back(now_instant);
-                        while let Some(front) = fps_window.front() {
-                            if now_instant.duration_since(*front) > FPS_WINDOW {
-                                fps_window.pop_front();
-                            } else {
-                                break;
-                            }
-                        }
-                        #[allow(clippy::cast_precision_loss)]
-                        // SAFETY: precision loss acceptable for metrics/display
-                        let current_fps = fps_window.len() as f64;
-
-                        // Update latency tracking
-                        if packet.timestamp_ns > 0 {
-                            #[allow(clippy::cast_precision_loss)]
-                            // SAFETY: precision loss acceptable for metrics/display
-                            let latency_ms =
-                                now_ns().saturating_sub(packet.timestamp_ns) as f64 / 1_000_000.0;
-                            latency_samples = latency_samples.saturating_add(1);
-                            #[allow(clippy::cast_precision_loss)]
-                            // SAFETY: precision loss acceptable for running average
-                            let samples_f64 = latency_samples as f64;
-                            avg_latency_ms += (latency_ms - avg_latency_ms) / samples_f64;
-                        }
-
-                        frames_sent = frames_sent.saturating_add(1);
-                        let metrics = StreamingMetrics {
-                            current_fps,
-                            frames_sent,
-                            frames_dropped,
-                            avg_latency_ms,
-                        };
-
-                        // Build FrameData proto and apply compression in blocking task
-                        // Use Arc<str> clone (pointer-width, not heap alloc) for hot path (bd-rgnx.11)
-                        let device_id_for_frame = Arc::clone(&device_id_arc);
-                        let processing_result = tokio::task::spawn_blocking(move || {
-                            let mut frame_data = FrameData {
-                                device_id: device_id_for_frame.to_string(),
-                                width: packet.width,
-                                height: packet.height,
-                                bit_depth: packet.bit_depth,
-                                data: packet.data,
-                                frame_number: packet.frame_number,
-                                timestamp_ns: packet.timestamp_ns,
-                                exposure_ms: packet.exposure_ms,
-                                roi_x: packet.roi_x,
-                                roi_y: packet.roi_y,
-                                temperature_c: packet.temperature_c,
-                                gain_mode: None, // FrameView doesn't include these
-                                readout_speed: None,
-                                trigger_mode: None,
-                                binning_x: packet.binning.map(|(x, _)| u32::from(x)),
-                                binning_y: packet.binning.map(|(_, y)| u32::from(y)),
-                                metadata: HashMap::new(),
-                                metrics: Some(metrics),
-                                compression: CompressionType::CompressionNone as i32,
-                                uncompressed_size: 0,
-                            };
-
-                            // Apply LZ4 compression (bd-7rk0)
-                            let uncompressed_size = frame_data.data.len();
-                            crate::grpc::compression::compress_frame(&mut frame_data);
-                            let compressed_size = frame_data.data.len();
-
-                            (frame_data, uncompressed_size, compressed_size)
-                        })
-                        .await;
-
-                        let (frame_data, uncompressed_size, compressed_size) =
-                            match processing_result {
-                                Ok(result) => result,
-                                Err(e) => {
-                                    tracing::error!(
-                                        device_id = %device_id_clone,
-                                        error = %e,
-                                        "Frame compression task panicked or was cancelled"
-                                    );
-                                    frames_dropped = frames_dropped.saturating_add(1);
-                                    continue;
-                                }
-                            };
-
-                        // Log early frame sends
-                        if frames_sent <= 10 {
-                            tracing::info!(
-                                device_id = %device_id_clone,
-                                frame = frames_sent,
-                                frame_number = frame_data.frame_number,
-                                bytes = frame_data.data.len(),
-                                queue_capacity = grpc_tx.capacity(),
-                                "About to send frame to gRPC client (early frame debug)"
-                            );
-                        }
-
-                        // Send to gRPC client
-                        if grpc_tx.send(Ok(frame_data)).await.is_err() {
-                            tracing::warn!(
-                                device_id = %device_id_clone,
-                                frames_sent = frames_sent,
-                                "Client disconnected from frame stream - gRPC send failed"
-                            );
-
-                            // Unregister observer on disconnect (bd-0dax.6.3)
-                            if let Err(e) = frame_producer_clone
-                                .unregister_observer(observer_handle)
-                                .await
-                            {
-                                tracing::warn!(
-                                    device_id = %device_id_clone,
-                                    observer_handle = observer_handle.id(),
-                                    error = %e,
-                                    "Failed to unregister observer on client disconnect"
-                                );
-                            } else {
-                                tracing::info!(
-                                    device_id = %device_id_clone,
-                                    observer_handle = observer_handle.id(),
-                                    "Unregistered observer after client disconnect"
-                                );
-                            }
-
-                            exit_reason = "client_disconnected";
-                            break;
-                        }
-
-                        // Log early frame sends success
-                        if frames_sent <= 10 {
-                            tracing::info!(
-                                device_id = %device_id_clone,
-                                frame = frames_sent,
-                                "Successfully sent frame to gRPC client (early frame debug)"
-                            );
-                        }
-
-                        // Log compression stats periodically
-                        if frames_sent > 10 && frames_sent.is_multiple_of(30) {
-                            #[allow(clippy::cast_precision_loss)]
-                            // SAFETY: precision loss acceptable for metrics/display
-                            let ratio = if compressed_size > 0 {
-                                uncompressed_size as f64 / compressed_size as f64
-                            } else {
-                                1.0
-                            };
-                            tracing::debug!(
-                                device_id = %device_id_clone,
-                                frames = frames_sent,
-                                uncompressed_kb = uncompressed_size / 1024,
-                                compressed_kb = compressed_size / 1024,
-                                compression_ratio = format!("{:.1}x", ratio),
-                                "Sent frame to client (LZ4 compressed)"
-                            );
-                        }
-                    }
-                    None => {
-                        // Observer channel closed - producer stopped or observer was dropped
-                        tracing::info!(
-                            device_id = %device_id_clone,
-                            frames_sent = frames_sent,
-                            "Observer channel closed - producer stopped streaming"
-                        );
-
-                        // Clean up observer registration
-                        if let Err(e) = frame_producer_clone
-                            .unregister_observer(observer_handle)
-                            .await
-                        {
-                            tracing::debug!(
-                                device_id = %device_id_clone,
-                                observer_handle = observer_handle.id(),
-                                error = %e,
-                                "Failed to unregister observer (may already be unregistered)"
-                            );
-                        }
-
-                        exit_reason = "observer_channel_closed";
-                        break;
-                    }
                 }
             }
             // Release stream slot (bd-64hu)
+            // Dropping compress_tx closes the compression thread channel, causing it to exit
+            drop(compress_tx);
             drop(stream_slot_guard);
 
             // Final summary log

@@ -28,26 +28,26 @@
 mod analog_input;
 mod analog_output;
 mod counter;
-#[allow(dead_code)] // Viewer panel: not yet integrated into unified panel
 mod counter_display;
-#[allow(dead_code)] // Viewer panel: not yet integrated into unified panel
+#[allow(dead_code)] // DataLogger: not yet wired into unified panel
 mod data_logger;
 mod digital_io;
-#[allow(dead_code)] // Viewer panel: not yet integrated into unified panel
 mod dio_monitor;
-#[allow(dead_code)] // Viewer panel: not yet integrated into unified panel
 mod oscilloscope;
 mod trigger;
 mod unified;
-#[allow(dead_code)] // Viewer panel: not yet integrated into unified panel
 mod voltmeter;
 
 pub use analog_input::AnalogInputPanel;
 pub use analog_output::AnalogOutputPanel;
 pub use counter::CounterPanel;
+pub use counter_display::CounterDisplayPanel;
 pub use digital_io::DigitalIOPanel;
+pub use dio_monitor::DioMonitorPanel;
+pub use oscilloscope::OscilloscopePanel;
 pub use trigger::TriggerConfigPanel;
 pub use unified::ComediPanel;
+pub use voltmeter::VoltmeterPanel;
 
 use serde::{Deserialize, Serialize};
 

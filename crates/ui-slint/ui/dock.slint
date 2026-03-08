@@ -1,0 +1,276 @@
+// DockManager component library for rust-daq Slint UI
+//
+// Provides reusable docking primitives:
+//   - HSplitter: horizontal resizable split pane
+//   - VSplitter: vertical resizable split pane
+//   - MdiWindow: draggable, resizable, closeable inner window
+//   - DockArea: free-form area for positioning MdiWindow instances
+//
+// Patterns sourced from:
+//   - slint-ui/slint Discussion #343 (splitter)
+//   - slint-ui/slint examples/fancy_demo (MdiWindow)
+//   - slint-ui/slint tools/lsp draggable-panel.slint (boundary clamping)
+
+// ════════════════════════════════════════════════════════════════
+//  HSplitter — Horizontal resizable split (left | right)
+//
+//  Usage:
+//    HSplitter {
+//        proportion: 0.6;
+//        left := Rectangle { ... }
+//        right := Rectangle { ... }
+//    }
+//
+//  The proportion property (0.0–1.0) controls the left pane's
+//  share of total width. Users drag the handle to adjust.
+// ════════════════════════════════════════════════════════════════
+export component HSplitter inherits Rectangle {
+    in-out property <float> proportion: 0.5;
+    in property <float> min-proportion: 0.05;
+    in property <float> max-proportion: 0.95;
+    in property <length> handle-width: 5px;
+    in property <color> handle-color: #334;
+    in property <color> handle-hover-color: #58c;
+
+    property <length> left-width: (root.width - handle-width) * proportion;
+
+    // Left pane
+    Rectangle {
+        x: 0;
+        y: 0;
+        width: root.left-width;
+        height: root.height;
+        clip: true;
+        @children
+    }
+
+    // Drag handle
+    Rectangle {
+        x: root.left-width;
+        y: 0;
+        width: root.handle-width;
+        height: root.height;
+        background: ht.has-hover || ht.pressed ? root.handle-hover-color : root.handle-color;
+
+        ht := TouchArea {
+            mouse-cursor: MouseCursor.col-resize;
+            moved => {
+                if self.pressed {
+                    root.proportion = max(root.min-proportion, min(root.max-proportion,
+                        root.proportion + (self.mouse-x - self.pressed-x) / root.width));
+                }
+            }
+        }
+    }
+}
+
+// ════════════════════════════════════════════════════════════════
+//  VSplitter — Vertical resizable split (top | bottom)
+// ════════════════════════════════════════════════════════════════
+export component VSplitter inherits Rectangle {
+    in-out property <float> proportion: 0.5;
+    in property <float> min-proportion: 0.05;
+    in property <float> max-proportion: 0.95;
+    in property <length> handle-height: 5px;
+    in property <color> handle-color: #334;
+    in property <color> handle-hover-color: #58c;
+
+    property <length> top-height: (root.height - handle-height) * proportion;
+
+    // Top pane
+    Rectangle {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.top-height;
+        clip: true;
+        @children
+    }
+
+    // Drag handle
+    Rectangle {
+        x: 0;
+        y: root.top-height;
+        width: root.width;
+        height: root.handle-height;
+        background: vt.has-hover || vt.pressed ? root.handle-hover-color : root.handle-color;
+
+        vt := TouchArea {
+            mouse-cursor: MouseCursor.row-resize;
+            moved => {
+                if self.pressed {
+                    root.proportion = max(root.min-proportion, min(root.max-proportion,
+                        root.proportion + (self.mouse-y - self.pressed-y) / root.height));
+                }
+            }
+        }
+    }
+}
+
+// ════════════════════════════════════════════════════════════════
+//  MdiWindow — Draggable, resizable, closeable inner window
+//
+//  Usage:
+//    MdiWindow {
+//        title: "Camera";
+//        window-x: 20px;
+//        window-y: 40px;
+//        initial-width: 500px;
+//        initial-height: 380px;
+//        Rectangle { /* content */ }
+//    }
+// ════════════════════════════════════════════════════════════════
+export component MdiWindow inherits Rectangle {
+    in property <string> title: "Window";
+    in-out property <length> window-x: 0px;
+    in-out property <length> window-y: 0px;
+    in-out property <bool> is-open: true;
+    in property <length> initial-width: 400px;
+    in property <length> initial-height: 300px;
+    in property <length> mdi-min-width: 180px;
+    in property <length> mdi-min-height: 120px;
+    in property <color> title-bar-color: #2a2a4a;
+    in property <color> background-color: #1e1e2e;
+    in property <color> mdi-border-color: #444466;
+
+    callback closed();
+
+    width: 100%;
+    height: 100%;
+
+    frame := Rectangle {
+        x: root.window-x;
+        y: root.window-y;
+        width: root.initial-width;
+        height: root.initial-height;
+        visible: root.is-open;
+        background: root.background-color;
+        border-width: 1px;
+        border-color: root.mdi-border-color;
+        border-radius: 6px;
+        drop-shadow-blur: 16px;
+        drop-shadow-color: rgba(0, 0, 0, 0.35);
+        clip: true;
+
+        // Eat clicks so they don't pass through to items behind
+        TouchArea {}
+
+        VerticalLayout {
+            // ── Title bar (draggable) ───────────────────────
+            title-bar := TouchArea {
+                height: 30px;
+                moved => {
+                    if self.pressed {
+                        root.window-x = max(0px, root.window-x + self.mouse-x - self.pressed-x);
+                        root.window-y = max(0px, root.window-y + self.mouse-y - self.pressed-y);
+                    }
+                }
+
+                Rectangle {
+                    background: root.title-bar-color;
+                    border-top-left-radius: 6px;
+                    border-top-right-radius: 6px;
+
+                    HorizontalLayout {
+                        padding-left: 10px;
+                        padding-right: 4px;
+                        spacing: 4px;
+
+                        // Title text
+                        Text {
+                            text: root.title;
+                            color: #ccccee;
+                            font-size: 12px;
+                            vertical-alignment: center;
+                            horizontal-stretch: 1;
+                            overflow: elide;
+                        }
+
+                        // Close button
+                        close-btn := TouchArea {
+                            width: 26px;
+                            clicked => {
+                                root.is-open = false;
+                                root.closed();
+                            }
+                            Rectangle {
+                                background: close-btn.has-hover ? #cc4444 : transparent;
+                                border-radius: 3px;
+                                Text {
+                                    text: "✕";
+                                    color: close-btn.has-hover ? white : #888;
+                                    font-size: 11px;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Separator line
+            Rectangle { height: 1px; background: root.mdi-border-color; }
+
+            // ── Content area ────────────────────────────────
+            Rectangle {
+                clip: true;
+                @children
+            }
+        }
+
+        // ── Resize handle (bottom-right corner) ────────────
+        resize-area := TouchArea {
+            width: 18px;
+            height: 18px;
+            x: parent.width - self.width;
+            y: parent.height - self.height;
+            mouse-cursor: MouseCursor.nwse-resize;
+            moved => {
+                if self.pressed {
+                    frame.width = max(root.mdi-min-width,
+                        frame.width + self.mouse-x - self.pressed-x);
+                    frame.height = max(root.mdi-min-height,
+                        frame.height + self.mouse-y - self.pressed-y);
+                }
+            }
+
+            Rectangle {
+                // Grip indicator
+                Text {
+                    text: "⋰";
+                    color: #555;
+                    font-size: 12px;
+                    horizontal-alignment: right;
+                    vertical-alignment: bottom;
+                }
+            }
+        }
+    }
+}
+
+// ════════════════════════════════════════════════════════════════
+//  DockArea — Free-form container for MdiWindow instances
+//
+//  Provides a background area where MdiWindow children can be
+//  freely positioned. Sets up a dark canvas with grid hint text.
+// ════════════════════════════════════════════════════════════════
+export component DockArea inherits Rectangle {
+    in property <string> hint-text: "Drag title bars to move · Drag ⋰ to resize · Click ✕ to close";
+    in property <color> area-background: #11111b;
+
+    background: root.area-background;
+    clip: true;
+
+    // Subtle hint at top
+    if root.hint-text != "" : Text {
+        text: root.hint-text;
+        color: #333;
+        font-size: 12px;
+        horizontal-alignment: center;
+        y: 6px;
+        width: 100%;
+    }
+
+    @children
+}

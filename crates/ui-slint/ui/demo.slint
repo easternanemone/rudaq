@@ -1,0 +1,454 @@
+// DockManager demo — showcases all dock components
+//
+// Run: cargo run -p ui-slint [splitter|mdi|floating]
+
+import { Slider, StandardListView, Button } from "std-widgets.slint";
+import { HSplitter, VSplitter, MdiWindow, DockArea } from "dock.slint";
+
+// ════════════════════════════════════════════════════════════════
+//  Panel content components (shared across all modes)
+// ════════════════════════════════════════════════════════════════
+
+component CameraContent inherits Rectangle {
+    in property <image> live-image;
+    in property <string> fps-text: "idle";
+    background: #1a1a2a;
+    VerticalLayout {
+        padding: 8px;
+        spacing: 4px;
+
+        Text { text: "Camera"; font-size: 13px; font-weight: 700; color: #aaccff; }
+
+        Image {
+            source: live-image;
+            min-height: 160px;
+            vertical-stretch: 1;
+            image-fit: contain;
+        }
+        Text { text: fps-text; color: #666; font-size: 11px; }
+    }
+}
+
+component ParamsContent inherits Rectangle {
+    background: #1a1a2a;
+    VerticalLayout {
+        padding: 8px;
+        spacing: 6px;
+
+        Text { text: "Parameters"; font-size: 13px; font-weight: 700; color: #aaccff; }
+
+        Text { text: "Exposure (ms)"; font-size: 11px; color: #999; }
+        exposure := Slider { minimum: 1; maximum: 1000; value: 100; }
+        Text { text: round(exposure.value) + " ms"; font-size: 10px; color: #666; }
+
+        Text { text: "Gain"; font-size: 11px; color: #999; }
+        gain := Slider { minimum: 0; maximum: 100; value: 50; }
+        Text { text: round(gain.value) + ""; font-size: 10px; color: #666; }
+
+        Text { text: "Threshold"; font-size: 11px; color: #999; }
+        threshold := Slider { minimum: 0; maximum: 255; value: 128; }
+        Text { text: round(threshold.value) + ""; font-size: 10px; color: #666; }
+    }
+}
+
+component LogContent inherits Rectangle {
+    in property <[StandardListViewItem]> log-model;
+    background: #1a1a2a;
+    VerticalLayout {
+        padding: 8px;
+        spacing: 4px;
+        Text { text: "Log"; font-size: 13px; font-weight: 700; color: #aaccff; }
+        StandardListView { model: log-model; }
+    }
+}
+
+component StageContent inherits Rectangle {
+    background: #1a1a2a;
+    VerticalLayout {
+        padding: 8px;
+        spacing: 6px;
+
+        Text { text: "Stage Control"; font-size: 13px; font-weight: 700; color: #aaccff; }
+
+        HorizontalLayout {
+            spacing: 8px;
+            Text { text: "X:"; color: #999; font-size: 11px; vertical-alignment: center; }
+            stage-x := Slider { minimum: -50; maximum: 50; value: 0; horizontal-stretch: 1; }
+            Text { text: round(stage-x.value * 10) / 10 + " mm"; color: #666; font-size: 10px; vertical-alignment: center; min-width: 60px; }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            Text { text: "Y:"; color: #999; font-size: 11px; vertical-alignment: center; }
+            stage-y := Slider { minimum: -50; maximum: 50; value: 0; horizontal-stretch: 1; }
+            Text { text: round(stage-y.value * 10) / 10 + " mm"; color: #666; font-size: 10px; vertical-alignment: center; min-width: 60px; }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            Text { text: "Z:"; color: #999; font-size: 11px; vertical-alignment: center; }
+            stage-z := Slider { minimum: -10; maximum: 10; value: 0; horizontal-stretch: 1; }
+            Text { text: round(stage-z.value * 10) / 10 + " mm"; color: #666; font-size: 10px; vertical-alignment: center; min-width: 60px; }
+        }
+
+        Rectangle { vertical-stretch: 1; }
+        Text { text: "Position: (" + round(stage-x.value*10)/10 + ", " + round(stage-y.value*10)/10 + ", " + round(stage-z.value*10)/10 + ")"; color: #555; font-size: 10px; }
+    }
+}
+
+// ════════════════════════════════════════════════════════════════
+//  MODE 1: Resizable Splitter Layout
+//  Uses HSplitter + VSplitter for a 4-panel grid
+// ════════════════════════════════════════════════════════════════
+export component SplitterMode inherits Window {
+    title: "Mode 1: Resizable Splitters (drag handles to resize)";
+    preferred-width: 1100px;
+    preferred-height: 700px;
+    background: #11111b;
+
+    in property <[StandardListViewItem]> log-model;
+    in property <image> camera-image;
+    in property <string> camera-fps: "idle";
+
+    // Outer horizontal split: left (camera) | right (params + log + stage)
+    HSplitter {
+        proportion: 0.55;
+
+        // Left pane: camera on top, stage on bottom
+        VSplitter {
+            proportion: 0.65;
+            CameraContent {}
+            // bottom — placed via right-pane mechanism
+        }
+    }
+
+    // Manual 4-pane layout (HSplitter/@children limitation: only first child enters left pane)
+    // Build the grid directly with proportion properties for full control.
+
+    property <float> h-split: 0.55;
+    property <float> v-left: 0.65;
+    property <float> v-right: 0.5;
+
+    Rectangle {
+        width: root.width;
+        height: root.height;
+
+        // ── Left column ─────────────────────────────────
+        Rectangle {
+            x: 0; y: 0;
+            width: (parent.width - 5px) * root.h-split;
+            height: (parent.height - 5px) * root.v-left;
+            CameraContent { live-image: root.camera-image; fps-text: root.camera-fps; }
+        }
+        Rectangle {
+            x: 0;
+            y: (parent.height - 5px) * root.v-left + 5px;
+            width: (parent.width - 5px) * root.h-split;
+            height: parent.height - (parent.height - 5px) * root.v-left - 5px;
+            StageContent {}
+        }
+
+        // Left vertical handle
+        Rectangle {
+            x: 0;
+            y: (parent.height - 5px) * root.v-left;
+            width: (parent.width - 5px) * root.h-split;
+            height: 5px;
+            background: vl-touch.has-hover || vl-touch.pressed ? #58c : #334;
+            vl-touch := TouchArea {
+                mouse-cursor: MouseCursor.row-resize;
+                moved => {
+                    if self.pressed {
+                        root.v-left = max(0.15, min(0.85,
+                            root.v-left + (self.mouse-y - self.pressed-y) / root.height));
+                    }
+                }
+            }
+        }
+
+        // ── Horizontal handle ───────────────────────────
+        Rectangle {
+            x: (parent.width - 5px) * root.h-split;
+            y: 0;
+            width: 5px;
+            height: parent.height;
+            background: h-touch.has-hover || h-touch.pressed ? #58c : #334;
+            h-touch := TouchArea {
+                mouse-cursor: MouseCursor.col-resize;
+                moved => {
+                    if self.pressed {
+                        root.h-split = max(0.15, min(0.85,
+                            root.h-split + (self.mouse-x - self.pressed-x) / root.width));
+                    }
+                }
+            }
+        }
+
+        // ── Right column ────────────────────────────────
+        property <length> right-x: (parent.width - 5px) * root.h-split + 5px;
+        property <length> right-w: parent.width - right-x;
+
+        Rectangle {
+            x: parent.right-x; y: 0;
+            width: parent.right-w;
+            height: (parent.height - 5px) * root.v-right;
+            ParamsContent {}
+        }
+        Rectangle {
+            x: parent.right-x;
+            y: (parent.height - 5px) * root.v-right + 5px;
+            width: parent.right-w;
+            height: parent.height - (parent.height - 5px) * root.v-right - 5px;
+            LogContent { log-model: root.log-model; }
+        }
+
+        // Right vertical handle
+        Rectangle {
+            x: parent.right-x;
+            y: (parent.height - 5px) * root.v-right;
+            width: parent.right-w;
+            height: 5px;
+            background: vr-touch.has-hover || vr-touch.pressed ? #58c : #334;
+            vr-touch := TouchArea {
+                mouse-cursor: MouseCursor.row-resize;
+                moved => {
+                    if self.pressed {
+                        root.v-right = max(0.15, min(0.85,
+                            root.v-right + (self.mouse-y - self.pressed-y) / root.height));
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ════════════════════════════════════════════════════════════════
+//  MODE 2: MDI Inner Windows in a DockArea
+//  4 freely-positioned, draggable, resizable panels
+// ════════════════════════════════════════════════════════════════
+export component MdiMode inherits Window {
+    title: "Mode 2: MDI Inner Windows (drag, resize, close)";
+    preferred-width: 1100px;
+    preferred-height: 750px;
+    background: #11111b;
+
+    in property <[StandardListViewItem]> log-model;
+
+    callback camera-closed();
+    callback params-closed();
+    callback log-closed();
+    callback stage-closed();
+
+    in-out property <bool> camera-open: true;
+    in-out property <bool> params-open: true;
+    in-out property <bool> log-open: true;
+    in-out property <bool> stage-open: true;
+
+    VerticalLayout {
+        // Toolbar for re-opening closed panels
+        HorizontalLayout {
+            padding: 6px;
+            spacing: 8px;
+            height: 38px;
+
+            Text { text: "Panels:"; color: #888; font-size: 12px; vertical-alignment: center; }
+            if !root.camera-open : Button { text: "Show Camera"; clicked => { root.camera-open = true; } }
+            if !root.params-open : Button { text: "Show Params"; clicked => { root.params-open = true; } }
+            if !root.log-open : Button { text: "Show Log"; clicked => { root.log-open = true; } }
+            if !root.stage-open : Button { text: "Show Stage"; clicked => { root.stage-open = true; } }
+
+            Rectangle { horizontal-stretch: 1; }
+            Text { text: "Drag titles · Resize ⋰ · Close ✕"; color: #444; font-size: 11px; vertical-alignment: center; }
+        }
+
+        DockArea {
+            MdiWindow {
+                title: "Camera";
+                window-x: 10px;
+                window-y: 10px;
+                initial-width: 520px;
+                initial-height: 400px;
+                is-open <=> root.camera-open;
+                closed => { root.camera-closed(); }
+                CameraContent {}
+            }
+
+            MdiWindow {
+                title: "Parameters";
+                window-x: 550px;
+                window-y: 10px;
+                initial-width: 300px;
+                initial-height: 320px;
+                is-open <=> root.params-open;
+                closed => { root.params-closed(); }
+                ParamsContent {}
+            }
+
+            MdiWindow {
+                title: "Log";
+                window-x: 10px;
+                window-y: 430px;
+                initial-width: 520px;
+                initial-height: 260px;
+                is-open <=> root.log-open;
+                closed => { root.log-closed(); }
+                LogContent { log-model: root.log-model; }
+            }
+
+            MdiWindow {
+                title: "Stage Control";
+                window-x: 550px;
+                window-y: 350px;
+                initial-width: 300px;
+                initial-height: 340px;
+                is-open <=> root.stage-open;
+                closed => { root.stage-closed(); }
+                StageContent {}
+            }
+        }
+    }
+}
+
+// ════════════════════════════════════════════════════════════════
+//  MODE 3: Floating OS Windows
+//  Panels detach from main window into separate OS windows
+// ════════════════════════════════════════════════════════════════
+export component FloatingMode inherits Window {
+    title: "Mode 3: Floating OS Windows (detach panels)";
+    preferred-width: 1100px;
+    preferred-height: 700px;
+    background: #11111b;
+
+    callback detach-camera();
+    callback detach-params();
+    callback detach-log();
+    callback detach-stage();
+
+    in property <[StandardListViewItem]> log-model;
+    in property <bool> camera-visible: true;
+    in property <bool> params-visible: true;
+    in property <bool> log-visible: true;
+    in property <bool> stage-visible: true;
+
+    VerticalLayout {
+        HorizontalLayout {
+            padding: 6px;
+            spacing: 8px;
+            height: 38px;
+
+            Text { text: "Detach:"; color: #888; font-size: 12px; vertical-alignment: center; }
+            if root.camera-visible : Button { text: "⊞ Camera"; clicked => { root.detach-camera(); } }
+            if root.params-visible : Button { text: "⊞ Params"; clicked => { root.detach-params(); } }
+            if root.log-visible : Button { text: "⊞ Log"; clicked => { root.detach-log(); } }
+            if root.stage-visible : Button { text: "⊞ Stage"; clicked => { root.detach-stage(); } }
+        }
+
+        HSplitter {
+            proportion: 0.55;
+            handle-color: #334;
+            handle-hover-color: #58c;
+
+            // Left: camera + stage stacked
+            VerticalLayout {
+                if root.camera-visible : CameraContent { vertical-stretch: 2; }
+                if root.stage-visible : StageContent { vertical-stretch: 1; }
+            }
+        }
+
+        // Right side manually positioned (HSplitter @children goes to left only)
+    }
+
+    // Full manual layout for the 4-panel floating mode
+    property <float> h-ratio: 0.55;
+
+    Rectangle {
+        y: 38px;
+        width: root.width;
+        height: root.height - 38px;
+
+        // Left column
+        VerticalLayout {
+            x: 0; y: 0;
+            width: parent.width * root.h-ratio;
+            height: parent.height;
+
+            if root.camera-visible : CameraContent { vertical-stretch: 2; }
+            if root.stage-visible : StageContent { vertical-stretch: 1; }
+        }
+
+        // Right column
+        VerticalLayout {
+            x: parent.width * root.h-ratio;
+            y: 0;
+            width: parent.width * (1.0 - root.h-ratio);
+            height: parent.height;
+
+            if root.params-visible : ParamsContent { vertical-stretch: 1; }
+            if root.log-visible : LogContent { vertical-stretch: 1; log-model: root.log-model; }
+        }
+    }
+}
+
+export component FloatingCamera inherits Window {
+    title: "Camera (detached)";
+    preferred-width: 680px;
+    preferred-height: 520px;
+    CameraContent {}
+}
+
+export component FloatingParams inherits Window {
+    title: "Parameters (detached)";
+    preferred-width: 300px;
+    preferred-height: 400px;
+    ParamsContent {}
+}
+
+export component FloatingLog inherits Window {
+    title: "Log (detached)";
+    preferred-width: 500px;
+    preferred-height: 300px;
+    in property <[StandardListViewItem]> log-model;
+    LogContent { log-model: log-model; }
+}
+
+export component FloatingStage inherits Window {
+    title: "Stage Control (detached)";
+    preferred-width: 340px;
+    preferred-height: 300px;
+    StageContent {}
+}
+
+// ════════════════════════════════════════════════════════════════
+//  Launcher — mode selector
+// ════════════════════════════════════════════════════════════════
+export component Launcher inherits Window {
+    title: "rust-daq DockManager Demo";
+    preferred-width: 440px;
+    preferred-height: 280px;
+    background: #11111b;
+
+    callback launch-splitter();
+    callback launch-mdi();
+    callback launch-floating();
+
+    VerticalLayout {
+        alignment: center;
+        spacing: 12px;
+        padding: 24px;
+
+        Text {
+            text: "DockManager Demo";
+            font-size: 20px;
+            font-weight: 700;
+            color: #aaccff;
+            horizontal-alignment: center;
+        }
+        Text {
+            text: "Choose a panel management approach:";
+            font-size: 12px;
+            color: #888;
+            horizontal-alignment: center;
+        }
+        Button { text: "Mode 1: Resizable Splitters (4 panels)"; clicked => { root.launch-splitter(); } }
+        Button { text: "Mode 2: MDI Inner Windows (4 panels)"; clicked => { root.launch-mdi(); } }
+        Button { text: "Mode 3: Floating OS Windows (4 panels)"; clicked => { root.launch-floating(); } }
+    }
+}

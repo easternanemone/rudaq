@@ -6,7 +6,7 @@ use std::sync::Arc;
 /// Request for background RGBA conversion (bd-xifj, bd-j6xm)
 pub(super) struct RgbaConversionRequest {
     /// Raw frame data (Arc for zero-copy sharing)
-    pub(super) data: Arc<[u8]>,
+    pub(super) data: Arc<Vec<u8>>,
     pub(super) width: u32,
     pub(super) height: u32,
     pub(super) bit_depth: u32,

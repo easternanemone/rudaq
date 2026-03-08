@@ -48,7 +48,7 @@ use common::echelle::{
     EchelleOrientation, EchelleProvenance, EchelleSchemaVersion, EchelleSummationMode,
     EchelleTraceModel, EchelleWavelengthModel, PolynomialBasis,
 };
-use protocol::compression::decompress_frame;
+use protocol::compression::decompress_frame_into;
 use protocol::daq::StreamQuality;
 use serde::{Deserialize, Serialize};
 
@@ -183,7 +183,7 @@ pub struct ImageViewerPanel {
     /// ROI selector state
     roi_selector: RoiSelector,
     /// Last frame raw data (for ROI statistics computation)
-    last_frame_data: Option<Arc<[u8]>>,
+    last_frame_data: Option<Arc<Vec<u8>>>,
     /// Show ROI statistics panel
     show_roi_panel: bool,
     /// Show pixel statistics panel (bd-li4i)
@@ -2962,6 +2962,8 @@ impl ImageViewerPanel {
 
             let mut frames_received = 0u64;
             let mut frames_dropped = 0u64;
+            // Reusable decompression buffer — avoids per-frame Vec allocation
+            let mut decompress_buf = Vec::new();
 
             // Timeout for stream inactivity (30s) to prevent hanging on network faults (bd-7rk0)
             const STREAM_TIMEOUT: Duration = Duration::from_secs(30);
@@ -3013,7 +3015,8 @@ impl ImageViewerPanel {
                                 }
 
                                 // Decompress frame if compressed (bd-7rk0: gRPC improvements)
-                                if let Err(e) = decompress_frame(&mut frame_data) {
+                                // Uses buffer reuse to avoid per-frame allocation
+                                if let Err(e) = decompress_frame_into(&mut frame_data, &mut decompress_buf) {
                                     tracing::warn!(
                                         device_id = %device_id_clone,
                                         frame = frames_received,
@@ -5404,6 +5407,9 @@ impl ImageViewerPanel {
     #[allow(dead_code)]
     pub fn set_device(&mut self, device_id: &str, client: &mut DaqClient, runtime: &Runtime) {
         self.start_stream(device_id, client, runtime);
+        // Eagerly load camera parameters so settings panel populates on device selection
+        // rather than requiring the user to start a stream first.
+        self.load_camera_params(client, runtime, device_id);
     }
 
     /// Check if currently streaming
@@ -6250,7 +6256,7 @@ mod frame_conversion_tests {
     fn test_convert_frame_8bit_grayscale() {
         let data = vec![0u8, 127, 255];
         let req = RgbaConversionRequest {
-            data: Arc::from(data.as_slice()),
+            data: Arc::new(data),
             width: 3,
             height: 1,
             bit_depth: 8,
@@ -6297,7 +6303,7 @@ mod frame_conversion_tests {
             0xff, 0xff, // 65535
         ];
         let req = RgbaConversionRequest {
-            data: Arc::from(data.as_slice()),
+            data: Arc::new(data),
             width: 3,
             height: 1,
             bit_depth: 16,
@@ -6326,7 +6332,7 @@ mod frame_conversion_tests {
         // Create data with limited range
         let data = vec![100u8, 150, 200];
         let req = RgbaConversionRequest {
-            data: Arc::from(data.as_slice()),
+            data: Arc::new(data),
             width: 3,
             height: 1,
             bit_depth: 8,
@@ -6354,7 +6360,7 @@ mod frame_conversion_tests {
     fn test_convert_frame_zero_dimensions() {
         let data = vec![];
         let req = RgbaConversionRequest {
-            data: Arc::from(data.as_slice()),
+            data: Arc::new(data),
             width: 0,
             height: 0,
             bit_depth: 8,
@@ -6383,7 +6389,7 @@ mod frame_conversion_tests {
     fn test_convert_frame_with_colormap() {
         let data = vec![0u8, 127, 255];
         let req = RgbaConversionRequest {
-            data: Arc::from(data.as_slice()),
+            data: Arc::new(data),
             width: 3,
             height: 1,
             bit_depth: 8,
@@ -6410,7 +6416,7 @@ mod frame_conversion_tests {
     fn test_convert_frame_buffer_reuse() {
         let data = vec![128u8; 100];
         let req = RgbaConversionRequest {
-            data: Arc::from(data.as_slice()),
+            data: Arc::new(data),
             width: 10,
             height: 10,
             bit_depth: 8,
@@ -6467,7 +6473,7 @@ mod edge_case_tests {
         // Test that the conversion protects against integer overflow
         let data = vec![0u8; 1000];
         let req = RgbaConversionRequest {
-            data: Arc::from(data.as_slice()),
+            data: Arc::new(data),
             width: u32::MAX / 2,
             height: u32::MAX / 2,
             bit_depth: 8,
@@ -6496,7 +6502,7 @@ mod edge_case_tests {
     fn test_single_pixel_frame() {
         let data = vec![200u8];
         let req = RgbaConversionRequest {
-            data: Arc::from(data.as_slice()),
+            data: Arc::new(data),
             width: 1,
             height: 1,
             bit_depth: 8,
@@ -6523,7 +6529,7 @@ mod edge_case_tests {
     fn test_invalid_bit_depth() {
         let data = vec![100u8; 16];
         let req = RgbaConversionRequest {
-            data: Arc::from(data.as_slice()),
+            data: Arc::new(data),
             width: 4,
             height: 4,
             bit_depth: 32, // Invalid

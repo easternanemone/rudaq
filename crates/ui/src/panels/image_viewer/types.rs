@@ -36,13 +36,18 @@ pub struct StreamMetrics {
 }
 
 /// Frame update message for async integration
+///
+/// Uses `Arc<Vec<u8>>` instead of `Arc<[u8]>` to avoid a memcpy during
+/// `Vec<u8> → Arc` conversion. `Arc<[u8]>` is a DST requiring layout
+/// conversion (header + inline data), while `Arc<Vec<u8>>` wraps the
+/// existing heap allocation with only a pointer-sized indirection.
 #[derive(Debug, Clone)]
 pub struct FrameUpdate {
     pub device_id: String,
     pub width: u32,
     pub height: u32,
     pub bit_depth: u32,
-    pub data: Arc<[u8]>,
+    pub data: Arc<Vec<u8>>,
     pub frame_number: u64,
     /// Timestamp in nanoseconds (for frame timing analysis)
     #[allow(dead_code)]
@@ -65,7 +70,7 @@ impl From<FrameData> for FrameUpdate {
             width: frame.width,
             height: frame.height,
             bit_depth: frame.bit_depth,
-            data: frame.data.into(),
+            data: Arc::new(frame.data),
             frame_number: frame.frame_number,
             timestamp_ns: frame.timestamp_ns,
             metrics,

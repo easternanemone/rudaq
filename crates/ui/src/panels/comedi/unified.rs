@@ -11,7 +11,8 @@ use client::DaqClient;
 use protocol::ni_daq::{DaqStatus, TimingCapabilities};
 
 use super::{
-    AnalogInputPanel, AnalogOutputPanel, CounterPanel, DigitalIOPanel, TriggerConfigPanel,
+    AnalogInputPanel, AnalogOutputPanel, CounterDisplayPanel, CounterPanel, DigitalIOPanel,
+    DioMonitorPanel, OscilloscopePanel, TriggerConfigPanel, VoltmeterPanel,
 };
 
 /// Active tab in the unified panel.
@@ -24,6 +25,10 @@ pub enum ComediTab {
     DigitalIO,
     Counter,
     Trigger,
+    Oscilloscope,
+    Voltmeter,
+    DioMonitor,
+    CounterDisplay,
 }
 
 impl ComediTab {
@@ -35,6 +40,10 @@ impl ComediTab {
             Self::DigitalIO => "Digital I/O",
             Self::Counter => "Counters",
             Self::Trigger => "Trigger",
+            Self::Oscilloscope => "Oscilloscope",
+            Self::Voltmeter => "Voltmeter",
+            Self::DioMonitor => "DIO Monitor",
+            Self::CounterDisplay => "Counter Values",
         }
     }
 
@@ -46,6 +55,10 @@ impl ComediTab {
             Self::DigitalIO => "🔌",
             Self::Counter => "⏱",
             Self::Trigger => "⚡",
+            Self::Oscilloscope => "〰",
+            Self::Voltmeter => "🔋",
+            Self::DioMonitor => "💡",
+            Self::CounterDisplay => "🔢",
         }
     }
 }
@@ -107,6 +120,14 @@ pub struct ComediPanel {
     counter_panel: CounterPanel,
     /// Trigger configuration panel
     trigger_panel: TriggerConfigPanel,
+    /// Oscilloscope viewer panel
+    oscilloscope_panel: OscilloscopePanel,
+    /// Voltmeter viewer panel
+    voltmeter_panel: VoltmeterPanel,
+    /// DIO monitor viewer panel
+    dio_monitor_panel: DioMonitorPanel,
+    /// Counter display viewer panel
+    counter_display_panel: CounterDisplayPanel,
     /// Error log
     error_log: Vec<String>,
     /// Max error log entries
@@ -145,6 +166,10 @@ impl ComediPanel {
             dio_panel: DigitalIOPanel::new(device_id, 24),
             counter_panel: CounterPanel::new(device_id, 3),
             trigger_panel: TriggerConfigPanel::new(device_id),
+            oscilloscope_panel: OscilloscopePanel::new(),
+            voltmeter_panel: VoltmeterPanel::new(),
+            dio_monitor_panel: DioMonitorPanel::new(24),
+            counter_display_panel: CounterDisplayPanel::new(3),
             error_log: Vec::new(),
             max_log_entries: 100,
             timing_caps: None,
@@ -201,6 +226,10 @@ impl ComediPanel {
                 ComediTab::DigitalIO,
                 ComediTab::Counter,
                 ComediTab::Trigger,
+                ComediTab::Oscilloscope,
+                ComediTab::Voltmeter,
+                ComediTab::DioMonitor,
+                ComediTab::CounterDisplay,
             ] {
                 let label = format!("{} {}", tab.icon(), tab.label());
                 if ui.selectable_label(self.active_tab == tab, label).clicked() {
@@ -219,6 +248,20 @@ impl ComediPanel {
             ComediTab::DigitalIO => self.dio_panel.ui(ui, client, runtime),
             ComediTab::Counter => self.counter_panel.ui(ui, client, runtime),
             ComediTab::Trigger => self.trigger_panel.ui(ui, client, runtime),
+            ComediTab::Oscilloscope => self.oscilloscope_panel.ui_with_client(
+                ui,
+                client,
+                Some(runtime),
+                Some(&self.device_id),
+            ),
+            ComediTab::Voltmeter => self.voltmeter_panel.ui_with_client(
+                ui,
+                client,
+                Some(runtime),
+                Some(&self.device_id),
+            ),
+            ComediTab::DioMonitor => self.dio_monitor_panel.ui(ui),
+            ComediTab::CounterDisplay => self.counter_display_panel.ui(ui),
         }
     }
 

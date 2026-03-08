@@ -25,7 +25,7 @@ description = "Optical power meter with wavelength compensation"
 manufacturer = "Newport"
 model = "1830-C"
 protocol = "newport_1830c"
-category = "sensor"
+category = "power_meter"
 capabilities = ["Readable", "WavelengthTunable", "Parameterized"]
 
 # ==============================================================================

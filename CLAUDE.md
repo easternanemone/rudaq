@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-`AGENTS.md` is the canonical agent policy (local/gitignored, auto-injected by Claude Code hooks). `bd prime` provides the authoritative beads workflow.
+`AGENTS.md` is the canonical agent policy (local/gitignored, auto-injected by Claude Code hooks). `bdh prime` provides the authoritative beads workflow.
 
 ## Build / Test / Lint
 
@@ -83,6 +83,8 @@ Testing
 
 **`RingBuffer`** (`storage/src/ring_buffer.rs`): mmap-backed circular buffer with seqlock for lock-free reads. Uses Apache Arrow IPC format. "Tap" consumers receive every Nth frame via async channel for live visualization without blocking writers.
 
+**Frame streaming compression** (`protocol/src/compression.rs`): LZ4 compression for camera frame data. Use the buffer-reuse variants (`compress_frame_into`, `decompress_frame_into`) on hot paths — they write into pre-allocated `Vec<u8>` buffers via `std::mem::swap`, eliminating per-frame heap allocations. The server runs a dedicated `std::thread` per stream for compression; the client reuses a decompression buffer in its streaming loop. See [ADR-014](docs/adr/014-frame-streaming-buffer-reuse.md).
+
 ### DriverFactory Pattern
 
 > **For serial/TCP/SCPI devices**, prefer writing a `config/devices/*.toml` manifest for `driver-universal` over implementing `DriverFactory` directly. The pattern below is for native SDK drivers that need custom FFI bindings.
@@ -125,13 +127,13 @@ registry.register_from_config(DeviceConfig { id, name, driver: DriverConfig { ty
 
 ## Tools & Workflow
 
-**Issue tracking**: This project uses `bd` (beads). Run `bd prime` for the authoritative workflow — it is auto-injected at session start by hooks. Run `bd onboard` to generate agent policy guidance including multi-agent coordination and recording guidelines.
+**Issue tracking**: This project uses `bdh` (beads). Run `bdh prime` for the authoritative workflow — it is auto-injected at session start by hooks. Run `bdh onboard` to generate agent policy guidance including multi-agent coordination and recording guidelines.
 
 **Code search**: Primary tool is `grepai search "query" --json --compact`. Trace calls with `grepai trace callers/callees "Symbol" --json`. Fall back to `rg`/`grep` if grepai is unavailable.
 
 **Structural search**: `sg` (ast-grep) for AST-aware code patterns. E.g., `sg -p '$EXPR.unwrap()' --lang rust`.
 
-**Quality gates**: `bd close` runs lightweight check (fmt + ast-grep). `git push` runs full gate (fmt + clippy + tests). `bd preflight` checks PR readiness.
+**Quality gates**: `bdh close` runs lightweight check (fmt + ast-grep). `git push` runs full gate (fmt + clippy + tests). `bdh preflight` checks PR readiness.
 
 **LSP**: `rust-analyzer` enabled via `.claude/settings.json`.
 
@@ -168,9 +170,82 @@ WASM GUI: `http://100.117.5.12:8080`. Known reconnect bug (beefcake-48ad): must 
 
 ## References
 
-- Agent policy: `AGENTS.md` (local/gitignored, auto-injected by hooks; generate with `bd onboard`)
+- Agent policy: `AGENTS.md` (local/gitignored, auto-injected by hooks; generate with `bdh onboard`)
 - Testing details: `docs/how-to/testing.md`
 - Feature flags: `config/feature_flags.toml`
 - Architecture deep-dive: `docs/explanation/architecture.md`
 - Hardware setup: `docs/how-to/hardware-setup.md`
 - Driver guide: `docs/how-to/hardware-drivers.md`
+
+<!-- BEADHUB:START -->
+## BeadHub Coordination Rules
+
+This project uses `bdh` for multi-agent coordination and issue tracking, `bdh` is a wrapper on top of `bd` (beads). Commands starting with : like `bdh :status` are managed by `bdh`. Other commands are sent to `bd`.
+
+You are expected to work and coordinate with a team of agents. ALWAYS prioritize the team vs your particular task.
+
+You will see notifications telling you that other agents have written mails or chat messages, or are waiting for you. NEVER ignore notifications. It is rude towards your fellow agents. Do not be rude.
+
+Your goal is for the team to succeed in the shared project.
+
+The active project policy as well as the expected behaviour associated to your role is shown via `bdh :policy`.
+
+## Start Here (Every Session)
+
+```bash
+bdh :policy    # READ CAREFULLY and follow diligently
+bdh :status    # who am I? (alias/workspace/role) + team status
+bdh ready      # find unblocked work
+```
+
+Use `bdh :help` for bdh-specific help.
+
+## Rules
+
+- Always use `bdh` (not `bd`) so work is coordinated
+- Default to mail (`bdh :aweb mail list|open|send`) for coordination; use chat (`bdh :aweb chat pending|open|send-and-wait|send-and-leave|history|extend-wait`) when you need a conversation with another agent.
+- Respond immediately to WAITING notifications — someone is blocked.
+- Notifications are for YOU, the agent, not for the human.
+- Don't overwrite the work of other agents without coordinating first.
+- ALWAYS check what other agents are working on with bdh :status which will tell you which beads they have claimed and what files they are working on (reservations).
+- `bdh` derives your identity from the `.beadhub` file in the current worktree. If you run it from another directory you will be impersonating another agent, do not do that.
+- Prioritize good communication — your goal is for the team to succeed
+
+## Using mail
+
+Mail is fire-and-forget — use it for status updates, handoffs, and non-blocking questions.
+
+```bash
+bdh :aweb mail send <alias> "message"                         # Send a message
+bdh :aweb mail send <alias> "message" --subject "API design"  # With subject
+bdh :aweb mail list                                           # Check your inbox
+bdh :aweb mail open <alias>                                   # Read & acknowledge
+```
+
+## Using chat
+
+Chat sessions are persistent per participant pair. Use `--start-conversation` when initiating a new exchange (longer wait timeout).
+
+**Starting a conversation:**
+```bash
+bdh :aweb chat send-and-wait <alias> "question" --start-conversation
+```
+
+**Replying (when someone is waiting for you):**
+```bash
+bdh :aweb chat send-and-wait <alias> "response"
+```
+
+**Final reply (you don't need their answer):**
+```bash
+bdh :aweb chat send-and-leave <alias> "thanks, got it"
+```
+
+**Other commands:**
+```bash
+bdh :aweb chat pending          # List conversations with unread messages
+bdh :aweb chat open <alias>     # Read unread messages
+bdh :aweb chat history <alias>  # Full conversation history
+bdh :aweb chat extend-wait <alias> "need more time"  # Ask for patience
+```
+<!-- BEADHUB:END -->

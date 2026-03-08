@@ -34,6 +34,42 @@ pub fn compress_frame(frame: &mut FrameData) {
     frame.uncompressed_size = uncompressed_size;
 }
 
+/// Compress frame data using LZ4, reusing a pre-allocated buffer.
+///
+/// The buffer is resized as needed but never shrunk, eliminating per-frame
+/// heap allocations after the first frame. Uses `lz4_flex::compress_into`
+/// with a 4-byte LE size prefix for wire compatibility with `decompress_frame`.
+///
+/// The compressed data is written into `buffer`, then swapped into `frame.data`.
+pub fn compress_frame_into(frame: &mut FrameData, buffer: &mut Vec<u8>) {
+    #[allow(clippy::cast_possible_truncation)]
+    // SAFETY: value is bounded and fits in target type
+    let uncompressed_size = frame.data.len() as u32;
+
+    // 4-byte LE size prefix + worst-case compressed output
+    let max_compressed = lz4_flex::block::get_maximum_output_size(frame.data.len());
+    let required = 4 + max_compressed;
+    buffer.resize(required, 0);
+
+    // Write uncompressed size as 4-byte LE prefix (same format as compress_prepend_size)
+    #[allow(clippy::cast_possible_truncation)]
+    // SAFETY: frame sizes are bounded by MAX_FRAME_BYTES (100MB) which fits in u32
+    let size_prefix = (frame.data.len() as u32).to_le_bytes();
+    buffer[..4].copy_from_slice(&size_prefix);
+
+    // Compress directly into the buffer after the size prefix
+    let compressed_len = lz4_flex::compress_into(&frame.data, &mut buffer[4..])
+        .expect("buffer is sized to get_maximum_output_size");
+
+    buffer.truncate(4 + compressed_len);
+
+    // Swap buffers: frame gets compressed data, buffer gets the (now-stale) raw data for reuse
+    std::mem::swap(&mut frame.data, buffer);
+
+    frame.compression = CompressionType::CompressionLz4 as i32;
+    frame.uncompressed_size = uncompressed_size;
+}
+
 /// Decompress frame data if compressed.
 ///
 /// If the frame is uncompressed (`COMPRESSION_NONE`), returns the data as-is.
@@ -65,6 +101,45 @@ pub fn decompress_frame(frame: &mut FrameData) -> Result<(), String> {
             }
 
             frame.data = decompressed;
+            frame.compression = CompressionType::CompressionNone as i32;
+            Ok(())
+        }
+        Err(_) => Err(format!("Unknown compression type: {}", frame.compression)),
+    }
+}
+
+/// Decompress frame data into a pre-allocated buffer, avoiding per-frame allocation.
+///
+/// The buffer is resized to `uncompressed_size` and reused across frames.
+/// The compressed data (with 4-byte LE size prefix) is decompressed in-place.
+///
+/// After this call, `frame.data` contains decompressed data and `buffer` holds
+/// the old compressed data (available for reuse by the caller).
+pub fn decompress_frame_into(frame: &mut FrameData, buffer: &mut Vec<u8>) -> Result<(), String> {
+    match CompressionType::try_from(frame.compression) {
+        Ok(CompressionType::CompressionNone) => Ok(()),
+        Ok(CompressionType::CompressionLz4) => {
+            let expected_size = frame.uncompressed_size as usize;
+            buffer.resize(expected_size, 0);
+
+            // Skip the 4-byte LE size prefix written by compress_prepend_size / compress_frame_into
+            if frame.data.len() < 4 {
+                return Err("LZ4 compressed data too short (missing size prefix)".to_string());
+            }
+            let compressed_payload = &frame.data[4..];
+
+            let decompressed_len = lz4_flex::decompress_into(compressed_payload, buffer)
+                .map_err(|e| format!("LZ4 decompression failed: {e}"))?;
+
+            if decompressed_len != expected_size {
+                return Err(format!(
+                    "Decompressed size mismatch: got {} bytes, expected {}",
+                    decompressed_len, expected_size
+                ));
+            }
+
+            // Swap: frame gets decompressed data, buffer gets compressed data for reuse
+            std::mem::swap(&mut frame.data, buffer);
             frame.compression = CompressionType::CompressionNone as i32;
             Ok(())
         }
@@ -191,5 +266,112 @@ mod tests {
         // Verify roundtrip
         decompress_frame(&mut frame).expect("Should decompress");
         assert_eq!(frame.data.len(), original_size);
+    }
+
+    #[test]
+    #[allow(clippy::cast_possible_truncation)]
+    fn test_compress_into_decompress_into_roundtrip() {
+        let original_data = vec![0u8; 20000];
+        let mut frame = FrameData {
+            device_id: "test_camera".to_string(),
+            width: 100,
+            height: 100,
+            bit_depth: 16,
+            data: original_data.clone(),
+            frame_number: 1,
+            ..Default::default()
+        };
+
+        let mut compress_buf = Vec::new();
+        compress_frame_into(&mut frame, &mut compress_buf);
+
+        assert_eq!(frame.compression, CompressionType::CompressionLz4 as i32);
+        assert_eq!(frame.uncompressed_size, 20000);
+        assert!(frame.data.len() < 20000);
+
+        // Decompress with buffer reuse
+        let mut decompress_buf = Vec::new();
+        decompress_frame_into(&mut frame, &mut decompress_buf).expect("should decompress");
+
+        assert_eq!(frame.data.len(), 20000);
+        assert_eq!(frame.data, original_data);
+        assert_eq!(frame.compression, CompressionType::CompressionNone as i32);
+    }
+
+    #[test]
+    fn test_buffer_reuse_across_frames() {
+        let mut compress_buf = Vec::new();
+        let mut decompress_buf = Vec::new();
+
+        for i in 0..5u8 {
+            let data = vec![i; 10000];
+            let mut frame = FrameData {
+                width: 100,
+                height: 50,
+                bit_depth: 16,
+                data: data.clone(),
+                frame_number: u64::from(i),
+                ..Default::default()
+            };
+
+            compress_frame_into(&mut frame, &mut compress_buf);
+            decompress_frame_into(&mut frame, &mut decompress_buf).expect("roundtrip");
+            assert_eq!(frame.data, data);
+        }
+
+        // Buffers should have been reused (capacity >= frame size)
+        assert!(compress_buf.capacity() >= 10000);
+        assert!(decompress_buf.capacity() >= 10000);
+    }
+
+    #[test]
+    fn test_compress_into_wire_compatible_with_decompress_frame() {
+        let mut frame = FrameData {
+            data: vec![42u8; 5000],
+            width: 50,
+            height: 50,
+            bit_depth: 16,
+            ..Default::default()
+        };
+
+        // Compress with buffer-reuse API
+        let mut buf = Vec::new();
+        compress_frame_into(&mut frame, &mut buf);
+
+        // Decompress with original (allocating) API — tests wire compatibility
+        decompress_frame(&mut frame).expect("wire-compatible decompress");
+        assert_eq!(frame.data, vec![42u8; 5000]);
+    }
+
+    #[test]
+    fn test_compress_frame_decompress_into_compatibility() {
+        let mut frame = FrameData {
+            data: vec![99u8; 8000],
+            width: 100,
+            height: 40,
+            bit_depth: 16,
+            ..Default::default()
+        };
+
+        // Compress with original API
+        compress_frame(&mut frame);
+
+        // Decompress with buffer-reuse API
+        let mut buf = Vec::new();
+        decompress_frame_into(&mut frame, &mut buf).expect("cross-compatible decompress");
+        assert_eq!(frame.data, vec![99u8; 8000]);
+    }
+
+    #[test]
+    fn test_decompress_into_uncompressed_passthrough() {
+        let mut frame = FrameData {
+            data: vec![1, 2, 3, 4, 5],
+            compression: CompressionType::CompressionNone as i32,
+            ..Default::default()
+        };
+
+        let mut buf = Vec::new();
+        decompress_frame_into(&mut frame, &mut buf).expect("passthrough");
+        assert_eq!(frame.data, vec![1, 2, 3, 4, 5]);
     }
 }

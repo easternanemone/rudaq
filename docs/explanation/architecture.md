@@ -266,7 +266,7 @@ maintainability and review surface. Public API paths are preserved via re-export
 | `mod.rs` | ~6220 | ImageViewerPanel struct, impl, tests |
 | `processing.rs` | ~480 | RGBA conversion pipeline, histogram computation |
 | `colormap.rs` | ~260 | Colormap LUTs, ContrastMode, ScaleMode enums |
-| `types.rs` | ~220 | FrameUpdate, StreamMetrics, state enums, channels |
+| `types.rs` | ~220 | `FrameUpdate` (`Arc<Vec<u8>>` data), StreamMetrics, state enums, channels |
 | `echelle_extraction.rs` | ~56k | Echelle spectrograph order extraction |
 | `echelle_profile_cache.rs` | ~5.5k | Cached echelle spatial profiles |
 | `echelle_sidecar.rs` | ~7.7k | Echelle sidecar panel UI |
@@ -277,9 +277,61 @@ maintainability and review surface. Public API paths are preserved via re-export
 
 | File | Lines | Responsibility |
 |------|-------|----------------|
-| `mod.rs` | ~3510 | HardwareServiceImpl struct, gRPC trait impl, tests |
+| `mod.rs` | ~3510 | HardwareServiceImpl struct, gRPC trait impl, dedicated LZ4 compression thread, tests |
 | `helpers.rs` | ~370 | Validation, error mapping, proto conversions |
-| `streaming.rs` | ~290 | GrpcStreamObserver, StreamLimiter |
+| `streaming.rs` | ~290 | GrpcStreamObserver, ObserverFramePacket, StreamLimiter |
+
+### Frame Streaming Pipeline
+
+The camera-to-GUI frame streaming path is latency-critical and processes multi-MB
+frames at 30+ fps. The pipeline is designed to minimize per-frame heap allocations.
+
+```
+Camera Driver ─→ FrameView<'a> (zero-copy borrow)
+       │
+       ▼
+GrpcStreamObserver::on_frame()
+  • Full:    frame.pixels().to_vec()        ← ALLOC #1 (copy from driver)
+  • Preview: downsample_2x2() → Vec<u8>
+  • Fast:    downsample_4x4() → Vec<u8>
+       │
+       ▼  (tokio::mpsc channel)
+Dedicated LZ4 compression thread (std::thread)
+  • compress_frame_into(&mut frame, &mut reusable_buf)  ← buffer reused
+  • Owns persistent compression buffer across frames
+       │
+       ▼  (tokio::mpsc channel)
+Async forwarding task
+  • Rate limiting, backpressure, FPS/latency metrics
+  • Sends FrameData proto to gRPC stream
+       │
+       ▼  ~~~ network (gRPC) ~~~
+Client streaming loop (ui/panels/image_viewer/mod.rs)
+  • decompress_frame_into(&mut frame, &mut reusable_buf)  ← buffer reused
+       │
+       ▼
+FrameUpdate { data: Arc<Vec<u8>>, ... }
+  • Arc<Vec<u8>> avoids layout-converting memcpy of Arc<[u8]>
+       │
+       ▼  (std::sync::mpsc channel)
+RGBA converter thread (std::thread)
+  • convert_frame_to_rgba_into(req, &mut reusable_rgba_buf)  ← buffer reused
+       │
+       ▼
+egui TextureHandle::set()
+```
+
+**Buffer reuse APIs** (`protocol::compression`):
+- `compress_frame_into(frame, buf)` / `decompress_frame_into(frame, buf)` — write
+  into pre-allocated `Vec<u8>` buffers via `std::mem::swap`, eliminating per-frame
+  allocation. Wire-compatible with the allocating `compress_frame`/`decompress_frame`.
+- The compression thread owns its buffer; the client streaming loop owns its own.
+
+**Threading model**: The compression thread is a long-lived `std::thread` (not
+`spawn_blocking`) to avoid Tokio blocking-pool scheduling overhead (~50-200μs per
+frame). This mirrors the RGBA converter thread already used on the client side.
+
+See also: [ADR-014: Frame Streaming Buffer Reuse](../adr/014-frame-streaming-buffer-reuse.md)
 
 ---
 

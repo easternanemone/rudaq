@@ -1033,7 +1033,8 @@ This ensures responsive UI even on slow networks.
 
 ### Compression
 
-Frame data supports optional compression:
+Frame data supports optional LZ4 compression. Camera data typically achieves 3-5x
+compression, reducing bandwidth from ~240MB/s to ~48-80MB/s for 4MP@30fps cameras.
 
 ```proto
 enum CompressionType {
@@ -1048,14 +1049,25 @@ message FrameData {
 }
 ```
 
-Decompress using the indicated algorithm:
+The compressed `data` field carries a 4-byte little-endian size prefix followed by
+the LZ4-compressed payload (the format produced by `lz4_flex::compress_prepend_size`).
+
+**Server-side:** A dedicated compression thread per stream compresses frames with
+buffer reuse (`compress_frame_into`), eliminating per-frame heap allocations.
+
+**Client-side:** Decompress with buffer reuse to avoid per-frame allocation:
 
 ```rust
-if frame.compression == CompressionType::Lz4 as i32 {
-    let decompressed = lz4::decompress(&frame.data, frame.uncompressed_size as usize)?;
-    // Use decompressed data
-}
+use protocol::compression::decompress_frame_into;
+
+let mut decompress_buf = Vec::new(); // reused across frames
+// ...per frame:
+decompress_frame_into(&mut frame_data, &mut decompress_buf)?;
+// frame_data.data is now decompressed; decompress_buf holds stale compressed data for reuse
 ```
+
+The allocating `decompress_frame(&mut frame)` API is also available for one-shot use
+(e.g. tests), but `decompress_frame_into` is preferred on hot paths.
 
 ## Error Handling
 

@@ -38,13 +38,28 @@
 //! Display       → "5.0000 µW" (scaled for readability)
 //! ```
 
+use std::collections::VecDeque;
+
 use crate::runtime::Runtime;
 use egui::Ui;
+use egui_plot::{Line, Plot, PlotPoints};
 
 use crate::widgets::device_controls::{DeviceControlWidget, DevicePanelState};
 use crate::widgets::Gauge;
 use client::DaqClient;
 use protocol::daq::DeviceInfo;
+
+/// Maximum history samples retained (~2.5 min at 2 Hz)
+const HISTORY_MAX: usize = 300;
+
+/// Running statistics for a set of power samples
+#[derive(Debug, Clone, Default)]
+struct MeterStats {
+    mean_mw: f64,
+    std_mw: f64,
+    min_mw: f64,
+    max_mw: f64,
+}
 
 /// Power meter state cached from the daemon
 #[derive(Debug, Clone, Default)]
@@ -52,6 +67,64 @@ struct MeterState {
     power_mw: Option<f64>,
     wavelength_nm: Option<f64>,
     loading: bool,
+    /// Running peak (maximum seen since last reset)
+    peak_mw: Option<f64>,
+    /// Running minimum seen since last reset
+    min_mw: Option<f64>,
+    /// Ring-buffer history for trend plot
+    history: VecDeque<f64>,
+    /// Accumulated stats (recomputed on each new sample)
+    history_stats: Option<MeterStats>,
+}
+
+impl MeterState {
+    fn push_sample(&mut self, power_mw: f64) {
+        self.power_mw = Some(power_mw);
+
+        // Update peak/min
+        self.peak_mw = Some(self.peak_mw.map_or(power_mw, |p| p.max(power_mw)));
+        self.min_mw = Some(self.min_mw.map_or(power_mw, |m| m.min(power_mw)));
+
+        // Update history ring buffer
+        self.history.push_back(power_mw);
+        while self.history.len() > HISTORY_MAX {
+            self.history.pop_front();
+        }
+
+        // Recompute stats
+        let n = self.history.len();
+        if n > 0 {
+            #[allow(clippy::cast_precision_loss)]
+            let n_f = n as f64;
+            let sum: f64 = self.history.iter().sum();
+            let mean = sum / n_f;
+            let variance = self
+                .history
+                .iter()
+                .map(|&x| (x - mean).powi(2))
+                .sum::<f64>()
+                / n_f;
+            let hist_min = self.history.iter().cloned().fold(f64::INFINITY, f64::min);
+            let hist_max = self
+                .history
+                .iter()
+                .cloned()
+                .fold(f64::NEG_INFINITY, f64::max);
+            self.history_stats = Some(MeterStats {
+                mean_mw: mean,
+                std_mw: variance.sqrt(),
+                min_mw: hist_min,
+                max_mw: hist_max,
+            });
+        }
+    }
+
+    fn reset_stats(&mut self) {
+        self.peak_mw = None;
+        self.min_mw = None;
+        self.history.clear();
+        self.history_stats = None;
+    }
 }
 
 /// Async action results
@@ -67,6 +140,14 @@ pub struct PowerMeterControlPanel {
     panel_state: DevicePanelState<ActionResult>,
     state: MeterState,
     wavelength_input: String,
+    /// Whether to show the peak-hold value
+    peak_hold_enabled: bool,
+    /// Whether to show the min-hold value
+    min_hold_enabled: bool,
+    /// Whether to show the trend graph
+    show_trend: bool,
+    /// Whether to show the statistics table
+    show_stats: bool,
 }
 
 impl Default for PowerMeterControlPanel {
@@ -75,6 +156,10 @@ impl Default for PowerMeterControlPanel {
             panel_state: DevicePanelState::new(),
             state: MeterState::default(),
             wavelength_input: "800".to_string(),
+            peak_hold_enabled: false,
+            min_hold_enabled: false,
+            show_trend: false,
+            show_stats: false,
         }
     }
 }
@@ -136,7 +221,7 @@ impl PowerMeterControlPanel {
                 ActionResult::ReadPower(result) => match result {
                     Ok((power, units)) => {
                         let power_mw = Self::normalize_power_to_mw(power, &units);
-                        self.state.power_mw = Some(power_mw);
+                        self.state.push_sample(power_mw);
                         self.state.loading = false;
                         self.panel_state.error = None; // Clear any previous error on success
                     }
@@ -237,6 +322,87 @@ impl PowerMeterControlPanel {
                 .map_err(|e| e.to_string());
             let _ = tx.send(ActionResult::SetWavelength(result)).await;
         });
+    }
+}
+
+impl PowerMeterControlPanel {
+    /// Format a milliwatt value with auto-scaling unit label.
+    fn format_power(power_mw: f64) -> (f64, &'static str) {
+        if power_mw >= 1000.0 {
+            (power_mw / 1000.0, "W")
+        } else if power_mw >= 1.0 {
+            (power_mw, "mW")
+        } else {
+            (power_mw * 1000.0, "µW")
+        }
+    }
+
+    /// Render the trend plot (recent sample history).
+    fn render_trend(&self, ui: &mut Ui) {
+        if self.state.history.is_empty() {
+            ui.label(
+                egui::RichText::new("No history yet")
+                    .italics()
+                    .color(egui::Color32::GRAY),
+            );
+            return;
+        }
+        let points: Vec<[f64; 2]> = self
+            .state
+            .history
+            .iter()
+            .enumerate()
+            .map(|(i, &v)| {
+                #[allow(clippy::cast_precision_loss)]
+                [i as f64, v]
+            })
+            .collect();
+        let plot = Plot::new("power_trend")
+            .height(150.0)
+            .allow_drag(false)
+            .allow_zoom(false)
+            .allow_scroll(false)
+            .show_axes([false, true])
+            .label_formatter(|_, pt| {
+                let (v, unit) = Self::format_power(pt.y);
+                format!("{:.4} {}", v, unit)
+            });
+        plot.show(ui, |plot_ui| {
+            plot_ui.line(
+                Line::new("power", PlotPoints::new(points))
+                    .color(egui::Color32::from_rgb(80, 200, 120))
+                    .width(1.5),
+            );
+        });
+    }
+
+    /// Render the statistics table.
+    fn render_stats(&self, ui: &mut Ui) {
+        let Some(ref stats) = self.state.history_stats else {
+            ui.label(
+                egui::RichText::new("Collecting...")
+                    .italics()
+                    .color(egui::Color32::GRAY),
+            );
+            return;
+        };
+        egui::Grid::new("power_stats_grid")
+            .num_columns(2)
+            .spacing([16.0, 4.0])
+            .show(ui, |ui| {
+                let rows = [
+                    ("Mean", stats.mean_mw),
+                    ("σ (std)", stats.std_mw),
+                    ("Min", stats.min_mw),
+                    ("Max", stats.max_mw),
+                ];
+                for (label, val_mw) in rows {
+                    let (v, unit) = Self::format_power(val_mw);
+                    ui.label(label);
+                    ui.label(format!("{:.4} {}", v, unit));
+                    ui.end_row();
+                }
+            });
     }
 }
 
@@ -357,6 +523,64 @@ impl DeviceControlWidget for PowerMeterControlPanel {
         }
 
         ui.add_space(8.0);
+        ui.separator();
+
+        // Peak/Min hold display
+        if self.peak_hold_enabled {
+            if let Some(peak) = self.state.peak_mw {
+                let (v, unit) = Self::format_power(peak);
+                ui.horizontal(|ui| {
+                    ui.label("▲ Peak:");
+                    ui.label(
+                        egui::RichText::new(format!("{:.4} {}", v, unit))
+                            .monospace()
+                            .color(egui::Color32::from_rgb(255, 180, 50)),
+                    );
+                });
+            }
+        }
+        if self.min_hold_enabled {
+            if let Some(min) = self.state.min_mw {
+                let (v, unit) = Self::format_power(min);
+                ui.horizontal(|ui| {
+                    ui.label("▼ Min:");
+                    ui.label(
+                        egui::RichText::new(format!("{:.4} {}", v, unit))
+                            .monospace()
+                            .color(egui::Color32::from_rgb(100, 180, 255)),
+                    );
+                });
+            }
+        }
+
+        // Trend graph
+        if self.show_trend {
+            ui.separator();
+            ui.label(egui::RichText::new("Trend").strong());
+            self.render_trend(ui);
+        }
+
+        // Statistics table
+        if self.show_stats {
+            ui.separator();
+            ui.label(egui::RichText::new("Statistics").strong());
+            self.render_stats(ui);
+        }
+
+        ui.add_space(8.0);
+        ui.separator();
+
+        // Feature checkboxes + Reset
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut self.peak_hold_enabled, "Peak Hold");
+            ui.checkbox(&mut self.min_hold_enabled, "Min Hold");
+            ui.checkbox(&mut self.show_trend, "Trend");
+            ui.checkbox(&mut self.show_stats, "Stats");
+            if ui.button("Reset").clicked() {
+                self.state.reset_stats();
+            }
+        });
+
         ui.separator();
 
         // Controls

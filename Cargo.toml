@@ -24,6 +24,7 @@ members = [
     "crates/daq-modules",
     "crates/integration-tests",
     "crates/db",
+    "crates/ui-slint",
 ]
 exclude = []
 

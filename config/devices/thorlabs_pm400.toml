@@ -13,7 +13,7 @@ description = "Thorlabs PM400 optical power meter with SCPI control"
 manufacturer = "Thorlabs"
 model = "PM400"
 protocol = "scpi"
-category = "sensor"
+category = "power_meter"
 capabilities = ["Readable", "WavelengthTunable", "Commandable"]
 
 [connection]

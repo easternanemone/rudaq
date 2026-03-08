@@ -5,7 +5,7 @@
 //! GUI presentation logic that depends on `protocol::daq::DeviceInfo`.
 
 use crate::device_ext::DeviceInfoExt;
-use protocol::daq::DeviceInfo;
+use protocol::daq::{DeviceCategory as ProtoCategory, DeviceInfo};
 
 /// Device category for grouping in the tree view.
 ///
@@ -45,9 +45,29 @@ impl DeviceCategory {
         }
     }
 
-    /// Infer category from device capabilities
+    /// Infer category from device info, preferring the server's authoritative proto
+    /// `category` field over local capability inference.
+    ///
+    /// The server runs the same priority logic (explicit metadata → driver-type string
+    /// matching → capability inference) and sets `DeviceInfo.category` accordingly.
+    /// Trusting it here avoids duplicating that logic and ensures the Newport 1830-C
+    /// (driver_type = "universal_newport_1830-c", which the server matches via "1830")
+    /// lands correctly under Power Meters instead of Lasers.
     pub fn from_device_info(info: &DeviceInfo) -> Self {
-        // Priority: Laser > Camera > Stage > PowerMeter > Detector > Other
+        // Use server-set category when it is not Unspecified
+        if let Ok(proto_cat) = ProtoCategory::try_from(info.category) {
+            match proto_cat {
+                ProtoCategory::Camera => return Self::Camera,
+                ProtoCategory::Stage => return Self::Stage,
+                ProtoCategory::Detector => return Self::Detector,
+                ProtoCategory::Laser => return Self::Laser,
+                ProtoCategory::PowerMeter => return Self::PowerMeter,
+                ProtoCategory::Other => return Self::Other,
+                ProtoCategory::Unspecified => {} // fall through to local inference
+            }
+        }
+
+        // Fallback: local capability inference for legacy/unset category fields
         if info.is_emission_controllable()
             || info.is_shutter_controllable()
             || info.is_wavelength_tunable()
@@ -58,12 +78,7 @@ impl DeviceCategory {
         } else if info.is_movable() {
             Self::Stage
         } else if info.is_readable() {
-            // Could be detector or power meter - check driver name
-            if info.driver_type.to_lowercase().contains("power") {
-                Self::PowerMeter
-            } else {
-                Self::Detector
-            }
+            Self::Detector
         } else {
             Self::Other
         }

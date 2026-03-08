@@ -1,0 +1,10 @@
+[build]
+target = "index.html"
+
+# wasm-opt is disabled via data-wasm-opt="0" in index.html.
+# Reason: binaryen's wasm-opt (tested up to v126) crashes on Slint 1.15.1
+# WASM output with "error validating input" on i64.trunc_sat_f32_s.
+# This is a known binaryen compatibility issue with certain WASM features.
+# Re-enable when binaryen ships a fix — track upstream:
+#   https://github.com/WebAssembly/binaryen/issues
+# Without wasm-opt, release binary is ~6.2 MB (vs ~5 MB with -Oz estimated).
