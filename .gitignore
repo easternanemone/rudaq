@@ -166,3 +166,9 @@ __pycache__/
 
 # Dolt database files (added by bd init)
 .dolt/
+
+# BeadHub workspace config (DO NOT COMMIT — machine-local)
+.beadhub
+
+# ActivityWatch data directory
+.aw/

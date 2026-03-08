@@ -104,11 +104,11 @@ impl MeterState {
                 .map(|&x| (x - mean).powi(2))
                 .sum::<f64>()
                 / n_f;
-            let hist_min = self.history.iter().cloned().fold(f64::INFINITY, f64::min);
+            let hist_min = self.history.iter().copied().fold(f64::INFINITY, f64::min);
             let hist_max = self
                 .history
                 .iter()
-                .cloned()
+                .copied()
                 .fold(f64::NEG_INFINITY, f64::max);
             self.history_stats = Some(MeterStats {
                 mean_mw: mean,
