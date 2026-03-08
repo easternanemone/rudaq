@@ -76,8 +76,12 @@ fn generate_demo_frame(n: u64) -> FrameData {
 }
 
 /// Start the live camera + plot rendering timer for a SplitterMode window.
+///
+/// Returns the [`slint::Timer`] — the caller must keep it alive for the
+/// duration of the window event loop (`win.run()`).  Dropping it cancels
+/// the timer immediately.
 #[cfg(not(target_arch = "wasm32"))]
-pub fn start_live_panels(win: &SplitterMode) {
+pub fn start_live_panels(win: &SplitterMode) -> slint::Timer {
     let camera_buf = Rc::new(RefCell::new(SharedPixelBuffer::<Rgb8Pixel>::new(1, 1)));
     let plot_buf = Rc::new(RefCell::new(SharedPixelBuffer::<Rgb8Pixel>::new(1, 1)));
     let plot_state = Rc::new(RefCell::new(PlotState::new(1000, 10.0)));
@@ -114,15 +118,15 @@ pub fn start_live_panels(win: &SplitterMode) {
         },
     );
 
-    // Timer must outlive win.run() — keep alive by leaking into a Box.
-    std::mem::forget(timer);
+    timer
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 pub fn launch_splitter(log: &Rc<slint::VecModel<slint::StandardListViewItem>>) {
     let win = SplitterMode::new().expect("create splitter window");
     win.set_log_model(slint::ModelRc::from(log.clone()));
-    start_live_panels(&win);
+    // Keep the timer alive on the stack until win.run() returns.
+    let _timer = start_live_panels(&win);
     win.run().expect("splitter mode");
 }
 

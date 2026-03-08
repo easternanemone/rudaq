@@ -197,7 +197,14 @@ fn main() {
             }
 
             // Drain plot data
-            let drained = plot_state.borrow_mut().drain(&data_rx);
+            let mut drained = 0usize;
+            {
+                let mut ps = plot_state.borrow_mut();
+                while let Ok(dp) = data_rx.try_recv() {
+                    ps.push(dp.timestamp_secs, dp.value);
+                    drained += 1;
+                }
+            }
 
             // Render plot
             if drained > 0 {

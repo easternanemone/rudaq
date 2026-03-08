@@ -4,6 +4,7 @@
 
 use crate::runtime::Runtime;
 use eframe::egui::{self, Color32, RichText, Ui};
+use std::collections::VecDeque;
 use tokio::sync::mpsc;
 
 use crate::widgets::{offline_notice, OfflineContext};
@@ -129,7 +130,7 @@ pub struct ComediPanel {
     /// Counter display viewer panel
     counter_display_panel: CounterDisplayPanel,
     /// Error log
-    error_log: Vec<String>,
+    error_log: VecDeque<String>,
     /// Max error log entries
     max_log_entries: usize,
     /// Timing capabilities fetched from server (None until first successful fetch)
@@ -170,7 +171,7 @@ impl ComediPanel {
             voltmeter_panel: VoltmeterPanel::new(),
             dio_monitor_panel: DioMonitorPanel::new(24),
             counter_display_panel: CounterDisplayPanel::new(3),
-            error_log: Vec::new(),
+            error_log: VecDeque::new(),
             max_log_entries: 100,
             timing_caps: None,
             status_tx,
@@ -567,11 +568,12 @@ impl ComediPanel {
     /// Log a message to the event log.
     pub fn log_message(&mut self, message: &str) {
         let timestamp = chrono::Local::now().format("%H:%M:%S").to_string();
-        self.error_log.push(format!("[{}] {}", timestamp, message));
+        self.error_log
+            .push_back(format!("[{}] {}", timestamp, message));
 
-        // Trim log if too long
+        // Trim log if too long — pop_front is O(1) on VecDeque
         while self.error_log.len() > self.max_log_entries {
-            self.error_log.remove(0);
+            self.error_log.pop_front();
         }
     }
 

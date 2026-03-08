@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use slint::{Image, Rgb8Pixel, SharedPixelBuffer};
 use std::collections::VecDeque;
 use std::sync::mpsc;
@@ -64,16 +62,6 @@ impl PlotState {
             }
         }
     }
-
-    /// Drain data from a receiver into the plot state.
-    pub fn drain(&mut self, rx: &DataReceiver) -> usize {
-        let mut count = 0;
-        while let Ok(dp) = rx.try_recv() {
-            self.push(dp.timestamp_secs, dp.value);
-            count += 1;
-        }
-        count
-    }
 }
 
 /// Render the plot state into an RGB8 image.
@@ -112,7 +100,7 @@ pub fn render_plot(
 
     let margin = 4u32;
 
-    // Draw horizontal grid (4 lines)
+    // Draw horizontal grid (5 lines)
     for gi in 0..5 {
         let gy = margin + (gi * (height - 2 * margin)) / 4;
         for x in 0..width {
@@ -134,13 +122,16 @@ pub fn render_plot(
         (px, py)
     };
 
-    // Draw visible points as connected line
-    let visible: Vec<_> = state.points.iter().filter(|(t, _)| *t >= t_min).collect();
-
-    for pair in visible.windows(2) {
-        let (x0, y0) = to_px(pair[0].0, pair[0].1);
-        let (x1, y1) = to_px(pair[1].0, pair[1].1);
-        draw_line(pixels, width, height, x0, y0, x1, y1, [80, 220, 120]);
+    // Draw visible points as connected line segments.
+    // Uses a rolling `prev` to avoid collecting into a Vec each frame.
+    let mut prev: Option<(f64, f64)> = None;
+    for &(t, v) in state.points.iter().filter(|(t, _)| *t >= t_min) {
+        if let Some((pt, pv)) = prev {
+            let (x0, y0) = to_px(pt, pv);
+            let (x1, y1) = to_px(t, v);
+            draw_line(pixels, width, height, x0, y0, x1, y1, [80, 220, 120]);
+        }
+        prev = Some((t, v));
     }
 
     Image::from_rgb8(buf.clone())
