@@ -110,11 +110,26 @@ pub fn decompress_frame(frame: &mut FrameData) -> Result<(), String> {
 
 /// Decompress frame data into a pre-allocated buffer, avoiding per-frame allocation.
 ///
-/// The buffer is resized to `uncompressed_size` and reused across frames.
-/// The compressed data (with 4-byte LE size prefix) is decompressed in-place.
+/// The buffer is resized to `uncompressed_size` via [`Vec::resize`] (zero-filled) and
+/// reused across frames.  After a two-call warmup the buffer stabilises at
+/// `uncompressed_size` capacity and no further heap allocation occurs, provided
+/// the frame size stays constant.  On the first call the buffer is grown to
+/// `uncompressed_size`; the swap at the end returns it holding the compressed
+/// bytes (smaller), so the second call resizes it again — after which it holds
+/// the previous decompressed bytes at full capacity on every subsequent call.
 ///
-/// After this call, `frame.data` contains decompressed data and `buffer` holds
-/// the old compressed data (available for reuse by the caller).
+/// The compressed data must carry the 4-byte LE size prefix written by
+/// [`compress_frame`] / [`compress_frame_into`].
+///
+/// After a successful call, `frame.data` holds the decompressed pixel data and
+/// `buffer` holds the previous (now-stale) compressed bytes, ready for reuse.
+///
+/// # Errors
+/// Returns `Err(String)` if:
+/// - `frame.data` is fewer than 4 bytes (missing size prefix)
+/// - The LZ4 payload is malformed
+/// - The decompressed length does not match `frame.uncompressed_size`
+/// - The compression type is not recognised
 pub fn decompress_frame_into(frame: &mut FrameData, buffer: &mut Vec<u8>) -> Result<(), String> {
     match CompressionType::try_from(frame.compression) {
         Ok(CompressionType::CompressionNone) => Ok(()),

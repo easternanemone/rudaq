@@ -1,3 +1,15 @@
+//! Software-rendered strip-chart plot for the Slint UI.
+//!
+//! [`render_plot`] draws into a [`slint::SharedPixelBuffer`] using integer-only
+//! Bresenham line segments.  No per-frame heap allocation: the rolling `prev`
+//! pattern replaces a `collect()`-then-`windows(2)` approach.
+//!
+//! [`PlotState`] maintains grow-only Y bounds and a capacity-bounded [`VecDeque`]
+//! of `(timestamp, value)` pairs.  `time_window_secs` is a *rendering* filter —
+//! [`render_plot`] skips points outside the window, but storage eviction is
+//! driven by `max_points`, not time.  Call [`PlotState::reset_bounds`] to
+//! recompute tight bounds after the point set changes.
+
 use slint::{Image, Rgb8Pixel, SharedPixelBuffer};
 use std::collections::VecDeque;
 use std::sync::mpsc;
@@ -16,7 +28,19 @@ pub fn data_channel(capacity: usize) -> (DataSender, DataReceiver) {
     mpsc::sync_channel(capacity)
 }
 
-/// Auto-scaling plot state (grow-only bounds, matching egui AutoScalePlot behavior).
+/// Auto-scaling plot state with grow-only Y bounds.
+///
+/// Y bounds (`y_min`, `y_max`) widen as new values arrive via [`push`](Self::push)
+/// but never shrink.  Call [`reset_bounds`](Self::reset_bounds) to recompute
+/// tight bounds from the current point window.  This matches the "auto-scale,
+/// never shrink" behaviour of the egui `AutoScalePlot` widget.
+///
+/// Internally stores at most `max_points` `(timestamp_secs, value)` pairs in a
+/// [`VecDeque`], evicting the **oldest by insertion order** when full.
+/// `time_window_secs` is a **rendering filter only** — [`render_plot`] uses it
+/// to restrict which points are drawn; it does *not* drive storage eviction.
+/// Points outside the time window remain in the `VecDeque` until displaced by
+/// capacity overflow.
 pub struct PlotState {
     points: VecDeque<(f64, f64)>,
     max_points: usize,
@@ -65,6 +89,12 @@ impl PlotState {
 }
 
 /// Render the plot state into an RGB8 image.
+///
+/// Draws a dark background, 5 evenly-spaced horizontal grid lines, and a
+/// green line trace connecting all data points within the time window.
+/// The pixel buffer is reallocated only when `width` or `height` changes.
+///
+/// Returns immediately with a blank frame when fewer than 2 points are present.
 pub fn render_plot(
     state: &PlotState,
     width: u32,
@@ -87,6 +117,13 @@ pub fn render_plot(
         return Image::from_rgb8(buf.clone());
     }
 
+    let margin = 4u32;
+
+    // Guard against tiny / zero dimensions that would cause u32 underflow.
+    if width <= 2 * margin || height <= 2 * margin {
+        return Image::from_rgb8(buf.clone());
+    }
+
     // Time range: latest - window
     let t_max = state.points.back().map_or(0.0, |p| p.0);
     let t_min = t_max - state.time_window_secs;
@@ -97,8 +134,6 @@ pub fn render_plot(
     let y_lo = state.y_min - y_pad;
     let y_hi = state.y_max + y_pad;
     let y_span = y_hi - y_lo;
-
-    let margin = 4u32;
 
     // Draw horizontal grid (5 lines)
     for gi in 0..5 {
@@ -137,6 +172,10 @@ pub fn render_plot(
     Image::from_rgb8(buf.clone())
 }
 
+/// Bresenham's line algorithm — draws a 1-px anti-alias-free line.
+///
+/// Clips silently to the `[0, width) × [0, height)` pixel grid.
+/// `color` is written as `[R, G, B]` bytes to each rasterised pixel.
 #[allow(clippy::too_many_arguments)]
 fn draw_line(
     pixels: &mut [u8],
@@ -176,5 +215,111 @@ fn draw_line(
             err += dx;
             cy += sy;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── PlotState ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn push_single_point_sets_bounds() {
+        let mut state = PlotState::new(100, 10.0);
+        state.push(0.0, 5.0);
+        assert_eq!(state.y_min, 5.0);
+        assert_eq!(state.y_max, 5.0);
+    }
+
+    #[test]
+    fn push_grows_bounds_but_never_shrinks() {
+        let mut state = PlotState::new(100, 10.0);
+        state.push(0.0, 5.0);
+        state.push(1.0, 10.0);
+        assert_eq!(state.y_min, 5.0);
+        assert_eq!(state.y_max, 10.0);
+        // A new point in the middle does not shrink max.
+        state.push(2.0, 7.0);
+        assert_eq!(state.y_max, 10.0);
+    }
+
+    #[test]
+    fn push_evicts_oldest_at_capacity() {
+        let mut state = PlotState::new(3, 10.0);
+        state.push(0.0, 1.0);
+        state.push(1.0, 2.0);
+        state.push(2.0, 3.0);
+        assert_eq!(state.points.len(), 3);
+        state.push(3.0, 4.0);
+        assert_eq!(state.points.len(), 3);
+        // Front should now be the second-oldest point.
+        assert_eq!(state.points.front().unwrap().0, 1.0);
+    }
+
+    #[test]
+    fn reset_bounds_recomputes_tight_bounds() {
+        let mut state = PlotState::new(100, 10.0);
+        state.push(0.0, 5.0);
+        state.push(1.0, 100.0);
+        // Grow-only: y_max stays at 100 even after reset.
+        state.reset_bounds();
+        assert_eq!(state.y_min, 5.0);
+        assert_eq!(state.y_max, 100.0);
+    }
+
+    #[test]
+    fn reset_bounds_on_empty_state_leaves_infinities() {
+        let mut state = PlotState::new(100, 10.0);
+        state.reset_bounds();
+        assert!(state.y_min.is_infinite());
+        assert!(state.y_max.is_infinite());
+    }
+
+    // ── render_plot ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn render_plot_fewer_than_two_points_returns_blank() {
+        let state = PlotState::new(100, 10.0);
+        let mut buf = SharedPixelBuffer::new(1, 1);
+        let _ = render_plot(&state, 64, 32, &mut buf);
+        // No crash; buffer filled with dark background color.
+        let bytes = buf.make_mut_bytes();
+        assert_eq!(bytes[0], 20); // dark background R
+    }
+
+    #[test]
+    fn render_plot_resizes_buffer_to_requested_dimensions() {
+        let mut state = PlotState::new(100, 10.0);
+        state.push(0.0, 1.0);
+        state.push(1.0, 2.0);
+        let mut buf = SharedPixelBuffer::new(1, 1);
+        let _ = render_plot(&state, 128, 64, &mut buf);
+        assert_eq!(buf.width(), 128);
+        assert_eq!(buf.height(), 64);
+    }
+
+    #[test]
+    fn render_plot_tiny_dimensions_does_not_panic() {
+        // width/height < 2*margin (8 px) would previously underflow u32.
+        let mut state = PlotState::new(10, 1.0);
+        state.push(0.0, 1.0);
+        state.push(1.0, 2.0);
+        for w in 0u32..=7 {
+            for h in 0u32..=7 {
+                let mut buf = SharedPixelBuffer::new(1, 1);
+                let _ = render_plot(&state, w, h, &mut buf);
+            }
+        }
+    }
+
+    #[test]
+    fn render_plot_with_many_points_does_not_panic() {
+        let mut state = PlotState::new(1000, 10.0);
+        for i in 0..500 {
+            state.push(i as f64 * 0.02, (i as f64 * 0.1).sin() * 50.0 + 100.0);
+        }
+        let mut buf = SharedPixelBuffer::new(1, 1);
+        let _ = render_plot(&state, 256, 128, &mut buf);
     }
 }
