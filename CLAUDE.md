@@ -12,10 +12,13 @@ cargo nextest run                        # Parallel test runner (install: cargo 
 cargo nextest run test_name              # Single test by name
 cargo nextest run -p common              # Single crate
 cargo nextest run --profile ci           # CI profile (3 retries, no fail-fast)
+cargo nextest run --workspace --exclude ui --exclude comedi-sys --exclude driver-comedi --profile ci  # Full CI parity test slice
 cargo check -p ui --lib --target wasm32-unknown-unknown --no-default-features --features web  # UI WASM compile smoke (CI parity)
 cargo test --doc                         # Doctests (nextest doesn't support these)
 cargo fmt --all                          # Format
+cargo fmt --all -- --check               # Format check (CI/pre-push parity)
 cargo clippy --all-targets               # Lint
+cargo clippy --workspace --all-targets --exclude ui --exclude comedi-sys --exclude driver-comedi -- -D warnings  # Clippy gate (CI/pre-push parity)
 ```
 
 ### Maitai Hardware Build (Critical)
