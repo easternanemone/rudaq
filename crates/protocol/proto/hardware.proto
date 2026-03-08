@@ -179,6 +179,11 @@ message DeviceMetadata {
 
   // Optional serialized UI schema/configuration for metadata-driven panels.
   optional string ui_schema_json = 42;
+
+  // Explicit panel routing hint for the UI. When set, skips capability heuristics.
+  // Well-known values: "pvcam", "andor_camera", "andor_shamrock", "comedi",
+  // "dover_stage", "maitai", "power_meter", "rotator", "stage", "generic".
+  optional string panel_kind = 43;
 }
 
 message DeviceStateRequest {

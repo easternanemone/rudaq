@@ -102,6 +102,7 @@ get_wavelength = { command = "get_wavelength", output_field = "value" }
 [ui]
 icon = "sensor"
 color = "#1E88E5"
+panel_kind = "power_meter"
 
 [ui.control_panel]
 layout = "vertical"

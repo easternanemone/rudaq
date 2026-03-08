@@ -696,6 +696,7 @@ impl DriverFactory for ComediAnalogInputFactory {
                 parameterized: Some(driver),
                 metadata: DeviceMetadata {
                     measurement_units: Some(cfg.units),
+                    panel_kind: Some(common::panel_kind::COMEDI.to_string()),
                     ..Default::default()
                 },
                 ..Default::default()
@@ -754,6 +755,7 @@ impl DriverFactory for ComediAnalogOutputFactory {
                 parameterized: Some(driver),
                 metadata: DeviceMetadata {
                     measurement_units: Some(cfg.units),
+                    panel_kind: Some(common::panel_kind::COMEDI.to_string()),
                     ..Default::default()
                 },
                 ..Default::default()

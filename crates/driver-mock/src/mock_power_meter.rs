@@ -96,6 +96,7 @@ impl DriverFactory for MockPowerMeterFactory {
                 parameterized: Some(meter),
                 metadata: DeviceMetadata {
                     measurement_units: Some("W".into()),
+                    panel_kind: Some(common::panel_kind::POWER_METER.to_string()),
                     ..Default::default()
                 },
                 ..Default::default()

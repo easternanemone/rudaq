@@ -3,7 +3,7 @@
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use common::capabilities::{Movable, Parameterized};
-use common::driver::{Capability, DeviceComponents, DriverFactory};
+use common::driver::{Capability, DeviceComponents, DeviceMetadata, DriverFactory};
 use common::observable::ParameterSet;
 use common::parameter::Parameter;
 use futures::future::BoxFuture;
@@ -120,6 +120,10 @@ impl DriverFactory for MockRotatorFactory {
             Ok(DeviceComponents {
                 movable: Some(rotator.clone()),
                 parameterized: Some(rotator),
+                metadata: DeviceMetadata {
+                    panel_kind: Some(common::panel_kind::ROTATOR.to_string()),
+                    ..Default::default()
+                },
                 ..Default::default()
             })
         })

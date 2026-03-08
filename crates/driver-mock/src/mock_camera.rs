@@ -10,7 +10,7 @@ use common::capabilities::{
     Stageable, Triggerable,
 };
 use common::data::{Frame, FrameView};
-use common::driver::{Capability, DeviceComponents, DriverFactory};
+use common::driver::{Capability, DeviceComponents, DeviceMetadata, DriverFactory};
 use common::observable::ParameterSet;
 use common::parameter::Parameter;
 use futures::future::BoxFuture;
@@ -166,6 +166,10 @@ impl DriverFactory for MockCameraFactory {
                 exposure_control: Some(camera.clone()),
                 stageable: Some(camera.clone()),
                 parameterized: Some(camera),
+                metadata: DeviceMetadata {
+                    panel_kind: Some(common::panel_kind::PVCAM.to_string()),
+                    ..Default::default()
+                },
                 ..Default::default()
             })
         })

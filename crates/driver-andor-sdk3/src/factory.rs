@@ -9,7 +9,7 @@ use crate::mock::{MockCamera, MockSpectrograph};
 #[cfg(feature = "hardware")]
 use crate::spectrograph::AndorSpectrograph;
 use anyhow::Result;
-use common::driver::{Capability, DeviceComponents, DriverFactory};
+use common::driver::{Capability, DeviceComponents, DeviceMetadata, DriverFactory};
 use futures::future::BoxFuture;
 use std::sync::Arc;
 
@@ -122,11 +122,12 @@ impl DriverFactory for AndorCameraFactory {
                     }
                 }
 
-                let components = DeviceComponents::new()
+                let mut components = DeviceComponents::new()
                     .with_frame_producer(camera.clone())
                     .with_triggerable(camera.clone())
                     .with_exposure_control(camera.clone())
                     .with_parameterized(camera);
+                components.metadata.panel_kind = Some(common::panel_kind::ANDOR_CAMERA.to_string());
 
                 Ok(components)
             }
@@ -157,11 +158,12 @@ impl DriverFactory for AndorCameraFactory {
                     );
                 }
 
-                let components = DeviceComponents::new()
+                let mut components = DeviceComponents::new()
                     .with_frame_producer(camera.clone())
                     .with_triggerable(camera.clone())
                     .with_exposure_control(camera.clone())
                     .with_parameterized(camera);
+                components.metadata.panel_kind = Some(common::panel_kind::ANDOR_CAMERA.to_string());
 
                 Ok(components)
             }
@@ -212,10 +214,12 @@ impl DriverFactory for AndorSpectrographFactory {
 
                 let spectrograph = Arc::new(AndorSpectrograph::new_async(device_index).await?);
 
-                let components = DeviceComponents::new()
+                let mut components = DeviceComponents::new()
                     .with_wavelength_tunable(spectrograph.clone())
                     .with_shutter_control(spectrograph.clone())
                     .with_parameterized(spectrograph);
+                components.metadata.panel_kind =
+                    Some(common::panel_kind::ANDOR_SHAMROCK.to_string());
 
                 Ok(components)
             }
@@ -225,10 +229,12 @@ impl DriverFactory for AndorSpectrographFactory {
                 tracing::warn!("Using mock Shamrock spectrograph (hardware feature not enabled)");
                 let spectrograph = Arc::new(MockSpectrograph::new());
 
-                let components = DeviceComponents::new()
+                let mut components = DeviceComponents::new()
                     .with_wavelength_tunable(spectrograph.clone())
                     .with_shutter_control(spectrograph.clone())
                     .with_parameterized(spectrograph);
+                components.metadata.panel_kind =
+                    Some(common::panel_kind::ANDOR_SHAMROCK.to_string());
 
                 Ok(components)
             }

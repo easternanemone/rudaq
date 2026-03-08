@@ -437,6 +437,7 @@ delay_ms = 100
 [ui]
 icon = "motor"
 color = "#4CAF50"
+panel_kind = "rotator"
 
 [ui.control_panel]
 layout = "vertical"

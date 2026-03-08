@@ -981,54 +981,35 @@ enum DockedAdvancedPanelKind {
 }
 
 fn docked_advanced_panel_kind_for_device(device: &DeviceInfo) -> DockedAdvancedPanelKind {
-    let driver_lower = device.driver_type.to_lowercase();
-
-    if driver_lower.contains("maitai")
-        || driver_lower.contains("mai_tai")
-        || (device.is_wavelength_tunable() && device.is_emission_controllable())
-    {
-        DockedAdvancedPanelKind::MaiTai
-    } else if driver_lower.contains("comedi")
-        || driver_lower.contains("ni_daq")
-        || driver_lower.contains("nidaq")
-        || driver_lower.contains("pci-mio")
-        || driver_lower.contains("pcimio")
-    {
-        DockedAdvancedPanelKind::Comedi
-    } else if driver_lower.contains("1830")
-        || driver_lower.contains("power_meter")
-        || (device.is_readable() && !device.is_movable() && !device.is_frame_producer())
-    {
-        DockedAdvancedPanelKind::PowerMeter
-    } else if driver_lower.contains("ell14") || driver_lower.contains("rotator") {
-        DockedAdvancedPanelKind::Rotator
-    } else if device.is_movable() {
-        DockedAdvancedPanelKind::Stage
-    } else {
-        DockedAdvancedPanelKind::Generic
+    use crate::panels::instrument_manager::dispatch::{self, PanelType};
+    match dispatch::determine_panel_type_with_config(device, None) {
+        PanelType::MaiTai => DockedAdvancedPanelKind::MaiTai,
+        PanelType::Comedi => DockedAdvancedPanelKind::Comedi,
+        PanelType::PowerMeter => DockedAdvancedPanelKind::PowerMeter,
+        PanelType::Rotator => DockedAdvancedPanelKind::Rotator,
+        PanelType::Stage | PanelType::DoverStage => DockedAdvancedPanelKind::Stage,
+        _ => DockedAdvancedPanelKind::Generic,
     }
 }
 
 /// Determine panel kind from device capabilities
 fn panel_kind_for_device(device: &DeviceInfo) -> DevicePanelKind {
-    let driver_lower = device.driver_type.to_lowercase();
-
-    if device.is_emission_controllable() || device.is_shutter_controllable() {
-        DevicePanelKind::MaiTai
-    } else if driver_lower.contains("comedi_analog_output")
-        || driver_lower.contains("analog_output")
-    {
-        DevicePanelKind::AnalogOutput
-    } else if device.is_readable() && !device.is_movable() {
-        DevicePanelKind::PowerMeter
-    } else if device.is_movable() {
-        if driver_lower.contains("ell14") || driver_lower.contains("rotator") {
-            DevicePanelKind::Rotator
-        } else {
-            DevicePanelKind::Stage
+    use crate::panels::instrument_manager::dispatch::{self, PanelType};
+    match dispatch::determine_panel_type_with_config(device, None) {
+        PanelType::MaiTai => DevicePanelKind::MaiTai,
+        PanelType::PowerMeter => DevicePanelKind::PowerMeter,
+        PanelType::Rotator => DevicePanelKind::Rotator,
+        PanelType::Stage | PanelType::DoverStage => DevicePanelKind::Stage,
+        PanelType::Comedi => {
+            // Only true analog-output Comedi devices map to AnalogOutput for migration tracking.
+            // Analog input, DIO, and counter Comedi devices fall back to the Stage default kind.
+            if device.driver_type.to_lowercase().contains("analog_output") {
+                DevicePanelKind::AnalogOutput
+            } else {
+                DevicePanelKind::Stage
+            }
         }
-    } else {
-        DevicePanelKind::Stage // fallback
+        _ => DevicePanelKind::Stage, // Camera, AndorCamera, Spectrograph, Generic, ConfigDriven
     }
 }
 

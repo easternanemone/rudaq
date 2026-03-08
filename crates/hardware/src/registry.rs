@@ -250,6 +250,8 @@ pub struct DeviceMetadata {
     pub available_commands: Vec<String>,
     /// Optional serialized UI schema/configuration for metadata-driven control panels.
     pub ui_schema_json: Option<String>,
+    /// Explicit panel routing hint for the UI (see `common::panel_kind` constants).
+    pub panel_kind: Option<String>,
     /// Config origin: "toml" (startup), "db" (reconciler), etc.
     pub config_source: Option<String>,
     /// Static feature metadata from device manifest (for universal/TOML-driven devices).
@@ -840,6 +842,7 @@ impl DeviceRegistry {
             max_wavelength_nm: components.metadata.max_wavelength_nm,
             available_commands: components.metadata.available_commands.clone(),
             ui_schema_json: components.metadata.ui_schema_json.clone(),
+            panel_kind: components.metadata.panel_kind.clone(),
             config_source: None, // Caller sets after registration
             manifest_features: components.metadata.manifest_features.clone(),
         };

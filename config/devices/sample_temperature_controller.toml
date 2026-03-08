@@ -556,6 +556,7 @@ script = """
 [ui]
 icon = "thermometer"
 color = "#FF6B35"                     # Orange theme color
+panel_kind = "generic"
 
 [ui.control_panel]
 layout = "vertical"

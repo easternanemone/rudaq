@@ -16,11 +16,12 @@ mod scripts;
 mod signal_plotter;
 mod storage;
 
-// --- Native-only panels (depend on experiment/comedi crates) ---
-#[cfg(not(target_arch = "wasm32"))]
-pub mod comedi;
+// --- Native-only panels (depend on experiment crates) ---
 #[cfg(not(target_arch = "wasm32"))]
 mod experiment_designer;
+
+// --- Cross-platform panels that talk to hardware via gRPC (no native-only deps) ---
+pub mod comedi;
 
 // --- Cross-platform panels (uses gRPC client + egui, no native-only deps) ---
 pub(crate) mod instrument_manager;
@@ -47,11 +48,9 @@ pub use storage::StoragePanel;
 
 // --- Native-only panel exports ---
 #[cfg(not(target_arch = "wasm32"))]
-pub use comedi::ComediPanel;
-#[cfg(not(target_arch = "wasm32"))]
 pub use experiment_designer::ExperimentDesignerPanel;
 
-// --- Cross-platform panel exports ---
+pub use comedi::ComediPanel;
 pub use instrument_manager::InstrumentManagerPanel;
 
 // --- WASM stub types for native-only panels ---
@@ -91,33 +90,6 @@ mod wasm_stubs {
                 );
                 ui.label("The node graph experiment designer requires native execution.");
                 ui.label("Use the desktop application for experiment design.");
-            });
-        }
-    }
-
-    /// Stub for ComediPanel on WASM.
-    #[derive(Default)]
-    pub struct ComediPanel;
-
-    impl ComediPanel {
-        pub fn new(_device_id: &str) -> Self {
-            Self
-        }
-
-        pub fn ui(
-            &mut self,
-            ui: &mut egui::Ui,
-            _client: Option<&mut DaqClient>,
-            _runtime: &Runtime,
-        ) {
-            ui.vertical_centered(|ui| {
-                ui.add_space(40.0);
-                ui.label(
-                    egui::RichText::new("Comedi DAQ")
-                        .heading()
-                        .color(egui::Color32::GRAY),
-                );
-                ui.label("NI DAQ hardware control requires a Linux host with Comedi drivers.");
             });
         }
     }

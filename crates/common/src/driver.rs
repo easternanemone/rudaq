@@ -395,6 +395,7 @@ impl DeviceComponents {
     /// Set device category
     pub fn with_category(mut self, category: DeviceCategory) -> Self {
         self.category = Some(category);
+        self.metadata.category = Some(category);
         self
     }
 
@@ -583,6 +584,13 @@ pub struct DeviceMetadata {
     ///
     /// For universal TOML drivers this is sourced from the `[ui]` manifest section.
     pub ui_schema_json: Option<String>,
+
+    /// Explicit panel routing hint for the UI.
+    ///
+    /// When set, the UI uses this field to route the device to a specific control
+    /// panel without any heuristic guessing. Use the constants from [`common::panel_kind`].
+    /// When absent, the UI falls back to capability-based dispatch.
+    pub panel_kind: Option<String>,
 
     /// Manifest-derived parameter/feature metadata for DB persistence.
     ///

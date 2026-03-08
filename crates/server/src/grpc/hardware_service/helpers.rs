@@ -288,6 +288,7 @@ pub(super) fn device_info_to_proto(info: &hardware::registry::DeviceInfo) -> Dev
             config_source: info.metadata.config_source.clone(),
             available_commands: info.metadata.available_commands.clone(),
             ui_schema_json: info.metadata.ui_schema_json.clone(),
+            panel_kind: info.metadata.panel_kind.clone(),
         }),
         // Dynamic capability list - canonical source of truth (bd-4myc.3)
         capabilities: info

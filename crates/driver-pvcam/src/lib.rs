@@ -141,6 +141,7 @@ impl DriverFactory for PvcamFactory {
                     frame_width: Some(w),
                     frame_height: Some(h),
                     available_commands,
+                    panel_kind: Some(common::panel_kind::PVCAM.to_string()),
                     ..Default::default()
                 },
                 ..Default::default()

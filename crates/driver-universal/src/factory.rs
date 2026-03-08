@@ -453,6 +453,12 @@ impl DriverFactory for UniversalDriverFactory {
 
             let mut available_commands: Vec<String> = manifest.commands.keys().cloned().collect();
             available_commands.sort();
+            let ui_panel_kind = manifest
+                .ui
+                .as_ref()
+                .and_then(|v| v.get("panel_kind"))
+                .and_then(|v| v.as_str())
+                .map(String::from);
             let ui_schema_json = manifest
                 .ui
                 .as_ref()
@@ -482,6 +488,7 @@ impl DriverFactory for UniversalDriverFactory {
                 max_wavelength_nm: manifest.parameters.get("max_wavelength").copied(),
                 available_commands,
                 ui_schema_json,
+                panel_kind: ui_panel_kind,
                 manifest_features,
                 ..DeviceMetadata::default()
             };

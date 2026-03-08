@@ -159,6 +159,7 @@ read = { command = "read_power", output_field = "value" }
 [ui]
 icon = "tune"
 color = "#4CAF50"
+panel_kind = "generic"
 
 [ui.control_panel]
 layout = "vertical"

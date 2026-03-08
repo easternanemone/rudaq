@@ -355,3 +355,6 @@ read = { command = "read_holding_registers", output_field = "data" }
 
 [capabilities.settable]
 set = { command = "write_single_register", input_param = "value" }
+
+[ui]
+panel_kind = "generic"

@@ -87,7 +87,7 @@ baud_rate = 9600
 # [capabilities.*]     - Map trait methods to commands (v3 syntax)
 # [[init_sequence]]    - Commands to run on connect
 # [scripts.*]          - Rhai scripts for complex operations
-# [ui]                 - Control panel configuration
+# [ui]                 - Control panel configuration (panel_kind = "generic"|"stage"|"rotator"|etc.)
 # [default_retry]      - Default retry behavior
 # [binary_commands.*]  - Binary protocol commands (Modbus, etc.)
 # [binary_responses.*] - Binary response parsing

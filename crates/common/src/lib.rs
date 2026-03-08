@@ -69,6 +69,9 @@ pub mod pipeline;
 // Driver factory and capability types for plugin architecture
 pub mod driver;
 
+// Well-known panel_kind string constants for explicit UI routing
+pub mod panel_kind;
+
 // Runtime feature flags loaded from config/feature_flags.toml
 pub mod feature_flags;
 

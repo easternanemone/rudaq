@@ -29,3 +29,6 @@ expects_response = false
 
 [capabilities.movable]
 # NOTE: Other movable methods inherited from base config
+
+[ui]
+panel_kind = "stage"

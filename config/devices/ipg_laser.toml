@@ -129,6 +129,7 @@ is_enabled = { command = "read_emission" }
 [ui]
 icon = "laser"
 color = "#FF6B00"
+panel_kind = "maitai"
 
 [ui.control_panel]
 layout = "vertical"

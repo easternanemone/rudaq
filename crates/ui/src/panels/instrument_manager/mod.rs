@@ -47,7 +47,6 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 
 use crate::device_ext::DeviceInfoExt;
-#[cfg(not(target_arch = "wasm32"))]
 use crate::panels::ComediPanel;
 use crate::time::Instant;
 use crate::widgets::{
@@ -176,8 +175,7 @@ pub struct InstrumentManagerPanel {
     spectrograph_panels: HashMap<String, SpectrographPanel>,
     /// Dover stage control panels (with TOP support)
     dover_panels: HashMap<String, DoverStagePanel>,
-    /// Comedi DAQ control panels (Linux-only, requires kernel drivers)
-    #[cfg(not(target_arch = "wasm32"))]
+    /// Comedi DAQ control panels
     comedi_panels: HashMap<String, ComediPanel>,
     /// Generic capability-based control panels (keyed by device_id)
     generic_panels: HashMap<String, GenericDevicePanel>,
@@ -257,7 +255,6 @@ impl Default for InstrumentManagerPanel {
             andor_panels: HashMap::new(),
             spectrograph_panels: HashMap::new(),
             dover_panels: HashMap::new(),
-            #[cfg(not(target_arch = "wasm32"))]
             comedi_panels: HashMap::new(),
             generic_panels: HashMap::new(),
             config_driven_panels: HashMap::new(),
@@ -1526,133 +1523,88 @@ impl InstrumentManagerPanel {
             return;
         }
 
-        // --- Priority 1: Config-driven panel from local TOML ---
-        if let Some(panel_config) = self
-            .config_cache
-            .get_ui_config_for_driver(&device.driver_type)
-        {
-            let panel = self
-                .config_driven_panels
-                .entry(device_id.clone())
-                .or_insert_with(|| config_renderer::ConfigDrivenPanel::new(panel_config.clone()));
-            ui.push_id(("instr_mgr", &device_id), |ui| {
-                panel.ui(ui, &device, client.as_deref_mut(), runtime);
-            });
-            return;
+        // --- Priority 1–3: panel_kind / local TOML config / capability heuristics ---
+        // Pass config_cache into the resolver so it applies Priority 1 (panel_kind) BEFORE
+        // Priority 2 (local TOML), matching the documented order. ConfigDriven is handled
+        // as a match arm rather than an early-return so panel_kind can override TOML config.
+        match dispatch::determine_panel_type_with_config(&device, Some(&self.config_cache)) {
+            dispatch::PanelType::ConfigDriven(ref config) => {
+                let config = config.clone();
+                let panel = self
+                    .config_driven_panels
+                    .entry(device_id.clone())
+                    .or_insert_with(|| config_renderer::ConfigDrivenPanel::new(config));
+                ui.push_id(("instr_mgr", &device_id), |ui| {
+                    panel.ui(ui, &device, client.as_deref_mut(), runtime);
+                });
+            }
+            dispatch::PanelType::MaiTai => {
+                let panel = self.maitai_panels.entry(device_id.clone()).or_default();
+                ui.push_id(("instr_mgr", &device_id), |ui| {
+                    panel.ui(ui, &device, client.as_deref_mut(), runtime);
+                });
+            }
+            dispatch::PanelType::Comedi => {
+                let did = device_id.clone();
+                let panel = self
+                    .comedi_panels
+                    .entry(device_id.clone())
+                    .or_insert_with(|| ComediPanel::new(&did));
+                ui.push_id(("instr_mgr", &device_id), |ui| {
+                    panel.ui(ui, client.as_deref_mut(), runtime);
+                });
+            }
+            dispatch::PanelType::PowerMeter => {
+                let panel = self
+                    .power_meter_panels
+                    .entry(device_id.clone())
+                    .or_default();
+                ui.push_id(("instr_mgr", &device_id), |ui| {
+                    panel.ui(ui, &device, client.as_deref_mut(), runtime);
+                });
+            }
+            dispatch::PanelType::Rotator => {
+                let panel = self.rotator_panels.entry(device_id.clone()).or_default();
+                ui.push_id(("instr_mgr", &device_id), |ui| {
+                    panel.ui(ui, &device, client.as_deref_mut(), runtime);
+                });
+            }
+            dispatch::PanelType::AndorCamera => {
+                let panel = self.andor_panels.entry(device_id.clone()).or_default();
+                ui.push_id(("instr_mgr", &device_id), |ui| {
+                    panel.ui(ui, &device, client.as_deref_mut(), runtime);
+                });
+            }
+            dispatch::PanelType::Spectrograph => {
+                let panel = self
+                    .spectrograph_panels
+                    .entry(device_id.clone())
+                    .or_default();
+                ui.push_id(("instr_mgr", &device_id), |ui| {
+                    panel.ui(ui, &device, client.as_deref_mut(), runtime);
+                });
+            }
+            dispatch::PanelType::DoverStage => {
+                let panel = self.dover_panels.entry(device_id.clone()).or_default();
+                ui.push_id(("instr_mgr", &device_id), |ui| {
+                    panel.ui(ui, &device, client.as_deref_mut(), runtime);
+                });
+            }
+            dispatch::PanelType::Camera => {
+                ui.push_id(("instr_mgr", &device_id), |ui| {
+                    self.render_pvcam_control_panel(ui, &device, client, runtime);
+                });
+            }
+            dispatch::PanelType::Stage => {
+                let panel = self.stage_panels.entry(device_id.clone()).or_default();
+                ui.push_id(("instr_mgr", &device_id), |ui| {
+                    panel.ui(ui, &device, client.as_deref_mut(), runtime);
+                });
+            }
+            dispatch::PanelType::Generic => {
+                self.render_generic_control_panel(ui, &device, client, runtime);
+            }
         }
-
-        // Per-device specialized panels provide richer controls for hardware bring-up.
-        let driver_lower = device.driver_type.to_lowercase();
-
-        // Check for MaiTai laser
-        if driver_lower.contains("maitai")
-            || driver_lower.contains("mai_tai")
-            || (device.is_wavelength_tunable() && device.is_emission_controllable())
-        {
-            let panel = self.maitai_panels.entry(device_id.clone()).or_default();
-            // Use push_id to avoid widget ID collisions with docked panels
-            ui.push_id(("instr_mgr", &device_id), |ui| {
-                panel.ui(ui, &device, client.as_deref_mut(), runtime);
-            });
-            return;
-        }
-
-        // Check for Comedi DAQ devices (Linux-only, requires kernel drivers)
-        #[cfg(not(target_arch = "wasm32"))]
-        if driver_lower.contains("comedi")
-            || driver_lower.contains("ni_daq")
-            || driver_lower.contains("nidaq")
-            || driver_lower.contains("pci-mio")
-            || driver_lower.contains("pcimio")
-        {
-            let did = device_id.clone();
-            let panel = self
-                .comedi_panels
-                .entry(device_id.clone())
-                .or_insert_with(|| ComediPanel::new(&did));
-            // Use push_id to avoid widget ID collisions with docked panels
-            ui.push_id(("instr_mgr", &device_id), |ui| {
-                panel.ui(ui, client.as_deref_mut(), runtime);
-            });
-            return;
-        }
-
-        // Check for power meter
-        if driver_lower.contains("1830")
-            || driver_lower.contains("power_meter")
-            || (device.is_readable() && !device.is_movable() && !device.is_frame_producer())
-        {
-            let panel = self
-                .power_meter_panels
-                .entry(device_id.clone())
-                .or_default();
-            // Use push_id to avoid widget ID collisions with docked panels
-            ui.push_id(("instr_mgr", &device_id), |ui| {
-                panel.ui(ui, &device, client.as_deref_mut(), runtime);
-            });
-            return;
-        }
-
-        // Check for ELL14 rotator (only match specific rotator identifiers, not all Thorlabs)
-        if driver_lower.contains("ell14") || driver_lower.contains("rotator") {
-            let panel = self.rotator_panels.entry(device_id.clone()).or_default();
-            // Use push_id to avoid widget ID collisions with docked panels
-            ui.push_id(("instr_mgr", &device_id), |ui| {
-                panel.ui(ui, &device, client.as_deref_mut(), runtime);
-            });
-            return;
-        }
-
-        // Check for Andor iStar camera
-        if driver_lower.contains("andor_istar") || driver_lower.contains("andor_camera") {
-            let panel = self.andor_panels.entry(device_id.clone()).or_default();
-            ui.push_id(("instr_mgr", &device_id), |ui| {
-                panel.ui(ui, &device, client.as_deref_mut(), runtime);
-            });
-            return;
-        }
-
-        // Check for Shamrock spectrograph
-        if driver_lower.contains("andor_shamrock") || driver_lower.contains("shamrock") {
-            let panel = self
-                .spectrograph_panels
-                .entry(device_id.clone())
-                .or_default();
-            ui.push_id(("instr_mgr", &device_id), |ui| {
-                panel.ui(ui, &device, client.as_deref_mut(), runtime);
-            });
-            return;
-        }
-
-        // Check for Dover SmartStage
-        if driver_lower.contains("dover") {
-            let panel = self.dover_panels.entry(device_id.clone()).or_default();
-            ui.push_id(("instr_mgr", &device_id), |ui| {
-                panel.ui(ui, &device, client.as_deref_mut(), runtime);
-            });
-            return;
-        }
-
-        // Check for PVCAM camera
-        if driver_lower.contains("pvcam") || driver_lower.contains("prime") {
-            ui.push_id(("instr_mgr", &device_id), |ui| {
-                self.render_pvcam_control_panel(ui, &device, client, runtime);
-            });
-            return;
-        }
-
-        // Check for ESP300 stage or other movable devices
-        if device.is_movable() {
-            let panel = self.stage_panels.entry(device_id.clone()).or_default();
-            // Use push_id to avoid widget ID collisions with docked panels
-            ui.push_id(("instr_mgr", &device_id), |ui| {
-                panel.ui(ui, &device, client.as_deref_mut(), runtime);
-            });
-            return;
-        }
-
-        // Fallback: use the original generic control panel
-        self.render_generic_control_panel(ui, &device, client, runtime);
     }
 
     /// Render the generic (legacy) control panel for devices without specialized panels

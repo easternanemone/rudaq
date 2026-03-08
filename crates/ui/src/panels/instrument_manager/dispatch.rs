@@ -5,10 +5,9 @@
 //!
 //! The dispatch priority is:
 //! 0. **gRPC-driven** — If `device.metadata.ui_schema_json` contains a valid `[ui.control_panel]`
-//! 1. **Config-driven** — If a local TOML `[ui.control_panel]` exists for the device's driver type
-//! 2. **Capability-based** — Hardcoded panels matched by driver name and capabilities
-
-#![allow(dead_code)]
+//! 1. **Explicit panel_kind** — If `device.metadata.panel_kind` is set, routes directly (no heuristics)
+//! 2. **Config-driven** — If a local TOML `[ui.control_panel]` exists for the device's driver type
+//! 3. **Capability-based** — Hardcoded panels matched by driver name and capabilities (legacy fallback)
 
 use crate::device_ext::DeviceInfoExt;
 use hardware::config::schema::{ControlPanelConfig, UiConfig};
@@ -21,6 +20,8 @@ use super::config_loader::DeviceConfigCache;
 pub enum PanelType {
     /// Config-driven panel from gRPC `ui_schema_json` or TOML `[ui.control_panel]`
     ConfigDriven(ControlPanelConfig),
+    /// PVCAM camera panel (image viewer + camera controls)
+    Camera,
     /// MaiTai Ti:Sapphire laser control panel (wavelength, emission, shutter)
     MaiTai,
     /// Power meter control panel (readable sensors)
@@ -37,6 +38,8 @@ pub enum PanelType {
     Spectrograph,
     /// Dover SmartStage with Trigger-On-Position support
     DoverStage,
+    /// Generic fallback panel for unrecognized or simple devices
+    Generic,
 }
 
 /// Extract a `ControlPanelConfig` from the device's gRPC metadata `ui_schema_json` field.
@@ -87,20 +90,21 @@ pub fn try_grpc_ui_config(device: &DeviceInfo) -> Option<ControlPanelConfig> {
 
 /// Determine the appropriate control panel type for a device.
 ///
-/// Checks gRPC metadata first, then local TOML config, then falls back to
-/// capability-based dispatch.
+/// Checks gRPC metadata first, then explicit `panel_kind`, then local TOML config,
+/// then falls back to capability-based dispatch.
 ///
 /// # Priority order
 /// 0. gRPC-driven (`device.metadata.ui_schema_json`) → ConfigDriven
-/// 1. Config-driven (local TOML `[ui.control_panel]` exists) → ConfigDriven
-/// 2. Andor iStar gated camera → AndorCamera
-/// 3. Andor Shamrock spectrograph → Spectrograph
-/// 4. Dover SmartStage → DoverStage
-/// 5. Comedi DAQ devices → Comedi
-/// 6. Laser capabilities (emission/shutter/wavelength) → MaiTai
-/// 7. Readable without motion (sensors, meters) → PowerMeter
-/// 8. Movable with "ell14" in driver name → Rotator
-/// 9. Movable → Stage (default for motion devices)
+/// 1. Explicit `device.metadata.panel_kind` → matching PanelType (no heuristics)
+/// 2. Config-driven (local TOML `[ui.control_panel]` exists) → ConfigDriven
+/// 3. Andor iStar gated camera → AndorCamera
+/// 4. Andor Shamrock spectrograph → Spectrograph
+/// 5. Dover SmartStage → DoverStage
+/// 6. Comedi DAQ devices → Comedi
+/// 7. Laser capabilities (emission/shutter/wavelength) → MaiTai
+/// 8. Readable without motion (sensors, meters) → PowerMeter
+/// 9. Movable with "ell14" in driver name → Rotator
+/// 10. Movable → Stage (default for motion devices)
 pub fn determine_panel_type_with_config(
     device: &DeviceInfo,
     config_cache: Option<&DeviceConfigCache>,
@@ -110,7 +114,16 @@ pub fn determine_panel_type_with_config(
         return PanelType::ConfigDriven(config);
     }
 
-    // Priority 1: Config-driven panel from local TOML
+    // Priority 1: Explicit panel_kind field — deterministic routing, no heuristics
+    if let Some(pk) = device
+        .metadata
+        .as_ref()
+        .and_then(|m| m.panel_kind.as_deref())
+    {
+        return panel_kind_to_panel_type(pk);
+    }
+
+    // Priority 2: Config-driven panel from local TOML
     if let Some(cache) = config_cache {
         if let Some(config) = cache.get_ui_config_for_driver(&device.driver_type) {
             return PanelType::ConfigDriven(config.clone());
@@ -119,6 +132,25 @@ pub fn determine_panel_type_with_config(
 
     // Fall back to capability-based dispatch
     determine_panel_type(device)
+}
+
+/// Map a `panel_kind` string to the corresponding [`PanelType`].
+///
+/// Unrecognized strings fall through to [`PanelType::Generic`] for forward
+/// compatibility — new panel kinds added by future drivers won't break old UI builds.
+pub fn panel_kind_to_panel_type(pk: &str) -> PanelType {
+    match pk {
+        common::panel_kind::PVCAM => PanelType::Camera,
+        common::panel_kind::ANDOR_CAMERA => PanelType::AndorCamera,
+        common::panel_kind::ANDOR_SHAMROCK => PanelType::Spectrograph,
+        common::panel_kind::COMEDI => PanelType::Comedi,
+        common::panel_kind::DOVER_STAGE => PanelType::DoverStage,
+        common::panel_kind::MAITAI => PanelType::MaiTai,
+        common::panel_kind::POWER_METER => PanelType::PowerMeter,
+        common::panel_kind::ROTATOR => PanelType::Rotator,
+        common::panel_kind::STAGE => PanelType::Stage,
+        _ => PanelType::Generic,
+    }
 }
 
 /// Determine the appropriate control panel type for a device (capability-based only).
@@ -187,8 +219,9 @@ pub fn determine_panel_type(device: &DeviceInfo) -> PanelType {
         return PanelType::Stage;
     }
 
-    // Default fallback: Stage panel (most generic)
-    PanelType::Stage
+    // Default fallback: Generic panel for devices with no recognized capabilities.
+    // Non-movable devices must not be placed in a motion UI by default.
+    PanelType::Generic
 }
 
 #[cfg(test)]
@@ -288,9 +321,10 @@ mod tests {
 
     #[test]
     fn test_dispatch_no_capabilities_fallback() {
-        // Device with no known capabilities falls back to Stage
+        // Device with no known capabilities falls back to Generic (not Stage, to avoid
+        // placing non-movable devices in a motion UI).
         let dev = make_device("Unknown Device", false, false, false, false, false);
-        assert!(matches!(determine_panel_type(&dev), PanelType::Stage));
+        assert!(matches!(determine_panel_type(&dev), PanelType::Generic));
     }
 
     #[test]
@@ -483,5 +517,115 @@ mod tests {
             }
             _ => panic!("Expected Parameter section at index 2"),
         }
+    }
+
+    // =========================================================================
+    // Phase 4: panel_kind regression tests
+    // =========================================================================
+
+    /// Helper: create a DeviceInfo with explicit panel_kind in metadata
+    fn make_device_with_panel_kind(driver: &str, capabilities: &[&str], pk: &str) -> DeviceInfo {
+        #[allow(deprecated)]
+        DeviceInfo {
+            id: "test-device".to_string(),
+            name: "Test Device".to_string(),
+            driver_type: driver.to_string(),
+            capabilities: capabilities.iter().map(|s| (*s).to_string()).collect(),
+            metadata: Some(protocol::daq::DeviceMetadata {
+                panel_kind: Some(pk.to_string()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_panel_kind_power_meter_overrides_wavelength_tunable() {
+        // Newport 1830-C: readable + wavelength_tunable → heuristic would route to MaiTai.
+        // With panel_kind = "power_meter", must route to PowerMeter.
+        let dev = make_device_with_panel_kind(
+            "universal_newport_1830c",
+            &["readable", "wavelength_tunable"],
+            common::panel_kind::POWER_METER,
+        );
+        assert!(
+            matches!(
+                determine_panel_type_with_config(&dev, None),
+                PanelType::PowerMeter
+            ),
+            "panel_kind=power_meter must override WavelengthTunable heuristic"
+        );
+    }
+
+    #[test]
+    fn test_panel_kind_pvcam_routes_to_camera() {
+        let dev = make_device_with_panel_kind(
+            "pvcam_prime95b",
+            &["frame_producer"],
+            common::panel_kind::PVCAM,
+        );
+        assert!(
+            matches!(
+                determine_panel_type_with_config(&dev, None),
+                PanelType::Camera
+            ),
+            "panel_kind=pvcam must route to Camera"
+        );
+    }
+
+    #[test]
+    fn test_panel_kind_unknown_falls_through_to_generic() {
+        // Forward-compat: unknown panel_kind should route to Generic, not panic.
+        let dev = make_device_with_panel_kind("future_device", &[], "quantum_sensor_v2");
+        assert!(
+            matches!(
+                determine_panel_type_with_config(&dev, None),
+                PanelType::Generic
+            ),
+            "Unrecognized panel_kind must fall through to Generic"
+        );
+    }
+
+    #[test]
+    fn test_panel_kind_maitai_explicit() {
+        let dev = make_device_with_panel_kind(
+            "universal_maitai",
+            &[
+                "emission_controllable",
+                "wavelength_tunable",
+                "shutter_controllable",
+            ],
+            common::panel_kind::MAITAI,
+        );
+        assert!(matches!(
+            determine_panel_type_with_config(&dev, None),
+            PanelType::MaiTai
+        ));
+    }
+
+    #[test]
+    fn test_panel_kind_rotator_explicit() {
+        let dev = make_device_with_panel_kind(
+            "universal_thorlabs_ell14",
+            &["movable"],
+            common::panel_kind::ROTATOR,
+        );
+        assert!(matches!(
+            determine_panel_type_with_config(&dev, None),
+            PanelType::Rotator
+        ));
+    }
+
+    #[test]
+    fn test_panel_kind_comedi_explicit() {
+        let dev = make_device_with_panel_kind(
+            "comedi_analog_input",
+            &["readable"],
+            common::panel_kind::COMEDI,
+        );
+        assert!(matches!(
+            determine_panel_type_with_config(&dev, None),
+            PanelType::Comedi
+        ));
     }
 }

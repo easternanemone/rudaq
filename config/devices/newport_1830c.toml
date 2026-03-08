@@ -212,3 +212,6 @@ read = { command = "read_power", output_field = "value" }
 [capabilities.wavelength_tunable]
 set_wavelength = { command = "set_wavelength", from_param = "wavelength_nm" }
 get_wavelength = { command = "get_wavelength", output_field = "value" }
+
+[ui]
+panel_kind = "power_meter"

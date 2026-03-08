@@ -282,6 +282,7 @@ delay_ms = 100
 [ui]
 icon = "laser"
 color = "#E91E63"
+panel_kind = "maitai"
 
 [ui.control_panel]
 layout = "vertical"

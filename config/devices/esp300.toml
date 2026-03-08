@@ -186,3 +186,6 @@ poll_command = "get_motion_done"
 success_condition = "value == 0"
 poll_interval_ms = 100
 timeout_ms = 60000
+
+[ui]
+panel_kind = "stage"

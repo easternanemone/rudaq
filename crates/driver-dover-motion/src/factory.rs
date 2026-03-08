@@ -1,7 +1,7 @@
 //! DriverFactory implementation for Dover Motion axis drivers.
 
 use anyhow::{anyhow, Context, Result};
-use common::driver::{Capability, DeviceComponents, DriverFactory};
+use common::driver::{Capability, DeviceComponents, DeviceMetadata, DriverFactory};
 use futures::future::BoxFuture;
 use serde::Deserialize;
 use std::sync::Arc;
@@ -94,6 +94,10 @@ impl DriverFactory for DoverAxisFactory {
                     movable: Some(driver.clone()),
                     parameterized: Some(driver.clone()),
                     trigger_on_position: Some(driver),
+                    metadata: DeviceMetadata {
+                        panel_kind: Some(common::panel_kind::DOVER_STAGE.to_string()),
+                        ..Default::default()
+                    },
                     ..Default::default()
                 })
             }
@@ -111,6 +115,10 @@ impl DriverFactory for DoverAxisFactory {
                     movable: Some(driver.clone()),
                     parameterized: Some(driver.clone()),
                     trigger_on_position: Some(driver),
+                    metadata: DeviceMetadata {
+                        panel_kind: Some(common::panel_kind::DOVER_STAGE.to_string()),
+                        ..Default::default()
+                    },
                     ..Default::default()
                 })
             }

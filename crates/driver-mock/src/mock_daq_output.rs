@@ -3,7 +3,7 @@
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use common::capabilities::{Parameterized, Settable};
-use common::driver::{Capability, DeviceComponents, DriverFactory};
+use common::driver::{Capability, DeviceComponents, DeviceMetadata, DriverFactory};
 use common::observable::ParameterSet;
 use common::parameter::Parameter;
 use futures::future::BoxFuture;
@@ -108,6 +108,10 @@ impl DriverFactory for MockDAQOutputFactory {
             Ok(DeviceComponents {
                 settable: Some(output.clone()),
                 parameterized: Some(output),
+                metadata: DeviceMetadata {
+                    panel_kind: Some(common::panel_kind::COMEDI.to_string()),
+                    ..Default::default()
+                },
                 ..Default::default()
             })
         })

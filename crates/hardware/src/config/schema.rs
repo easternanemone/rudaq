@@ -1280,6 +1280,14 @@ pub struct UiConfig {
     #[serde(default)]
     pub color: Option<String>,
 
+    /// Explicit panel routing hint for the UI (see `common::panel_kind` constants).
+    ///
+    /// When set, the UI dispatches directly to the named panel without capability
+    /// heuristics. Recognized values: "pvcam", "andor_camera", "andor_shamrock",
+    /// "comedi", "dover_stage", "maitai", "power_meter", "rotator", "stage", "generic".
+    #[serde(default)]
+    pub panel_kind: Option<String>,
+
     /// Control panel configuration
     #[serde(default)]
     #[validate]
