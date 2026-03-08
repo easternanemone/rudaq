@@ -1894,14 +1894,35 @@ impl HardwareService for HardwareServiceImpl {
                                     avg_latency_ms,
                                 };
 
-                                // Send to dedicated compression thread (non-blocking)
-                                if compress_tx.send((packet, metrics)).await.is_err() {
-                                    tracing::warn!(
-                                        device_id = %device_id_clone,
-                                        "Compression thread channel closed"
-                                    );
-                                    exit_reason = "compressor_closed";
-                                    break;
+                                // Non-blocking send: if the compressor is backlogged
+                                // we drop this frame rather than awaiting, which would
+                                // prevent the select! from draining compressed_rx and
+                                // cause a deadlock between the two bounded channels.
+                                match compress_tx.try_send((packet, metrics)) {
+                                    Ok(()) => {}
+                                    Err(
+                                        tokio::sync::mpsc::error::TrySendError::Full(_),
+                                    ) => {
+                                        frames_dropped =
+                                            frames_dropped.saturating_add(1);
+                                        tracing::debug!(
+                                            device_id = %device_id_clone,
+                                            frames_dropped,
+                                            "Compressor channel full; dropping frame"
+                                        );
+                                    }
+                                    Err(
+                                        tokio::sync::mpsc::error::TrySendError::Closed(
+                                            _,
+                                        ),
+                                    ) => {
+                                        tracing::warn!(
+                                            device_id = %device_id_clone,
+                                            "Compression thread channel closed"
+                                        );
+                                        exit_reason = "compressor_closed";
+                                        break;
+                                    }
                                 }
                             }
                             None => {

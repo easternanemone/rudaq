@@ -120,7 +120,17 @@ pub fn decompress_frame_into(frame: &mut FrameData, buffer: &mut Vec<u8>) -> Res
         Ok(CompressionType::CompressionNone) => Ok(()),
         Ok(CompressionType::CompressionLz4) => {
             let expected_size = frame.uncompressed_size as usize;
-            buffer.resize(expected_size, 0);
+            // Reserve capacity without zero-filling the extended region.
+            // The loop below writes all expected_size bytes via decompress_into
+            // before any safe code reads from the buffer, satisfying the
+            // invariant that Vec<u8> contents are initialized up to len.
+            // SAFETY: decompress_into fully overwrites buffer[0..expected_size].
+            // On error, buffer is either dropped or cleared by the caller;
+            // its contents are never observed through a safe &[u8] reference.
+            unsafe {
+                buffer.reserve(expected_size.saturating_sub(buffer.len()));
+                buffer.set_len(expected_size);
+            }
 
             // Skip the 4-byte LE size prefix written by compress_prepend_size / compress_frame_into
             if frame.data.len() < 4 {

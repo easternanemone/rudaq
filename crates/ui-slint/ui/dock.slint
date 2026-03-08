@@ -17,9 +17,12 @@
 //  Usage:
 //    HSplitter {
 //        proportion: 0.6;
-//        left := Rectangle { ... }
-//        right := Rectangle { ... }
+//        @children   // children go into the LEFT pane only
 //    }
+//
+//  Note: @children places content in the left pane. The right pane
+//  is rendered as a sibling Rectangle outside HSplitter (see demo.slint
+//  for the manual 4-pane layout pattern using absolute positioning).
 //
 //  The proportion property (0.0–1.0) controls the left pane's
 //  share of total width. Users drag the handle to adjust.
