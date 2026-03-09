@@ -580,6 +580,8 @@ impl PvcamAcquisition {
         self.frame_count.store(0, Ordering::SeqCst);
         // Reset frame loss metrics for this acquisition (bd-ek9n.3)
         self.reset_frame_loss_metrics();
+        // bd-9id0: Clear sticky error state so has_acquisition_error() is session-scoped.
+        self.clear_error();
 
         let reliable_tx = self.reliable_tx.lock().await.clone();
         tracing::debug!(
@@ -1303,6 +1305,10 @@ impl PvcamAcquisition {
             // Clone last_error for error watcher task (bd-g9po)
             let last_error_for_watcher = self.last_error.clone();
 
+            // Clone tap_registry for error watcher (bd-9id0): clear observers on fatal error
+            // so gRPC streaming tasks detect channel close and report failure to supervisor.
+            let tap_registry_for_watcher = self.tap_registry.clone();
+
             // Capture ROI and binning for frame metadata (bd-183h)
             let roi_x = roi.x;
             let roi_y = roi.y;
@@ -1403,6 +1409,10 @@ impl PvcamAcquisition {
                     if let Ok(mut guard) = last_error_for_watcher.lock() {
                         *guard = Some(err);
                     }
+
+                    // bd-9id0: Drop all tap observers so gRPC streaming tasks detect
+                    // channel close via recv() → None and report failure to supervisor.
+                    tap_registry_for_watcher.clear_all();
 
                     // Update streaming state to reflect the involuntary stop
                     if let Err(e) = streaming_for_watcher.set_from_hardware(false).await {

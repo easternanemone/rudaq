@@ -298,6 +298,23 @@ impl TapRegistry {
             observer.on_frame(view);
         }
     }
+
+    /// Drop all registered observers, closing their sender channels.
+    ///
+    /// Called on fatal acquisition errors so that gRPC streaming tasks detect
+    /// the channel close via `recv() → None` and can report device failure to
+    /// the supervisor for reconnection (bd-9id0).
+    fn clear_all(&self) {
+        let count = {
+            let mut taps = self.taps.write();
+            let count = taps.len();
+            taps.clear();
+            count
+        };
+        if count > 0 {
+            tracing::debug!(count, "Cleared all observers on acquisition error");
+        }
+    }
 }
 
 impl AndorCamera {
@@ -448,8 +465,14 @@ impl AndorCamera {
         {
             #[cfg(not(feature = "camera"))]
             let discovered = crate::introspection::introspect_mock_features();
+            // bd-f4ub: when camera feature is on but handle is the sentinel (mock construction),
+            // skip real SDK introspection — AT_HANDLE_UNINITIALISED (-1) is invalid for SDK calls.
             #[cfg(feature = "camera")]
-            let discovered = crate::introspection::introspect_all_features(handle);
+            let discovered = if handle == AT_HANDLE_UNINITIALISED {
+                crate::introspection::introspect_mock_features()
+            } else {
+                crate::introspection::introspect_all_features(handle)
+            };
             Self::register_dynamic_features(&discovered, &mut params, handle);
         }
 
@@ -1609,10 +1632,15 @@ impl AndorCamera {
     }
 
     /// Record an acquisition error (used internally by the acq loop).
+    ///
+    /// Also clears all tap observers so gRPC streaming tasks detect the channel
+    /// close and report failure to the supervisor (bd-9id0).
     fn set_error(inner: &AndorCameraInner, msg: String) {
         if let Ok(mut guard) = inner.last_error.lock() {
             *guard = Some(msg);
         }
+        // Drop all observer senders so recv() returns None in gRPC tasks
+        inner.tap_registry.clear_all();
     }
 
     // =========================================================================
@@ -1915,6 +1943,8 @@ impl FrameProducer for AndorCamera {
         self.inner.frame_count.store(0, Ordering::Relaxed);
         self.inner.frames_dropped.store(0, Ordering::Relaxed);
         self.inner.last_hw_frame_nr.store(-1, Ordering::Relaxed);
+        // bd-9id0: Clear sticky error so has_acquisition_error() is session-scoped.
+        self.clear_error();
 
         #[cfg(feature = "camera")]
         {
