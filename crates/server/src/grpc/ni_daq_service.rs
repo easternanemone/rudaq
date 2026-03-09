@@ -135,7 +135,7 @@ impl NiDaqService for NiDaqServiceImpl {
                 .await_with_timeout(
                     "ComediMultiChannelAcquisition::new_async",
                     ComediMultiChannelAcquisition::new_async(
-                        device_path,
+                        &device_path,
                         req.channels.clone(),
                         req.sample_rate_hz,
                     ),
@@ -430,7 +430,7 @@ impl NiDaqService for NiDaqServiceImpl {
                         use driver_comedi::ComediDevice;
                         use std::time::SystemTime;
 
-                        let device = ComediDevice::open(device_path)?;
+                        let device = ComediDevice::open(&device_path)?;
                         let ai = device.analog_input()?;
 
                         // Get the range for voltage conversion
@@ -597,7 +597,7 @@ impl NiDaqService for NiDaqServiceImpl {
                 .await_with_timeout("ConfigureAnalogOutput", async move {
                     tokio::task::spawn_blocking(move || {
                         use driver_comedi::ComediDevice;
-                        let device = ComediDevice::open(device_path)?;
+                        let device = ComediDevice::open(&device_path)?;
                         let ao = device.analog_output()?;
 
                         // Validate range_index
@@ -612,7 +612,7 @@ impl NiDaqService for NiDaqServiceImpl {
                             ));
                         }
 
-                        ao.range_info(channel, range_index)
+                        Ok(ao.range_info(channel, range_index)?)
                     })
                     .await
                     .map_err(|e| anyhow::anyhow!("Task join error: {}", e))?
@@ -688,7 +688,7 @@ impl NiDaqService for NiDaqServiceImpl {
                     use driver_comedi::ComediDevice;
                     use driver_comedi::subsystem::digital_io::DioDirection;
 
-                    let device = ComediDevice::open(device_path)?;
+                    let device = ComediDevice::open(&device_path)?;
                     let dio = device.digital_io()?;
 
                     // Validate and configure each pin
@@ -775,7 +775,7 @@ impl NiDaqService for NiDaqServiceImpl {
                     tokio::task::spawn_blocking(move || {
                         use driver_comedi::ComediDevice;
 
-                        let device = ComediDevice::open(device_path)?;
+                        let device = ComediDevice::open(&device_path)?;
                         let dio = device.digital_io()?;
 
                         // Validate pin number
@@ -847,7 +847,7 @@ impl NiDaqService for NiDaqServiceImpl {
                 tokio::task::spawn_blocking(move || {
                     use driver_comedi::ComediDevice;
 
-                    let device = ComediDevice::open(device_path)?;
+                    let device = ComediDevice::open(&device_path)?;
                     let dio = device.digital_io()?;
 
                     // Validate pin number
@@ -910,11 +910,11 @@ impl NiDaqService for NiDaqServiceImpl {
 
             let value = self
                 .await_with_timeout("ReadDigitalPort", async move {
-                    tokio::task::spawn_blocking(move || {
+                    tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
                         use driver_comedi::ComediDevice;
-                        let device = ComediDevice::open(device_path)?;
+                        let device = ComediDevice::open(&device_path)?;
                         let dio = device.digital_io()?;
-                        dio.read_port(base_channel)
+                        Ok(dio.read_port(base_channel)?)
                     })
                     .await
                     .map_err(|e| anyhow::anyhow!("Task join error: {}", e))?
@@ -965,11 +965,11 @@ impl NiDaqService for NiDaqServiceImpl {
             let mask = if req.mask == 0 { 0xFF } else { req.mask }; // Default: update all 8 bits
 
             self.await_with_timeout("WriteDigitalPort", async move {
-                tokio::task::spawn_blocking(move || {
+                tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
                     use driver_comedi::ComediDevice;
-                    let device = ComediDevice::open(device_path)?;
+                    let device = ComediDevice::open(&device_path)?;
                     let dio = device.digital_io()?;
-                    dio.write_port(base_channel, mask, value)
+                    Ok(dio.write_port(base_channel, mask, value)?)
                 })
                 .await
                 .map_err(|e| anyhow::anyhow!("Task join error: {}", e))?
@@ -1031,7 +1031,7 @@ impl NiDaqService for NiDaqServiceImpl {
                         use driver_comedi::ComediDevice;
                         use std::time::SystemTime;
 
-                        let device = ComediDevice::open(device_path)?;
+                        let device = ComediDevice::open(&device_path)?;
                         let counter_subsystem = device.counter()?;
 
                         // Validate counter channel
@@ -1112,7 +1112,7 @@ impl NiDaqService for NiDaqServiceImpl {
                 tokio::task::spawn_blocking(move || {
                     use driver_comedi::ComediDevice;
 
-                    let device = ComediDevice::open(device_path)?;
+                    let device = ComediDevice::open(&device_path)?;
                     let counter_subsystem = device.counter()?;
 
                     // Validate counter channel
@@ -1230,7 +1230,7 @@ impl NiDaqService for NiDaqServiceImpl {
                 tokio::task::spawn_blocking(move || {
                     use driver_comedi::ComediDevice;
 
-                    let device = ComediDevice::open(device_path)?;
+                    let device = ComediDevice::open(&device_path)?;
                     let counter_subsystem = device.counter()?;
 
                     // Validate counter channel
@@ -1357,10 +1357,10 @@ impl NiDaqService for NiDaqServiceImpl {
         {
             // For now, we open a new connection to query device info
             // TODO: Store device path in registry metadata or driver state
-            let device_path = if req.device_id.starts_with("/dev/") {
-                req.device_id.clone()
+            let device_path = if device_id.starts_with("/dev/") {
+                device_id.clone()
             } else {
-                format!("/dev/{}", req.device_id)
+                format!("/dev/{}", device_id)
             };
 
             let status = self
