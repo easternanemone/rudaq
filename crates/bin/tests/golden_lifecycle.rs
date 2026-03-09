@@ -166,8 +166,10 @@ fn test_golden_default_runtime_hybrid_db_startup_shutdown() {
         .spawn()
         .expect("Failed to spawn daemon");
 
-    // Give the daemon time to initialize and emit startup logs
-    std::thread::sleep(Duration::from_secs(4));
+    // Give the daemon time to initialize and emit startup logs.
+    // Hybrid-db mode requires SurrealDB init (slower than mock) and is sensitive
+    // to system load during parallel test runs — 8s provides headroom.
+    std::thread::sleep(Duration::from_secs(8));
 
     send_sigint(&child);
 
@@ -208,17 +210,17 @@ fn test_golden_default_runtime_registers_devices() {
         .spawn()
         .expect("Failed to spawn daemon");
 
-    // Give daemon time to register devices and start
-    std::thread::sleep(Duration::from_secs(4));
+    // Give daemon time to register devices and start.
+    // Hybrid-db mode must init SurrealDB + load TOML manifests; 8s provides
+    // headroom when the system is under load during parallel test runs.
+    std::thread::sleep(Duration::from_secs(8));
 
     send_sigint(&child);
 
     let output = child.wait_with_output().expect("Failed to wait for daemon");
-    let combined = format!(
-        "{}{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let combined = format!("{stdout}{stderr}");
 
     // Hybrid-db mode should register devices (e.g., from config/maitai_universal.toml)
     assert!(
@@ -226,8 +228,7 @@ fn test_golden_default_runtime_registers_devices() {
             || combined.contains("Device")
             || combined.contains("Registered")
             || combined.contains("universal"),
-        "Daemon should report registered devices in stdout.\nGot: {}",
-        combined
+        "Daemon should report registered devices in stdout.\nstdout: {stdout}\nstderr: {stderr}"
     );
 }
 
