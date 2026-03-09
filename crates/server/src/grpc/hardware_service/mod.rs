@@ -1617,6 +1617,7 @@ impl HardwareService for HardwareServiceImpl {
         let device_id_arc: Arc<str> = Arc::from(device_id.as_str());
         let device_id_clone = device_id.clone();
         let frame_producer_clone = frame_producer.clone();
+        let registry_clone = self.registry.clone();
 
         // Dedicated compression thread: receives ObserverFramePacket, compresses with
         // buffer reuse, and sends FrameData to the async forwarding task.
@@ -1926,12 +1927,27 @@ impl HardwareService for HardwareServiceImpl {
                                 }
                             }
                             None => {
-                                // Observer channel closed - producer stopped or observer was dropped
-                                tracing::info!(
-                                    device_id = %device_id_clone,
-                                    frames_sent = frames_sent,
-                                    "Observer channel closed - producer stopped streaming"
-                                );
+                                // Observer channel closed - producer stopped or observer was dropped.
+                                // Check if this was due to a hardware error (e.g. USB/PCIe disconnect)
+                                // so the supervisor can schedule an automatic reconnection attempt.
+                                if frame_producer_clone.has_acquisition_error() {
+                                    tracing::warn!(
+                                        device_id = %device_id_clone,
+                                        frames_sent = frames_sent,
+                                        "Observer channel closed due to acquisition error — \
+                                         reporting failure for supervisor reconnection"
+                                    );
+                                    registry_clone.report_device_failure(
+                                        &device_id_clone,
+                                        "acquisition loop exited with hardware error",
+                                    );
+                                } else {
+                                    tracing::info!(
+                                        device_id = %device_id_clone,
+                                        frames_sent = frames_sent,
+                                        "Observer channel closed - producer stopped streaming"
+                                    );
+                                }
 
                                 // Clean up observer registration
                                 if let Err(e) = frame_producer_clone

@@ -2130,6 +2130,10 @@ impl FrameProducer for AndorCamera {
         true
     }
 
+    fn has_acquisition_error(&self) -> bool {
+        self.has_error()
+    }
+
     async fn register_observer(&self, observer: Box<dyn FrameObserver>) -> Result<ObserverHandle> {
         let handle = ObserverHandle(self.inner.next_observer_id.fetch_add(1, Ordering::Relaxed));
         self.inner.tap_registry.register(handle, observer);
