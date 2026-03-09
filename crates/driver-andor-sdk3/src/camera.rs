@@ -113,6 +113,15 @@ use std::sync::atomic::AtomicUsize;
 #[cfg(feature = "camera")]
 use andor_sdk3_sys::*;
 
+/// Camera handle type: `AT_H` (`c_int`) with the SDK feature, `i32` without.
+///
+/// Both aliases resolve to the same 32-bit integer; the alias exists so that
+/// `new_inner` can accept the handle without a second layer of `#[cfg]` guards.
+#[cfg(feature = "camera")]
+type CameraHandle = AT_H;
+#[cfg(not(feature = "camera"))]
+type CameraHandle = i32;
+
 // =============================================================================
 // Blocking bridge helper
 // =============================================================================
@@ -294,10 +303,19 @@ impl TapRegistry {
 impl AndorCamera {
     /// Create new mock camera instance for testing
     ///
-    /// This is a convenience method that always uses the mock backend,
-    /// regardless of feature flags.
+    /// Always uses the mock backend regardless of feature flags.
+    /// Unlike [`new_async`](Self::new_async), this method never calls
+    /// `init_hardware()` or the Andor SDK, so it is safe to call in unit
+    /// tests even when the `camera` feature is enabled.
     pub async fn new_mock() -> Result<Self> {
-        Self::new_async(0).await
+        // Force the mock path: use a sentinel handle and synthetic camera info.
+        // AT_HANDLE_UNINITIALISED (= -1) is safe here because no SDK calls are
+        // made during mock sessions (streaming/armed atomics start false).
+        #[cfg(feature = "camera")]
+        let handle: CameraHandle = AT_HANDLE_UNINITIALISED;
+        #[cfg(not(feature = "camera"))]
+        let handle: CameraHandle = 0;
+        Self::new_inner(handle, Self::mock_camera_info(0)).await
     }
 
     /// Create new camera instance (async, validates device identity)
@@ -320,6 +338,15 @@ impl AndorCamera {
         #[cfg(not(feature = "camera"))]
         let (handle, info) = (camera_index, Self::mock_camera_info(camera_index));
 
+        Self::new_inner(handle, info).await
+    }
+
+    /// Shared camera construction from a resolved `(handle, info)` pair.
+    ///
+    /// Called by both [`new_async`](Self::new_async) (real or mock path) and
+    /// [`new_mock`](Self::new_mock) (always mock). Attaches hardware callbacks
+    /// only when the `camera` feature is enabled.
+    async fn new_inner(handle: CameraHandle, info: CameraInfo) -> Result<Self> {
         let sensor_width = info.sensor_width;
         let sensor_height = info.sensor_height;
 
@@ -585,7 +612,6 @@ impl AndorCamera {
         }
     }
 
-    #[cfg(not(feature = "camera"))]
     fn mock_camera_info(_camera_index: i32) -> CameraInfo {
         use crate::types::FeatureSupport;
         CameraInfo {
