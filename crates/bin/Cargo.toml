@@ -48,7 +48,7 @@ pvcam_sdk = ["driver-registry/pvcam_sdk"]
 pvcam_hardware = ["pvcam_sdk"]
 
 # Real Comedi hardware (requires libcomedi installed)
-comedi_hardware = ["driver-registry/comedi_hardware"]
+comedi_hardware = ["driver-registry/comedi_hardware", "server/comedi"]
 
 # ============================================================================
 # HIGH-LEVEL PROFILES
@@ -58,7 +58,7 @@ cli = ["all_hardware", "scripting_python"]
 full = ["storage_arrow", "serial", "modules", "all_hardware"]
 
 modules = ["dep:daq-modules"]
-all_hardware = ["driver-registry/all_hardware"]
+all_hardware = ["driver-registry/all_hardware", "server/comedi"]
 scripting_python = ["scripting/python"]
 serial = ["hardware/serial", "driver-registry/serial"]
 
