@@ -1694,6 +1694,11 @@ impl HardwareService for HardwareServiceImpl {
             let mut fps_window: VecDeque<std::time::Instant> = VecDeque::new();
             let mut avg_latency_ms = 0.0f64;
             let mut latency_samples = 0u64;
+            // Track whether we have reported success this session.
+            // Reporting on the first delivered frame resets any accumulated
+            // failure count from a previous error, keeping the consecutive-
+            // failure semantics of the health tracker meaningful.
+            let mut success_reported = false;
 
             tracing::info!(
                 device_id = %device_id_clone,
@@ -1754,6 +1759,14 @@ impl HardwareService for HardwareServiceImpl {
 
                                     exit_reason = "client_disconnected";
                                     break;
+                                }
+
+                                // On the first successfully delivered frame, reset the device's
+                                // consecutive-failure counter so that transient streaming errors
+                                // do not accumulate toward Faulted once the stream recovers.
+                                if !success_reported {
+                                    registry_clone.report_device_success(&device_id_clone);
+                                    success_reported = true;
                                 }
 
                                 // Log early frame sends success
@@ -3590,5 +3603,122 @@ mod tests {
 
         // Internal state should be empty (client removed when count hits 0)
         assert!(!limiter.has_streams(client_ip));
+    }
+
+    /// Verify that a FrameProducer reporting `has_acquisition_error() == true`
+    /// causes `report_device_failure()` to be recorded in the registry.
+    ///
+    /// This mirrors the logic in the `stream_frames` forwarding task: when the
+    /// observer channel closes and the producer signals an acquisition error,
+    /// the device's consecutive-failure counter is incremented so the supervisor
+    /// can schedule a reconnection attempt with exponential backoff.
+    #[tokio::test]
+    async fn test_acquisition_error_reports_device_failure() {
+        use async_trait::async_trait;
+        use common::capabilities::{FrameObserver, FrameProducer, ObserverHandle};
+        use common::health::DeviceHealth;
+        use std::sync::Arc;
+
+        /// Minimal FrameProducer that always reports an acquisition error.
+        struct ErrorProducer;
+
+        #[async_trait]
+        impl FrameProducer for ErrorProducer {
+            async fn start_stream(&self) -> anyhow::Result<()> {
+                Ok(())
+            }
+            async fn stop_stream(&self) -> anyhow::Result<()> {
+                Ok(())
+            }
+            fn resolution(&self) -> (u32, u32) {
+                (640, 480)
+            }
+            async fn register_observer(
+                &self,
+                _observer: Box<dyn FrameObserver>,
+            ) -> anyhow::Result<ObserverHandle> {
+                Ok(ObserverHandle(1))
+            }
+            async fn unregister_observer(&self, _handle: ObserverHandle) -> anyhow::Result<()> {
+                Ok(())
+            }
+            fn supports_observers(&self) -> bool {
+                true
+            }
+            /// Signals a hardware acquisition error (e.g. USB disconnect).
+            fn has_acquisition_error(&self) -> bool {
+                true
+            }
+        }
+
+        // Use the mock registry which includes "mock_camera" with a health entry.
+        let registry = Arc::new(create_mock_registry().await.unwrap());
+
+        let producer: Arc<dyn FrameProducer> = Arc::new(ErrorProducer);
+
+        // Replicate the observer-channel-close path from stream_frames:
+        // if has_acquisition_error() → report failure.
+        if producer.has_acquisition_error() {
+            registry.report_device_failure(
+                "mock_camera",
+                "acquisition loop exited with hardware error",
+            );
+        }
+
+        let health = registry
+            .get_device_health("mock_camera")
+            .expect("health entry missing");
+        assert_eq!(
+            health.consecutive_failures, 1,
+            "single error should increment consecutive_failures"
+        );
+        assert_eq!(
+            health.health,
+            DeviceHealth::Degraded,
+            "one failure below fault_threshold should degrade, not fault"
+        );
+
+        // Conversely: a producer that has NO error must NOT report failure.
+        struct OkProducer;
+
+        #[async_trait]
+        impl FrameProducer for OkProducer {
+            async fn start_stream(&self) -> anyhow::Result<()> {
+                Ok(())
+            }
+            async fn stop_stream(&self) -> anyhow::Result<()> {
+                Ok(())
+            }
+            fn resolution(&self) -> (u32, u32) {
+                (640, 480)
+            }
+            async fn register_observer(
+                &self,
+                _observer: Box<dyn FrameObserver>,
+            ) -> anyhow::Result<ObserverHandle> {
+                Ok(ObserverHandle(1))
+            }
+            async fn unregister_observer(&self, _handle: ObserverHandle) -> anyhow::Result<()> {
+                Ok(())
+            }
+            fn supports_observers(&self) -> bool {
+                true
+            }
+            // Default has_acquisition_error() returns false — no-op path.
+        }
+
+        let ok_producer: Arc<dyn FrameProducer> = Arc::new(OkProducer);
+        if ok_producer.has_acquisition_error() {
+            registry.report_device_failure("mock_camera", "should not be called");
+        }
+
+        // Failure count must still be 1 (unchanged by the ok-producer path).
+        let health_after = registry
+            .get_device_health("mock_camera")
+            .expect("health entry missing");
+        assert_eq!(
+            health_after.consecutive_failures, 1,
+            "ok-producer close must NOT increment failure counter"
+        );
     }
 }
