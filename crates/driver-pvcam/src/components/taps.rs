@@ -342,6 +342,23 @@ impl TapRegistry {
     pub fn has_taps(&self) -> bool {
         !self.taps.read().is_empty()
     }
+
+    /// Drop all registered taps, closing their sender channels.
+    ///
+    /// Called on fatal acquisition errors so that gRPC streaming tasks detect
+    /// the channel close via `recv() → None` and can report device failure to
+    /// the supervisor for reconnection (bd-9id0).
+    pub fn clear_all(&self) {
+        let count = {
+            let mut taps = self.taps.write();
+            let count = taps.len();
+            taps.clear();
+            count
+        };
+        if count > 0 {
+            tracing::debug!(count, "Cleared all taps on acquisition error");
+        }
+    }
 }
 
 impl Default for TapRegistry {

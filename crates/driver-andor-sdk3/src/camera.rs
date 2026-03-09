@@ -113,6 +113,15 @@ use std::sync::atomic::AtomicUsize;
 #[cfg(feature = "camera")]
 use andor_sdk3_sys::*;
 
+/// Camera handle type: `AT_H` (`c_int`) with the SDK feature, `i32` without.
+///
+/// Both aliases resolve to the same 32-bit integer; the alias exists so that
+/// `new_inner` can accept the handle without a second layer of `#[cfg]` guards.
+#[cfg(feature = "camera")]
+type CameraHandle = AT_H;
+#[cfg(not(feature = "camera"))]
+type CameraHandle = i32;
+
 // =============================================================================
 // Blocking bridge helper
 // =============================================================================
@@ -289,15 +298,41 @@ impl TapRegistry {
             observer.on_frame(view);
         }
     }
+
+    /// Drop all registered observers, closing their sender channels.
+    ///
+    /// Called on fatal acquisition errors so that gRPC streaming tasks detect
+    /// the channel close via `recv() → None` and can report device failure to
+    /// the supervisor for reconnection (bd-9id0).
+    fn clear_all(&self) {
+        let count = {
+            let mut taps = self.taps.write();
+            let count = taps.len();
+            taps.clear();
+            count
+        };
+        if count > 0 {
+            tracing::debug!(count, "Cleared all observers on acquisition error");
+        }
+    }
 }
 
 impl AndorCamera {
     /// Create new mock camera instance for testing
     ///
-    /// This is a convenience method that always uses the mock backend,
-    /// regardless of feature flags.
+    /// Always uses the mock backend regardless of feature flags.
+    /// Unlike [`new_async`](Self::new_async), this method never calls
+    /// `init_hardware()` or the Andor SDK, so it is safe to call in unit
+    /// tests even when the `camera` feature is enabled.
     pub async fn new_mock() -> Result<Self> {
-        Self::new_async(0).await
+        // Force the mock path: use a sentinel handle and synthetic camera info.
+        // AT_HANDLE_UNINITIALISED (= -1) is safe here because no SDK calls are
+        // made during mock sessions (streaming/armed atomics start false).
+        #[cfg(feature = "camera")]
+        let handle: CameraHandle = AT_HANDLE_UNINITIALISED;
+        #[cfg(not(feature = "camera"))]
+        let handle: CameraHandle = 0;
+        Self::new_inner(handle, Self::mock_camera_info(0)).await
     }
 
     /// Create new camera instance (async, validates device identity)
@@ -320,6 +355,15 @@ impl AndorCamera {
         #[cfg(not(feature = "camera"))]
         let (handle, info) = (camera_index, Self::mock_camera_info(camera_index));
 
+        Self::new_inner(handle, info).await
+    }
+
+    /// Shared camera construction from a resolved `(handle, info)` pair.
+    ///
+    /// Called by both [`new_async`](Self::new_async) (real or mock path) and
+    /// [`new_mock`](Self::new_mock) (always mock). Attaches hardware callbacks
+    /// only when the `camera` feature is enabled.
+    async fn new_inner(handle: CameraHandle, info: CameraInfo) -> Result<Self> {
         let sensor_width = info.sensor_width;
         let sensor_height = info.sensor_height;
 
@@ -421,8 +465,14 @@ impl AndorCamera {
         {
             #[cfg(not(feature = "camera"))]
             let discovered = crate::introspection::introspect_mock_features();
+            // bd-f4ub: when camera feature is on but handle is the sentinel (mock construction),
+            // skip real SDK introspection — AT_HANDLE_UNINITIALISED (-1) is invalid for SDK calls.
             #[cfg(feature = "camera")]
-            let discovered = crate::introspection::introspect_all_features(handle);
+            let discovered = if handle == AT_HANDLE_UNINITIALISED {
+                crate::introspection::introspect_mock_features()
+            } else {
+                crate::introspection::introspect_all_features(handle)
+            };
             Self::register_dynamic_features(&discovered, &mut params, handle);
         }
 
@@ -585,7 +635,6 @@ impl AndorCamera {
         }
     }
 
-    #[cfg(not(feature = "camera"))]
     fn mock_camera_info(_camera_index: i32) -> CameraInfo {
         use crate::types::FeatureSupport;
         CameraInfo {
@@ -1583,10 +1632,15 @@ impl AndorCamera {
     }
 
     /// Record an acquisition error (used internally by the acq loop).
+    ///
+    /// Also clears all tap observers so gRPC streaming tasks detect the channel
+    /// close and report failure to the supervisor (bd-9id0).
     fn set_error(inner: &AndorCameraInner, msg: String) {
         if let Ok(mut guard) = inner.last_error.lock() {
             *guard = Some(msg);
         }
+        // Drop all observer senders so recv() returns None in gRPC tasks
+        inner.tap_registry.clear_all();
     }
 
     // =========================================================================
@@ -1889,6 +1943,8 @@ impl FrameProducer for AndorCamera {
         self.inner.frame_count.store(0, Ordering::Relaxed);
         self.inner.frames_dropped.store(0, Ordering::Relaxed);
         self.inner.last_hw_frame_nr.store(-1, Ordering::Relaxed);
+        // bd-9id0: Clear sticky error so has_acquisition_error() is session-scoped.
+        self.clear_error();
 
         #[cfg(feature = "camera")]
         {
@@ -2128,6 +2184,10 @@ impl FrameProducer for AndorCamera {
 
     fn supports_observers(&self) -> bool {
         true
+    }
+
+    fn has_acquisition_error(&self) -> bool {
+        self.has_error()
     }
 
     async fn register_observer(&self, observer: Box<dyn FrameObserver>) -> Result<ObserverHandle> {

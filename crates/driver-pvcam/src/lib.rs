@@ -2128,6 +2128,10 @@ impl FrameProducer for PvcamDriver {
     fn supports_observers(&self) -> bool {
         true
     }
+
+    fn has_acquisition_error(&self) -> bool {
+        self.has_error()
+    }
 }
 
 #[async_trait]

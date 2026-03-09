@@ -682,6 +682,18 @@ pub trait FrameProducer: Send + Sync {
     fn supports_observers(&self) -> bool {
         false
     }
+
+    /// Returns `true` if the last acquisition loop exited due to a hardware error.
+    ///
+    /// Used by the streaming layer to detect camera disconnects (USB/PCIe) and
+    /// report failures to the device supervisor for automatic reconnection with
+    /// exponential backoff.
+    ///
+    /// Drivers that can distinguish error-stops from user-stops should override
+    /// this. The default returns `false` (no error tracking).
+    fn has_acquisition_error(&self) -> bool {
+        false
+    }
 }
 
 /// Capability: Scalar Readout
