@@ -29,14 +29,24 @@ enum ActionResult {
     AllReadings {
         voltages: Vec<(u32, f64)>,
     },
+    /// The RPC connected successfully — transition from Starting → Running.
+    StreamStarted {
+        generation: u64,
+    },
     /// Batch of interleaved streaming samples, de-interleaved into per-channel voltages.
     StreamBatch {
+        generation: u64,
         /// (channel_number, latest_voltage) for each channel in the stream.
         voltages: Vec<(u32, f64)>,
         overflow: bool,
     },
-    StreamError(String),
-    StreamEnded,
+    StreamError {
+        generation: u64,
+        error: String,
+    },
+    StreamEnded {
+        generation: u64,
+    },
 }
 
 /// Streaming lifecycle state.
@@ -108,6 +118,9 @@ pub struct AnalogInputPanel {
     streaming_channels: Vec<u32>,
     /// Overflow indicator (set by stream, cleared on next batch)
     stream_overflow: bool,
+    /// Monotonically increasing counter to distinguish stream sessions.
+    /// Events from a prior generation are silently discarded.
+    stream_generation: u64,
 }
 
 impl Default for AnalogInputPanel {
@@ -136,6 +149,7 @@ impl Default for AnalogInputPanel {
             stream_sample_rate: 10.0,
             streaming_channels: Vec::new(),
             stream_overflow: false,
+            stream_generation: 0,
         }
     }
 }
@@ -307,6 +321,7 @@ impl AnalogInputPanel {
     // =========================================================================
 
     /// Start hardware-timed streaming for all enabled channels.
+    #[allow(clippy::cast_possible_truncation)] // range_index is always < 14
     fn start_streaming(&mut self, client: &mut DaqClient, runtime: &Runtime) {
         if self.streaming_state != StreamingState::Stopped {
             return;
@@ -325,6 +340,17 @@ impl AnalogInputPanel {
             self.error = Some("No channels enabled".to_string());
             return;
         }
+
+        // Use range from the first enabled channel (RPC accepts a single range_index
+        // shared by all channels in the stream).
+        let range_index = stream_channels
+            .first()
+            .and_then(|ch| self.channels.get(ch))
+            .map(|c| c.range_index as u32)
+            .unwrap_or(0);
+
+        self.stream_generation += 1;
+        let generation = self.stream_generation;
 
         self.streaming_state = StreamingState::Starting;
         self.streaming_channels.clone_from(&stream_channels);
@@ -353,7 +379,7 @@ impl AnalogInputPanel {
                 device_id: device_id.clone(),
                 channels: channels_for_task.clone(),
                 sample_rate_hz: sample_rate,
-                range_index: 0,
+                range_index,
                 stop_condition: Some(
                     protocol::ni_daq::stream_analog_input_request::StopCondition::Continuous(true),
                 ),
@@ -361,13 +387,16 @@ impl AnalogInputPanel {
             };
 
             let mut stream = match ni_daq_client.stream_analog_input(request).await {
-                Ok(response) => response.into_inner(),
+                Ok(response) => {
+                    let _ = tx.send(ActionResult::StreamStarted { generation }).await;
+                    response.into_inner()
+                }
                 Err(e) => {
                     let _ = tx
-                        .send(ActionResult::StreamError(format!(
-                            "Failed to start stream: {}",
-                            e
-                        )))
+                        .send(ActionResult::StreamError {
+                            generation,
+                            error: format!("Failed to start stream: {}", e),
+                        })
                         .await;
                     return;
                 }
@@ -382,22 +411,22 @@ impl AnalogInputPanel {
                         match message {
                             Some(Ok(data)) => {
                                 let n_ch = data.n_channels.max(1) as usize;
-                                // De-interleave: take the LAST sample per channel
-                                // (most recent reading for UI display)
                                 let voltages = de_interleave_latest(
                                     &data.voltages,
                                     n_ch,
                                     &channels_for_task,
                                 );
                                 let _ = tx.try_send(ActionResult::StreamBatch {
+                                    generation,
                                     voltages,
                                     overflow: data.overflow,
                                 });
                             }
                             Some(Err(e)) => {
-                                let _ = tx.send(ActionResult::StreamError(
-                                    format!("Stream error: {}", e),
-                                )).await;
+                                let _ = tx.send(ActionResult::StreamError {
+                                    generation,
+                                    error: format!("Stream error: {}", e),
+                                }).await;
                                 break;
                             }
                             None => {
@@ -408,28 +437,30 @@ impl AnalogInputPanel {
                 }
             }
 
-            let _ = tx.send(ActionResult::StreamEnded).await;
+            let _ = tx.send(ActionResult::StreamEnded { generation }).await;
         });
-
-        self.streaming_state = StreamingState::Running;
     }
 
     /// Stop the active stream.
+    ///
+    /// Sets state to `Stopping` and sends the abort signal. The background task
+    /// will emit `StreamEnded` when it finishes, which transitions to `Stopped`.
     fn stop_streaming(&mut self, runtime: &Runtime) {
-        if self.streaming_state != StreamingState::Running {
+        if !matches!(
+            self.streaming_state,
+            StreamingState::Running | StreamingState::Starting
+        ) {
             return;
         }
         self.streaming_state = StreamingState::Stopping;
+        self.streaming_channels.clear();
+        self.status = Some("Stopping stream...".to_string());
 
         if let Some(abort_tx) = self.streaming_abort_tx.take() {
             runtime.spawn(async move {
                 let _ = abort_tx.send(()).await;
             });
         }
-
-        self.streaming_state = StreamingState::Stopped;
-        self.streaming_channels.clear();
-        self.status = Some("Stream stopped".to_string());
     }
 
     // =========================================================================
@@ -692,23 +723,39 @@ impl AnalogInputPanel {
                     }
                     self.error = None;
                 }
-                ActionResult::StreamBatch { voltages, overflow } => {
-                    self.stream_overflow = overflow;
-                    for (channel, voltage) in voltages {
-                        if let Some(config) = self.channels.get_mut(&channel) {
-                            config.last_reading = Some(voltage);
-                        }
+                ActionResult::StreamStarted { generation } => {
+                    if generation == self.stream_generation {
+                        self.streaming_state = StreamingState::Running;
+                        self.status = Some("Streaming".to_string());
                     }
-                    self.error = None;
                 }
-                ActionResult::StreamError(msg) => {
-                    self.error = Some(msg);
-                    self.streaming_state = StreamingState::Stopped;
-                    self.streaming_abort_tx = None;
-                    self.streaming_channels.clear();
+                ActionResult::StreamBatch {
+                    generation,
+                    voltages,
+                    overflow,
+                } => {
+                    if generation == self.stream_generation {
+                        self.stream_overflow = overflow;
+                        for (channel, voltage) in voltages {
+                            if let Some(config) = self.channels.get_mut(&channel) {
+                                config.last_reading = Some(voltage);
+                            }
+                        }
+                        self.error = None;
+                    }
                 }
-                ActionResult::StreamEnded => {
-                    if self.streaming_state != StreamingState::Stopped {
+                ActionResult::StreamError { generation, error } => {
+                    if generation == self.stream_generation {
+                        self.error = Some(error);
+                        self.streaming_state = StreamingState::Stopped;
+                        self.streaming_abort_tx = None;
+                        self.streaming_channels.clear();
+                    }
+                }
+                ActionResult::StreamEnded { generation } => {
+                    if generation == self.stream_generation
+                        && self.streaming_state != StreamingState::Stopped
+                    {
                         self.streaming_state = StreamingState::Stopped;
                         self.streaming_abort_tx = None;
                         self.streaming_channels.clear();
@@ -734,9 +781,15 @@ fn de_interleave_latest(
         return Vec::new();
     }
 
-    // Find the start of the last complete scan
+    // Find the start of the last complete scan. Only consider fully
+    // complete scans; if there are fewer samples than channels, return
+    // no data to avoid misattributing voltages to channels.
     let total = interleaved.len();
-    let last_scan_start = (total / n_channels).saturating_sub(1) * n_channels;
+    let n_scans = total / n_channels;
+    if n_scans == 0 {
+        return Vec::new();
+    }
+    let last_scan_start = (n_scans - 1) * n_channels;
 
     channel_numbers
         .iter()

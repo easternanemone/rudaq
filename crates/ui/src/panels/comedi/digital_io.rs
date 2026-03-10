@@ -648,14 +648,14 @@ impl DigitalIOPanel {
                         let state = (bits >> i) & 1 != 0;
                         if let Some(p) = self.pins.get_mut(pin as usize) {
                             p.state = state;
-                        }
-                        // Forward to DIO Monitor viewer panel
-                        if let Some(sender) = &self.monitor_sender {
-                            let _ = sender.try_send(DioStateUpdate {
-                                pin,
-                                state,
-                                timestamp: None,
-                            });
+                            // Forward to DIO Monitor viewer panel only for existing pins
+                            if let Some(sender) = &self.monitor_sender {
+                                let _ = sender.try_send(DioStateUpdate {
+                                    pin,
+                                    state,
+                                    timestamp: None,
+                                });
+                            }
                         }
                     }
                 }
