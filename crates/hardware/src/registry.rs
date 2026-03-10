@@ -756,6 +756,7 @@ impl DeviceRegistry {
         // hardware initialization (serial port open, USB enumeration, etc.)
         // from the caller's task.  If the factory's build future contains
         // synchronous I/O, this prevents it from stalling the reconciler.
+        let raw_config = config.clone();
         let build_future = factory.build(config);
         drop(factory); // Release DashMap ref before spawning.
         let components = tokio::task::spawn(build_future)
@@ -797,6 +798,7 @@ impl DeviceRegistry {
             device_name.to_string(),
             driver_type.to_string(),
             components,
+            raw_config,
         );
 
         self.devices.insert(device_id.to_string(), registered);
@@ -818,11 +820,12 @@ impl DeviceRegistry {
         device_name: String,
         driver_type: String,
         components: DeviceComponents,
+        raw_config: toml::Value,
     ) -> RegisteredDevice {
         let config = DeviceConfig {
             id: device_id,
             name: device_name,
-            driver: DriverConfig::new(driver_type.clone(), toml::Value::Table(Default::default())),
+            driver: DriverConfig::new(driver_type.clone(), raw_config),
             enabled: true,
         };
 
