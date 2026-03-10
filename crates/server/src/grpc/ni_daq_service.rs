@@ -1445,6 +1445,7 @@ impl NiDaqService for NiDaqServiceImpl {
                         board_name: info.board_name,
                         driver_name: info.driver_name,
                         online: true,
+                        device_path: device_path.clone(),
                         n_subdevices: info.n_subdevices,
                         subdevices,
                         ai_busy: ai_info.map(|s| s.is_busy()).unwrap_or(false),

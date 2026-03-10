@@ -189,6 +189,9 @@ impl ComediPanel {
                 Ok((status, timing)) => {
                     status.board_name.clone_into(&mut self.board_name);
                     status.driver_name.clone_into(&mut self.driver_name);
+                    if !status.device_path.is_empty() {
+                        status.device_path.clone_into(&mut self.device_path);
+                    }
                     self.connection_status = if status.online {
                         ConnectionStatus::Connected
                     } else {

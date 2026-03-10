@@ -446,6 +446,7 @@ message DAQStatus {
   string board_name = 2;           // e.g., "pci-mio-16xe-10"
   string driver_name = 3;          // e.g., "ni_pcimio"
   bool online = 4;
+  string device_path = 5;          // e.g., "/dev/comedi0" (resolved from driver config)
 
   // Subdevice summary
   uint32 n_subdevices = 10;
