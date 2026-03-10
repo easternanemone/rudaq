@@ -22,6 +22,7 @@ use protocol::ni_daq::ni_daq_service_server::NiDaqService;
 use protocol::ni_daq::*;
 use std::future::Future;
 use std::sync::Arc;
+use tokio::sync::Semaphore;
 use tonic::{Request, Response, Status};
 use tracing::instrument;
 
@@ -37,12 +38,18 @@ use tracing::instrument;
 pub struct NiDaqServiceImpl {
     /// Device registry for looking up Comedi devices
     registry: Arc<DeviceRegistry>,
+    /// Serializes all Comedi device access to prevent concurrent opens of
+    /// `/dev/comedi0` which can deadlock the kernel driver (see bd-XXXX).
+    comedi_semaphore: Arc<Semaphore>,
 }
 
 impl NiDaqServiceImpl {
     /// Create a new NI DAQ service instance.
     pub fn new(registry: Arc<DeviceRegistry>) -> Self {
-        Self { registry }
+        Self {
+            registry,
+            comedi_semaphore: Arc::new(Semaphore::new(1)),
+        }
     }
 
     /// Resolve the Comedi device node path for a given device ID.
@@ -100,6 +107,12 @@ impl NiDaqService for NiDaqServiceImpl {
         {
             use driver_comedi::multi_channel::ComediMultiChannelAcquisition;
             use tokio::time::Duration;
+
+            let _permit = self
+                .comedi_semaphore
+                .acquire()
+                .await
+                .map_err(|_| Status::internal("Comedi semaphore closed"))?;
 
             let req = request.into_inner();
 
@@ -408,6 +421,12 @@ impl NiDaqService for NiDaqServiceImpl {
     ) -> Result<Response<ReadAnalogInputResponse>, Status> {
         #[cfg(feature = "comedi")]
         {
+            let _permit = self
+                .comedi_semaphore
+                .acquire()
+                .await
+                .map_err(|_| Status::internal("Comedi semaphore closed"))?;
+
             let req = request.into_inner();
 
             if req.device_id.is_empty() {
@@ -576,6 +595,12 @@ impl NiDaqService for NiDaqServiceImpl {
     ) -> Result<Response<ConfigureAnalogOutputResponse>, Status> {
         #[cfg(feature = "comedi")]
         {
+            let _permit = self
+                .comedi_semaphore
+                .acquire()
+                .await
+                .map_err(|_| Status::internal("Comedi semaphore closed"))?;
+
             let req = request.into_inner();
 
             if req.device_id.is_empty() {
@@ -658,6 +683,12 @@ impl NiDaqService for NiDaqServiceImpl {
     ) -> Result<Response<ConfigureDigitalIoResponse>, Status> {
         #[cfg(feature = "comedi")]
         {
+            let _permit = self
+                .comedi_semaphore
+                .acquire()
+                .await
+                .map_err(|_| Status::internal("Comedi semaphore closed"))?;
+
             let req = request.into_inner();
 
             // Validate device_id
@@ -748,6 +779,12 @@ impl NiDaqService for NiDaqServiceImpl {
     ) -> Result<Response<ReadDigitalIoResponse>, Status> {
         #[cfg(feature = "comedi")]
         {
+            let _permit = self
+                .comedi_semaphore
+                .acquire()
+                .await
+                .map_err(|_| Status::internal("Comedi semaphore closed"))?;
+
             let req = request.into_inner();
 
             // Validate device_id
@@ -816,6 +853,12 @@ impl NiDaqService for NiDaqServiceImpl {
     ) -> Result<Response<WriteDigitalIoResponse>, Status> {
         #[cfg(feature = "comedi")]
         {
+            let _permit = self
+                .comedi_semaphore
+                .acquire()
+                .await
+                .map_err(|_| Status::internal("Comedi semaphore closed"))?;
+
             let req = request.into_inner();
 
             // Validate device_id
@@ -883,6 +926,12 @@ impl NiDaqService for NiDaqServiceImpl {
     ) -> Result<Response<ReadDigitalPortResponse>, Status> {
         #[cfg(feature = "comedi")]
         {
+            let _permit = self
+                .comedi_semaphore
+                .acquire()
+                .await
+                .map_err(|_| Status::internal("Comedi semaphore closed"))?;
+
             let req = request.into_inner();
 
             if req.device_id.is_empty() {
@@ -933,6 +982,12 @@ impl NiDaqService for NiDaqServiceImpl {
     ) -> Result<Response<WriteDigitalPortResponse>, Status> {
         #[cfg(feature = "comedi")]
         {
+            let _permit = self
+                .comedi_semaphore
+                .acquire()
+                .await
+                .map_err(|_| Status::internal("Comedi semaphore closed"))?;
+
             let req = request.into_inner();
 
             if req.device_id.is_empty() {
@@ -987,6 +1042,12 @@ impl NiDaqService for NiDaqServiceImpl {
     ) -> Result<Response<ReadCounterResponse>, Status> {
         #[cfg(feature = "comedi")]
         {
+            let _permit = self
+                .comedi_semaphore
+                .acquire()
+                .await
+                .map_err(|_| Status::internal("Comedi semaphore closed"))?;
+
             let req = request.into_inner();
 
             // Validate device_id
@@ -1066,6 +1127,12 @@ impl NiDaqService for NiDaqServiceImpl {
     ) -> Result<Response<ResetCounterResponse>, Status> {
         #[cfg(feature = "comedi")]
         {
+            let _permit = self
+                .comedi_semaphore
+                .acquire()
+                .await
+                .map_err(|_| Status::internal("Comedi semaphore closed"))?;
+
             let req = request.into_inner();
 
             // Validate device_id
@@ -1180,6 +1247,12 @@ impl NiDaqService for NiDaqServiceImpl {
     ) -> Result<Response<ConfigureCounterResponse>, Status> {
         #[cfg(feature = "comedi")]
         {
+            let _permit = self
+                .comedi_semaphore
+                .acquire()
+                .await
+                .map_err(|_| Status::internal("Comedi semaphore closed"))?;
+
             let req = request.into_inner();
 
             // Validate device_id
@@ -1328,6 +1401,12 @@ impl NiDaqService for NiDaqServiceImpl {
         // Comedi support is only available when the 'comedi' feature is enabled
         #[cfg(feature = "comedi")]
         {
+            let _permit = self
+                .comedi_semaphore
+                .acquire()
+                .await
+                .map_err(|_| Status::internal("Comedi semaphore closed"))?;
+
             let device_path = self.resolve_device_path(&device_id);
 
             let status = self
