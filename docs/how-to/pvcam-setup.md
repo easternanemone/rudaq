@@ -249,7 +249,7 @@ After killing the daemon with `pkill`, `kill -9`, or a system crash:
 3. **Restart the daemon:**
    ```bash
    source config/hosts/maitai.env
-   ./target/release/rust-daq-daemon daemon --port 50051 --hardware-config config/maitai_hardware.toml
+   ./target/release/rust-daq-daemon daemon --port 50051 --hardware-config config/maitai_universal.toml
    ```
 
 ## Verification

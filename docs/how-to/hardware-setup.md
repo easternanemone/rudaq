@@ -163,7 +163,7 @@ cd ~/rust-daq
 bash scripts/build-maitai.sh  # Clean rebuild with PVCAM support
 
 # Start daemon
-./target/release/rust-daq-daemon daemon --port 50051 --hardware-config config/maitai_hardware.toml
+./target/release/rust-daq-daemon daemon --port 50051 --hardware-config config/maitai_universal.toml
 
 # Monitor logs
 tail -f /tmp/daemon.log

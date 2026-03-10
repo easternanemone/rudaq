@@ -115,7 +115,7 @@ registry.register_from_config(DeviceConfig { id, name, driver: DriverConfig { ty
 
 ## Code Style
 
-- Rust 1.75+, async/await everywhere (Tokio runtime). Never `std::thread::sleep` in async code.
+- Current stable Rust toolchain (edition 2024 workspace members require newer than 1.75), async/await everywhere (Tokio runtime). Never `std::thread::sleep` in async code.
 - Error handling: propagate with `?`, add context via `anyhow::Context`. No `.unwrap()` in library code (CI enforces `clippy::unwrap_used`); use `.expect("reason")` for invariants.
 - Hardware state: always use `Parameter<T>` with `BoxFuture<'static, Result<()>>` callbacks.
 - Workspace clippy: pedantic lints enabled with project-specific allows (see `Cargo.toml` `[workspace.lints.clippy]`).

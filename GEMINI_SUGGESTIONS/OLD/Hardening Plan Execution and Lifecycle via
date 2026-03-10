@@ -1,0 +1,55 @@
+Durable Intent Tracking and Audit Logging
+
+1. Context & Existing Safeguards
+
+The previous assumption that orphaned plans would silently hang the hardware ignored existing safeguards. rudaq already utilizes drop guards and emergency safing mechanisms (e.g., ShutterRegistry::emergency_close_all()).
+
+The actual architectural gap is durability across daemon restarts and historical auditing of faults. If a script panics or the DAQ daemon crashes, the hardware is safed, but the intent and the reason for the crash are lost in volatile memory.
+
+2. Proposed Solution: SurrealDB Intent Tracking
+
+We implement a Kubernetes-style Intent Tracker in SurrealDB. The real-time safety mechanisms remain in Rust memory, but they sync their lifecycle transitions to SurrealDB.
+
+2.1 The Durable Job Queue
+
+When crates/experiment/src/run_engine.rs accepts a new plan, it first registers an intent in SurrealDB.
+
+Submission: The gRPC server receives a scan request. It writes an intent record (Status: PENDING) to SurrealDB.
+
+Execution: The RunEngine pulls the intent, starts it, and updates SurrealDB (Status: RUNNING, linked to a specific Run UID).
+
+Emergency Halt: If ShutterRegistry::emergency_close_all() fires, the drop guard not only safes the hardware, but it writes an ERROR state to the SurrealDB intent, attaching the panic payload or error trace.
+
+2.2 Reconciling Disconnects (The Sentinel)
+
+If the entire Rust process dies (e.g., OOM kill), upon restart, the daemon_manager.rs or reconciler.rs queries SurrealDB on boot:
+
+SELECT * FROM intent WHERE status = 'RUNNING';
+
+
+Since the daemon just booted, any RUNNING intent is definitively orphaned. The system can immediately mark these as ORPHANED_ON_CRASH, alert the user in the UI, and verify the hardware initializes into a safe state before accepting new commands.
+
+2.3 Rust Integration
+
+// Inside RunEngine or Script Runner
+let intent_id = db.query("CREATE intent SET status = 'RUNNING', script_name = $name")
+    .bind(("name", script_name))
+    .await?;
+
+// The existing drop guard is enhanced to log to SurrealDB
+struct AuditDropGuard {
+    db: Surreal<Client>,
+    intent_id: RecordId,
+}
+
+impl Drop for AuditDropGuard {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            // Trigger existing hardware safe
+            ShutterRegistry::emergency_close_all();
+            // Fire-and-forget an update to SurrealDB for the audit log
+            let _ = self.db.query("UPDATE $id SET status = 'PANICKED', time = time::now()")
+                .bind(("id", &self.intent_id));
+        }
+    }
+}

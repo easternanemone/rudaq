@@ -30,7 +30,7 @@ A comprehensive guide for developers implementing new hardware drivers for rust-
 
 ### Prerequisites
 
-- Rust 1.75+
+- Current stable Rust (edition 2024 workspace members require a newer toolchain than 1.75)
 - Basic understanding of async/await
 - Familiarity with the hardware you're implementing (protocol docs, command specs)
 

@@ -8,7 +8,7 @@ The architecture follows a **Headless-First** design: the core daemon runs as a 
 
 ## Core Design Principles
 
-1.  **Crash Resilience:** Strict separation between the Daemon (Rust) and the Client (`egui`).
+1.  **Crash Resilience:** Strict separation between the daemon and the client UIs (`egui` native/WASM, plus experimental `ui-slint`).
 2.  **Capability-Based Hardware:** Drivers are composed of atomic traits (`Movable`, `Triggerable`) rather than monolithic inheritance.
 3.  **Hot-Swappable Logic:** Experiments are defined in **Rhai** scripts, allowing logic changes without recompiling the daemon.
 4.  **Zero-Copy Data Path:** High-speed data flows through a memory-mapped ring buffer (Arrow IPC) for visualization and storage.
@@ -17,11 +17,12 @@ The architecture follows a **Headless-First** design: the core daemon runs as a 
 
 ## System Components
 
-The project is structured as a Cargo workspace with 25 crates organized by layer:
+The project is structured as a Cargo workspace with 26 crates organized by layer:
 
 ### 1. Application Layer
 *   **`bin`**: The entry point for the daemon (`rust-daq-daemon`). Wires together the system based on compile-time features.
-*   **`ui`**: The desktop client application. Built with `egui` and `egui_dock` for a flexible, pane-based layout. Connects to the daemon via gRPC. Features auto-reconnect with exponential backoff, health monitoring, and real-time logging panel.
+*   **`ui`**: The main `egui` client crate. Produces the native desktop GUI (`rust-daq-gui`) and the browser/WASM GUI (`rust-daq-web`). Connects to the daemon via gRPC or gRPC-web depending on platform.
+*   **`ui-slint`**: Experimental Slint-based UI workspace member used for evaluation and benchmarks.
 *   **`client`**: gRPC client library for connecting to the daemon. Provides a typed API for remote hardware control, streaming, and device management.
 
 ### 2. Domain Logic
@@ -31,7 +32,7 @@ The project is structured as a Cargo workspace with 25 crates organized by layer
 *   **`daq-modules`**: Experiment modules and plugin system. Provides a modular framework for composing experiment workflows with runtime module assignment.
 
 ### 3. Hardware Abstraction
-*   **`hardware`**: The Hardware Abstraction Layer (HAL). Defines capability traits, `DeviceRegistry`, and `DriverFactory`. Also contains legacy serial drivers (migration to standalone crates in progress).
+*   **`hardware`**: The Hardware Abstraction Layer (HAL). Defines capability traits, `DeviceRegistry`, and config/schema loading. Concrete driver feature selection now lives in `driver-registry`.
 
 ### 4. Driver Crates (Standalone)
 
@@ -90,7 +91,7 @@ graph TD
             Writer[HDF5 Writer]
         end
 
-        subgraph "Client Process (rust-daq-gui)"
+        subgraph "Client Process (rust-daq-gui / rust-daq-web)"
             GUI[egui Interface]
             Dock[Docking System]
             Plot[Real-time Plots]
@@ -207,8 +208,9 @@ Experiments are written in [Rhai](https://rhai.rs), a scripting language designe
 │   ├── protocol/             # Protobuf definitions and conversions
 │   ├── scripting/            # Rhai scripting engine integration
 │   ├── server/               # gRPC server implementation
-│   ├── storage/              # Ring buffers, CSV, HDF5, Arrow storage
-│   └── ui/                   # Desktop GUI (egui + egui_dock)
+│   ├── storage/              # Ring buffers, HDF5, Arrow, Parquet, TIFF, Zarr storage
+│   ├── ui/                   # egui GUI crate (native + WASM)
+│   └── ui-slint/             # experimental Slint UI crate
 ├── config/                   # Runtime configuration (TOML)
 │   ├── devices/              # Declarative driver configs (TOML manifest files)
 │   │   ├── ell14.toml        # Thorlabs ELL14 rotation mounts

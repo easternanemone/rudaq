@@ -149,8 +149,9 @@ Errors are categorized for appropriate handling:
 
 ## Feature Flags
 
-- `serial` - Enable serial port support (adds `tokio-serial`)
+- `serial` - Enable serial port support (via `serial2-tokio`)
 - `storage_arrow` - Enable Arrow IPC format support
+- `storage_hdf5` - Enable shared HDF5 types/error support
 
 ## Module Organization
 

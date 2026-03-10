@@ -45,16 +45,16 @@ Serve `dist/` from any static file host (nginx, GitHub Pages, S3, etc.).
 3. The GUI lists all registered devices and renders config-driven panels from
    each device's `[ui.control_panel]` TOML section (delivered via gRPC metadata).
 
-> **CORS**: The daemon's gRPC-web server already sets permissive CORS headers.
-> If the web page is served from a different origin than the daemon, ensure the
-> daemon's `config/daemon.toml` lists the web server's origin in `allowed_origins`.
+> **CORS**: Browser access depends on the daemon's `grpc.allowed_origins` setting in `config/config.v4.toml`.
+> The current default config ships with `allowed_origins = ["*"]` for lab convenience, but production deployments should restrict this to explicit origins.
+> If the web page is served from a different origin than the daemon, add that origin to `allowed_origins`.
 
 ## Architecture
 
 ```
 Browser (WASM)                    Lab Machine (native)
 ──────────────────                ──────────────────────────
-DaqWebApp (egui)                  rust-daq daemon
+DaqWebApp (egui)                  rust-daq-daemon
   │                                 │
   │──── gRPC-web (HTTP/1.1) ────▶  tonic_web proxy
   │                                 │──▶ gRPC services

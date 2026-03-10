@@ -230,7 +230,7 @@ use driver_dover_motion::DoverAxisFactory;
 registry.register_factory(Box::new(DoverAxisFactory));
 ```
 
-2. Add configuration in `config/hardware.toml`:
+2. Add configuration in your TOML hardware config (for example `config/maitai_universal.toml` or another runtime-specific config):
 ```toml
 [[devices]]
 id = "smartstage_x"

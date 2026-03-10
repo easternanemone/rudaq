@@ -54,7 +54,7 @@ Daemon startup must log:
 - Existing configs continue to load.
 - Native SCPI/TCP driver types emit warnings, not hard failures.
 - Rollback from universal/hybrid mode:
-  1. Restart with `--runtime-mode native` or `--hardware-config config/maitai_hardware.toml`.
+  1. Restart with `--runtime-mode native` or `--hardware-config config/maitai_universal.toml`.
   2. Re-import known-good TOML into DB if `hybrid-db` was used.
   3. Validate device list and command metadata before operations resume.
 

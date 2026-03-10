@@ -15,7 +15,7 @@ The rust-daq gRPC API provides remote control over the DAQ system with multiple 
 - **PresetService** - Device configuration snapshots - `hardware.proto`
 - **PluginService** - Runtime plugin/driver management - `storage.proto`
 - **HealthService** - System health monitoring (custom service) - `storage.proto`
-- **NIDAQService** - National Instruments DAQ devices - `ni_daq.proto`
+- **NiDaqService** - National Instruments / Comedi DAQ devices - `ni_daq.proto`
 
 **Proto Files (6 total):**
 - `crates/protocol/proto/daq.proto` - Core control services (ControlService)
@@ -50,20 +50,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 import grpc
 from protocol.daq_pb2_grpc import HardwareServiceStub
 
-channel = grpc.aio.secure_channel(
-    "localhost:50051",
-    grpc.ssl_channel_credentials()
-)
+channel = grpc.aio.insecure_channel("localhost:50051")
 client = HardwareServiceStub(channel)
 ```
 
 ## Authentication
 
-By default, authentication is disabled. To enable token-based authentication, configure in `config/config.v4.toml`:
+By default, authentication is disabled. To enable token-based authentication, configure `config/config.v4.toml`:
 
 ```toml
 [grpc]
-auth_enabled = true
+auth_enabled=***
+# auth_token = "replace-me"
 ```
 
 When enabled, include an authorization token in RPC metadata:
@@ -1202,7 +1200,7 @@ allowed_origins = [
   ```
 - **Hardware Config:** Set via `--hardware-config` flag (required for device initialization)
   ```bash
-  ./rust-daq-daemon daemon --port 50051 --hardware-config config/maitai_hardware.toml
+  ./rust-daq-daemon daemon --port 50051 --hardware-config config/maitai_universal.toml
   ```
 
 **TLS Behavior:**

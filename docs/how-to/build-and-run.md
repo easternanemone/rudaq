@@ -59,7 +59,7 @@ The build script should show:
 ### Step 2: Start Daemon and Check Log
 
 ```bash
-./target/release/rust-daq-daemon daemon --port 50051 --hardware-config config/maitai_hardware.toml 2>&1 | tee daemon.log
+./target/release/rust-daq-daemon daemon --port 50051 --hardware-config config/maitai_universal.toml 2>&1 | tee daemon.log
 ```
 
 ### Step 3: Verify PVCAM SDK Initialization
@@ -152,7 +152,7 @@ bash scripts/build-maitai.sh
 **Causes:**
 1. Hardware not powered on
 2. Serial port permissions
-3. Wrong port configuration in `config/maitai_hardware.toml`
+3. Wrong port configuration in `config/maitai_universal.toml`
 
 **Check:**
 ```bash
@@ -218,7 +218,7 @@ bash scripts/build-maitai.sh                    # Build daemon with ALL hardware
 cargo build --release -p ui              # Build GUI (separate)
 
 # Start daemon
-./target/release/rust-daq-daemon daemon --port 50051 --hardware-config config/maitai_hardware.toml
+./target/release/rust-daq-daemon daemon --port 50051 --hardware-config config/maitai_universal.toml
 
 # Verify
 grep "Registered.*device(s)" <daemon_output> -A 10
@@ -232,4 +232,4 @@ grep "pvcam_sdk feature enabled" <daemon_output>
 - `CLAUDE.md` - Main project documentation
 - `scripts/build-maitai.sh` - Build script
 - `crates/bin/Cargo.toml` - Feature flag definitions
-- `config/maitai_hardware.toml` - Hardware configuration
+- `config/maitai_universal.toml` - Hardware configuration

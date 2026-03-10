@@ -1,463 +1,149 @@
 # Rhai Scripting Guide
 
-This guide covers the Rhai scripting system for experiment automation in rust-daq.
+This guide documents the current Rhai scripting surface for rust-daq.
 
 ## Overview
 
-The `scripting` crate provides a Rhai-based scripting engine for writing
-experiment scripts that control hardware devices. Rhai is an embedded scripting
-language for Rust that provides:
+The `scripting` crate embeds Rhai and exposes selected helpers for experiment automation. Scripts use synchronous syntax while the underlying hardware/runtime paths remain async Rust.
 
-- Safe execution with operation limits
-- Synchronous script syntax with async hardware underneath
-- Type-safe hardware handles
-- Automatic shutter safety via `with_shutter_open()`
+## Build Profiles
 
-## Quick Start
-
-### Building the Script Runner
-
-Scripts are executed via the `rhai-runner` binary. Build with the `scripting_full` feature:
+Use one of the supported scripting feature sets:
 
 ```bash
+# Baseline scripting + HDF5 helpers
 cargo build --release -p scripting --features scripting_full
+
+# Add Comedi bindings
+cargo build --release -p scripting --features scripting_full_comedi
+
+# Add LIBS-focused bindings
+cargo build --release -p scripting --features scripting_full_libs
 ```
 
-**IMPORTANT**: You must use `--features scripting_full` to enable the
-hardware factory functions (`create_maitai`, `create_newport_1830c`, etc.).
-The `scripting_full` feature includes all necessary dependencies: hardware factories,
-serial drivers, HDF5 support, and the universal driver (always compiled).
+The `rhai-runner` binary requires `scripting_full` or one of the profiles built on top of it.
 
-### Running a Script
+## Run a Script
 
 ```bash
-# Run any .rhai script
 ./target/release/rhai-runner my_experiment.rhai
 
-# Or via cargo
+# or via cargo
 cargo run --release -p scripting --features scripting_full --bin rhai-runner -- my_experiment.rhai
 ```
 
-## Available Functions
+## Current Binding Surface
 
-### Device Factory Functions
+The current baseline helpers are:
 
-| Function | Returns | Description |
-|----------|---------|-------------|
-| `create_maitai(port)` | `Shutter` | MaiTai laser (shutter only) |
-| `create_maitai_tunable(port)` | `MaiTaiLaser` | MaiTai with wavelength control |
-| `create_newport_1830c(port)` | `Newport1830C` | Power meter |
-| `create_elliptec(port, addr)` | `Ell14` | ELL14 rotator |
-| `create_comedi(device)` | `ComediDAQ` | Comedi DAQ (requires `comedi_scripting` feature) |
-| `create_hdf5(path)` | `Hdf5File` | HDF5 file for data storage |
+| Function | Returns | Notes |
+|----------|---------|-------|
+| `create_mock_stage()` | `Stage` | Mock stage for local scripts and tests |
+| `create_mock_power_meter(base_power)` | `PowerMeter` | Mock readable device |
+| `create_hdf5(path)` | `Hdf5File` | Requires HDF5 scripting support; path is validated |
+| `with_shutter_open(shutter, callback)` | callback result | Safety wrapper that closes the shutter on exit/error |
+| `create_comedi(device_path)` | `ComediDAQ` | Requires Comedi scripting support; validates `/dev/comedi*` |
 
-### MaiTai Laser Methods (MaiTaiLaser type)
+For LIBS/Andor/Dover-specific handles, build with `scripting_full_libs`.
 
-```rhai
-let laser = create_maitai_tunable("/dev/serial/by-id/...");
+## Important Change from Older Docs
 
-// Shutter control
-laser.open();              // Open shutter
-laser.close();             // Close shutter  
-laser.is_open();           // Query shutter state
+Older docs referred to direct serial-device factory functions such as:
 
-// Wavelength control
-laser.set_wavelength(800.0);  // Set to 800nm
-let wl = laser.get_wavelength();  // Query wavelength
+- `create_maitai`
+- `create_maitai_tunable`
+- `create_newport_1830c`
+- `create_elliptec`
+- `create_generic_driver`
 
-// For use with with_shutter_open()
-let shutter = laser.as_shutter();
-```
+Those are not recommended scripting entrypoints today.
 
-### Newport 1830-C Power Meter Methods
+For serial/TCP/SCPI devices defined by `driver-universal`, the supported workflow today is:
 
-```rhai
-let pm = create_newport_1830c("/dev/ttyS0");
+1. define the device manifest under `config/devices/`
+2. load it through a hardware config and daemon startup
+3. control it through the runtime or gRPC path
 
-// Power reading
-let power = pm.read();              // Read power (Watts)
-let avg = pm.read_averaged(10);     // Average 10 readings
+See `docs/how-to/device-config.md` for manifest authoring.
 
-// Calibration
-pm.zero();                          // Zero without attenuator
-pm.zero_with_attenuator();          // Zero with attenuator
-pm.set_attenuator(true);            // Enable/disable attenuator
+## Examples
 
-// Wavelength calibration (NEW)
-pm.set_wavelength(800.0);           // Set calibration wavelength
-let wl = pm.get_wavelength();       // Query calibration wavelength
-```
-
-### ELL14 Rotator Methods
+### Mock Stage + Mock Power Meter
 
 ```rhai
-let rotator = create_elliptec("/dev/serial/by-id/...", "2");
+let stage = create_mock_stage();
+let meter = create_mock_power_meter(1.0e-6);
 
-// Motion
-rotator.move_abs(45.0);     // Move to 45 degrees
-rotator.move_rel(10.0);     // Move 10 degrees relative
-rotator.home();             // Home the rotator
-rotator.wait_settled();     // Wait for motion complete
+stage.set_soft_limits(0.0, 180.0);
 
-// Query
-let pos = rotator.position();   // Current position
-let vel = rotator.velocity();   // Cached velocity (0-100%)
+for angle in [0.0, 45.0, 90.0, 135.0, 180.0] {
+    stage.move_abs(angle);
+    stage.wait_settled();
+    let power = meter.read();
+    print(`angle=${angle}, power=${power}`);
+}
 ```
 
-### Comedi DAQ Methods (requires `comedi_scripting` feature)
+### Comedi Example
 
 ```rhai
 let daq = create_comedi("/dev/comedi0");
-
-// Device info
 print("Board: " + daq.board_name());
-print("Driver: " + daq.driver_name());
-print("AI channels: " + daq.n_ai_channels());
-print("AO channels: " + daq.n_ao_channels());
-print("DIO channels: " + daq.n_dio_channels());
-
-// Analog input
-let voltage = daq.read_voltage(0);              // Read AI channel 0
-let v = daq.read_voltage_range(0, 1);           // Read with specific range
-
-// Analog output (EOM control)
-daq.write_voltage(1, 2.5);                      // Write 2.5V to AO channel 1
-// WARNING: AO channel 0 controls EOM - be careful!
-
-// Digital I/O
-daq.set_dio(0, true);                           // Set DIO channel 0 high
-let state = daq.get_dio(1);                     // Read DIO channel 1
+let voltage = daq.read_voltage(0);
+print("AI0: " + voltage);
 ```
 
-**Building with Comedi support:**
+Build with:
+
 ```bash
 cargo build --release -p scripting --features scripting_full_comedi
 ```
 
-### HDF5 Data Storage
+### HDF5 Output Example
 
 ```rhai
 let hdf5 = create_hdf5("output.h5");
-
-// Attributes
-hdf5.write_attr("name", "value");           // String attribute
-hdf5.write_attr_f64("wavelength", 800.0);   // Float attribute
-hdf5.write_attr_i64("samples", 100);        // Integer attribute
-
-// Arrays
-hdf5.write_array_1d("angles", [0.0, 10.0, 20.0]);
-hdf5.write_array_2d("data", [[0.0, 1.0], [2.0, 3.0]]);
-
-// Groups
-hdf5.create_group("wavelength_800");
-
-// Close (required!)
+hdf5.write_attr("experiment", "demo");
+hdf5.write_attr_f64("wavelength_nm", 800.0);
 hdf5.close();
 ```
 
-### Utility Functions
+## Safety
+
+### Use `with_shutter_open()` for beam-on sections
+
+If a script needs a shuttered beam path, wrap the beam-on work in `with_shutter_open(...)` so closure is attempted even when the callback errors.
 
 ```rhai
-sleep(1.0);                 // Sleep for 1 second
-let ts = timestamp();       // "20260127_115319" format
-let iso = timestamp_iso();  // Full ISO8601 timestamp
-```
-
-## Universal Driver: Config-Driven Devices
-
-The Universal Driver (`driver-universal`) allows you to control any serial device defined by a TOML
-manifest file (schema v3), without writing any Rust code. This is useful for:
-
-- Prototyping new device support quickly
-- Controlling devices with simple ASCII/SCPI protocols
-- Sharing device configurations across scripts
-
-### Creating a Universal Driver Device
-
-```rhai
-let driver = create_generic_driver(
-    "config/devices/ell14.toml",  // Device manifest path
-    "/dev/serial/by-id/...",      // Serial port
-    "2"                           // Device address
-);
-```
-
-### Available Methods
-
-| Method | Description |
-|--------|-------------|
-| `move_abs(pos)` | Move to absolute position |
-| `move_rel(dist)` | Move relative amount |
-| `position()` | Get current position |
-| `wait_settled()` | Wait for motion complete |
-| `stop()` | Emergency stop |
-| `read()` | Read value (Readable trait) |
-| `set_wavelength(nm)` | Set wavelength (WavelengthTunable) |
-| `get_wavelength()` | Get wavelength |
-| `open()`, `close()`, `is_open()` | Shutter control |
-| `transaction(cmd)` | Send raw command, get response |
-| `get_param(name)` | Get device parameter |
-| `set_param(name, val)` | Set device parameter |
-| `set_soft_limits(min, max)` | Set motion limits |
-| `address()` | Get device address |
-
-### Example: Using ELL14 via Universal Driver
-
-```rhai
-let rotator = create_generic_driver(
-    "config/devices/ell14.toml",
-    "/dev/serial/by-id/usb-FTDI_FT230X_Basic_UART_DK0AHAJZ-if00-port0",
-    "2"
-);
-
-// Configure safety limits
-rotator.set_soft_limits(0.0, 360.0);
-
-// Move to position
-rotator.move_abs(45.0);
-rotator.wait_settled();
-print("Position: " + rotator.position());
-
-// Scan positions
-for angle in [0.0, 45.0, 90.0, 135.0, 180.0] {
-    rotator.move_abs(angle);
-    rotator.wait_settled();
-    // Take measurement here
-}
-```
-
-### Feature Flag
-
-The universal driver is always compiled (no feature flag needed). The `scripting_full` feature includes all hardware factories and serial drivers:
-
-```bash
-cargo build -p scripting --features scripting_full
-```
-
-## Shutter Safety
-
-**CRITICAL**: Always use `with_shutter_open()` for laser experiments. This
-guarantees shutter closure even if the script errors or is interrupted.
-
-```rhai
-let laser = create_maitai_tunable("/dev/serial/by-id/...");
-let shutter = laser.as_shutter();
-
 let result = with_shutter_open(shutter, || {
-    // Shutter is open here
-    let power = power_meter.read();
-    
-    // Even if this errors, shutter will close
-    do_measurement();
-    
-    // Return value from closure
-    power
-});
-
-// Shutter is guaranteed closed here
-print("Result: " + result);
-```
-
-## Example: Multi-Dimensional Sweep
-
-```rhai
-// 4D Waveplate Calibration Example
-let ELLIPTEC_PORT = "/dev/serial/by-id/usb-FTDI_FT230X_Basic_UART_DK0AHAJZ-if00-port0";
-let NEWPORT_PORT = "/dev/ttyS0";
-let MAITAI_PORT = "/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0";
-
-// Initialize hardware
-let power_meter = create_newport_1830c(NEWPORT_PORT);
-let laser = create_maitai_tunable(MAITAI_PORT);
-let rotator_lp = create_elliptec(ELLIPTEC_PORT, "3");
-let rotator_hwp = create_elliptec(ELLIPTEC_PORT, "2");
-
-// Create output file
-let hdf5 = create_hdf5("calibration_" + timestamp() + ".h5");
-
-// Run with shutter safety
-let shutter = laser.as_shutter();
-let data = with_shutter_open(shutter, || {
-    let results = [];
-    
-    for wavelength in [780.0, 800.0, 820.0] {
-        // Set wavelengths
-        laser.set_wavelength(wavelength);
-        power_meter.set_wavelength(wavelength);
-        sleep(60.0);  // Stabilization
-        
-        for lp_angle in [0.0, 45.0, 90.0] {
-            rotator_lp.move_abs(lp_angle);
-            rotator_lp.wait_settled();
-            
-            let power = power_meter.read_averaged(3);
-            results.push([wavelength, lp_angle, power]);
-        }
-    }
-    
-    results
-});
-
-// Save data
-hdf5.write_array_2d("measurements", data);
-hdf5.close();
-```
-
-## Serial Port Paths
-
-Always use stable `/dev/serial/by-id/` paths that don't change on reboot:
-
-| Device | Port Path |
-|--------|-----------|
-| MaiTai Laser | `/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0` |
-| ELL14 Rotators | `/dev/serial/by-id/usb-FTDI_FT230X_Basic_UART_DK0AHAJZ-if00-port0` |
-| Newport 1830-C | `/dev/ttyS0` (built-in RS-232, always stable) |
-
-## GUI Script Management
-
-The Scripts panel in the GUI provides upload and editing capabilities for managing
-Rhai scripts on the daemon without using the CLI.
-
-### Uploading Scripts
-
-There are two ways to upload scripts from the GUI:
-
-1. **Upload File** — Click "Upload File" in the Scripts panel toolbar, select a `.rhai`
-   file from disk, and it is uploaded to the daemon immediately.
-
-2. **Inline Editor** — Click "New Script" to open the built-in code editor. Write or
-   paste script content, set a name, then click "Upload to Daemon" or "Upload & Run"
-   to upload (and optionally execute immediately).
-
-### Inline Editor Features
-
-- Syntax highlighting (Rust mode, compatible with Rhai)
-- Open/Save local `.rhai` files from disk
-- Upload to daemon with one click
-- Upload & Run chains upload with immediate execution
-- Theme selector (Gruvbox Dark, Gruvbox Light, Ayu Dark)
-
-### Running and Monitoring
-
-- Select a script in the list and click "Run" to start execution
-- Running executions show progress bars and current line
-- Click "Stop" on a running execution to cancel it
-- Auto-refresh keeps the execution list updated while scripts run
-
-## Running Custom Scripts (CLI)
-
-Place your `.rhai` scripts anywhere and run them with `rhai-runner`:
-
-```bash
-# Run a script from the examples directory
-./target/release/rhai-runner examples/demo_scan.rhai
-
-# Run a script from anywhere
-./target/release/rhai-runner /path/to/my_experiment.rhai
-```
-
-The `rhai-runner` binary accepts a path argument and handles engine setup,
-hardware initialization, and error reporting automatically.
-
-## Tips and Best Practices
-
-1. **Always wait for motion to complete**
-   ```rhai
-   stage.move_abs(10.0);
-   stage.wait_settled();  // Don't skip this!
-   ```
-
-2. **Use `with_shutter_open()` for all laser work**
-   ```rhai
-   // WRONG - shutter may stay open on error
-   laser.open();
-   do_risky_operation();
-   laser.close();
-
-   // CORRECT - shutter always closes
-   with_shutter_open(shutter, || {
-       do_risky_operation();
-   });
-   ```
-
-3. **Use sleep() for stabilization**
-   ```rhai
-   laser.set_wavelength(850);
-   sleep(0.5);  // Wait for wavelength to stabilize
-   ```
-
-4. **Return results as last expression**
-   ```rhai
-   let data = [];
-   // ... collect data ...
-   data  // This becomes the script result
-   ```
-
-5. **Print progress for long experiments**
-   ```rhai
-   for i in 0..1000 {
-       if i % 100 == 0 {
-           print(`Progress: ${i}/1000`);
-       }
-       // ... work ...
-   }
-   ```
-
-6. **Handle incomplete results on error**
-   ```rhai
-   try {
-       // ... experiment ...
-       results
-   } catch(err) {
-       print(`Error: ${err}`);
-       results  // Return partial results on error
-   }
-   ```
-
-## Troubleshooting
-
-### "Function not found: create_newport_1830c"
-
-Build with the correct feature flag:
-```bash
-cargo build --release -p scripting --features scripting_full  # CORRECT
-cargo build --release -p scripting --features hardware_factories  # WRONG - incomplete
-```
-
-### Script hits operation limit
-
-Increase the operation limit with `--max-ops`:
-```bash
-./target/release/rhai-runner long_experiment.rhai --max-ops 10000000
-```
-
-### Shutter not closing on error
-
-Ensure you're using `with_shutter_open()`:
-```rhai
-// WRONG - shutter may stay open on error
-laser.open();
-do_risky_operation();
-laser.close();
-
-// CORRECT - shutter always closes
-with_shutter_open(shutter, || {
-    do_risky_operation();
+    // beam-on work here
+    do_measurement()
 });
 ```
 
-## Feature Flags
+### Path Validation
 
-| Feature | Description |
-|---------|-------------|
-| `hardware_factories` | Marker feature for cfg guards (enabled by scripting_full) |
-| `hdf5_scripting` | HDF5 data storage |
-| `comedi_scripting` | Comedi DAQ support (requires comedilib on Linux) |
-| `scripting_full` | **Recommended** - All serial hardware + HDF5 |
-| `scripting_full_comedi` | scripting_full + Comedi DAQ support |
+- `create_hdf5(path)` validates the output path
+- `create_comedi(device_path)` validates the device path
 
-## Related Documentation
+## Module Map
 
-- [Comedi Setup](comedi-setup.md) - NI DAQ card configuration
-- [Testing Guide](testing.md) - Running hardware tests
-- [EOM Power Sweep](eom-power-sweep.md) - Power sweep experiments
+Important source files in `crates/scripting/src/`:
+
+- `bindings.rs`
+- `comedi_bindings.rs`
+- `libs_bindings.rs`
+- `plan_bindings.rs`
+- `yield_bindings.rs`
+- `rhai_engine.rs`
+- `traits.rs`
+- `script_runner.rs`
+- `shutter_safety.rs`
+- `path_security.rs`
+
+## Related Docs
+
+- `crates/scripting/README.md`
+- `docs/how-to/device-config.md`
+- `crates/experiment/README.md`
+- `crates/hardware/README.md`

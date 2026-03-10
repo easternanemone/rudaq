@@ -17,7 +17,7 @@ guidelines and instructions for contributing to the project.
 
 ### Prerequisites
 
-- **Rust 1.75+**: Install via [rustup](https://rustup.rs/)
+- **Current stable Rust (edition 2024 workspace members require a newer toolchain than 1.75)**: Install via [rustup](https://rustup.rs/)
 - **cargo-nextest**: Recommended test runner
   ```bash
   cargo install cargo-nextest --locked

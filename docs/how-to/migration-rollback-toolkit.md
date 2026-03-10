@@ -163,7 +163,7 @@ pkill -INT -f 'rust-daq-daemon daemon'
 ./target/release/rust-daq-daemon daemon --runtime-mode native
 ```
 
-This uses `config/maitai_hardware.toml` with legacy native drivers. No database interaction.
+This uses `config/maitai_universal.toml` with legacy native drivers. No database interaction.
 
 ### 4b. Data Preservation from Corrupted DB
 

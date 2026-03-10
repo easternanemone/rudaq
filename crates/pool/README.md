@@ -265,7 +265,9 @@ let buffer = pool.try_acquire_timeout(Duration::from_millis(50)).await;
 
 ## Feature Flags
 
-None. This crate has no optional features.
+| Feature | Purpose |
+|---------|---------|
+| `metrics` | Optional pool metrics/observability hooks |
 
 ## License
 

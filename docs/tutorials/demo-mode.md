@@ -178,11 +178,11 @@ cargo run --bin rust-daq-daemon -- run my_experiment.rhai
 
 **When ready for real experiments:**
 
-1. Copy `config/hardware.example.toml` to `config/hardware.toml`
+1. Start from an existing hardware config such as `config/maitai_universal.toml` or create your own TOML hardware config
 2. Edit device configurations (serial ports, addresses, etc.)
 3. Start daemon with real hardware:
    ```bash
-   cargo run --bin rust-daq-daemon -- daemon --hardware-config config/hardware.toml
+   cargo run --bin rust-daq-daemon -- daemon --hardware-config path/to/your_hardware.toml
    ```
 4. **Your scripts work without modification!** Mock→Real is just a config change.
 

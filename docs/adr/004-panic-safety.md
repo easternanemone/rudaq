@@ -615,8 +615,11 @@ with_shutter_open(laser.clone(), async {
 
 ### Example 2: Long-Running Script with Heartbeat Watchdog
 
+Historical note: older scripting surfaces exposed direct serial-device factory helpers. The current runtime prefers loading real instruments through the daemon/runtime configuration path. The example below is schematic and illustrates the watchdog pattern rather than a guaranteed current public Rhai API.
+
 ```rhai
-let laser = create_maitai_tunable("/dev/ttyUSB0");
+// Pseudocode illustrating the heartbeat-watchdog pattern
+let laser = acquire_laser_handle_somehow();
 let guard = create_heartbeat_guard(laser, 5.0);  // 5-second watchdog
 
 for wavelength in [700, 750, 800] {

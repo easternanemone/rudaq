@@ -139,15 +139,18 @@ let port = resolve_port(
 
 ## Feature Flags
 
-**Note:** Hardware feature flags (pvcam, comedi, andor, etc.) have been moved to [`driver-registry`](../driver-registry). The `hardware` crate only maintains:
+**Note:** Hardware device-selection features (pvcam, comedi, andor, etc.) have moved to [`driver-registry`](../driver-registry). The `hardware` crate still has its own local features:
 
 ```toml
 [features]
-# Serial communication for tokio-serial support
+default = ["serial"]
 serial = ["common/serial"]
+simulator = []
+plugins_hot_reload = ["dep:notify", "dep:hot-lib-reloader"]
+binary_protocol = ["dep:crc"]
 ```
 
-For hardware driver selection, see `driver-registry/Cargo.toml`.
+For concrete hardware driver selection, see `driver-registry/Cargo.toml`.
 
 ## Available Drivers
 

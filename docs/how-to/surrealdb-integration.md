@@ -738,7 +738,7 @@ cargo nextest run --no-default-features       # 2076 tests (no DB)
 cargo build --release -p bin --features db-surreal-rocksdb
 ./target/release/rust-daq-daemon daemon \
   --port 50051 \
-  --hardware-config /etc/rust-daq/maitai_hardware.toml \
+  --hardware-config /etc/rust-daq/maitai_universal.toml \
   --db-path /var/lib/rust-daq/db
 ```
 
@@ -748,7 +748,7 @@ Recommended directory structure:
   db/              # RocksDB data directory
   backups/         # DB snapshots
 /etc/rust-daq/
-  maitai_hardware.toml   # Authoritative TOML config
+  maitai_universal.toml   # Authoritative TOML config
 ```
 
 ### 5.3 Daemon Lifecycle

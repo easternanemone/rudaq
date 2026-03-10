@@ -2,6 +2,7 @@
 
 > Consolidated from `.history/planning/` (112 files, 1.4 MB).
 > Generated 2026-02-20 from phase summaries, research docs, verification reports, and handoffs.
+> Historical snapshot only: this file is useful for project history, not as the source of truth for current binaries, feature flags, config filenames, or crate counts.
 
 ## Table of Contents
 

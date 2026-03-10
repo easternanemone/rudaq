@@ -194,9 +194,17 @@ unit = "W"
 ### 4. Test It
 
 ```bash
-# Load and validate your config
-cargo run --example validate_config -- config/devices/my_device.toml
+# There is no standalone validate_config example today.
+# Instead, validate by compiling and loading the manifest through the daemon path.
+
+# 1. Build the daemon
+cargo build -p bin
+
+# 2. Start with a hardware config that references your manifest
+cargo run -p bin -- daemon --hardware-config config/demo.toml
 ```
+
+For deeper validation, add your manifest to a test hardware config and confirm startup succeeds without registration errors. The source-of-truth validation path is the same loader used by `driver-universal` and `DeviceRegistry`, not a separate example binary.
 
 ---
 

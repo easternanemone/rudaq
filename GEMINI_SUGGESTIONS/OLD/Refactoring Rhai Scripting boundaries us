@@ -1,0 +1,59 @@
+Resolving the FFI Type Boundary with SurrealDB Values
+
+1. The Real Bottleneck
+
+The ANALYSIS.md correctly identifies the true friction point in the scripting layer: crates/scripting/src/rhai_engine.rs contains a fragile downcast_ref chain (script_value_to_dynamic()).
+
+While the system successfully uses set_json() (crates/common/src/parameter.rs:550) for gRPC-to-hardware boundaries, converting arbitrary Rhai dynamic variables into a format the hardware expects requires manually testing against i64, f64, bool, arrays, and dicts.
+
+2. Proposed Solution: Unification via surrealdb::sql::Value
+
+SurrealDB's native data type, surrealdb::sql::Value (and by extension its integration with serde), provides a universal, dynamic type system that can replace the brittle downcast_ref chain entirely.
+
+2.1 Refactoring script_value_to_dynamic
+
+Instead of manually checking types, we use serde to bridge rhai::Dynamic, surrealdb::sql::Value, and the underlying HardwareParam.
+
+Current Fragile Implementation:
+
+// Pseudocode of the existing issue
+if let Some(i) = value.downcast_ref::<i64>() { ... }
+else if let Some(f) = value.downcast_ref::<f64>() { ... }
+
+
+New Robust Implementation:
+
+use rhai::Dynamic;
+use surrealdb::sql::Value as SurrealValue;
+use serde_json::Value as JsonValue;
+
+pub fn script_value_to_hardware_param(value: Dynamic) -> Result<HardwareParam, String> {
+    // 1. Convert Rhai Dynamic to standard serde_json::Value
+    // This automatically handles deeply nested maps and arrays cleanly
+    let json_val: JsonValue = rhai::serde::from_dynamic(&value)
+        .map_err(|e| format!("Failed to serialize Rhai dynamic: {}", e))?;
+
+    // 2. We can now easily store this in SurrealDB for tracking,
+    // OR pass it directly to the existing `set_json()` hardware boundary
+    let param = HardwareParam::from_json(json_val)?;
+
+    Ok(param)
+}
+
+
+2.2 Persistent Script State (Replacing Mutexes)
+
+The analysis notes that Arc<Mutex<Scope>> is used for script variable storage. While this doesn't block the hardware, it resets between restarts and can cause contention between concurrent scripts sharing a global scope.
+
+We can inject SurrealDB as a persistent Key-Value store into Rhai:
+
+engine.register_fn("set_persistent_var", |db: &mut SurrealClient, key: &str, val: rhai::Dynamic| {
+    let json_val: JsonValue = rhai::serde::from_dynamic(&val).unwrap();
+    // Save to DB allowing state to survive daemon reboots
+    db.query("UPSERT script_state SET value = $val WHERE key = $key")
+      .bind(("val", json_val))
+      .bind(("key", key));
+});
+
+
+This entirely removes the need for massive Arc<Mutex<Scope>> global variables in Rust, pushing state management down to the database where it belongs.

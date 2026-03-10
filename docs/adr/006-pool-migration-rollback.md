@@ -105,7 +105,7 @@ let (pixel_data, used_pool): (Bytes, bool) = if use_pool {
 ```bash
 # On maitai or any PVCAM machine
 export PVCAM_USE_POOL=0
-./target/release/rust-daq-daemon daemon --port 50051 --hardware-config config/maitai_hardware.toml
+./target/release/rust-daq-daemon daemon --port 50051 --hardware-config config/maitai_universal.toml
 ```
 
 **Verification:**

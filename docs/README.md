@@ -41,7 +41,7 @@ Organized using the [Diataxis](https://diataxis.fr/) framework.
 | Guide | Description |
 |-------|-------------|
 | [Scripting](how-to/scripting.md) | Rhai scripts for experiment automation |
-| [Storage Formats](how-to/storage-formats.md) | HDF5, Arrow, CSV, NetCDF |
+| [Storage Formats](how-to/storage-formats.md) | HDF5, Arrow, Parquet, TIFF, Zarr |
 | [Zarr Acquisition](how-to/zarr-acquisition.md) | Zarr V3 storage |
 | [EOM Power Sweep](how-to/eom-power-sweep.md) | EOM power sweep workflow |
 | [Echelle Spectrum Preview (MVP)](how-to/echelle-spectrum-preview.md) | Load a calibration profile and view local echelle extraction previews |

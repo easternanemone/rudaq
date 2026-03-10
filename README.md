@@ -5,7 +5,7 @@
 [![Architecture Status](https://img.shields.io/badge/Architecture-V6_In_Progress-blue)](docs/explanation/architecture.md)
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](#building)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](#license)
-[![Rust 1.75+](https://img.shields.io/badge/Rust-1.75%2B-orange)](#prerequisites)
+[![Rust stable (edition 2024)](https://img.shields.io/badge/Rust-stable%20%28edition%202024%29-orange)](#prerequisites)
 
 Acquire high-throughput data from scientific instruments. Execute reproducible experiments with automated workflows. Stream live data to analysis pipelines. All in Rust—fast, safe, and production-ready.
 
@@ -120,7 +120,7 @@ graph TD
 | **Applications** | `bin`, `ui` | Daemon CLI, Desktop GUI |
 | **Testing** | `integration-tests` | Cross-crate integration suite |
 
-**Total: 25 crates** (includes 4 FFI sys crates: `pvcam-sys`, `andor-sdk3-sys`, `comedi-sys`, `dover-motion-sys`)
+**Total: 26 crates** (includes `ui-slint` and 4 FFI sys crates: `pvcam-sys`, `andor-sdk3-sys`, `comedi-sys`, `dover-motion-sys`)
 
 Full architecture docs: [System Architecture](docs/explanation/architecture.md)
 
@@ -142,7 +142,7 @@ Full architecture docs: [System Architecture](docs/explanation/architecture.md)
 | **Config-Driven** | Any serial/TCP/SCPI device | Per-manifest | Production | `serial` (via driver-universal) |
 | **Simulation** | Mock Stage, Mock Camera, Mock Sensors | All traits | Production | Built-in (no flag) |
 
-**Maitai Lab Configuration:** 12 devices integrated and tested. See [Maitai Setup Guide](docs/how-to/hardware-setup.md).
+**Maitai Lab Configuration:** The canonical runtime profile lives in `config/maitai_universal.toml`. See [Maitai Setup Guide](docs/how-to/hardware-setup.md).
 
 ---
 
@@ -173,7 +173,7 @@ Full architecture docs: [System Architecture](docs/explanation/architecture.md)
 - **Desktop GUI**: egui-based docking interface with real-time updates
 - **CLI Tools**: Command-line control and scripting
 - **gRPC API**: Remote control and streaming
-- **Web-Compatible**: Standard protobuf and REST support
+- **Web-Compatible**: Standard protobuf with native gRPC and browser gRPC-web support
 
 ### Production & Reliability
 - **Robust Error Handling**: Categorized errors with recovery strategies
@@ -188,7 +188,7 @@ Full architecture docs: [System Architecture](docs/explanation/architecture.md)
 
 ### Prerequisites
 
-- **Rust**: 1.75 or later ([Install](https://rustup.rs/))
+- **Rust**: Current stable toolchain. Some workspace crates use Rust edition 2024, so older toolchains such as 1.75 are not sufficient. ([Install](https://rustup.rs/))
 - **System Libraries** (optional, depends on features):
   - `libhdf5-dev` - For HDF5 storage support
   - `libudev-dev` - For USB serial device detection (Linux)
@@ -219,8 +219,8 @@ cargo build -p bin --features "full,storage_hdf5"
 # Use build script for real hardware (CRITICAL: full clean + all drivers)
 bash scripts/build-maitai.sh
 
-# Verify: daemon log should show "Registered 12 device(s)"
-# with camera, laser, power meter, rotators, motion, and DAQ
+# Verify: daemon log should show the expected hardware profile loading
+# including camera, laser, power meter, rotators, motion, and DAQ devices
 ```
 
 **Important:** The `maitai` feature flag enables all real hardware drivers and prevents mock mode. Always use the build script on the maitai machine.
@@ -236,7 +236,7 @@ cargo run -p bin -- daemon --hardware-config config/demo.toml
 # With real hardware (Maitai)
 ./target/release/rust-daq-daemon daemon \
   --port 50051 \
-  --hardware-config config/maitai_hardware.toml
+  --hardware-config config/maitai_universal.toml
 
 # Run a script (while daemon is running in another terminal)
 cargo run -p bin -- run examples/demo_scan.rhai
@@ -268,7 +268,7 @@ Create `my_experiment.rhai`:
 ```rhai
 // Create device handles (mock devices for demo; real devices via gRPC)
 let stage = create_mock_stage();
-let pm = create_mock_power_meter();
+let pm = create_mock_power_meter(1.0e-6);
 
 // Move stage and measure
 for angle in [0.0, 45.0, 90.0, 135.0, 180.0] {
@@ -510,7 +510,7 @@ bash scripts/install-target-maintenance.sh --uninstall
 
 ```bash
 # Check hardware config
-cat config/maitai_hardware.toml
+cat config/maitai_universal.toml
 
 # Verify build includes real drivers
 cargo build -p bin --features pvcam_hardware,serial
@@ -529,7 +529,7 @@ cargo run -p bin -- daemon --hardware-config config/demo.toml 2>&1 | grep "Regis
 ls /dev/serial/by-id/
 
 # Update config with correct path
-# config/maitai_hardware.toml
+# config/maitai_universal.toml
 ```
 
 See [Troubleshooting Guide](docs/README.md#troubleshooting--reference) for more help.

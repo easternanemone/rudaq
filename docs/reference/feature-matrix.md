@@ -58,6 +58,8 @@ Use these for common build configurations:
 
 ## Storage Backends
 
+These storage features are owned by the `storage` crate. Some are passed through by `bin`, `server`, or `integration-tests`, but not every storage feature is exposed at every layer.
+
 | Feature | Description | Dependencies |
 |---------|-------------|--------------|
 | `storage_hdf5` | HDF5 scientific format | `hdf5-metno`, requires `libhdf5-dev` |
@@ -88,7 +90,7 @@ Top-level feature flags on the `bin` crate:
 
 | Feature | Description |
 |---------|-------------|
-| `all_hardware` | All mock-mode drivers |
+| `all_hardware` | Enable all registry-managed native driver crates in their default/mock-safe mode |
 | `pvcam_hardware` | Real PVCAM SDK (requires PVCAM installed) |
 | `comedi_hardware` | Real Comedi DAQ (requires libcomedi) |
 | `maitai` | Complete maitai lab profile (all real hardware) |
@@ -132,7 +134,7 @@ These devices require **no feature flags** — they load at runtime via TOML con
 |---------|-------------|--------------|
 | `pvcam_sdk` | Real PVCAM hardware support | PVCAM SDK installed, `PVCAM_SDK_DIR` set |
 | `hardware_tests` | Enable hardware-in-the-loop tests | Physical devices connected |
-| `prime_95b_tests` | Prime 95B camera tests (1200x1200) | Alternative to Prime BSI (2048x2048) |
+
 
 ---
 

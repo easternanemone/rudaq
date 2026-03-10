@@ -118,7 +118,7 @@ grpcurl -plaintext -import-path crates/protocol/proto -proto daq.proto \
 
 ## Current State (Post-Migration)
 
-**Workspace structure (25 crates):**
+**Workspace structure (26 crates):**
 - **Native SDK drivers (4):** `driver-pvcam` (+`pvcam-sys`), `driver-andor-sdk3` (+`andor-sdk3-sys`), `driver-comedi` (+`comedi-sys`), `driver-dover-motion` (+`dover-motion-sys`)
 - **Universal/mock drivers (3):** `driver-universal`, `driver-mock`, `driver-registry`
 - **Removed crates (6):** `driver-thorlabs`, `driver-newport`, `driver-spectra-physics`, `driver-red-pitaya`, `driver-generic`, `drivers` metacrate

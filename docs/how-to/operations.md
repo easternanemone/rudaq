@@ -10,7 +10,7 @@ in development and production (maitai lab) environments.
 ```bash
 # Build and run with mock devices only
 cargo build -p bin
-./target/debug/rust-daq daemon --port 50051
+./target/debug/rust-daq-daemon daemon --port 50051
 ```
 
 The daemon listens on `localhost:50051` by default. Without a hardware config
@@ -19,9 +19,9 @@ file, all devices are mocks.
 ### With a hardware configuration file
 
 ```bash
-./target/release/rust-daq daemon \
+./target/release/rust-daq-daemon daemon \
   --port 50051 \
-  --hardware-config config/maitai_hardware.toml
+  --hardware-config config/maitai_universal.toml
 ```
 
 ### Lab-hardware shorthand
@@ -30,7 +30,7 @@ The `--lab-hardware` flag selects the built-in maitai lab profile
 (mutually exclusive with `--hardware-config`):
 
 ```bash
-./target/release/rust-daq daemon --port 50051 --lab-hardware
+./target/release/rust-daq-daemon daemon --port 50051 --lab-hardware
 ```
 
 ### Explicit runtime modes
@@ -39,16 +39,16 @@ Use `--runtime-mode` for deterministic launcher/profile selection:
 
 ```bash
 # Mock-only local runtime
-./target/release/rust-daq daemon --runtime-mode mock
+./target/release/rust-daq-daemon daemon --runtime-mode mock
 
-# Native maitai profile (legacy/native SCPI path + native camera)
-./target/release/rust-daq daemon --runtime-mode native
+# Native maitai profile
+./target/release/rust-daq-daemon daemon --runtime-mode native
 
 # Universal TOML profile
-./target/release/rust-daq daemon --runtime-mode universal
+./target/release/rust-daq-daemon daemon --runtime-mode universal
 
 # Universal + SurrealDB control-plane expectations
-./target/release/rust-daq daemon --runtime-mode hybrid-db --db-path ./data/surrealdb
+./target/release/rust-daq-daemon daemon --runtime-mode hybrid-db --db-path ./data/surrealdb
 ```
 
 ### CLI reference
@@ -121,9 +121,9 @@ The `maitai` feature flag enables **all** real hardware drivers:
 ### Step 3 -- Start the daemon
 
 ```bash
-./target/release/rust-daq daemon \
+./target/release/rust-daq-daemon daemon \
   --port 50051 \
-  --hardware-config config/maitai_hardware.toml
+  --hardware-config config/maitai_universal.toml
 ```
 
 ### Step 4 -- Verify
@@ -206,7 +206,7 @@ but `ConfigService` is unavailable and system health reports `Degraded`.
 To query database info directly:
 
 ```bash
-rust-daq client config-info --addr http://localhost:50051
+rust-daq-daemon client config-info --addr http://localhost:50051
 ```
 
 Returns engine type, namespace, schema version, uptime, and instrument counts.
@@ -226,17 +226,17 @@ Logging uses the `tracing` / `tracing-subscriber` stack with the standard
 
 ```bash
 # Default (info)
-./target/release/rust-daq daemon --port 50051
+./target/release/rust-daq-daemon daemon --port 50051
 
 # Debug logging for the entire workspace
-RUST_LOG=debug ./target/release/rust-daq daemon --port 50051
+RUST_LOG=debug ./target/release/rust-daq-daemon daemon --port 50051
 
 # Fine-grained per-crate control
 RUST_LOG="rust_daq=debug,server=trace,hardware=info" \
-  ./target/release/rust-daq daemon --port 50051
+  ./target/release/rust-daq-daemon daemon --port 50051
 
 # Silence everything except warnings
-RUST_LOG=warn ./target/release/rust-daq daemon --port 50051
+RUST_LOG=warn ./target/release/rust-daq-daemon daemon --port 50051
 ```
 
 ### Common filter patterns
@@ -252,37 +252,14 @@ RUST_LOG=warn ./target/release/rust-daq daemon --port 50051
 ### Redirecting to a file
 
 ```bash
-RUST_LOG=info ./target/release/rust-daq daemon --port 50051 2>&1 | tee daemon.log
+RUST_LOG=info ./target/release/rust-daq-daemon daemon --port 50051 2>&1 | tee daemon.log
 ```
 
-## Error Tracking (Sentry)
+## Error Reporting
 
-Sentry integration is gated behind the `error_tracking` compile-time feature
-flag.
+rust-daq currently relies on structured logs, gRPC health checks, daemon startup banners, and module health reporting for operational visibility. There is no `error_tracking` / Sentry feature in the current build matrix.
 
-### Enabling Sentry
-
-1. Build with the feature enabled:
-
-   ```bash
-   cargo build --release -p bin --features error_tracking
-   ```
-
-2. Set the DSN at runtime:
-
-   ```bash
-   export SENTRY_DSN="https://<key>@<org>.ingest.sentry.io/<project>"
-   ./target/release/rust-daq daemon --port 50051
-   ```
-
-When `SENTRY_DSN` is not set, the Sentry client initializes in disabled mode
-(no-op) and does not send any data.
-
-### What gets reported
-
-- Unhandled panics (via `sentry::integrations::panic`)
-- Errors propagated through `anyhow::Error` with severity context
-- Hardware fault events from the watchdog/supervisor
+Use the health endpoints, daemon logs, and `rust-daq-daemon client config-info` for operational diagnostics.
 
 ## Target Directory Maintenance
 

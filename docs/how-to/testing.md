@@ -197,21 +197,27 @@ cargo nextest run -E 'kind(test)'
 
 ### Feature-Gated Tests
 
-Many tests require specific features:
+Many tests require crate-specific features. Prefer package-qualified commands so it is clear which crate owns the feature:
 
 ```bash
+# CI-parity default workspace run
+cargo nextest run --profile ci
+
 # Storage backends
-cargo nextest run --features storage_csv
-cargo nextest run --features storage_hdf5
-cargo nextest run --features storage_arrow
+cargo nextest run -p integration-tests --features storage_hdf5
+cargo nextest run -p integration-tests --features storage_arrow
 
-# Hardware drivers (native SDK features)
-cargo nextest run --features pvcam
-cargo nextest run --features andor
-cargo nextest run --features comedi
+# Universal driver smoke tests
+cargo nextest run -p integration-tests --features universal --profile ci
 
-# Full feature set (excludes native SDK dependencies)
-cargo nextest run --features full
+# PVCAM hardware-gated tests
+cargo nextest run -p driver-pvcam --features "pvcam_sdk,hardware_tests"
+
+# Andor hardware-gated tests
+cargo nextest run -p driver-andor-sdk3 --features hardware_tests
+
+# Real hardware integration profile on Maitai
+source scripts/env-check.sh && cargo nextest run --profile hardware --features hardware_tests
 ```
 
 ---
