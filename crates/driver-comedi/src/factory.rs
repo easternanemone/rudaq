@@ -130,6 +130,38 @@ fn parse_input_mode(mode: &str) -> Result<AnalogReference> {
     }
 }
 
+/// Configuration for Comedi digital I/O driver.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ComediDigitalIOConfig {
+    /// Path to Comedi device (e.g., "/dev/comedi0")
+    #[serde(default = "default_device")]
+    pub device: String,
+
+    /// Channels to configure as outputs on init (e.g., [0, 1, 2])
+    #[serde(default)]
+    pub output_channels: Vec<u32>,
+
+    /// Enable mock mode for testing without hardware
+    #[serde(default)]
+    pub mock: bool,
+}
+
+/// Configuration for Comedi counter/timer driver.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ComediCounterConfig {
+    /// Path to Comedi device (e.g., "/dev/comedi0")
+    #[serde(default = "default_device")]
+    pub device: String,
+
+    /// Counter channel to read (default: 0)
+    #[serde(default)]
+    pub channel: u32,
+
+    /// Enable mock mode for testing without hardware
+    #[serde(default)]
+    pub mock: bool,
+}
+
 /// Configuration for Comedi analog output driver.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ComediAnalogOutputConfig {
@@ -765,6 +797,407 @@ impl DriverFactory for ComediAnalogOutputFactory {
 }
 
 // =============================================================================
+// ComediDigitalIODriver
+// =============================================================================
+
+/// Driver for Comedi digital I/O channels.
+///
+/// Wraps the DIO subsystem through [`SwitchableDigitalIO`] and exposes it
+/// via the `Settable` trait for registry integration.
+pub struct ComediDigitalIODriver {
+    #[allow(dead_code)]
+    device: Option<ComediDevice>,
+    dio: Option<crate::SwitchableDigitalIO>,
+    mock: Option<MockDigitalIO>,
+}
+
+/// Mock digital I/O for testing.
+struct MockDigitalIO {
+    states: RwLock<Vec<bool>>,
+}
+
+impl MockDigitalIO {
+    fn new(n_channels: u32) -> Self {
+        Self {
+            states: RwLock::new(vec![false; n_channels as usize]),
+        }
+    }
+}
+
+impl ComediDigitalIODriver {
+    /// Create a new digital I/O driver.
+    pub async fn new_async(
+        device_path: &str,
+        output_channels: &[u32],
+        mock: bool,
+    ) -> Result<Arc<Self>> {
+        let driver = if mock {
+            info!("Creating mock Comedi DIO driver");
+            Self {
+                device: None,
+                dio: None,
+                mock: Some(MockDigitalIO::new(8)),
+            }
+        } else {
+            info!("Opening Comedi device {} for digital I/O", device_path);
+
+            let path = device_path.to_string();
+            let device = tokio::task::spawn_blocking(move || ComediDevice::open(&path))
+                .await
+                .context("Task join error")?
+                .context("Failed to open Comedi device")?;
+
+            let dio_subsystem = device.digital_io().context("Failed to get DIO subsystem")?;
+
+            let switchable = crate::SwitchableDigitalIO::new(dio_subsystem);
+
+            // Configure requested output channels
+            for &ch in output_channels {
+                switchable
+                    .configure_output(ch)
+                    .context("Failed to configure output channel")?;
+            }
+
+            info!(
+                "DIO ready: {} output channels configured",
+                output_channels.len()
+            );
+
+            Self {
+                device: Some(device),
+                dio: Some(switchable),
+                mock: None,
+            }
+        };
+
+        Ok(Arc::new(driver))
+    }
+}
+
+#[async_trait]
+impl Settable for ComediDigitalIODriver {
+    async fn set_value(&self, name: &str, value: serde_json::Value) -> Result<()> {
+        if let Some(dio) = &self.dio {
+            return dio.set_value(name, value).await;
+        }
+        if let Some(mock) = &self.mock {
+            // Mock mirrors SwitchableDigitalIO Settable semantics
+            if name == "port" {
+                // Port-level write: value must be a u32 bitmask
+                let port_val = value
+                    .as_u64()
+                    .ok_or_else(|| anyhow::anyhow!("port value must be a u32 integer"))?;
+                let mut states = mock.states.write().await;
+                for (i, state) in states.iter_mut().enumerate() {
+                    *state = (port_val >> i) & 1 == 1;
+                }
+                return Ok(());
+            }
+            // Handle "direction_N" (accepts "input"/"output" strings)
+            if name.starts_with("direction_") {
+                // Mock accepts direction changes silently (no hardware to configure)
+                return Ok(());
+            }
+            let channel: usize = name
+                .strip_prefix("dio_")
+                .or_else(|| name.strip_prefix("dio"))
+                .unwrap_or(name)
+                .parse()
+                .map_err(|_| anyhow::anyhow!("Invalid channel: {}", name))?;
+            let bit = value
+                .as_bool()
+                .ok_or_else(|| anyhow::anyhow!("dio channel value must be a bool"))?;
+            let mut states = mock.states.write().await;
+            if channel >= states.len() {
+                anyhow::bail!(
+                    "Channel {} out of range (device has {} channels)",
+                    channel,
+                    states.len()
+                );
+            }
+            states[channel] = bit;
+            Ok(())
+        } else {
+            anyhow::bail!("No DIO subsystem available")
+        }
+    }
+
+    async fn get_value(&self, name: &str) -> Result<serde_json::Value> {
+        if let Some(dio) = &self.dio {
+            return dio.get_value(name).await;
+        }
+        if let Some(mock) = &self.mock {
+            if name == "n_channels" {
+                return Ok(serde_json::json!(mock.states.read().await.len()));
+            }
+            if name == "port" {
+                // Port-level read: return u32 bitmask of all channel states
+                let states = mock.states.read().await;
+                let mut port_val: u64 = 0;
+                for (i, &state) in states.iter().enumerate() {
+                    if state {
+                        port_val |= 1 << i;
+                    }
+                }
+                return Ok(serde_json::json!(port_val));
+            }
+            let channel: usize = name
+                .strip_prefix("dio_")
+                .or_else(|| name.strip_prefix("dio"))
+                .unwrap_or(name)
+                .parse()
+                .map_err(|_| anyhow::anyhow!("Invalid channel: {}", name))?;
+            let states = mock.states.read().await;
+            if channel >= states.len() {
+                anyhow::bail!(
+                    "Channel {} out of range (device has {} channels)",
+                    channel,
+                    states.len()
+                );
+            }
+            Ok(serde_json::Value::Bool(states[channel]))
+        } else {
+            anyhow::bail!("No DIO subsystem available")
+        }
+    }
+}
+
+/// Factory for Comedi digital I/O drivers.
+pub struct ComediDigitalIOFactory;
+
+static DIO_CAPABILITIES: &[Capability] = &[Capability::Settable];
+
+impl DriverFactory for ComediDigitalIOFactory {
+    fn driver_type(&self) -> &'static str {
+        "comedi_digital_io"
+    }
+
+    fn name(&self) -> &'static str {
+        "Comedi Digital I/O"
+    }
+
+    fn capabilities(&self) -> &'static [Capability] {
+        DIO_CAPABILITIES
+    }
+
+    fn validate(&self, config: &toml::Value) -> Result<()> {
+        let cfg: ComediDigitalIOConfig = config
+            .clone()
+            .try_into()
+            .context("Invalid Comedi DIO config")?;
+
+        if cfg.device.is_empty() {
+            anyhow::bail!("'device' path cannot be empty");
+        }
+
+        Ok(())
+    }
+
+    fn build(&self, config: toml::Value) -> BoxFuture<'static, Result<DeviceComponents>> {
+        Box::pin(async move {
+            let cfg: ComediDigitalIOConfig =
+                config.try_into().context("Invalid Comedi DIO config")?;
+
+            let driver =
+                ComediDigitalIODriver::new_async(&cfg.device, &cfg.output_channels, cfg.mock)
+                    .await?;
+
+            Ok(DeviceComponents {
+                settable: Some(driver),
+                metadata: DeviceMetadata {
+                    panel_kind: Some(common::panel_kind::COMEDI.to_string()),
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+        })
+    }
+}
+
+// =============================================================================
+// ComediCounterDriver
+// =============================================================================
+
+/// Driver for Comedi counter/timer channels.
+///
+/// Wraps a single counter channel through [`ReadableCounter`] and exposes it
+/// via `Readable` + `Settable` for registry integration.
+pub struct ComediCounterDriver {
+    #[allow(dead_code)]
+    device: Option<ComediDevice>,
+    counter: Option<crate::ReadableCounter>,
+    mock: Option<MockCounter>,
+}
+
+/// Mock counter for testing.
+struct MockCounter {
+    value: RwLock<u32>,
+}
+
+impl MockCounter {
+    fn new() -> Self {
+        Self {
+            value: RwLock::new(0),
+        }
+    }
+}
+
+impl ComediCounterDriver {
+    /// Create a new counter driver.
+    pub async fn new_async(device_path: &str, channel: u32, mock: bool) -> Result<Arc<Self>> {
+        let driver = if mock {
+            info!("Creating mock Comedi counter driver (channel={})", channel);
+            Self {
+                device: None,
+                counter: None,
+                mock: Some(MockCounter::new()),
+            }
+        } else {
+            info!(
+                "Opening Comedi device {} for counter (channel={})",
+                device_path, channel
+            );
+
+            let path = device_path.to_string();
+            let device = tokio::task::spawn_blocking(move || ComediDevice::open(&path))
+                .await
+                .context("Task join error")?
+                .context("Failed to open Comedi device")?;
+
+            let counter_subsystem = device
+                .counter()
+                .context("Failed to get counter subsystem")?;
+
+            let readable = crate::ReadableCounter::new(counter_subsystem, channel);
+
+            info!(
+                "Counter ready: channel={}, bit_width={}",
+                channel,
+                readable.bit_width()
+            );
+
+            Self {
+                device: Some(device),
+                counter: Some(readable),
+                mock: None,
+            }
+        };
+
+        Ok(Arc::new(driver))
+    }
+}
+
+#[async_trait]
+impl Readable for ComediCounterDriver {
+    async fn read(&self) -> Result<f64> {
+        if let Some(counter) = &self.counter {
+            return counter.read().await;
+        }
+        if let Some(mock) = &self.mock {
+            return Ok(f64::from(*mock.value.read().await));
+        }
+        anyhow::bail!("No counter subsystem available")
+    }
+}
+
+#[async_trait]
+impl Settable for ComediCounterDriver {
+    async fn set_value(&self, name: &str, value: serde_json::Value) -> Result<()> {
+        if let Some(counter) = &self.counter {
+            return counter.set_value(name, value).await;
+        }
+        if let Some(mock) = &self.mock {
+            match name {
+                "reset" | "reset_all" => {
+                    *mock.value.write().await = 0;
+                    Ok(())
+                }
+                "value" | "count" => {
+                    #[allow(clippy::cast_possible_truncation)]
+                    let v = value
+                        .as_u64()
+                        .ok_or_else(|| anyhow::anyhow!("count must be an unsigned integer"))?
+                        as u32;
+                    *mock.value.write().await = v;
+                    Ok(())
+                }
+                _ => anyhow::bail!("Unknown parameter: {}", name),
+            }
+        } else {
+            anyhow::bail!("No counter subsystem available")
+        }
+    }
+
+    async fn get_value(&self, name: &str) -> Result<serde_json::Value> {
+        if let Some(counter) = &self.counter {
+            return counter.get_value(name).await;
+        }
+        if let Some(mock) = &self.mock {
+            match name {
+                "value" | "count" => Ok(serde_json::json!(*mock.value.read().await)),
+                "maxdata" => Ok(serde_json::json!(4294967295_u64)),
+                "bit_width" => Ok(serde_json::json!(32)),
+                "n_channels" => Ok(serde_json::json!(1)),
+                _ => anyhow::bail!("Unknown parameter: {}", name),
+            }
+        } else {
+            anyhow::bail!("No counter subsystem available")
+        }
+    }
+}
+
+/// Factory for Comedi counter/timer drivers.
+pub struct ComediCounterFactory;
+
+static COUNTER_CAPABILITIES: &[Capability] = &[Capability::Readable, Capability::Settable];
+
+impl DriverFactory for ComediCounterFactory {
+    fn driver_type(&self) -> &'static str {
+        "comedi_counter"
+    }
+
+    fn name(&self) -> &'static str {
+        "Comedi Counter/Timer"
+    }
+
+    fn capabilities(&self) -> &'static [Capability] {
+        COUNTER_CAPABILITIES
+    }
+
+    fn validate(&self, config: &toml::Value) -> Result<()> {
+        let cfg: ComediCounterConfig = config
+            .clone()
+            .try_into()
+            .context("Invalid Comedi counter config")?;
+
+        if cfg.device.is_empty() {
+            anyhow::bail!("'device' path cannot be empty");
+        }
+
+        Ok(())
+    }
+
+    fn build(&self, config: toml::Value) -> BoxFuture<'static, Result<DeviceComponents>> {
+        Box::pin(async move {
+            let cfg: ComediCounterConfig =
+                config.try_into().context("Invalid Comedi counter config")?;
+
+            let driver = ComediCounterDriver::new_async(&cfg.device, cfg.channel, cfg.mock).await?;
+
+            Ok(DeviceComponents {
+                readable: Some(driver.clone()),
+                settable: Some(driver),
+                metadata: DeviceMetadata {
+                    panel_kind: Some(common::panel_kind::COMEDI.to_string()),
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+        })
+    }
+}
+
+// =============================================================================
 // Tests
 // =============================================================================
 
@@ -924,5 +1357,158 @@ mod tests {
         let components = result.unwrap();
         assert!(components.readable.is_some());
         assert!(components.parameterized.is_some());
+    }
+
+    // =========================================================================
+    // Digital I/O factory tests
+    // =========================================================================
+
+    #[test]
+    fn test_dio_factory_type() {
+        let factory = ComediDigitalIOFactory;
+        assert_eq!(factory.driver_type(), "comedi_digital_io");
+        assert_eq!(factory.name(), "Comedi Digital I/O");
+    }
+
+    #[test]
+    fn test_dio_capabilities() {
+        let factory = ComediDigitalIOFactory;
+        let caps = factory.capabilities();
+        assert!(caps.contains(&Capability::Settable));
+    }
+
+    #[tokio::test]
+    async fn test_dio_factory_validate() {
+        let factory = ComediDigitalIOFactory;
+
+        let valid = toml::toml! {
+            device = "/dev/comedi0"
+        };
+        assert!(factory.validate(&toml::Value::Table(valid)).is_ok());
+
+        let empty = toml::toml! {
+            device = ""
+        };
+        assert!(factory.validate(&toml::Value::Table(empty)).is_err());
+    }
+
+    #[tokio::test]
+    async fn test_dio_mock_driver() {
+        let driver = ComediDigitalIODriver::new_async("/dev/comedi0", &[], true)
+            .await
+            .expect("Failed to create mock DIO driver");
+
+        // Write a channel
+        driver
+            .set_value("0", serde_json::json!(true))
+            .await
+            .expect("Failed to set");
+
+        // Read it back
+        let val = driver.get_value("0").await.expect("Failed to get");
+        assert_eq!(val, serde_json::Value::Bool(true));
+
+        // Read unset channel
+        let val = driver.get_value("1").await.expect("Failed to get");
+        assert_eq!(val, serde_json::Value::Bool(false));
+    }
+
+    #[tokio::test]
+    async fn test_dio_factory_build_mock() {
+        let factory = ComediDigitalIOFactory;
+
+        let config = toml::toml! {
+            device = "/dev/comedi0"
+            mock = true
+        };
+
+        let result = factory.build(toml::Value::Table(config)).await;
+        assert!(result.is_ok());
+
+        let components = result.unwrap();
+        assert!(components.settable.is_some());
+    }
+
+    // =========================================================================
+    // Counter factory tests
+    // =========================================================================
+
+    #[test]
+    fn test_counter_factory_type() {
+        let factory = ComediCounterFactory;
+        assert_eq!(factory.driver_type(), "comedi_counter");
+        assert_eq!(factory.name(), "Comedi Counter/Timer");
+    }
+
+    #[test]
+    fn test_counter_capabilities() {
+        let factory = ComediCounterFactory;
+        let caps = factory.capabilities();
+        assert!(caps.contains(&Capability::Readable));
+        assert!(caps.contains(&Capability::Settable));
+    }
+
+    #[tokio::test]
+    async fn test_counter_factory_validate() {
+        let factory = ComediCounterFactory;
+
+        let valid = toml::toml! {
+            device = "/dev/comedi0"
+            channel = 0
+        };
+        assert!(factory.validate(&toml::Value::Table(valid)).is_ok());
+
+        let empty = toml::toml! {
+            device = ""
+        };
+        assert!(factory.validate(&toml::Value::Table(empty)).is_err());
+    }
+
+    #[tokio::test]
+    async fn test_counter_mock_driver() {
+        let driver = ComediCounterDriver::new_async("/dev/comedi0", 0, true)
+            .await
+            .expect("Failed to create mock counter driver");
+
+        // Read initial value
+        let count = driver.read().await.expect("Failed to read");
+        assert_eq!(count, 0.0);
+
+        // Set a value
+        driver
+            .set_value("count", serde_json::json!(42))
+            .await
+            .expect("Failed to set");
+
+        // Read back
+        let val = driver.get_value("count").await.expect("Failed to get");
+        assert_eq!(val, serde_json::json!(42));
+
+        // Reset
+        driver
+            .set_value("reset", serde_json::json!(null))
+            .await
+            .expect("Failed to reset");
+
+        let count = driver.read().await.expect("Failed to read");
+        assert_eq!(count, 0.0);
+    }
+
+    #[tokio::test]
+    async fn test_counter_factory_build_mock() {
+        let factory = ComediCounterFactory;
+
+        let config = toml::toml! {
+            device = "/dev/comedi0"
+            channel = 0
+            mock = true
+        };
+
+        let result = factory.build(toml::Value::Table(config)).await;
+        assert!(result.is_ok());
+
+        let components = result.unwrap();
+        assert!(components.readable.is_some());
+        assert!(components.settable.is_some());
     }
 }

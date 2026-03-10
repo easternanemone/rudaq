@@ -61,8 +61,8 @@ impl DigitalIO {
 
         #[allow(clippy::cast_sign_loss)]
         // SAFETY: Comedi FFI returns non-negative channel count as i32.
-        let n_channels =
-            unsafe { comedi_sys::comedi_get_n_channels(device.handle(), subdevice) as u32 };
+        let n_channels = device
+            .with_handle(|h| unsafe { comedi_sys::comedi_get_n_channels(h, subdevice) as u32 });
 
         debug!(
             subdevice = subdevice,
@@ -86,14 +86,9 @@ impl DigitalIO {
     pub fn configure(&self, channel: u32, direction: DioDirection) -> Result<()> {
         self.validate_channel(channel)?;
 
-        let result = unsafe {
-            comedi_sys::comedi_dio_config(
-                self.device.handle(),
-                self.subdevice,
-                channel,
-                direction as u32,
-            )
-        };
+        let result = self.device.with_handle(|h| unsafe {
+            comedi_sys::comedi_dio_config(h, self.subdevice, channel, direction as u32)
+        });
 
         if result < 0 {
             return Err(unsafe { ComediError::from_errno() });
@@ -134,9 +129,9 @@ impl DigitalIO {
 
         let mut bit: u32 = 0;
 
-        let result = unsafe {
-            comedi_sys::comedi_dio_read(self.device.handle(), self.subdevice, channel, &mut bit)
-        };
+        let result = self.device.with_handle(|h| unsafe {
+            comedi_sys::comedi_dio_read(h, self.subdevice, channel, &mut bit)
+        });
 
         if result < 0 {
             return Err(unsafe { ComediError::from_errno() });
@@ -149,14 +144,9 @@ impl DigitalIO {
     pub fn write(&self, channel: u32, value: bool) -> Result<()> {
         self.validate_channel(channel)?;
 
-        let result = unsafe {
-            comedi_sys::comedi_dio_write(
-                self.device.handle(),
-                self.subdevice,
-                channel,
-                u32::from(value),
-            )
-        };
+        let result = self.device.with_handle(|h| unsafe {
+            comedi_sys::comedi_dio_write(h, self.subdevice, channel, u32::from(value))
+        });
 
         if result < 0 {
             return Err(unsafe { ComediError::from_errno() });
@@ -172,15 +162,15 @@ impl DigitalIO {
     pub fn read_port(&self, base_channel: u32) -> Result<u32> {
         let mut bits: u32 = 0;
 
-        let result = unsafe {
+        let result = self.device.with_handle(|h| unsafe {
             comedi_sys::comedi_dio_bitfield2(
-                self.device.handle(),
+                h,
                 self.subdevice,
                 0, // write_mask = 0 means read-only
                 &mut bits,
                 base_channel,
             )
-        };
+        });
 
         if result < 0 {
             return Err(unsafe { ComediError::from_errno() });
@@ -196,15 +186,9 @@ impl DigitalIO {
     pub fn write_port(&self, base_channel: u32, write_mask: u32, values: u32) -> Result<()> {
         let mut bits = values;
 
-        let result = unsafe {
-            comedi_sys::comedi_dio_bitfield2(
-                self.device.handle(),
-                self.subdevice,
-                write_mask,
-                &mut bits,
-                base_channel,
-            )
-        };
+        let result = self.device.with_handle(|h| unsafe {
+            comedi_sys::comedi_dio_bitfield2(h, self.subdevice, write_mask, &mut bits, base_channel)
+        });
 
         if result < 0 {
             return Err(unsafe { ComediError::from_errno() });

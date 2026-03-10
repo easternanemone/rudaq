@@ -77,10 +77,11 @@ impl Counter {
 
         #[allow(clippy::cast_sign_loss)]
         // SAFETY: Comedi FFI returns non-negative channel count as i32.
-        let n_channels =
-            unsafe { comedi_sys::comedi_get_n_channels(device.handle(), subdevice) as u32 };
-
-        let maxdata = unsafe { comedi_sys::comedi_get_maxdata(device.handle(), subdevice, 0) };
+        let (n_channels, maxdata) = device.with_handle(|h| unsafe {
+            let n = comedi_sys::comedi_get_n_channels(h, subdevice) as u32;
+            let m = comedi_sys::comedi_get_maxdata(h, subdevice, 0);
+            (n, m)
+        });
 
         debug!(
             subdevice = subdevice,
@@ -126,16 +127,16 @@ impl Counter {
 
         // Use comedi_data_read for counter values
         // Range and aref are typically ignored for counters
-        let result = unsafe {
+        let result = self.device.with_handle(|h| unsafe {
             comedi_sys::comedi_data_read(
-                self.device.handle(),
+                h,
                 self.subdevice,
                 channel,
                 0, // range (ignored for counters)
                 0, // aref (ignored for counters)
                 &mut data,
             )
-        };
+        });
 
         if result < 0 {
             return Err(unsafe { ComediError::from_errno() });
@@ -148,16 +149,16 @@ impl Counter {
     pub fn write(&self, channel: u32, value: lsampl_t) -> Result<()> {
         self.validate_channel(channel)?;
 
-        let result = unsafe {
+        let result = self.device.with_handle(|h| unsafe {
             comedi_sys::comedi_data_write(
-                self.device.handle(),
+                h,
                 self.subdevice,
                 channel,
                 0, // range
                 0, // aref
                 value,
             )
-        };
+        });
 
         if result < 0 {
             return Err(unsafe { ComediError::from_errno() });

@@ -751,6 +751,48 @@ mod tests {
         assert!(inaccessible.error.is_some());
     }
 
+    /// Regression test: subsystem files must not call device.handle() directly.
+    /// All FFI access from subsystem modules (under src/subsystem/) must go through
+    /// with_handle() for ffi_lock serialization. See bd-ucyu.1.1 for the original fix.
+    ///
+    /// Note: ComediDevice methods in device.rs legitimately use self.handle() since
+    /// they own the device — this test only covers subsystem files which must not
+    /// bypass the lock.
+    #[test]
+    fn test_no_direct_handle_in_subsystems() {
+        let subsystem_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/subsystem");
+
+        for entry in std::fs::read_dir(&subsystem_dir).expect("Failed to read subsystem dir") {
+            let entry = entry.expect("Failed to read dir entry");
+            let path = entry.path();
+            if path.extension().is_none_or(|e| e != "rs") {
+                continue;
+            }
+            let filename = path.file_name().unwrap().to_string_lossy().to_string();
+            if filename == "mod.rs" {
+                continue;
+            }
+
+            let contents = std::fs::read_to_string(&path).expect("Failed to read file");
+            for (line_num, line) in contents.lines().enumerate() {
+                let trimmed = line.trim();
+                if trimmed.starts_with("//") {
+                    continue;
+                }
+                // Reject any .handle() call — even if "with_handle" appears elsewhere
+                // on the same line (e.g., in a comment). Subsystem code must exclusively
+                // use device.with_handle(|h| ...) for FFI access.
+                assert!(
+                    !trimmed.contains(".handle()"),
+                    "{}:{}: direct handle() call bypasses ffi_lock (use with_handle):\n  {}",
+                    filename,
+                    line_num + 1,
+                    trimmed
+                );
+            }
+        }
+    }
+
     #[test]
     #[cfg(feature = "hardware")]
     fn test_comedi_discover_returns_vec() {

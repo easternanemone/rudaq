@@ -175,6 +175,8 @@ pub use timing::{
 pub use factory::{
     ComediAnalogInputConfig, ComediAnalogInputDriver, ComediAnalogInputFactory,
     ComediAnalogOutputConfig, ComediAnalogOutputDriver, ComediAnalogOutputFactory,
+    ComediCounterConfig, ComediCounterDriver, ComediCounterFactory, ComediDigitalIOConfig,
+    ComediDigitalIODriver, ComediDigitalIOFactory,
 };
 
 // Calibration exports

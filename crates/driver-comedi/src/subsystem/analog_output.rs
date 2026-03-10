@@ -57,10 +57,11 @@ impl AnalogOutput {
 
         #[allow(clippy::cast_sign_loss)]
         // SAFETY: Comedi FFI returns non-negative channel count as i32.
-        let n_channels =
-            unsafe { comedi_sys::comedi_get_n_channels(device.handle(), subdevice) as u32 };
-
-        let maxdata = unsafe { comedi_sys::comedi_get_maxdata(device.handle(), subdevice, 0) };
+        let (n_channels, maxdata) = device.with_handle(|handle| unsafe {
+            let n = comedi_sys::comedi_get_n_channels(handle, subdevice) as u32;
+            let m = comedi_sys::comedi_get_maxdata(handle, subdevice, 0);
+            (n, m)
+        });
 
         debug!(
             subdevice = subdevice,
@@ -102,9 +103,9 @@ impl AnalogOutput {
     pub fn n_ranges(&self, channel: u32) -> Result<u32> {
         self.validate_channel(channel)?;
 
-        let n = unsafe {
-            comedi_sys::comedi_get_n_ranges(self.device.handle(), self.subdevice, channel)
-        };
+        let n = self.device.with_handle(|handle| unsafe {
+            comedi_sys::comedi_get_n_ranges(handle, self.subdevice, channel)
+        });
 
         #[allow(clippy::cast_sign_loss)]
         // SAFETY: Comedi returns non-negative range count.
@@ -123,9 +124,9 @@ impl AnalogOutput {
             });
         }
 
-        let ptr = unsafe {
-            comedi_sys::comedi_get_range(self.device.handle(), self.subdevice, channel, range_index)
-        };
+        let ptr = self.device.with_handle(|handle| unsafe {
+            comedi_sys::comedi_get_range(handle, self.subdevice, channel, range_index)
+        });
 
         unsafe { Range::from_ptr(range_index, ptr) }.ok_or_else(|| ComediError::NullPointer {
             function: "comedi_get_range".to_string(),
@@ -150,16 +151,16 @@ impl AnalogOutput {
     ) -> Result<()> {
         self.validate_channel(channel)?;
 
-        let result = unsafe {
+        let result = self.device.with_handle(|handle| unsafe {
             comedi_sys::comedi_data_write(
-                self.device.handle(),
+                handle,
                 self.subdevice,
                 channel,
                 range,
                 aref.to_raw(),
                 data,
             )
-        };
+        });
 
         if result < 0 {
             return Err(unsafe { ComediError::from_errno() });
@@ -192,9 +193,8 @@ impl AnalogOutput {
 
     /// Convert a voltage to raw DAC value.
     pub fn voltage_to_raw(&self, voltage: f64, range: &Range) -> lsampl_t {
-        unsafe {
-            let range_ptr =
-                comedi_sys::comedi_get_range(self.device.handle(), self.subdevice, 0, range.index);
+        self.device.with_handle(|handle| unsafe {
+            let range_ptr = comedi_sys::comedi_get_range(handle, self.subdevice, 0, range.index);
 
             if range_ptr.is_null() {
                 // Fallback to manual calculation
@@ -208,14 +208,13 @@ impl AnalogOutput {
             } else {
                 comedi_sys::comedi_from_phys(voltage, range_ptr, self.maxdata)
             }
-        }
+        })
     }
 
     /// Convert a raw DAC value to voltage.
     pub fn raw_to_voltage(&self, raw: lsampl_t, range: &Range) -> f64 {
-        unsafe {
-            let range_ptr =
-                comedi_sys::comedi_get_range(self.device.handle(), self.subdevice, 0, range.index);
+        self.device.with_handle(|handle| unsafe {
+            let range_ptr = comedi_sys::comedi_get_range(handle, self.subdevice, 0, range.index);
 
             if range_ptr.is_null() {
                 let fraction = f64::from(raw) / f64::from(self.maxdata);
@@ -223,7 +222,7 @@ impl AnalogOutput {
             } else {
                 comedi_sys::comedi_to_phys(raw, range_ptr, self.maxdata)
             }
-        }
+        })
     }
 
     fn validate_channel(&self, channel: u32) -> Result<()> {

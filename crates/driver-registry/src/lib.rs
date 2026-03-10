@@ -75,9 +75,14 @@ pub async fn register_all_factories(
     // Register Comedi factories (NI DAQ, etc.)
     #[cfg(feature = "comedi")]
     {
-        use driver_comedi::{ComediAnalogInputFactory, ComediAnalogOutputFactory};
+        use driver_comedi::{
+            ComediAnalogInputFactory, ComediAnalogOutputFactory, ComediCounterFactory,
+            ComediDigitalIOFactory,
+        };
         registry.register_factory(Box::new(ComediAnalogInputFactory));
         registry.register_factory(Box::new(ComediAnalogOutputFactory));
+        registry.register_factory(Box::new(ComediDigitalIOFactory));
+        registry.register_factory(Box::new(ComediCounterFactory));
     }
 
     // Load and register config-driven factories from TOML files (schema_version=3)

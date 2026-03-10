@@ -22,7 +22,6 @@ use protocol::ni_daq::ni_daq_service_server::NiDaqService;
 use protocol::ni_daq::*;
 use std::future::Future;
 use std::sync::Arc;
-use tokio::sync::Semaphore;
 use tonic::{Request, Response, Status};
 use tracing::instrument;
 
@@ -34,13 +33,28 @@ use tracing::instrument;
 ///
 /// Provides direct access to NI PCI-MIO-16XE-10 capabilities through Comedi drivers.
 /// Complements HardwareService for DAQ-specific operations.
+///
+/// # Device Handle Caching (bd-ucyu.3)
+///
+/// Comedi device handles are cached by device path to avoid re-opening
+/// `/dev/comedi0` on every RPC. `ComediDevice` is `Clone` (wraps `Arc<DeviceInner>`)
+/// and its internal `ffi_lock` serializes all FFI calls, so sharing a single handle
+/// across RPCs is both safe and eliminates the kernel deadlock risk from concurrent opens.
 #[derive(Clone)]
 pub struct NiDaqServiceImpl {
     /// Device registry for looking up Comedi devices
     registry: Arc<DeviceRegistry>,
-    /// Serializes all Comedi device access to prevent concurrent opens of
-    /// `/dev/comedi0` which can deadlock the kernel driver (see bd-XXXX).
-    comedi_semaphore: Arc<Semaphore>,
+    /// Serializes streaming acquisition to prevent concurrent opens of
+    /// `/dev/comedi0` which can deadlock the kernel driver.
+    /// NOTE: Only used by `stream_analog_input` which still opens its own handle.
+    /// Will be removed in Phase 4 (bd-ucyu.4.1) once streaming is migrated.
+    #[cfg(feature = "comedi")]
+    comedi_semaphore: Arc<tokio::sync::Semaphore>,
+    /// Cached Comedi device handles keyed by device path (e.g., "/dev/comedi0").
+    /// Opened lazily on first use. `ComediDevice::ffi_lock` serializes FFI access.
+    #[cfg(feature = "comedi")]
+    device_cache:
+        Arc<std::sync::Mutex<std::collections::HashMap<String, driver_comedi::ComediDevice>>>,
 }
 
 impl NiDaqServiceImpl {
@@ -48,8 +62,62 @@ impl NiDaqServiceImpl {
     pub fn new(registry: Arc<DeviceRegistry>) -> Self {
         Self {
             registry,
-            comedi_semaphore: Arc::new(Semaphore::new(1)),
+            #[cfg(feature = "comedi")]
+            comedi_semaphore: Arc::new(tokio::sync::Semaphore::new(1)),
+            #[cfg(feature = "comedi")]
+            device_cache: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
         }
+    }
+
+    /// Get a cached Comedi device handle, opening it on first access.
+    ///
+    /// Returns a cloned handle (cheap — `Arc` bump) that shares the underlying
+    /// file descriptor and `ffi_lock` with all other users of the same device path.
+    ///
+    /// The cache lookup is fast (just a mutex + HashMap get). On cache miss,
+    /// the blocking `ComediDevice::open()` FFI call runs inside `spawn_blocking`
+    /// to avoid blocking the Tokio runtime.
+    #[cfg(feature = "comedi")]
+    async fn get_or_open_device(
+        &self,
+        device_path: &str,
+    ) -> Result<driver_comedi::ComediDevice, Status> {
+        // Fast path: cache hit (lock held only for HashMap lookup)
+        {
+            let cache = self
+                .device_cache
+                .lock()
+                .map_err(|_| Status::internal("Device cache lock poisoned"))?;
+            if let Some(device) = cache.get(device_path) {
+                return Ok(device.clone());
+            }
+        }
+
+        // Slow path: open device in spawn_blocking to avoid blocking tokio
+        let path = device_path.to_string();
+        let device = self
+            .await_with_timeout("ComediDevice::open", async {
+                let p = path.clone();
+                tokio::task::spawn_blocking(move || {
+                    driver_comedi::ComediDevice::open(&p)
+                        .map_err(|e| anyhow::anyhow!("Failed to open {}: {}", p, e))
+                })
+                .await
+                .map_err(|e| anyhow::anyhow!("Task join error: {}", e))?
+            })
+            .await?;
+
+        // Insert into cache (re-acquire lock after blocking open)
+        let mut cache = self
+            .device_cache
+            .lock()
+            .map_err(|_| Status::internal("Device cache lock poisoned"))?;
+        // Another task may have raced and inserted while we were opening
+        cache.entry(path).or_insert_with(|| {
+            tracing::info!(device_path, "Cached new Comedi device handle");
+            device.clone()
+        });
+        Ok(device)
     }
 
     /// Resolve the Comedi device node path for a given device ID.
@@ -57,6 +125,7 @@ impl NiDaqServiceImpl {
     /// Looks up the `"device"` field from the driver's raw TOML config (e.g.,
     /// `device = "/dev/comedi0"`). Falls back to `/dev/{device_id}` if the
     /// config field is absent (shouldn't happen for properly configured devices).
+    #[cfg(feature = "comedi")]
     fn resolve_device_path(&self, device_id: &str) -> String {
         self.registry
             .get_driver_config_str(device_id, "device")
@@ -421,12 +490,6 @@ impl NiDaqService for NiDaqServiceImpl {
     ) -> Result<Response<ReadAnalogInputResponse>, Status> {
         #[cfg(feature = "comedi")]
         {
-            let _permit = self
-                .comedi_semaphore
-                .acquire()
-                .await
-                .map_err(|_| Status::internal("Comedi semaphore closed"))?;
-
             let req = request.into_inner();
 
             if req.device_id.is_empty() {
@@ -448,6 +511,7 @@ impl NiDaqService for NiDaqServiceImpl {
                 })?;
 
             let device_path = self.resolve_device_path(&req.device_id);
+            let device = self.get_or_open_device(&device_path).await?;
 
             let channel = req.channel;
             let range_index = req.range_index;
@@ -455,10 +519,8 @@ impl NiDaqService for NiDaqServiceImpl {
             let (voltage, raw_value, timestamp_ns) = self
                 .await_with_timeout("ReadAnalogInput", async move {
                     tokio::task::spawn_blocking(move || {
-                        use driver_comedi::ComediDevice;
                         use std::time::SystemTime;
 
-                        let device = ComediDevice::open(&device_path)?;
                         let ai = device.analog_input()?;
 
                         // Get the range for voltage conversion
@@ -595,12 +657,6 @@ impl NiDaqService for NiDaqServiceImpl {
     ) -> Result<Response<ConfigureAnalogOutputResponse>, Status> {
         #[cfg(feature = "comedi")]
         {
-            let _permit = self
-                .comedi_semaphore
-                .acquire()
-                .await
-                .map_err(|_| Status::internal("Comedi semaphore closed"))?;
-
             let req = request.into_inner();
 
             if req.device_id.is_empty() {
@@ -620,14 +676,13 @@ impl NiDaqService for NiDaqServiceImpl {
                 })?;
 
             let device_path = self.resolve_device_path(&req.device_id);
+            let device = self.get_or_open_device(&device_path).await?;
             let channel = req.channel;
             let range_index = req.range_index;
 
             let range = self
                 .await_with_timeout("ConfigureAnalogOutput", async move {
                     tokio::task::spawn_blocking(move || {
-                        use driver_comedi::ComediDevice;
-                        let device = ComediDevice::open(&device_path)?;
                         let ao = device.analog_output()?;
 
                         // Validate range_index
@@ -683,12 +738,6 @@ impl NiDaqService for NiDaqServiceImpl {
     ) -> Result<Response<ConfigureDigitalIoResponse>, Status> {
         #[cfg(feature = "comedi")]
         {
-            let _permit = self
-                .comedi_semaphore
-                .acquire()
-                .await
-                .map_err(|_| Status::internal("Comedi semaphore closed"))?;
-
             let req = request.into_inner();
 
             // Validate device_id
@@ -712,15 +761,14 @@ impl NiDaqService for NiDaqServiceImpl {
                 })?;
 
             let device_path = self.resolve_device_path(&req.device_id);
+            let device = self.get_or_open_device(&device_path).await?;
 
             // Configure pins via spawn_blocking (FFI call)
             let pins = req.pins.clone();
             self.await_with_timeout("ConfigureDigitalIO", async move {
                 tokio::task::spawn_blocking(move || {
-                    use driver_comedi::ComediDevice;
                     use driver_comedi::subsystem::digital_io::DioDirection;
 
-                    let device = ComediDevice::open(&device_path)?;
                     let dio = device.digital_io()?;
 
                     // Validate and configure each pin
@@ -779,12 +827,6 @@ impl NiDaqService for NiDaqServiceImpl {
     ) -> Result<Response<ReadDigitalIoResponse>, Status> {
         #[cfg(feature = "comedi")]
         {
-            let _permit = self
-                .comedi_semaphore
-                .acquire()
-                .await
-                .map_err(|_| Status::internal("Comedi semaphore closed"))?;
-
             let req = request.into_inner();
 
             // Validate device_id
@@ -801,15 +843,13 @@ impl NiDaqService for NiDaqServiceImpl {
                 })?;
 
             let device_path = self.resolve_device_path(&req.device_id);
+            let device = self.get_or_open_device(&device_path).await?;
 
             // Read pin via spawn_blocking (FFI call)
             let pin = req.pin;
             let value = self
                 .await_with_timeout("ReadDigitalIO", async move {
                     tokio::task::spawn_blocking(move || {
-                        use driver_comedi::ComediDevice;
-
-                        let device = ComediDevice::open(&device_path)?;
                         let dio = device.digital_io()?;
 
                         // Validate pin number
@@ -853,12 +893,6 @@ impl NiDaqService for NiDaqServiceImpl {
     ) -> Result<Response<WriteDigitalIoResponse>, Status> {
         #[cfg(feature = "comedi")]
         {
-            let _permit = self
-                .comedi_semaphore
-                .acquire()
-                .await
-                .map_err(|_| Status::internal("Comedi semaphore closed"))?;
-
             let req = request.into_inner();
 
             // Validate device_id
@@ -875,15 +909,13 @@ impl NiDaqService for NiDaqServiceImpl {
                 })?;
 
             let device_path = self.resolve_device_path(&req.device_id);
+            let device = self.get_or_open_device(&device_path).await?;
 
             // Write pin via spawn_blocking (FFI call)
             let pin = req.pin;
             let value = req.value;
             self.await_with_timeout("WriteDigitalIO", async move {
                 tokio::task::spawn_blocking(move || {
-                    use driver_comedi::ComediDevice;
-
-                    let device = ComediDevice::open(&device_path)?;
                     let dio = device.digital_io()?;
 
                     // Validate pin number
@@ -926,12 +958,6 @@ impl NiDaqService for NiDaqServiceImpl {
     ) -> Result<Response<ReadDigitalPortResponse>, Status> {
         #[cfg(feature = "comedi")]
         {
-            let _permit = self
-                .comedi_semaphore
-                .acquire()
-                .await
-                .map_err(|_| Status::internal("Comedi semaphore closed"))?;
-
             let req = request.into_inner();
 
             if req.device_id.is_empty() {
@@ -944,13 +970,12 @@ impl NiDaqService for NiDaqServiceImpl {
                 })?;
 
             let device_path = self.resolve_device_path(&req.device_id);
+            let device = self.get_or_open_device(&device_path).await?;
             let base_channel = req.base_channel;
 
             let value = self
                 .await_with_timeout("ReadDigitalPort", async move {
                     tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
-                        use driver_comedi::ComediDevice;
-                        let device = ComediDevice::open(&device_path)?;
                         let dio = device.digital_io()?;
                         Ok(dio.read_port(base_channel)?)
                     })
@@ -982,12 +1007,6 @@ impl NiDaqService for NiDaqServiceImpl {
     ) -> Result<Response<WriteDigitalPortResponse>, Status> {
         #[cfg(feature = "comedi")]
         {
-            let _permit = self
-                .comedi_semaphore
-                .acquire()
-                .await
-                .map_err(|_| Status::internal("Comedi semaphore closed"))?;
-
             let req = request.into_inner();
 
             if req.device_id.is_empty() {
@@ -1000,14 +1019,13 @@ impl NiDaqService for NiDaqServiceImpl {
                 })?;
 
             let device_path = self.resolve_device_path(&req.device_id);
+            let device = self.get_or_open_device(&device_path).await?;
             let base_channel = req.base_channel;
             let value = req.value;
             let mask = if req.mask == 0 { 0xFF } else { req.mask }; // Default: update all 8 bits
 
             self.await_with_timeout("WriteDigitalPort", async move {
                 tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
-                    use driver_comedi::ComediDevice;
-                    let device = ComediDevice::open(&device_path)?;
                     let dio = device.digital_io()?;
                     Ok(dio.write_port(base_channel, mask, value)?)
                 })
@@ -1042,12 +1060,6 @@ impl NiDaqService for NiDaqServiceImpl {
     ) -> Result<Response<ReadCounterResponse>, Status> {
         #[cfg(feature = "comedi")]
         {
-            let _permit = self
-                .comedi_semaphore
-                .acquire()
-                .await
-                .map_err(|_| Status::internal("Comedi semaphore closed"))?;
-
             let req = request.into_inner();
 
             // Validate device_id
@@ -1064,16 +1076,15 @@ impl NiDaqService for NiDaqServiceImpl {
                 })?;
 
             let device_path = self.resolve_device_path(&req.device_id);
+            let device = self.get_or_open_device(&device_path).await?;
 
             // Read counter via spawn_blocking (FFI call)
             let counter = req.counter;
             let (count, timestamp_ns) = self
                 .await_with_timeout("ReadCounter", async move {
                     tokio::task::spawn_blocking(move || {
-                        use driver_comedi::ComediDevice;
                         use std::time::SystemTime;
 
-                        let device = ComediDevice::open(&device_path)?;
                         let counter_subsystem = device.counter()?;
 
                         // Validate counter channel
@@ -1127,12 +1138,6 @@ impl NiDaqService for NiDaqServiceImpl {
     ) -> Result<Response<ResetCounterResponse>, Status> {
         #[cfg(feature = "comedi")]
         {
-            let _permit = self
-                .comedi_semaphore
-                .acquire()
-                .await
-                .map_err(|_| Status::internal("Comedi semaphore closed"))?;
-
             let req = request.into_inner();
 
             // Validate device_id
@@ -1149,14 +1154,12 @@ impl NiDaqService for NiDaqServiceImpl {
                 })?;
 
             let device_path = self.resolve_device_path(&req.device_id);
+            let device = self.get_or_open_device(&device_path).await?;
 
             // Reset counter via spawn_blocking (FFI call)
             let counter = req.counter;
             self.await_with_timeout("ResetCounter", async move {
                 tokio::task::spawn_blocking(move || {
-                    use driver_comedi::ComediDevice;
-
-                    let device = ComediDevice::open(&device_path)?;
                     let counter_subsystem = device.counter()?;
 
                     // Validate counter channel
@@ -1247,12 +1250,6 @@ impl NiDaqService for NiDaqServiceImpl {
     ) -> Result<Response<ConfigureCounterResponse>, Status> {
         #[cfg(feature = "comedi")]
         {
-            let _permit = self
-                .comedi_semaphore
-                .acquire()
-                .await
-                .map_err(|_| Status::internal("Comedi semaphore closed"))?;
-
             let req = request.into_inner();
 
             // Validate device_id
@@ -1269,14 +1266,12 @@ impl NiDaqService for NiDaqServiceImpl {
                 })?;
 
             let device_path = self.resolve_device_path(&req.device_id);
+            let device = self.get_or_open_device(&device_path).await?;
 
             // Validate counter configuration
             let counter = req.counter;
             self.await_with_timeout("ConfigureCounter", async move {
                 tokio::task::spawn_blocking(move || {
-                    use driver_comedi::ComediDevice;
-
-                    let device = ComediDevice::open(&device_path)?;
                     let counter_subsystem = device.counter()?;
 
                     // Validate counter channel
@@ -1401,105 +1396,72 @@ impl NiDaqService for NiDaqServiceImpl {
         // Comedi support is only available when the 'comedi' feature is enabled
         #[cfg(feature = "comedi")]
         {
-            let _permit = self
-                .comedi_semaphore
-                .acquire()
-                .await
-                .map_err(|_| Status::internal("Comedi semaphore closed"))?;
-
             let device_path = self.resolve_device_path(&device_id);
+            let device = self.get_or_open_device(&device_path).await?;
 
             let status = self
-                .await_with_timeout("GetDAQStatus", async {
-                    // Open device to query info (spawn_blocking for FFI)
-                    let path = device_path.to_string();
-                    let device = tokio::task::spawn_blocking(move || {
-                        use driver_comedi::ComediDevice;
-                        ComediDevice::open(&path)
-                    })
-                    .await
-                    .map_err(|e| anyhow::anyhow!("Task join error: {}", e))??;
+                .await_with_timeout("GetDAQStatus", async move {
+                    tokio::task::spawn_blocking(move || {
+                        // Get comprehensive device info
+                        let info = device.info()?;
 
-                    // Get comprehensive device info
-                    let info = device.info()?;
+                        // Build subdevice summaries
+                        let subdevices: Vec<SubdeviceSummary> = info
+                            .subdevices
+                            .iter()
+                            .map(|sub| {
+                                use driver_comedi::SubdeviceType;
+                                let type_str = match sub.subdev_type {
+                                    SubdeviceType::AnalogInput => "ai",
+                                    SubdeviceType::AnalogOutput => "ao",
+                                    SubdeviceType::DigitalIO => "dio",
+                                    SubdeviceType::Counter => "counter",
+                                    SubdeviceType::Timer => "timer",
+                                    _ => "other",
+                                };
 
-                    // Build subdevice summaries
-                    let subdevices: Vec<SubdeviceSummary> = info
-                        .subdevices
-                        .iter()
-                        .map(|sub| {
-                            use driver_comedi::SubdeviceType;
-                            let type_str = match sub.subdev_type {
-                                SubdeviceType::AnalogInput => "ai",
-                                SubdeviceType::AnalogOutput => "ao",
-                                SubdeviceType::DigitalIO => "dio",
-                                SubdeviceType::Counter => "counter",
-                                SubdeviceType::Timer => "timer",
-                                _ => "other",
-                            };
-
-                            SubdeviceSummary {
-                                index: sub.index,
-                                r#type: type_str.to_string(),
-                                n_channels: sub.n_channels,
-                                busy: sub.is_busy(),
-                                supports_commands: sub.supports_commands(),
-                            }
-                        })
-                        .collect();
-
-                    // Count channels by type
-                    use driver_comedi::SubdeviceType;
-                    let ai_info = info
-                        .subdevices
-                        .iter()
-                        .find(|s| s.subdev_type == SubdeviceType::AnalogInput);
-                    let ao_info = info
-                        .subdevices
-                        .iter()
-                        .find(|s| s.subdev_type == SubdeviceType::AnalogOutput);
-                    let dio_info = info
-                        .subdevices
-                        .iter()
-                        .find(|s| s.subdev_type == SubdeviceType::DigitalIO);
-                    let counter_count = info
-                        .subdevices
-                        .iter()
-                        .filter(|s| s.subdev_type == SubdeviceType::Counter)
-                        .count();
-
-                    let ai_channels = ai_info.map(|s| s.n_channels).unwrap_or(0);
-                    let ao_channels = ao_info.map(|s| s.n_channels).unwrap_or(0);
-                    let dio_channels = dio_info.map(|s| s.n_channels).unwrap_or(0);
-
-                    // Get AI/AO resolution
-                    let ai_resolution = ai_info.map(|s| s.resolution_bits()).unwrap_or(0);
-                    let ao_resolution = ao_info.map(|s| s.resolution_bits()).unwrap_or(0);
-
-                    // Get voltage ranges for AI
-                    let ai_ranges = if let Some(ai_sub) = ai_info {
-                        let ai = device.analog_input_subdevice(ai_sub.index)?;
-                        ai.ranges(0)?
-                            .into_iter()
-                            .map(|r| VoltageRange {
-                                index: r.index,
-                                min_voltage: r.min,
-                                max_voltage: r.max,
-                                unit: match r.unit {
-                                    0 => "V".to_string(),
-                                    1 => "mA".to_string(),
-                                    _ => String::new(),
-                                },
+                                SubdeviceSummary {
+                                    index: sub.index,
+                                    r#type: type_str.to_string(),
+                                    n_channels: sub.n_channels,
+                                    busy: sub.is_busy(),
+                                    supports_commands: sub.supports_commands(),
+                                }
                             })
-                            .collect()
-                    } else {
-                        Vec::new()
-                    };
+                            .collect();
 
-                    // Get voltage ranges for AO
-                    let ao_ranges = if ao_info.is_some() {
-                        if let Ok(ao) = device.analog_output() {
-                            ao.ranges(0)?
+                        // Count channels by type
+                        use driver_comedi::SubdeviceType;
+                        let ai_info = info
+                            .subdevices
+                            .iter()
+                            .find(|s| s.subdev_type == SubdeviceType::AnalogInput);
+                        let ao_info = info
+                            .subdevices
+                            .iter()
+                            .find(|s| s.subdev_type == SubdeviceType::AnalogOutput);
+                        let dio_info = info
+                            .subdevices
+                            .iter()
+                            .find(|s| s.subdev_type == SubdeviceType::DigitalIO);
+                        let counter_count = info
+                            .subdevices
+                            .iter()
+                            .filter(|s| s.subdev_type == SubdeviceType::Counter)
+                            .count();
+
+                        let ai_channels = ai_info.map(|s| s.n_channels).unwrap_or(0);
+                        let ao_channels = ao_info.map(|s| s.n_channels).unwrap_or(0);
+                        let dio_channels = dio_info.map(|s| s.n_channels).unwrap_or(0);
+
+                        // Get AI/AO resolution
+                        let ai_resolution = ai_info.map(|s| s.resolution_bits()).unwrap_or(0);
+                        let ao_resolution = ao_info.map(|s| s.resolution_bits()).unwrap_or(0);
+
+                        // Get voltage ranges for AI
+                        let ai_ranges = if let Some(ai_sub) = ai_info {
+                            let ai = device.analog_input_subdevice(ai_sub.index)?;
+                            ai.ranges(0)?
                                 .into_iter()
                                 .map(|r| VoltageRange {
                                     index: r.index,
@@ -1514,32 +1476,55 @@ impl NiDaqService for NiDaqServiceImpl {
                                 .collect()
                         } else {
                             Vec::new()
-                        }
-                    } else {
-                        Vec::new()
-                    };
+                        };
 
-                    Ok(DaqStatus {
-                        device_id: device_id.clone(),
-                        board_name: info.board_name,
-                        driver_name: info.driver_name,
-                        online: true,
-                        device_path: device_path.clone(),
-                        n_subdevices: info.n_subdevices,
-                        subdevices,
-                        ai_busy: ai_info.map(|s| s.is_busy()).unwrap_or(false),
-                        ao_busy: ao_info.map(|s| s.is_busy()).unwrap_or(false),
-                        dio_configured: dio_info.is_some(),
-                        active_counters: 0, // TODO: Track active counters in state
-                        ai_channels,
-                        ao_channels,
-                        dio_channels,
-                        counter_channels: counter_count as u32,
-                        ai_resolution_bits: ai_resolution,
-                        ao_resolution_bits: ao_resolution,
-                        ai_ranges,
-                        ao_ranges,
+                        // Get voltage ranges for AO
+                        let ao_ranges = if ao_info.is_some() {
+                            if let Ok(ao) = device.analog_output() {
+                                ao.ranges(0)?
+                                    .into_iter()
+                                    .map(|r| VoltageRange {
+                                        index: r.index,
+                                        min_voltage: r.min,
+                                        max_voltage: r.max,
+                                        unit: match r.unit {
+                                            0 => "V".to_string(),
+                                            1 => "mA".to_string(),
+                                            _ => String::new(),
+                                        },
+                                    })
+                                    .collect()
+                            } else {
+                                Vec::new()
+                            }
+                        } else {
+                            Vec::new()
+                        };
+
+                        Ok(DaqStatus {
+                            device_id: device_id.clone(),
+                            board_name: info.board_name,
+                            driver_name: info.driver_name,
+                            online: true,
+                            device_path: device_path.clone(),
+                            n_subdevices: info.n_subdevices,
+                            subdevices,
+                            ai_busy: ai_info.map(|s| s.is_busy()).unwrap_or(false),
+                            ao_busy: ao_info.map(|s| s.is_busy()).unwrap_or(false),
+                            dio_configured: dio_info.is_some(),
+                            active_counters: 0, // TODO: Track active counters in state
+                            ai_channels,
+                            ao_channels,
+                            dio_channels,
+                            counter_channels: counter_count as u32,
+                            ai_resolution_bits: ai_resolution,
+                            ao_resolution_bits: ao_resolution,
+                            ai_ranges,
+                            ao_ranges,
+                        })
                     })
+                    .await
+                    .map_err(|e| anyhow::anyhow!("Task join error: {}", e))?
                 })
                 .await?;
 
