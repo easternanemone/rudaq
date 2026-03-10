@@ -53,7 +53,7 @@ pub fn try_grpc_ui_config(device: &DeviceInfo) -> Option<ControlPanelConfig> {
         .as_ref()
         .and_then(|m| m.ui_schema_json.as_ref())
         .is_some();
-    tracing::debug!(
+    tracing::trace!(
         device_id = %device.id,
         driver_type = %device.driver_type,
         has_metadata,
@@ -64,7 +64,7 @@ pub fn try_grpc_ui_config(device: &DeviceInfo) -> Option<ControlPanelConfig> {
         .metadata
         .as_ref()
         .and_then(|m| m.ui_schema_json.as_ref())?;
-    tracing::debug!(
+    tracing::trace!(
         device_id = %device.id,
         json_len = json_str.len(),
         "Found ui_schema_json"
