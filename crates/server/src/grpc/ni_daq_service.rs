@@ -45,6 +45,23 @@ impl NiDaqServiceImpl {
         Self { registry }
     }
 
+    /// Resolve the Comedi device node path for a given device ID.
+    ///
+    /// Looks up the `"device"` field from the driver's raw TOML config (e.g.,
+    /// `device = "/dev/comedi0"`). Falls back to `/dev/{device_id}` if the
+    /// config field is absent (shouldn't happen for properly configured devices).
+    fn resolve_device_path(&self, device_id: &str) -> String {
+        self.registry
+            .get_driver_config_str(device_id, "device")
+            .unwrap_or_else(|| {
+                if device_id.starts_with("/dev/") {
+                    device_id.to_string()
+                } else {
+                    format!("/dev/{}", device_id)
+                }
+            })
+    }
+
     /// Execute an async operation with timeout (pattern from HardwareService).
     async fn await_with_timeout<F, T>(&self, operation: &str, fut: F) -> Result<T, Status>
     where
@@ -124,11 +141,7 @@ impl NiDaqService for NiDaqServiceImpl {
                 ));
             }
 
-            let device_path = if req.device_id.starts_with("/dev/") {
-                req.device_id.clone()
-            } else {
-                format!("/dev/{}", req.device_id)
-            };
+            let device_path = self.resolve_device_path(&req.device_id);
 
             // Create multi-channel acquisition instance
             let mut acquisition = self
@@ -415,11 +428,7 @@ impl NiDaqService for NiDaqServiceImpl {
                     Status::not_found(format!("Device '{}' not found", req.device_id))
                 })?;
 
-            let device_path = if req.device_id.starts_with("/dev/") {
-                req.device_id.clone()
-            } else {
-                format!("/dev/{}", req.device_id)
-            };
+            let device_path = self.resolve_device_path(&req.device_id);
 
             let channel = req.channel;
             let range_index = req.range_index;
@@ -585,11 +594,7 @@ impl NiDaqService for NiDaqServiceImpl {
                     Status::not_found(format!("Device '{}' not found", req.device_id))
                 })?;
 
-            let device_path = if req.device_id.starts_with("/dev/") {
-                req.device_id.clone()
-            } else {
-                format!("/dev/{}", req.device_id)
-            };
+            let device_path = self.resolve_device_path(&req.device_id);
             let channel = req.channel;
             let range_index = req.range_index;
 
@@ -675,11 +680,7 @@ impl NiDaqService for NiDaqServiceImpl {
                     Status::not_found(format!("Device '{}' not found", req.device_id))
                 })?;
 
-            let device_path = if req.device_id.starts_with("/dev/") {
-                req.device_id.clone()
-            } else {
-                format!("/dev/{}", req.device_id)
-            };
+            let device_path = self.resolve_device_path(&req.device_id);
 
             // Configure pins via spawn_blocking (FFI call)
             let pins = req.pins.clone();
@@ -762,11 +763,7 @@ impl NiDaqService for NiDaqServiceImpl {
                     Status::not_found(format!("Device '{}' not found", req.device_id))
                 })?;
 
-            let device_path = if req.device_id.starts_with("/dev/") {
-                req.device_id.clone()
-            } else {
-                format!("/dev/{}", req.device_id)
-            };
+            let device_path = self.resolve_device_path(&req.device_id);
 
             // Read pin via spawn_blocking (FFI call)
             let pin = req.pin;
@@ -834,11 +831,7 @@ impl NiDaqService for NiDaqServiceImpl {
                     Status::not_found(format!("Device '{}' not found", req.device_id))
                 })?;
 
-            let device_path = if req.device_id.starts_with("/dev/") {
-                req.device_id.clone()
-            } else {
-                format!("/dev/{}", req.device_id)
-            };
+            let device_path = self.resolve_device_path(&req.device_id);
 
             // Write pin via spawn_blocking (FFI call)
             let pin = req.pin;
@@ -901,11 +894,7 @@ impl NiDaqService for NiDaqServiceImpl {
                     Status::not_found(format!("Device '{}' not found", req.device_id))
                 })?;
 
-            let device_path = if req.device_id.starts_with("/dev/") {
-                req.device_id.clone()
-            } else {
-                format!("/dev/{}", req.device_id)
-            };
+            let device_path = self.resolve_device_path(&req.device_id);
             let base_channel = req.base_channel;
 
             let value = self
@@ -955,11 +944,7 @@ impl NiDaqService for NiDaqServiceImpl {
                     Status::not_found(format!("Device '{}' not found", req.device_id))
                 })?;
 
-            let device_path = if req.device_id.starts_with("/dev/") {
-                req.device_id.clone()
-            } else {
-                format!("/dev/{}", req.device_id)
-            };
+            let device_path = self.resolve_device_path(&req.device_id);
             let base_channel = req.base_channel;
             let value = req.value;
             let mask = if req.mask == 0 { 0xFF } else { req.mask }; // Default: update all 8 bits
@@ -1017,11 +1002,7 @@ impl NiDaqService for NiDaqServiceImpl {
                     Status::not_found(format!("Device '{}' not found", req.device_id))
                 })?;
 
-            let device_path = if req.device_id.starts_with("/dev/") {
-                req.device_id.clone()
-            } else {
-                format!("/dev/{}", req.device_id)
-            };
+            let device_path = self.resolve_device_path(&req.device_id);
 
             // Read counter via spawn_blocking (FFI call)
             let counter = req.counter;
@@ -1100,11 +1081,7 @@ impl NiDaqService for NiDaqServiceImpl {
                     Status::not_found(format!("Device '{}' not found", req.device_id))
                 })?;
 
-            let device_path = if req.device_id.starts_with("/dev/") {
-                req.device_id.clone()
-            } else {
-                format!("/dev/{}", req.device_id)
-            };
+            let device_path = self.resolve_device_path(&req.device_id);
 
             // Reset counter via spawn_blocking (FFI call)
             let counter = req.counter;
@@ -1218,11 +1195,7 @@ impl NiDaqService for NiDaqServiceImpl {
                     Status::not_found(format!("Device '{}' not found", req.device_id))
                 })?;
 
-            let device_path = if req.device_id.starts_with("/dev/") {
-                req.device_id.clone()
-            } else {
-                format!("/dev/{}", req.device_id)
-            };
+            let device_path = self.resolve_device_path(&req.device_id);
 
             // Validate counter configuration
             let counter = req.counter;
@@ -1355,13 +1328,7 @@ impl NiDaqService for NiDaqServiceImpl {
         // Comedi support is only available when the 'comedi' feature is enabled
         #[cfg(feature = "comedi")]
         {
-            // For now, we open a new connection to query device info
-            // TODO: Store device path in registry metadata or driver state
-            let device_path = if device_id.starts_with("/dev/") {
-                device_id.clone()
-            } else {
-                format!("/dev/{}", device_id)
-            };
+            let device_path = self.resolve_device_path(&device_id);
 
             let status = self
                 .await_with_timeout("GetDAQStatus", async {

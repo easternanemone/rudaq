@@ -1423,6 +1423,21 @@ impl DeviceRegistry {
         }
     }
 
+    /// Get a string value from a device's raw driver config.
+    ///
+    /// Useful for retrieving driver-specific fields (e.g., `"device"` for Comedi
+    /// drivers) that aren't exposed through `DeviceMetadata`.
+    pub fn get_driver_config_str(&self, id: &str, key: &str) -> Option<String> {
+        self.devices.get(id).and_then(|d| {
+            d.config
+                .driver
+                .config
+                .get(key)
+                .and_then(|v| v.as_str())
+                .map(String::from)
+        })
+    }
+
     /// Set the config source for a device (e.g., "toml", "db").
     pub fn set_config_source(&self, id: &str, source: &str) {
         if let Some(mut entry) = self.devices.get_mut(id) {

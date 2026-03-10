@@ -146,18 +146,14 @@ pub struct ComediPanel {
 impl ComediPanel {
     /// Create a new unified panel for a device.
     ///
-    /// `device_id` is the registry key (e.g. `"comedi0"`); the `/dev/` prefix
-    /// is derived automatically for display purposes.
+    /// `device_id` is the registry key (e.g. `"photodiode"`, `"ni_daq_ao0"`).
+    /// The actual device node path (e.g. `/dev/comedi0`) is populated from the
+    /// server's `GetDaqStatus` response.
     pub fn new(device_id: &str) -> Self {
         let (status_tx, status_rx) = mpsc::channel(4);
-        let device_path = if device_id.starts_with("/dev/") {
-            device_id.to_string()
-        } else {
-            format!("/dev/{}", device_id)
-        };
         Self {
             device_id: device_id.to_string(),
-            device_path,
+            device_path: String::new(),
             board_name: String::new(),
             driver_name: String::new(),
             connection_status: ConnectionStatus::Connecting,
@@ -274,7 +270,12 @@ impl ComediPanel {
             ui.separator();
 
             // Device info
-            ui.label(format!("Device: {}", self.device_path));
+            let display_path = if self.device_path.is_empty() {
+                &self.device_id
+            } else {
+                &self.device_path
+            };
+            ui.label(format!("Device: {display_path}"));
             ui.label(format!("Board: {}", self.board_name));
 
             ui.separator();
@@ -373,7 +374,12 @@ impl ComediPanel {
                     .spacing([20.0, 4.0])
                     .show(ui, |ui| {
                         ui.label("Path:");
-                        ui.label(&self.device_path);
+                        let path_display = if self.device_path.is_empty() {
+                            &self.device_id
+                        } else {
+                            &self.device_path
+                        };
+                        ui.label(path_display);
                         ui.end_row();
 
                         ui.label("Board:");
