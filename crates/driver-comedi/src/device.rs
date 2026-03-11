@@ -302,10 +302,182 @@ pub(crate) struct DeviceInner {
 unsafe impl Send for DeviceInner {}
 unsafe impl Sync for DeviceInner {}
 
+impl DeviceInner {
+    /// Best-effort safe-state cleanup before closing the device.
+    ///
+    /// Attempts to:
+    /// 1. Zero all analog output channels (set to midrange for bipolar safety)
+    /// 2. Set all digital output lines LOW
+    ///
+    /// All errors are logged as warnings and never propagated. This must never
+    /// panic, since it runs inside `Drop`.
+    fn safe_state_cleanup(&mut self) {
+        let handle = self.handle.as_ptr();
+
+        // SAFETY: handle is valid and we have exclusive access (&mut self in Drop).
+        // We query device topology directly via FFI rather than relying on cached
+        // info, since the cache may not have been populated.
+        let n_subdevices_raw = unsafe {
+            // SAFETY: handle is valid; comedi_get_n_subdevices returns the
+            // subdevice count as a non-negative i32.
+            comedi_sys::comedi_get_n_subdevices(handle)
+        };
+
+        if n_subdevices_raw < 0 {
+            warn!(
+                path = %self.path,
+                "Failed to query subdevice count during safe-state cleanup"
+            );
+            return;
+        }
+        let n_subdevices = n_subdevices_raw.cast_unsigned();
+
+        for subdev in 0..n_subdevices {
+            // SAFETY: handle is valid and subdev is in range.
+            let subdev_type = unsafe { comedi_sys::comedi_get_subdevice_type(handle, subdev) };
+
+            #[allow(clippy::cast_sign_loss)]
+            match subdev_type as u32 {
+                comedi_sys::COMEDI_SUBD_AO => {
+                    self.zero_analog_outputs(handle, subdev);
+                }
+                comedi_sys::COMEDI_SUBD_DIO | comedi_sys::COMEDI_SUBD_DO => {
+                    self.set_dio_low(handle, subdev);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Zero all channels on an analog output subdevice.
+    ///
+    /// Uses `maxdata / 2` as the "zero" value, which produces approximately 0V
+    /// on bipolar ranges (e.g., -10V to +10V) and mid-scale on unipolar ranges.
+    /// This is the safest default without knowing the configured range.
+    #[allow(clippy::cast_sign_loss)]
+    fn zero_analog_outputs(&self, handle: *mut comedi_t, subdev: u32) {
+        // SAFETY: handle is valid and subdev is a valid AO subdevice index.
+        let n_channels = unsafe { comedi_sys::comedi_get_n_channels(handle, subdev) };
+
+        if n_channels < 0 {
+            warn!(
+                path = %self.path,
+                subdev,
+                "Failed to query AO channel count during safe-state cleanup"
+            );
+            return;
+        }
+        let n_channels = n_channels as u32;
+
+        for chan in 0..n_channels {
+            // SAFETY: handle is valid, subdev and chan are in range.
+            // comedi_get_maxdata returns the maximum raw sample value for this channel.
+            let maxdata = unsafe { comedi_sys::comedi_get_maxdata(handle, subdev, chan) };
+
+            // Midrange value: ~0V on bipolar ranges, mid-scale on unipolar.
+            let safe_value = maxdata / 2;
+
+            // SAFETY: handle is valid, subdev is an AO subdevice, chan is in range.
+            // range=0 and aref=AREF_GROUND are safe defaults — range 0 is always
+            // the first (usually widest) range, and AREF_GROUND is universally supported.
+            let result = unsafe {
+                comedi_sys::comedi_data_write(
+                    handle,
+                    subdev,
+                    chan,
+                    0,                       // range 0 (default)
+                    comedi_sys::AREF_GROUND, // analog reference
+                    safe_value,
+                )
+            };
+
+            if result < 0 {
+                warn!(
+                    path = %self.path,
+                    subdev,
+                    chan,
+                    "Failed to zero AO channel during safe-state cleanup"
+                );
+            } else {
+                trace!(
+                    path = %self.path,
+                    subdev,
+                    chan,
+                    safe_value,
+                    maxdata,
+                    "Zeroed AO channel"
+                );
+            }
+        }
+
+        debug!(
+            path = %self.path,
+            subdev,
+            n_channels,
+            "Safe-state: zeroed analog output subdevice"
+        );
+    }
+
+    /// Set all digital output lines LOW on a DIO or DO subdevice.
+    ///
+    /// Writing LOW to input-configured DIO channels is a no-op in comedi,
+    /// so we simply write 0 to every channel without checking direction.
+    #[allow(clippy::cast_sign_loss)]
+    fn set_dio_low(&self, handle: *mut comedi_t, subdev: u32) {
+        // SAFETY: handle is valid and subdev is a valid DIO/DO subdevice index.
+        let n_channels = unsafe { comedi_sys::comedi_get_n_channels(handle, subdev) };
+
+        if n_channels < 0 {
+            warn!(
+                path = %self.path,
+                subdev,
+                "Failed to query DIO channel count during safe-state cleanup"
+            );
+            return;
+        }
+        let n_channels = n_channels as u32;
+
+        for chan in 0..n_channels {
+            // SAFETY: handle is valid, subdev is a DIO/DO subdevice, chan is in range.
+            // Writing 0 (LOW) to input-configured channels is a harmless no-op.
+            let result = unsafe { comedi_sys::comedi_dio_write(handle, subdev, chan, 0) };
+
+            if result < 0 {
+                warn!(
+                    path = %self.path,
+                    subdev,
+                    chan,
+                    "Failed to set DIO channel LOW during safe-state cleanup"
+                );
+            } else {
+                trace!(
+                    path = %self.path,
+                    subdev,
+                    chan,
+                    "Set DIO channel LOW"
+                );
+            }
+        }
+
+        debug!(
+            path = %self.path,
+            subdev,
+            n_channels,
+            "Safe-state: set digital output subdevice LOW"
+        );
+    }
+}
+
 impl Drop for DeviceInner {
     fn drop(&mut self) {
-        debug!(path = %self.path, "Closing Comedi device");
-        // SAFETY: handle is valid and we own it
+        debug!(path = %self.path, "Closing Comedi device (with safe-state cleanup)");
+
+        // Best-effort safe-state: zero AO channels and set DIO lines LOW
+        // before closing the device handle.
+        self.safe_state_cleanup();
+
+        // SAFETY: handle is valid and we own it. We always close the device
+        // even if safe-state cleanup encountered errors above.
         unsafe {
             let result = comedi_sys::comedi_close(self.handle.as_ptr());
             if result < 0 {
