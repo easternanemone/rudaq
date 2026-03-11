@@ -276,6 +276,9 @@ pub struct DaemonInstance {
     #[cfg(feature = "db-surreal")]
     #[allow(dead_code)] // Ownership anchor + used by ConfigService in Phase 2
     db: Option<db::DaqDb>,
+    /// Safety heartbeat task — toggles a Comedi DIO channel to drive hardware interlock.
+    #[cfg(feature = "comedi_hardware")]
+    heartbeat_task: Option<JoinHandle<()>>,
     /// Background task running the watch reconciler (LIVE SELECT → reconcile loop).
     #[cfg(feature = "db-surreal")]
     watch_reconciler_task: Option<JoinHandle<()>>,
@@ -601,6 +604,48 @@ impl DaemonInstance {
         // CancellationToken enables graceful server shutdown + script abort before hardware teardown.
         let shutdown_token = CancellationToken::new();
 
+        // --- Phase: Safety Heartbeat (bd-nfav) ---
+        // Toggles a Comedi DIO channel at 100ms to drive an external hardware interlock.
+        // If the daemon crashes, the pulse stops, and the interlock cuts laser power.
+        #[cfg(feature = "comedi_hardware")]
+        let heartbeat_task = {
+            #[cfg(feature = "networking")]
+            let hb_ref = hw_config
+                .as_ref()
+                .and_then(|hw| hw.safety_heartbeat.as_ref());
+            #[cfg(not(feature = "networking"))]
+            let hb_ref: Option<&hardware::registry::HeartbeatConfig> = None;
+            if let Some(hb_config) = hb_ref {
+                if hb_config.enabled {
+                    println!("💓 Starting safety heartbeat...");
+                    let hb_cfg = hb_config.clone();
+                    let hb_token = shutdown_token.clone();
+                    match crate::safety_heartbeat_task::spawn_heartbeat(hb_cfg, hb_token).await {
+                        Ok(task) => {
+                            println!(
+                                "   Device: {}, channel: {}, interval: {}ms",
+                                hb_config.device, hb_config.channel, hb_config.interval_ms
+                            );
+                            println!();
+                            Some(task)
+                        }
+                        Err(e) => {
+                            tracing::error!(error = %e, "Safety heartbeat init failed — continuing without heartbeat");
+                            eprintln!("   Safety heartbeat failed to start: {e}");
+                            eprintln!("   Daemon will continue without heartbeat interlock.");
+                            println!();
+                            None
+                        }
+                    }
+                } else {
+                    tracing::info!("Safety heartbeat disabled in config");
+                    None
+                }
+            } else {
+                None
+            }
+        };
+
         // --- Phase: Device Supervisor (bd-qa36.4.2) ---
         // Periodically checks for faulted devices and attempts restart with backoff.
         let sup_registry = registry.clone();
@@ -693,6 +738,8 @@ impl DaemonInstance {
             #[cfg(all(feature = "storage_hdf5", feature = "storage_arrow"))]
             storage,
             sentinel,
+            #[cfg(feature = "comedi_hardware")]
+            heartbeat_task,
             #[cfg(feature = "db-surreal")]
             db,
             #[cfg(feature = "db-surreal")]
@@ -822,6 +869,11 @@ impl DaemonInstance {
         if let Some(task) = self.watch_reconciler_task {
             task.abort();
         }
+        // Safety heartbeat listens on the same CancellationToken, but abort as safety net
+        #[cfg(feature = "comedi_hardware")]
+        if let Some(task) = self.heartbeat_task {
+            task.abort();
+        }
 
         // Disarm safety sentinel — shutdown completed successfully.
         // Only reached after hardware is confirmed safe-stated.
@@ -947,6 +999,7 @@ mod tests {
                 dev("d1", "universal_thorlabs_ell14"),
                 dev("d2", "ell14"), // unrecognized (former legacy)
             ],
+            safety_heartbeat: None,
         };
 
         let result = validate_runtime_policy_for_config("test", &hw, "universal");
@@ -981,6 +1034,7 @@ mod tests {
         let hw = HardwareConfig {
             plugin_paths: vec![],
             devices: vec![dev("d1", "ell14"), dev("d2", "pvcam")],
+            safety_heartbeat: None,
         };
 
         // Native mode warns but does not error
@@ -1015,6 +1069,7 @@ mod tests {
                 dev("d4", "andor_istar"),
                 dev("d5", "comedi_analog_input"),
             ],
+            safety_heartbeat: None,
         };
 
         // Should pass in all modes

@@ -1800,6 +1800,7 @@ dependencies = [
  "common",
  "daq-modules",
  "db",
+ "driver-comedi",
  "driver-mock",
  "driver-registry",
  "futures",

@@ -606,6 +606,11 @@ impl ComediDevice {
         DigitalIO::new(self.clone(), subdevice)
     }
 
+    /// Get a digital I/O subsystem for a specific subdevice index.
+    pub fn digital_io_subdevice(&self, subdevice: u32) -> Result<DigitalIO> {
+        DigitalIO::new(self.clone(), subdevice)
+    }
+
     /// Get a counter subsystem accessor.
     ///
     /// Returns the first counter subdevice found, or an error if none.

@@ -1668,6 +1668,36 @@ impl Default for DeviceRegistry {
 // Hardware Configuration File Support
 // =============================================================================
 
+/// Configuration for the safety heartbeat digital output pulse.
+///
+/// When enabled, a Tokio task toggles a Comedi digital output bit at a fixed
+/// interval. An external hardware interlock monitors this pulse train: if the
+/// daemon crashes or hangs, the pulse stops, and the interlock cuts laser power.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HeartbeatConfig {
+    /// Whether the heartbeat is enabled (default: true).
+    #[serde(default = "default_heartbeat_enabled")]
+    pub enabled: bool,
+    /// Comedi device path (e.g., "/dev/comedi0").
+    pub device: String,
+    /// DIO subdevice index. `None` means auto-detect the first DIO subdevice.
+    #[serde(default)]
+    pub subdevice: Option<u32>,
+    /// DIO channel number to toggle.
+    pub channel: u32,
+    /// Toggle interval in milliseconds (default: 100).
+    #[serde(default = "default_heartbeat_interval_ms")]
+    pub interval_ms: u64,
+}
+
+fn default_heartbeat_enabled() -> bool {
+    true
+}
+
+fn default_heartbeat_interval_ms() -> u64 {
+    100
+}
+
 /// Hardware configuration loaded from a TOML file
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HardwareConfig {
@@ -1678,6 +1708,13 @@ pub struct HardwareConfig {
 
     /// List of devices to register
     pub devices: Vec<DeviceConfig>,
+
+    /// Optional safety heartbeat configuration.
+    ///
+    /// When present and enabled, the daemon toggles a Comedi DIO channel
+    /// to drive an external hardware interlock.
+    #[serde(default)]
+    pub safety_heartbeat: Option<HeartbeatConfig>,
 }
 
 impl HardwareConfig {

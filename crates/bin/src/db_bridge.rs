@@ -92,6 +92,7 @@ pub fn db_to_hardware_config(instruments: &[DbInstrument]) -> HardwareConfig {
     HardwareConfig {
         plugin_paths: vec![],
         devices,
+        safety_heartbeat: None,
     }
 }
 

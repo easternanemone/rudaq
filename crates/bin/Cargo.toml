@@ -17,6 +17,7 @@ storage = { path = "../storage" }
 scripting = { path = "../scripting" }
 daq-modules = { path = "../daq-modules", optional = true }
 driver-mock = { path = "../driver-mock" }
+driver-comedi = { path = "../driver-comedi", optional = true }
 db = { path = "../db", optional = true }
 prometheus = { version = "0.14", optional = true }
 toml.workspace = true
@@ -48,7 +49,7 @@ pvcam_sdk = ["driver-registry/pvcam_sdk"]
 pvcam_hardware = ["pvcam_sdk"]
 
 # Real Comedi hardware (requires libcomedi installed)
-comedi_hardware = ["driver-registry/comedi_hardware", "server/comedi"]
+comedi_hardware = ["driver-registry/comedi_hardware", "server/comedi", "dep:driver-comedi"]
 
 # ============================================================================
 # HIGH-LEVEL PROFILES

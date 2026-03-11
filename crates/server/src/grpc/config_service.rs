@@ -321,6 +321,7 @@ impl ConfigService for ConfigServiceImpl {
         let hw_config = hardware::registry::HardwareConfig {
             plugin_paths: vec![],
             devices,
+            safety_heartbeat: None,
         };
 
         let toml_content = toml::to_string_pretty(&hw_config)

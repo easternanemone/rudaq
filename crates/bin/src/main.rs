@@ -37,6 +37,7 @@ mod db_bridge;
 mod reconciler;
 #[cfg(all(feature = "db-surreal", feature = "metrics"))]
 mod reconciler_metrics;
+mod safety_heartbeat_task;
 mod safety_sentinel;
 #[cfg(feature = "db-surreal")]
 mod watch_reconciler;

@@ -110,6 +110,19 @@ port = "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Cable_FT1RALWL-if00-port0"
 address = "3"
 
 # ============================================================================
+# Safety Heartbeat (hardware interlock)
+# ============================================================================
+# Toggles a DIO channel at 100ms to drive an external hardware interlock.
+# If the daemon crashes, the pulse stops and the interlock cuts laser power.
+# Channel 0 on the DIO subdevice (auto-detected).
+
+[safety_heartbeat]
+enabled = true
+device = "/dev/comedi0"
+channel = 0
+interval_ms = 100
+
+# ============================================================================
 # Comedi DAQ Card (NI PCI-MIO-16XE-10)
 # ============================================================================
 # No universal driver — keep native comedi types
