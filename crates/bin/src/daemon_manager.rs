@@ -44,6 +44,8 @@ pub struct DaemonConfig {
     /// enabled. `None` = use in-memory engine (default for `db-surreal-mem`).
     #[cfg(feature = "db-surreal")]
     pub db_path: Option<PathBuf>,
+    /// Optional path to the WASM web UI directory.
+    pub web_ui_path: Option<PathBuf>,
 }
 
 /// Resolve the `devices/` manifest directory adjacent to a config file.
@@ -300,7 +302,14 @@ impl DaemonInstance {
         println!();
 
         // --- Phase: Config Loading & Validation ---
-        let _server_config = ServerConfig::load().context("Failed to load server configuration")?;
+        let mut _server_config =
+            ServerConfig::load().context("Failed to load server configuration")?;
+        if let Some(ref ui_path) = config.web_ui_path {
+            _server_config.grpc.web_ui_path = Some(ui_path.clone());
+        }
+        _server_config
+            .validate()
+            .context("Config validation failed after applying overrides")?;
 
         // --- Phase: Health Monitoring ---
         println!("❤️  Initializing health monitoring...");
@@ -844,6 +853,7 @@ mod tests {
             runtime_mode: "mock".to_string(),
             #[cfg(feature = "db-surreal")]
             db_path: None,
+            web_ui_path: None,
         };
         let debug = format!("{:?}", config);
         assert!(debug.contains("50051"));
@@ -1027,6 +1037,7 @@ mod tests {
             runtime_mode: "mock".to_string(),
             #[cfg(feature = "db-surreal")]
             db_path: None,
+            web_ui_path: None,
         };
 
         let instance = DaemonInstance::start(config)
@@ -1053,6 +1064,7 @@ mod tests {
             runtime_mode: "mock".to_string(),
             #[cfg(feature = "db-surreal")]
             db_path: None,
+            web_ui_path: None,
         };
 
         let instance = DaemonInstance::start(config)

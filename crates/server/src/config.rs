@@ -35,6 +35,8 @@ pub struct GrpcSettings {
     pub auth_token: Option<String>,
     pub allowed_origins: Vec<String>,
     pub bind_address: Option<IpAddr>,
+    /// Path to the static WASM UI files (index.html, .wasm, .js)
+    pub web_ui_path: Option<PathBuf>,
 }
 
 impl Default for GrpcSettings {
@@ -46,6 +48,7 @@ impl Default for GrpcSettings {
             auth_token: None,
             allowed_origins: Vec::new(),
             bind_address: Some(IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)),
+            web_ui_path: None,
         }
     }
 }
@@ -186,6 +189,16 @@ impl ServerConfig {
                         );
                     }
                 }
+            }
+        }
+
+        // Web UI path: must be a directory if provided
+        if let Some(ref ui_path) = self.grpc.web_ui_path {
+            if !ui_path.exists() {
+                anyhow::bail!("Web UI path does not exist: {}", ui_path.display());
+            }
+            if !ui_path.is_dir() {
+                anyhow::bail!("Web UI path is not a directory: {}", ui_path.display());
             }
         }
 

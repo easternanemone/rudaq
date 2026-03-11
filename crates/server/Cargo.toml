@@ -41,7 +41,8 @@ tokio-stream = { version = "0.1", features = ["sync"] }
 sha2 = "0.10"
 tower-layer = { version = "0.3", optional = true }
 tower-service = { version = "0.3", optional = true }
-tower-http = { version = "0.4", features = ["cors", "trace"], optional = true }
+tower-http = { version = "0.4", features = ["cors", "trace", "fs"], optional = true }
+http-body = "0.4"
 tonic-web = { version = "0.10", optional = true }
 sysinfo = "0.37.2"
 bincode = "1.3"

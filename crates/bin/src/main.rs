@@ -135,6 +135,11 @@ enum Commands {
         #[cfg(feature = "db-surreal")]
         #[arg(long)]
         db_path: Option<PathBuf>,
+
+        /// Optional path to the WASM web UI directory (index.html, .wasm).
+        /// If provided, the daemon will serve the UI on the gRPC port.
+        #[arg(long)]
+        web_ui_path: Option<PathBuf>,
     },
 
     /// Remote control commands (connect to daemon)
@@ -343,6 +348,7 @@ async fn main() -> Result<()> {
             lab_hardware,
             #[cfg(feature = "db-surreal")]
             db_path,
+            web_ui_path,
         } => {
             // Resolve port: CLI flag > DAQ_PORT env var > default (50051)
             let (port, port_source) = resolve_port(cli_port);
@@ -360,6 +366,10 @@ async fn main() -> Result<()> {
             } else {
                 println!("Hardware config: none ({})", config_source);
             }
+            if let Some(ref ui) = web_ui_path {
+                println!("Web UI path: {} (CLI/Env)", ui.display());
+            }
+
             println!(
                 "Runtime mode source: {} ({})",
                 runtime_mode
@@ -377,6 +387,7 @@ async fn main() -> Result<()> {
                 db_path,
                 #[cfg(not(feature = "db-surreal"))]
                 None,
+                web_ui_path,
             )
             .await
         }
@@ -524,6 +535,7 @@ async fn start_daemon(
     hardware_config: Option<PathBuf>,
     lab_hardware: bool,
     db_path: Option<PathBuf>,
+    web_ui_path: Option<PathBuf>,
 ) -> Result<()> {
     use daemon_manager::{DaemonConfig, DaemonInstance};
 
@@ -583,16 +595,17 @@ async fn start_daemon(
     #[cfg(not(feature = "db-surreal"))]
     let _ = db_path;
 
-    let config = DaemonConfig {
+    let daemon_config = DaemonConfig {
         port,
         hardware_config: resolved_hardware_config,
         lab_hardware: resolved_lab_hardware,
         runtime_mode: resolved_runtime_mode.to_string(),
         #[cfg(feature = "db-surreal")]
         db_path,
+        web_ui_path,
     };
 
-    let instance = DaemonInstance::start(config).await?;
+    let instance = DaemonInstance::start(daemon_config).await?;
     instance.wait_for_shutdown_signal().await;
     instance.shutdown().await
 }

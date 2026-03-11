@@ -34,13 +34,14 @@ use tokio::sync::mpsc;
 use tokio::sync::{RwLock, broadcast};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
+use tonic::body::BoxBody;
 use tonic::service::interceptor::interceptor;
 use tonic::transport::{Identity, Server, ServerTlsConfig};
 use tonic::{Request, Response, Status};
 use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 use uuid::Uuid;
 
-use http::HeaderValue;
+use http::{HeaderValue, header::HeaderName};
 use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode};
 use serde::{Deserialize, Serialize};
 
@@ -96,7 +97,18 @@ fn build_tls_config(
 }
 
 fn build_cors_layer(settings: &GrpcSettings) -> Result<CorsLayer, Box<dyn std::error::Error>> {
-    let mut cors = CorsLayer::new().allow_headers(Any).allow_methods(Any);
+    let mut cors = CorsLayer::new()
+        .allow_headers(Any)
+        .allow_methods(Any)
+        .expose_headers([
+            HeaderName::from_static("grpc-status"),
+            HeaderName::from_static("grpc-message"),
+            HeaderName::from_static("grpc-status-details-bin"),
+            HeaderName::from_static("grpc-encoding"),
+            HeaderName::from_static("grpc-accept-encoding"),
+            HeaderName::from_static("x-grpc-web"),
+            HeaderName::from_static("content-type"),
+        ]);
 
     if settings.allowed_origins.iter().any(|o| o == "*") {
         cors = cors.allow_origin(AllowOrigin::any());
@@ -1251,7 +1263,7 @@ impl ControlService for DaqServer {
 /// Extracted as a macro because Tower's builder returns deeply nested generic types
 /// that cannot be named in a function signature without `type_alias_impl_trait`.
 macro_rules! build_grpc_server {
-    ($grpc_settings:expr, $cors:expr) => {{
+    ($grpc_settings:expr, $cors:expr, $web_ui_path:expr) => {{
         use crate::grpc::audit_log::AuditLogLayer;
         use crate::grpc::request_tracing::RequestTracingLayer;
         let auth_settings = $grpc_settings.clone();
@@ -1262,6 +1274,9 @@ macro_rules! build_grpc_server {
             // 2 MB stream window, 4 MB connection window (defaults are 64 KB / 64 KB).
             .initial_stream_window_size(2 * 1024 * 1024)
             .initial_connection_window_size(4 * 1024 * 1024)
+            // Static file serving layer (bd-j8k9): must be outermost to intercept
+            // non-gRPC requests before CORS/auth processing
+            .layer(WebUiLayer::new($web_ui_path))
             .layer($cors)
             .layer(interceptor(move |request: Request<()>| {
                 validate_auth(&auth_settings, &request)?;
@@ -1342,7 +1357,7 @@ pub async fn start_server(addr: std::net::SocketAddr) -> Result<(), Box<dyn std:
         );
     }
 
-    let mut builder = build_grpc_server!(grpc_settings, cors);
+    let mut builder = build_grpc_server!(grpc_settings, cors, grpc_settings.web_ui_path.as_ref());
 
     if let Some(tls_config) = tls_config {
         builder = builder.tls_config(tls_config)?;
@@ -1833,7 +1848,11 @@ pub async fn start_server_with_hardware(
     }
 
     #[cfg(feature = "serial")]
-    let mut server_builder = build_grpc_server!(grpc_settings, cors.clone());
+    let mut server_builder = build_grpc_server!(
+        grpc_settings,
+        cors.clone(),
+        grpc_settings.web_ui_path.as_ref()
+    );
 
     #[cfg(feature = "serial")]
     if let Some(tls_config) = tls_config {
@@ -1889,7 +1908,11 @@ pub async fn start_server_with_hardware(
     };
 
     #[cfg(not(feature = "serial"))]
-    let mut server_builder = build_grpc_server!(grpc_settings, cors.clone());
+    let mut server_builder = build_grpc_server!(
+        grpc_settings,
+        cors.clone(),
+        grpc_settings.web_ui_path.as_ref()
+    );
 
     #[cfg(not(feature = "serial"))]
     if let Some(tls_config) = tls_config {
@@ -1967,11 +1990,167 @@ pub async fn start_server_with_hardware(
     // server termination. When shutdown_token is cancelled, the server stops accepting
     // new connections and drains existing RPCs. The reaper task in DaqServer concurrently
     // aborts running scripts to prevent commands on disconnected hardware.
+    if grpc_settings.web_ui_path.is_some() {
+        println!(
+            "🚀 Serving integrated WASM UI from {} on port {}",
+            grpc_settings.web_ui_path.as_ref().unwrap().display(),
+            bind_addr.port()
+        );
+    }
+
     server_builder
         .serve_with_shutdown(bind_addr, shutdown_token.cancelled())
         .await?;
 
     Ok(())
+}
+
+// ── Integrated WASM UI serving (bd-j8k9) ──────────────────────────────────────
+//
+// Tower Layer that intercepts non-gRPC requests and serves static files from
+// the WASM UI build directory. When `web_ui_path` is None, the layer is a
+// transparent pass-through. This sits as the outermost layer so that non-gRPC
+// requests never reach the CORS or auth middleware.
+
+/// Wrapper that maps `io::Error` body errors to `tonic::Status` for BoxBody compatibility.
+struct IoToStatusBody<B>(B);
+
+impl<B> http_body::Body for IoToStatusBody<B>
+where
+    B: http_body::Body<Data = prost::bytes::Bytes, Error = std::io::Error> + Unpin,
+{
+    type Data = prost::bytes::Bytes;
+    type Error = Status;
+
+    fn poll_data(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Result<Self::Data, Self::Error>>> {
+        std::pin::Pin::new(&mut self.0).poll_data(cx).map(
+            |opt: Option<Result<prost::bytes::Bytes, std::io::Error>>| {
+                opt.map(|res| res.map_err(|e| Status::internal(format!("file error: {e}"))))
+            },
+        )
+    }
+
+    fn poll_trailers(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<Option<http::HeaderMap>, Self::Error>> {
+        std::pin::Pin::new(&mut self.0)
+            .poll_trailers(cx)
+            .map_err(|e| Status::internal(format!("file error: {e}")))
+    }
+
+    fn is_end_stream(&self) -> bool {
+        self.0.is_end_stream()
+    }
+
+    fn size_hint(&self) -> http_body::SizeHint {
+        self.0.size_hint()
+    }
+}
+
+/// Tower Layer that serves static WASM UI files for non-gRPC requests.
+#[derive(Clone)]
+struct WebUiLayer {
+    serve_dir: Option<tower_http::services::ServeDir>,
+}
+
+impl WebUiLayer {
+    fn new(path: Option<&std::path::PathBuf>) -> Self {
+        Self {
+            serve_dir: path.map(|p| {
+                tower_http::services::ServeDir::new(p).append_index_html_on_directories(true)
+            }),
+        }
+    }
+}
+
+impl<S> tower_layer::Layer<S> for WebUiLayer {
+    type Service = WebUiService<S>;
+    fn layer(&self, inner: S) -> Self::Service {
+        WebUiService {
+            inner,
+            serve_dir: self.serve_dir.clone(),
+        }
+    }
+}
+
+/// Tower Service that routes gRPC requests to the inner service and
+/// non-gRPC requests to a static file server.
+#[derive(Clone)]
+struct WebUiService<S> {
+    inner: S,
+    serve_dir: Option<tower_http::services::ServeDir>,
+}
+
+impl<S, B> tower_service::Service<http::Request<B>> for WebUiService<S>
+where
+    S: tower_service::Service<http::Request<B>, Response = http::Response<BoxBody>>
+        + Clone
+        + Send
+        + 'static,
+    S::Error: Send,
+    S::Future: Send + 'static,
+    B: Send + 'static,
+{
+    type Response = http::Response<BoxBody>;
+    type Error = S::Error;
+    type Future = std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<Self::Response, Self::Error>> + Send>,
+    >;
+
+    fn poll_ready(
+        &mut self,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        self.inner.poll_ready(cx)
+    }
+
+    fn call(&mut self, req: http::Request<B>) -> Self::Future {
+        // No UI path configured — pass everything through to gRPC
+        if self.serve_dir.is_none() {
+            return Box::pin(self.inner.call(req));
+        }
+
+        // Detect gRPC/gRPC-web requests by content-type header
+        let is_grpc = req
+            .headers()
+            .get(http::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|s| s.starts_with("application/grpc"));
+
+        // Also route by gRPC path prefix (package.Service/Method)
+        let is_grpc_path = req.uri().path().starts_with("/daq.")
+            || req.uri().path().starts_with("/protocol.")
+            || req.uri().path().starts_with("/grpc.");
+
+        if is_grpc || is_grpc_path {
+            Box::pin(self.inner.call(req))
+        } else {
+            let mut files = self.serve_dir.clone().unwrap();
+            Box::pin(async move {
+                match files.call(req).await {
+                    Ok(response) => {
+                        // Map ServeDir's io::Error body to tonic's Status body
+                        let (parts, body) = response.into_parts();
+                        Ok(http::Response::from_parts(
+                            parts,
+                            BoxBody::new(IoToStatusBody(body)),
+                        ))
+                    }
+                    Err(_io_err) => {
+                        // ServeDir failed (e.g. permission denied) — return 500
+                        Ok(http::Response::builder()
+                            .status(http::StatusCode::INTERNAL_SERVER_ERROR)
+                            .body(BoxBody::default())
+                            .unwrap())
+                    }
+                }
+            })
+        }
+    }
 }
 
 #[cfg(test)]
