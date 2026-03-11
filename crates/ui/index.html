@@ -2,15 +2,28 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <!-- iPad/iOS: enable fullscreen web-app mode when added to home screen -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="DAQ Panel">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#1a1a2e">
     <title>DAQ Control Panel</title>
+    <link rel="manifest" href="manifest.json">
     <!-- Trunk: compile the rust-daq-web binary with the "web" feature -->
     <link data-trunk rel="rust" data-bin="rust-daq-web" data-cargo-features="web" data-cargo-no-default-features
           data-wasm-opt="z" data-wasm-opt-params="--enable-bulk-memory --enable-nontrapping-float-to-int --enable-sign-ext --enable-mutable-globals" />
+    <!-- Copy PWA assets into dist/ -->
+    <link data-trunk rel="copy-file" href="manifest.json" />
+    <link data-trunk rel="copy-file" href="sw.js" />
     <style>
         html, body {
             margin: 0;
-            padding: 0;
+            /* Safe-area padding for devices with notch/home indicator;
+               resolves to 0 on devices without safe areas */
+            padding: env(safe-area-inset-top, 0) env(safe-area-inset-right, 0) env(safe-area-inset-bottom, 0) env(safe-area-inset-left, 0);
+            box-sizing: border-box;
             width: 100%;
             height: 100%;
             overflow: hidden;
@@ -20,6 +33,9 @@
             display: block;
             width: 100%;
             height: 100%;
+            /* Prevent Safari touch gestures (pinch-zoom, double-tap) from
+               interfering with egui's canvas input handling */
+            touch-action: none;
         }
         /* Loading spinner shown until WASM initializes */
         #loading {
@@ -69,6 +85,11 @@
             const el = document.getElementById('loading');
             if (el) el.style.display = 'none';
         }, 5000);
+
+        // Register service worker for PWA home-screen install
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('sw.js').catch(() => {});
+        }
     </script>
 </body>
 </html>
