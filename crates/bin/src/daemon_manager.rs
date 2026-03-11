@@ -565,7 +565,9 @@ impl DaemonInstance {
         println!("🛡️  Installing hardware safety panic hook...");
         ShutterRegistry::install_panic_hook_with_hardware(&registry);
         let sentinel = SafetySentinel::new();
-        println!("   Emergency shutdown will activate on panic (shutters + motors + DAQ)");
+        println!(
+            "   Emergency shutdown will activate on panic (shutters + emission + motors + DAQ)"
+        );
         println!("   Safety sentinel armed (auto-close on abnormal exit)");
         println!();
 
@@ -576,7 +578,18 @@ impl DaemonInstance {
         let (watchdog, wd_kicker) = HardwareWatchdog::start(WatchdogConfig::default(), || {
             // Emergency action runs on the watchdog's OS thread.
             // ShutterRegistry handles its own runtime bridging internally.
+            // Order: close shutters first (block beam), then disable emission,
+            // then stop motors, then zero DAQ outputs.
+
+            // 1. Close scripting-registered shutters (HeartbeatShutterGuard)
             ShutterRegistry::emergency_close_all();
+            // 2. Close ALL ShutterControl devices from the hardware registry
+            ShutterRegistry::emergency_close_all_shutters_from_registry();
+            // 3. Disable ALL EmissionControl devices
+            ShutterRegistry::emergency_disable_all_emission();
+            // 4. Stop motors and zero DAQ outputs
+            ShutterRegistry::emergency_stop_motors();
+            ShutterRegistry::emergency_zero_outputs();
         });
         println!("   Timeout: 30s (kicks from registry monitor task)");
         println!();

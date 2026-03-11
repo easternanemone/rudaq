@@ -59,6 +59,7 @@ polarization = ["scripting_full"]
 
 [dev-dependencies]
 tempfile = "3"
+toml.workspace = true
 
 [[bin]]
 name = "rhai-runner"
