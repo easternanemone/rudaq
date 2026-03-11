@@ -2703,6 +2703,9 @@ impl DaqApp {
     /// `DaqClient::connect_web` is synchronous (no async needed) — it creates
     /// the tonic-web-wasm-client channels immediately. Device list is fetched
     /// asynchronously after connection.
+    ///
+    /// Handles reconnection: clears stale device state before connecting so
+    /// that switching daemon URLs doesn't show devices from the old server.
     #[cfg(target_arch = "wasm32")]
     fn wasm_connect(&mut self, ctx: &egui::Context) {
         let url = self.wasm_connection.url_input.trim().to_string();
@@ -2710,6 +2713,9 @@ impl DaqApp {
             self.wasm_connection.status = "Enter a server URL".to_string();
             return;
         }
+
+        // Clear stale state from any previous connection (fixes beefcake-48ad)
+        self.wasm_disconnect();
 
         self.wasm_connection.connecting = true;
         self.wasm_connection.status = "Connecting...".to_string();
@@ -2725,6 +2731,30 @@ impl DaqApp {
         self.logging_panel
             .info("Connection", &format!("Connected to {}", url));
         ctx.request_repaint();
+    }
+
+    /// Reset all connection and device state for WASM.
+    /// Called before reconnecting to a different daemon URL.
+    #[cfg(target_arch = "wasm32")]
+    fn wasm_disconnect(&mut self) {
+        self.client = None;
+        self.daemon_version = None;
+        self.device_panel_info.clear();
+        self.docked_panels.clear();
+        self.docked_maitai_panels.clear();
+        self.docked_power_meter_panels.clear();
+        self.docked_rotator_panels.clear();
+        self.docked_stage_panels.clear();
+        self.docked_comedi_panels.clear();
+        self.docked_config_driven_panels.clear();
+        self.docked_command_widgets.clear();
+        self.grpc_ui_config_cache.clear();
+        self.was_connected = false;
+        self.device_reconcile_epoch += 1;
+        // Remove device control tabs from the dock
+        if let Some(ref mut dock) = self.dock_state {
+            dock.retain_tabs(|tab| !matches!(tab, Panel::DeviceControl { .. }));
+        }
     }
 
     /// Check and handle global keyboard shortcuts
@@ -3171,6 +3201,12 @@ impl eframe::App for DaqApp {
             }
         }
 
+        // --- Touch-friendly style for tablets (iPad/Android) ---
+        #[cfg(target_arch = "wasm32")]
+        if crate::layout::is_touch_device(ctx) {
+            crate::layout::apply_touch_style(ctx);
+        }
+
         // --- Cross-platform polling ---
         self.poll_device_reconcile(); // bd-vjzq
 
@@ -3214,6 +3250,14 @@ impl eframe::App for DaqApp {
                     );
                     if self.wasm_connection.connecting {
                         ui.spinner();
+                    } else if self.client.is_some() {
+                        if ui.button("Reconnect").clicked() {
+                            self.wasm_connect(ctx);
+                        }
+                        if ui.button("Disconnect").clicked() {
+                            self.wasm_disconnect();
+                            self.wasm_connection.status = "Disconnected".to_string();
+                        }
                     } else if ui.button("Connect").clicked()
                         || (response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
                     {

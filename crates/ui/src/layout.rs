@@ -56,6 +56,46 @@ pub fn section_frame(ui: &egui::Ui) -> egui::Frame {
         .inner_margin(PANEL_PADDING)
 }
 
+/// Returns `true` when running on a touch-primary device (tablet/phone).
+///
+/// On WASM, uses screen dimensions + touch support heuristics.
+/// On native, always returns `false`.
+pub fn is_touch_device(ctx: &egui::Context) -> bool {
+    #[cfg(target_arch = "wasm32")]
+    {
+        // egui tracks touch input availability — if we've seen any touch events
+        // or screen is tablet-sized, assume touch mode
+        #[allow(deprecated)] // content_rect() is egui 0.34+; we're on 0.33
+        let screen = ctx.screen_rect();
+        let has_touch_screen = ctx.input(|i| {
+            i.events
+                .iter()
+                .any(|e| matches!(e, egui::Event::Touch { .. }))
+        });
+        // iPad Pro max is 1366 logical px wide; phone < 768
+        let is_tablet_size = screen.width() <= 1400.0 && screen.height() >= 600.0;
+        has_touch_screen || is_tablet_size
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = ctx;
+        false
+    }
+}
+
+/// Minimum interactive element size for touch (Apple HIG: 44pt).
+pub const TOUCH_TARGET_MIN: f32 = 44.0;
+
+/// Apply touch-friendly spacing adjustments to the egui style.
+/// Call once per frame when `is_touch_device()` is true.
+pub fn apply_touch_style(ctx: &egui::Context) {
+    ctx.style_mut(|style| {
+        style.spacing.item_spacing = Vec2::new(6.0, 6.0);
+        style.spacing.button_padding = Vec2::new(12.0, 8.0);
+        style.spacing.interact_size.y = TOUCH_TARGET_MIN;
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
