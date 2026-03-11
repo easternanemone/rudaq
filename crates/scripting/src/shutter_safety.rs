@@ -1337,4 +1337,319 @@ mod tests {
             );
         }
     }
+
+    // ── Hanging device emergency shutdown tests ─────────────────────
+
+    /// A shutter that blocks for a long time on close_shutter(), simulating
+    /// a hung hardware device.
+    struct HangingShutter {
+        is_open: AtomicBool,
+        close_count: std::sync::atomic::AtomicU32,
+        hang_duration: Duration,
+    }
+
+    impl HangingShutter {
+        fn new(hang_duration: Duration) -> Arc<Self> {
+            Arc::new(Self {
+                is_open: AtomicBool::new(false),
+                close_count: std::sync::atomic::AtomicU32::new(0),
+                hang_duration,
+            })
+        }
+    }
+
+    #[async_trait]
+    impl ShutterControl for HangingShutter {
+        async fn open_shutter(&self) -> anyhow::Result<()> {
+            self.is_open.store(true, Ordering::SeqCst);
+            Ok(())
+        }
+
+        async fn close_shutter(&self) -> anyhow::Result<()> {
+            // Simulate a hung device — blocks for a long time
+            tokio::time::sleep(self.hang_duration).await;
+            self.is_open.store(false, Ordering::SeqCst);
+            self.close_count
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(())
+        }
+
+        async fn is_shutter_open(&self) -> anyhow::Result<bool> {
+            Ok(self.is_open.load(Ordering::SeqCst))
+        }
+    }
+
+    /// An emission control that blocks for a long time on disable_emission().
+    struct HangingEmission {
+        is_enabled: AtomicBool,
+        disable_count: std::sync::atomic::AtomicU32,
+        hang_duration: Duration,
+    }
+
+    impl HangingEmission {
+        fn new(hang_duration: Duration) -> Arc<Self> {
+            Arc::new(Self {
+                is_enabled: AtomicBool::new(false),
+                disable_count: std::sync::atomic::AtomicU32::new(0),
+                hang_duration,
+            })
+        }
+    }
+
+    #[async_trait]
+    impl hardware::capabilities::EmissionControl for HangingEmission {
+        async fn enable_emission(&self) -> anyhow::Result<()> {
+            self.is_enabled.store(true, Ordering::SeqCst);
+            Ok(())
+        }
+
+        async fn disable_emission(&self) -> anyhow::Result<()> {
+            tokio::time::sleep(self.hang_duration).await;
+            self.is_enabled.store(false, Ordering::SeqCst);
+            self.disable_count
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(())
+        }
+
+        async fn is_emission_enabled(&self) -> anyhow::Result<bool> {
+            Ok(self.is_enabled.load(Ordering::SeqCst))
+        }
+    }
+
+    /// Factory that produces a device with a hanging ShutterControl and
+    /// optionally a hanging EmissionControl.
+    struct HangingDeviceFactory {
+        shutter: Arc<HangingShutter>,
+        emission: Option<Arc<HangingEmission>>,
+    }
+
+    impl common::driver::DriverFactory for HangingDeviceFactory {
+        fn driver_type(&self) -> &'static str {
+            "hanging_device"
+        }
+
+        fn name(&self) -> &'static str {
+            "Hanging Device"
+        }
+
+        fn validate(&self, _config: &toml::Value) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        fn build(
+            &self,
+            _config: toml::Value,
+        ) -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<Output = anyhow::Result<common::driver::DeviceComponents>>
+                    + Send,
+            >,
+        > {
+            let shutter = self.shutter.clone();
+            let emission = self.emission.clone();
+            Box::pin(async move {
+                let mut components = common::driver::DeviceComponents::new()
+                    .with_shutter_control(shutter as Arc<dyn ShutterControl>);
+                if let Some(em) = emission {
+                    components = components.with_emission_control(em);
+                }
+                Ok(components)
+            })
+        }
+    }
+
+    /// Factory that produces a normal (non-hanging) mock device with
+    /// ShutterControl via MockShutter.
+    struct NormalShutterFactory {
+        shutter: Arc<MockShutter>,
+    }
+
+    impl common::driver::DriverFactory for NormalShutterFactory {
+        fn driver_type(&self) -> &'static str {
+            "normal_shutter"
+        }
+
+        fn name(&self) -> &'static str {
+            "Normal Shutter"
+        }
+
+        fn validate(&self, _config: &toml::Value) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        fn build(
+            &self,
+            _config: toml::Value,
+        ) -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<Output = anyhow::Result<common::driver::DeviceComponents>>
+                    + Send,
+            >,
+        > {
+            let shutter = self.shutter.clone();
+            Box::pin(async move {
+                Ok(common::driver::DeviceComponents::new()
+                    .with_shutter_control(shutter as Arc<dyn ShutterControl>))
+            })
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn test_emergency_close_with_hanging_shutter() {
+        use hardware::registry::DeviceRegistry;
+        use std::time::Instant as StdInstant;
+
+        // Create a hanging shutter (blocks for 5 seconds)
+        let hanging = HangingShutter::new(Duration::from_secs(5));
+        hanging.open_shutter().await.expect("open hanging shutter");
+
+        // Create a normal shutter
+        let normal = MockShutter::new();
+        normal.is_open.store(true, Ordering::SeqCst);
+
+        let registry = DeviceRegistry::new();
+
+        // Register the hanging device factory
+        registry.register_factory(Box::new(HangingDeviceFactory {
+            shutter: hanging.clone(),
+            emission: None,
+        }));
+
+        // Register the normal device factory
+        registry.register_factory(Box::new(NormalShutterFactory {
+            shutter: normal.clone(),
+        }));
+
+        registry
+            .register_from_toml(
+                "hanging_laser",
+                "Hanging Laser",
+                "hanging_device",
+                toml::Value::Table(Default::default()),
+            )
+            .await
+            .expect("register hanging device");
+
+        registry
+            .register_from_toml(
+                "normal_laser",
+                "Normal Laser",
+                "normal_shutter",
+                toml::Value::Table(Default::default()),
+            )
+            .await
+            .expect("register normal device");
+
+        let registry = Arc::new(registry);
+
+        // Store registry in ShutterRegistry
+        if let Ok(mut hw_guard) = ShutterRegistry::global().hardware_registry.lock() {
+            *hw_guard = Some(Arc::downgrade(&registry));
+        }
+
+        let start = StdInstant::now();
+
+        // Emergency close all shutters — should timeout the hanging device
+        ShutterRegistry::emergency_close_all_shutters_from_registry();
+
+        let elapsed = start.elapsed();
+
+        // The normal shutter should have been closed (its close_shutter is instant)
+        assert!(
+            !normal.is_open.load(Ordering::SeqCst),
+            "Normal shutter should be closed despite hanging device"
+        );
+
+        // Total time should be bounded by the per-device 2s timeout, NOT the 5s hang.
+        // Each device is processed sequentially with a 2s timeout, so worst case is ~4s.
+        assert!(
+            elapsed < Duration::from_secs(5),
+            "Emergency close should be bounded by timeout (~2s per device), not hang duration (5s). Elapsed: {elapsed:?}"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn test_emergency_disable_with_hanging_emission() {
+        use hardware::capabilities::EmissionControl;
+        use hardware::registry::DeviceRegistry;
+        use std::time::Instant as StdInstant;
+
+        // Create a hanging emission (blocks for 5 seconds on disable)
+        let hanging_em = HangingEmission::new(Duration::from_secs(5));
+        hanging_em
+            .enable_emission()
+            .await
+            .expect("enable hanging emission");
+
+        // Create a normal emission via mock laser
+        let registry = DeviceRegistry::new();
+
+        // Register the hanging device with emission control
+        registry.register_factory(Box::new(HangingDeviceFactory {
+            shutter: HangingShutter::new(Duration::from_secs(5)),
+            emission: Some(hanging_em.clone()),
+        }));
+
+        // Register a normal mock laser
+        registry.register_factory(Box::new(driver_mock::MockLaserFactory));
+
+        registry
+            .register_from_toml(
+                "hanging_emission_device",
+                "Hanging Emission Device",
+                "hanging_device",
+                toml::Value::Table(Default::default()),
+            )
+            .await
+            .expect("register hanging emission device");
+
+        registry
+            .register_from_toml(
+                "normal_laser",
+                "Normal Laser",
+                "mock_laser",
+                toml::Value::Table(Default::default()),
+            )
+            .await
+            .expect("register normal laser");
+
+        // Enable emission on the normal laser (shutter must be closed first)
+        let normal_emission = registry
+            .get_emission_control("normal_laser")
+            .expect("normal laser has emission control");
+        normal_emission
+            .enable_emission()
+            .await
+            .expect("enable normal emission");
+        assert!(normal_emission
+            .is_emission_enabled()
+            .await
+            .expect("query normal emission"));
+
+        let registry = Arc::new(registry);
+
+        // Store registry in ShutterRegistry
+        if let Ok(mut hw_guard) = ShutterRegistry::global().hardware_registry.lock() {
+            *hw_guard = Some(Arc::downgrade(&registry));
+        }
+
+        let start = StdInstant::now();
+
+        // Emergency disable all emission
+        ShutterRegistry::emergency_disable_all_emission();
+
+        let elapsed = start.elapsed();
+
+        // Normal emission should be disabled
+        assert!(
+            !normal_emission.is_emission_enabled().await.expect("query"),
+            "Normal emission should be disabled despite hanging device"
+        );
+
+        // Total time should be bounded by 2s timeout per device, not 5s hang
+        assert!(
+            elapsed < Duration::from_secs(5),
+            "Emergency disable should be bounded by timeout, not hang duration. Elapsed: {elapsed:?}"
+        );
+    }
 }
