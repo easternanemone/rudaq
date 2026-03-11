@@ -2676,6 +2676,93 @@ initial_position = 0.0
         assert!(!result, "Should return false for nonexistent device");
     }
 
+    // ── HeartbeatConfig deserialization tests (bd-nfav) ─────────────
+
+    #[test]
+    fn test_heartbeat_config_all_fields() {
+        let toml_str = r#"
+            enabled = false
+            device = "/dev/comedi0"
+            subdevice = 2
+            channel = 7
+            interval_ms = 50
+        "#;
+
+        let config: super::HeartbeatConfig =
+            toml::from_str(toml_str).expect("should deserialize HeartbeatConfig with all fields");
+        assert!(!config.enabled);
+        assert_eq!(config.device, "/dev/comedi0");
+        assert_eq!(config.subdevice, Some(2));
+        assert_eq!(config.channel, 7);
+        assert_eq!(config.interval_ms, 50);
+    }
+
+    #[test]
+    fn test_heartbeat_config_required_fields_only() {
+        let toml_str = r#"
+            device = "/dev/comedi0"
+            channel = 3
+        "#;
+
+        let config: super::HeartbeatConfig = toml::from_str(toml_str)
+            .expect("should deserialize HeartbeatConfig with required fields only");
+        assert!(config.enabled, "enabled should default to true");
+        assert_eq!(config.device, "/dev/comedi0");
+        assert_eq!(config.subdevice, None, "subdevice should default to None");
+        assert_eq!(config.channel, 3);
+        assert_eq!(config.interval_ms, 100, "interval_ms should default to 100");
+    }
+
+    #[test]
+    fn test_hardware_config_without_heartbeat() {
+        let toml_str = r#"
+            [[devices]]
+            id = "test_stage"
+            name = "Test Stage"
+            [devices.driver]
+            type = "mock_stage"
+        "#;
+
+        let config: super::HardwareConfig = toml::from_str(toml_str)
+            .expect("should deserialize HardwareConfig without safety_heartbeat");
+        assert!(
+            config.safety_heartbeat.is_none(),
+            "safety_heartbeat should be None when section is absent"
+        );
+    }
+
+    #[test]
+    fn test_hardware_config_with_heartbeat() {
+        let toml_str = r#"
+            [[devices]]
+            id = "test_stage"
+            name = "Test Stage"
+            [devices.driver]
+            type = "mock_stage"
+
+            [safety_heartbeat]
+            device = "/dev/comedi0"
+            channel = 5
+        "#;
+
+        let config: super::HardwareConfig = toml::from_str(toml_str)
+            .expect("should deserialize HardwareConfig with safety_heartbeat");
+        let hb = config
+            .safety_heartbeat
+            .expect("safety_heartbeat should be Some");
+        assert!(hb.enabled, "enabled should default to true");
+        assert_eq!(hb.device, "/dev/comedi0");
+        assert_eq!(hb.channel, 5);
+        assert_eq!(hb.interval_ms, 100, "interval_ms should default to 100");
+    }
+
+    #[test]
+    fn test_heartbeat_config_defaults() {
+        // Verify the default helper functions return expected values
+        assert!(super::default_heartbeat_enabled());
+        assert_eq!(super::default_heartbeat_interval_ms(), 100);
+    }
+
     #[tokio::test]
     async fn test_device_metadata_preserved() {
         let registry = create_mock_registry().await.unwrap();
