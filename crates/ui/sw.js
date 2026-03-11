@@ -10,11 +10,13 @@ self.addEventListener('install', (event) => {
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((names) =>
-      Promise.all(names.filter((n) => n !== CACHE_NAME).map((n) => caches.delete(n)))
-    )
+    Promise.all([
+      caches.keys().then((names) =>
+        Promise.all(names.filter((n) => n !== CACHE_NAME).map((n) => caches.delete(n)))
+      ),
+      self.clients.claim(),
+    ])
   );
-  self.clients.claim();
 });
 
 self.addEventListener('fetch', (event) => {
@@ -33,11 +35,20 @@ self.addEventListener('fetch', (event) => {
       fetch(event.request)
         .then((response) => {
           if (response.ok) {
-            cache.put(event.request, response.clone());
+            event.waitUntil(cache.put(event.request, response.clone()));
           }
           return response;
         })
-        .catch(() => cache.match(event.request))
+        .catch(async () => {
+          const cached = await cache.match(event.request);
+          if (cached) {
+            return cached;
+          }
+          return new Response('Offline', {
+            status: 503,
+            headers: { 'Content-Type': 'text/plain' },
+          });
+        })
     )
   );
 });

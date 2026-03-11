@@ -65,7 +65,7 @@ pub fn is_touch_device(ctx: &egui::Context) -> bool {
     {
         // egui tracks touch input availability — if we've seen any touch events
         // or screen is tablet-sized, assume touch mode
-        #[allow(deprecated)] // content_rect() is egui 0.34+; we're on 0.33
+        #[allow(deprecated)] // screen_rect() deprecated in newer egui; content_rect() is 0.34+
         let screen = ctx.screen_rect();
         let has_touch_screen = ctx.input(|i| {
             i.events
@@ -87,7 +87,9 @@ pub fn is_touch_device(ctx: &egui::Context) -> bool {
 pub const TOUCH_TARGET_MIN: f32 = 44.0;
 
 /// Apply touch-friendly spacing adjustments to the egui style.
-/// Call once per frame when `is_touch_device()` is true.
+///
+/// Call once at startup (or when touch mode is first detected). The style
+/// persists in the egui `Context` until overwritten.
 pub fn apply_touch_style(ctx: &egui::Context) {
     ctx.style_mut(|style| {
         style.spacing.item_spacing = Vec2::new(6.0, 6.0);
@@ -132,5 +134,36 @@ mod tests {
         assert_eq!(colors::CONNECTED, colors::SUCCESS);
         assert_eq!(colors::CONNECTING, colors::WARNING);
         assert_eq!(colors::RECONNECTING, colors::WARNING);
+    }
+
+    #[test]
+    fn test_touch_target_minimum() {
+        // Apple HIG requires 44pt minimum for touch targets
+        assert_eq!(TOUCH_TARGET_MIN, 44.0);
+    }
+
+    #[test]
+    fn test_is_touch_device_native_returns_false() {
+        let ctx = egui::Context::default();
+        assert!(!is_touch_device(&ctx));
+    }
+
+    #[test]
+    fn test_apply_touch_style_updates_interact_size() {
+        let ctx = egui::Context::default();
+        let default_interact_y = ctx.style().spacing.interact_size.y;
+        apply_touch_style(&ctx);
+        let touch_interact_y = ctx.style().spacing.interact_size.y;
+        assert_eq!(touch_interact_y, TOUCH_TARGET_MIN);
+        assert!(touch_interact_y > default_interact_y);
+    }
+
+    #[test]
+    fn test_apply_touch_style_updates_spacing() {
+        let ctx = egui::Context::default();
+        apply_touch_style(&ctx);
+        let style = ctx.style();
+        assert_eq!(style.spacing.item_spacing, Vec2::new(6.0, 6.0));
+        assert_eq!(style.spacing.button_padding, Vec2::new(12.0, 8.0));
     }
 }
