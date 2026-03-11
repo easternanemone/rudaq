@@ -297,11 +297,81 @@ impl DoverAxisDriver {
 
 impl Drop for DoverAxisDriver {
     fn drop(&mut self) {
-        // Clean up Dover Motion resources
-        // In a real implementation, you would call:
-        // unsafe { MotionSynergyAPI_Shutdown(api); }
+        // TODO(bd-qude): dover-motion-sys does not yet expose Stop/Shutdown FFI functions
+        // in mock mode (dummy bindings). When the `dover-sdk` feature provides real bindings,
+        // this Drop impl MUST be updated to:
+        //
+        // 1. Stop axis motion:
+        //    unsafe { IAxisDevice_Stop(handle) }
+        //    A moving stage that outlives its driver is a collision/damage risk.
+        //
+        // 2. Release the axis handle / shutdown the SDK:
+        //    unsafe { MotionSynergyAPI_Shutdown(api) }
+        //
+        // All FFI calls must be wrapped in unsafe blocks with SAFETY comments,
+        // errors must be logged (not panicked), and the handle must be nulled.
 
-        tracing::debug!("Dover Motion axis '{}' dropped", self.axis_name);
+        let handle_ptr = {
+            // try_lock: Drop must not block indefinitely. If the mutex is poisoned
+            // or contended we still warn and bail — never panic in Drop.
+            match self.axis_handle.try_lock() {
+                Ok(guard) => guard.0,
+                Err(_) => {
+                    tracing::warn!(
+                        axis = %self.axis_name,
+                        "Dover Motion Drop: could not acquire axis handle lock — \
+                         skipping cleanup (stage may still be in motion)"
+                    );
+                    return;
+                }
+            }
+        };
+
+        // Guard: the dummy handle (0x1) produced by initialize_sdk is not a real
+        // SDK pointer. Skip FFI teardown when running without the real SDK.
+        if handle_ptr.is_null() || handle_ptr == 0x1 as *mut std::os::raw::c_void {
+            tracing::debug!(
+                axis = %self.axis_name,
+                "Dover Motion axis dropped (no real SDK handle — skipping FFI teardown)"
+            );
+            return;
+        }
+
+        // --- Real SDK path (currently unreachable without dover-sdk feature) ---
+        //
+        // SAFETY: handle_ptr was returned by the Dover Motion SDK during initialize_sdk
+        // and has not been freed. We hold the Mutex lock so no concurrent access is
+        // possible. Stop() is documented as safe to call at any time (Section 6.2.2).
+        //
+        // When real bindings are available, uncomment:
+        // unsafe {
+        //     // Step 1: Halt motion — prevents collision damage on teardown.
+        //     let stop_result = IAxisDevice_Stop(handle_ptr as *mut IAxisDevice);
+        //     if stop_result != 0 {
+        //         tracing::warn!(
+        //             axis = %self.axis_name,
+        //             code = stop_result,
+        //             "Dover Motion Drop: Stop() failed"
+        //         );
+        //     }
+        //
+        //     // Step 2: Release the axis / shutdown the API session.
+        //     let shutdown_result = MotionSynergyAPI_Shutdown(handle_ptr as *mut MotionSynergyAPI);
+        //     if shutdown_result != 0 {
+        //         tracing::warn!(
+        //             axis = %self.axis_name,
+        //             code = shutdown_result,
+        //             "Dover Motion Drop: Shutdown() failed"
+        //         );
+        //     }
+        // }
+
+        tracing::warn!(
+            axis = %self.axis_name,
+            "Dover Motion axis dropped with a live SDK handle but safe-state \
+             shutdown is not yet implemented — stage may still be in motion. \
+             See TODO(bd-qude) in DoverAxisDriver::Drop."
+        );
     }
 }
 
@@ -509,5 +579,48 @@ impl TriggerOnPosition for DoverAxisDriver {
     #[instrument(skip(self), fields(axis = %self.axis_name), err)]
     async fn is_top_enabled(&self) -> Result<bool> {
         Ok(self.top_enabled_param.get())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_drop_does_not_panic() {
+        // Create a DoverAxisDriver with the dummy handle and immediately drop it.
+        // This exercises the Drop path with the placeholder 0x1 handle.
+        let driver = DoverAxisDriver::new_async("/dev/null", "test_axis", "USB").await;
+        // new_async should succeed with the dummy implementation
+        assert!(driver.is_ok(), "new_async should succeed with dummy SDK");
+        let driver = driver.expect("already checked");
+        // Explicit drop — must not panic
+        drop(driver);
+    }
+
+    #[tokio::test]
+    async fn test_drop_with_null_handle() {
+        // Construct a driver with a null handle to exercise that branch of Drop.
+        let mut params = ParameterSet::new();
+        let position = Parameter::new("position", 0.0);
+        let velocity = Parameter::new("velocity", 1.0);
+        let acceleration = Parameter::new("acceleration", 10.0);
+        let top_enabled = Parameter::new("top_enabled", false);
+        params.register(position.clone());
+        params.register(velocity.clone());
+        params.register(acceleration.clone());
+        params.register(top_enabled.clone());
+
+        let driver = DoverAxisDriver {
+            axis_handle: Arc::new(Mutex::new(AxisHandle(ptr::null_mut()))),
+            axis_name: "null_test".to_string(),
+            position_param: position,
+            velocity_param: velocity,
+            acceleration_param: acceleration,
+            params: Arc::new(params),
+            top_enabled_param: top_enabled,
+        };
+        // Must not panic
+        drop(driver);
     }
 }
