@@ -19,13 +19,14 @@ This document defines the panic safety architecture that gracefully shuts down a
 
 **Defense-in-depth panic safety with guaranteed hardware shutdown, even without async runtime.**
 
-The safety mechanism uses six coordinated layers:
+The safety mechanism uses seven coordinated layers:
 1. Rust control flow (basic safety)
 2. Heartbeat watchdog (hang detection)
 3. Signal handlers (graceful shutdown on SIGTERM/SIGINT)
 4. Pre-allocated emergency runtime (async in panic context)
 5. Panic hook with hardware shutdown sequence
 6. Hardware interlocks (external, recommended)
+7. SafetyHeartbeat (proactive DIO pulse for external interlock)
 
 ---
 
@@ -185,7 +186,7 @@ fn get_or_create_runtime() -> Option<Handle> {
 
 ### Layer 5: Panic Hook with Hardware Shutdown Sequence
 
-When a panic is detected, the panic hook executes a three-phase emergency shutdown:
+When a panic is detected, the panic hook executes a five-step emergency shutdown. The same sequence is also used by the `HardwareWatchdog` when the daemon loop hangs:
 
 ```rust
 pub fn install_panic_hook_with_hardware(
@@ -196,16 +197,16 @@ pub fn install_panic_hook_with_hardware(
     std::panic::set_hook(Box::new(move |info| {
         error!("PANIC detected - attempting emergency hardware shutdown");
 
-        // Three-phase shutdown in order of safety priority:
-        // Phase 1: Close all laser shutters (fastest, most critical)
+        // 5-step shutdown in order of safety priority:
+        // 1. Close scripting-registered shutters (ShutterRegistry)
         Self::emergency_close_all();
-
-        // Phase 2: Stop all motors (Movable devices)
-        // Prevents injuries from suddenly energized motion
+        // 2. Close ALL ShutterControl devices from DeviceRegistry
+        Self::emergency_close_all_shutters_from_registry();
+        // 3. Disable ALL EmissionControl devices from DeviceRegistry
+        Self::emergency_disable_all_emission();
+        // 4. Stop all motors (Movable devices)
         Self::emergency_stop_motors();
-
-        // Phase 3: Zero critical DAQ outputs (Settable devices)
-        // Sets EOM control and other analog outputs to safe state
+        // 5. Zero critical DAQ outputs (Settable devices)
         Self::emergency_zero_outputs();
 
         // Call the default hook to print the panic message
@@ -214,9 +215,13 @@ pub fn install_panic_hook_with_hardware(
 }
 ```
 
-**Shutdown Phases:**
+**Shutdown ordering rationale:** Shutters are closed first because they can block the beam immediately. EmissionControl devices (laser sources) are disabled next. Motors are stopped to prevent uncontrolled motion. DAQ outputs are zeroed last to bring analog signals (e.g., EOM control voltage) to a safe state.
 
-#### Phase 1: Emergency Close All Shutters
+**Registry-based enumeration:** Steps 2-5 use `DeviceRegistry::devices_with_capability()` to discover ALL devices implementing a given capability, not just those registered via scripting. This ensures that devices opened via gRPC or direct API calls are also covered.
+
+**Shutdown Steps:**
+
+#### Step 1: Emergency Close All Shutters (Scripting-Registered)
 
 ```rust
 pub fn emergency_close_all() {
@@ -287,67 +292,69 @@ pub fn emergency_close_all() {
 - **Parallel execution:** All shutters closed in parallel (2-second timeout per shutter)
 - **Graceful failure:** Logs errors but continues to next phase
 
-#### Phase 2: Emergency Stop Motors
+#### Step 2: Emergency Close All Shutters (Registry)
+
+```rust
+fn emergency_close_all_shutters_from_registry() {
+    // Queries DeviceRegistry::devices_with_capability(Capability::ShutterControl)
+    // Covers shutters opened via gRPC/direct API (not just scripting guards)
+    // Same bridge-thread + 2s timeout pattern as step 1
+}
+```
+
+#### Step 3: Emergency Disable All Emission
+
+```rust
+fn emergency_disable_all_emission() {
+    // Queries DeviceRegistry::devices_with_capability(Capability::EmissionControl)
+    // Calls disable_emission() on each device (turns off laser sources)
+    // Same bridge-thread + 2s timeout pattern
+}
+```
+
+#### Step 4: Emergency Stop Motors
 
 ```rust
 fn emergency_stop_motors() {
-    warn!("EMERGENCY: Stopping all motors");
-
-    let registry: Option<Arc<DeviceRegistry>> = {
-        match Self::global().hardware_registry.try_lock() {
-            Ok(guard) => guard.as_ref().and_then(|weak| weak.upgrade()),
-            Err(_) => {
-                error!("Failed to acquire hardware registry lock (deadlock risk)");
-                return;
-            }
-        }
-    };
-
-    let devices = registry.list_devices();
-    let movable_devices: Vec<_> = devices
-        .iter()
-        .filter(|d| d.capabilities.contains(&Capability::Movable))
-        .collect();
-
-    for (i, device_info) in movable_devices.iter().enumerate() {
-        if let Some(motor) = registry.get_movable(&device_info.id) {
-            // Spawn each motor stop in a separate thread to avoid blocking
-            std::thread::spawn(move || {
-                if let Some(handle) = Self::get_or_create_runtime() {
-                    handle.block_on(async {
-                        match tokio::time::timeout(
-                            Duration::from_secs(2),
-                            motor.stop(),
-                        ).await {
-                            Ok(Ok(())) => {
-                                info!(device_id = %device_info.id, "Emergency motor stop: SUCCESS");
-                            }
-                            Ok(Err(e)) => {
-                                error!(device_id = %device_info.id, error = %e, "Emergency motor stop: FAILED");
-                            }
-                            Err(_) => {
-                                error!(device_id = %device_info.id, "Emergency motor stop: TIMEOUT (2s)");
-                            }
-                        }
-                    });
-                }
-            });
-        }
-    }
+    // Lists devices with Capability::Movable
+    // Calls stop() on each motor with 2s timeout
+    // Same bridge-thread pattern
 }
 ```
 
-#### Phase 3: Emergency Zero Outputs
+#### Step 5: Emergency Zero Outputs
 
 ```rust
 fn emergency_zero_outputs() {
-    warn!("EMERGENCY: Zeroing DAQ analog outputs");
-
-    // Similar pattern: try_lock, filter Settable devices, set "value" to 0.0
-    // Each output zeroed with 2-second timeout
+    // Lists devices with Capability::Settable
+    // Sets "value" parameter to 0.0 with 2s timeout
     // Prevents EOM amplifier from remaining at active levels
 }
 ```
+
+---
+
+### Layer 7: SafetyHeartbeat - External Hardware Interlock via Comedi DIO
+
+The SafetyHeartbeat is a proactive safety mechanism that toggles a Comedi digital output channel at a fixed interval (default 100ms). An external hardware interlock circuit monitors this pulse train: if the daemon crashes, hangs, or the process is killed, the pulse stops and the external circuitry cuts laser power.
+
+Unlike the software layers above (which react to failures), the SafetyHeartbeat provides continuous proof-of-liveness to external hardware. It protects against failure modes that software cannot catch, including SIGKILL and total process death.
+
+**Implementation:** A Tokio task toggles the DIO channel via `spawn_blocking` (Comedi FFI). Transient toggle errors are retried; after 10 consecutive failures, the task stops (the missing pulse triggers the external interlock). On graceful shutdown, the channel is driven LOW before the task exits.
+
+**Configuration:** Via `[safety_heartbeat]` in the hardware TOML config:
+
+```toml
+[safety_heartbeat]
+enabled = true
+device = "/dev/comedi0"
+channel = 0
+interval_ms = 100
+```
+
+**Feature gate:** Only compiled with `comedi_hardware`. On non-Comedi builds, the heartbeat is silently skipped.
+
+**Source:** `crates/bin/src/safety_heartbeat_task.rs`
 
 ---
 
@@ -644,9 +651,11 @@ ShutterRegistry::install_panic_hook_with_hardware(&registry);
 
 // Application runs normally
 // If panic occurs, automatically:
-// 1. Closes all laser shutters
-// 2. Stops all motors
-// 3. Zeros critical DAQ outputs
+// 1. Closes scripting-registered shutters (ShutterRegistry)
+// 2. Closes ALL ShutterControl devices from DeviceRegistry
+// 3. Disables ALL EmissionControl devices
+// 4. Stops all motors
+// 5. Zeros critical DAQ outputs
 ```
 
 **Coverage:** Catches panics and gracefully shuts down all hardware.
@@ -714,7 +723,9 @@ error!(shutter_index = 2, "Emergency shutter close: TIMEOUT (2s)");
 - [x] All devices have individual 2-second timeout
 - [x] Idempotency guards prevent duplicate execution
 - [x] Signal handlers (SIGTERM, SIGINT) trigger graceful shutdown
-- [x] Panic hook executes three-phase shutdown sequence
+- [x] Panic hook executes five-step shutdown sequence (shutters, registry shutters, emission, motors, DAQ)
+- [x] HardwareWatchdog fires the same five-step sequence on timeout
+- [x] SafetyHeartbeat provides proactive DIO pulse for external hardware interlock
 - [x] Comprehensive logging at all failure points
 - [x] Documentation clarifies software limitations vs. required hardware interlocks
 
@@ -725,6 +736,8 @@ error!(shutter_index = 2, "Emergency shutter close: TIMEOUT (2s)");
 - [Shutter Safety Module](../../crates/scripting/src/shutter_safety.rs)
 - [HeartbeatShutterGuard Implementation](../../crates/scripting/src/shutter_safety.rs#L649-L844)
 - [Global Shutter Registry](../../crates/scripting/src/shutter_safety.rs#L100-L627)
+- [SafetyHeartbeat Task](../../crates/bin/src/safety_heartbeat_task.rs)
+- [HardwareWatchdog](../../crates/common/src/health/watchdog.rs)
 
 ---
 
@@ -733,3 +746,4 @@ error!(shutter_index = 2, "Emergency shutter close: TIMEOUT (2s)");
 | Date | Author | Description |
 |------|--------|-------------|
 | 2026-02-02 | bd-vmfp.2 | Initial panic safety architecture documentation |
+| 2026-03-11 | docs update | Add SafetyHeartbeat (Layer 7), update to 5-step emergency shutdown, document registry-based enumeration |

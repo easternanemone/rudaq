@@ -182,9 +182,55 @@ The daemon exposes a `HealthService` via gRPC with these RPCs:
 
 ### Hardware watchdog
 
-A `HardwareWatchdog` runs inside the daemon and monitors device liveness.
-It is automatically disarmed during graceful shutdown to prevent false
-emergency triggers.
+A `HardwareWatchdog` runs on a dedicated OS thread (not a Tokio task) inside
+the daemon and monitors daemon liveness. The daemon's registry monitor task
+kicks the watchdog every 10 seconds; if the Tokio runtime hangs or deadlocks,
+the watchdog fires a 5-step emergency shutdown sequence:
+
+1. Close scripting-registered shutters (`ShutterRegistry`)
+2. Close ALL `ShutterControl` devices from the `DeviceRegistry`
+3. Disable ALL `EmissionControl` devices (laser sources)
+4. Stop all motors (`Movable` devices)
+5. Zero all DAQ analog outputs (`Settable` devices)
+
+The ordering prioritizes beam blocking (shutters, then emission disable)
+before addressing mechanical motion and analog outputs. Each device
+operation has a 2-second timeout to prevent a single unresponsive device
+from blocking the rest of the sequence.
+
+The watchdog is automatically disarmed during graceful shutdown to prevent
+false emergency triggers. Default timeout: 30 seconds.
+
+See [ADR-004](../adr/004-panic-safety.md) for the full safety architecture.
+
+### Safety heartbeat
+
+When running on hardware with Comedi DAQ support (`comedi_hardware` feature),
+the daemon can drive an external hardware interlock via a DIO pulse train.
+A Tokio task toggles a digital output channel at a fixed interval (default
+100ms). If the daemon crashes, hangs, or is killed, the pulse stops and the
+external interlock circuit cuts laser power.
+
+This is a proactive safety measure that protects against failure modes
+software cannot catch (SIGKILL, power loss, total process death).
+
+**Configuration** in the hardware TOML file:
+
+```toml
+[safety_heartbeat]
+enabled = true          # Whether the heartbeat is active (default: true)
+device = "/dev/comedi0" # Comedi device path
+# subdevice = 2         # DIO subdevice index (omit to auto-detect)
+channel = 0             # DIO channel number to toggle
+interval_ms = 100       # Toggle interval in milliseconds (default: 100)
+```
+
+The heartbeat task is only compiled when the `comedi_hardware` feature is
+enabled. On non-Comedi builds, the configuration is silently ignored.
+
+On graceful shutdown, the channel is driven LOW before the task exits. If
+the toggle encounters 10 consecutive failures, the task stops (the external
+interlock detects the missing pulse and triggers its own shutdown).
 
 ### Database readiness (SurrealDB)
 

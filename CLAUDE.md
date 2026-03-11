@@ -65,7 +65,7 @@ Services & Storage
   storage          ← RingBuffer (mmap, seqlock), HDF5, Arrow IPC, Parquet, Tiff, Zarr writers
 
 Applications
-  bin              ← CLI daemon (mimalloc allocator), reconciler, safety sentinel
+  bin              ← CLI daemon (mimalloc allocator), reconciler, safety sentinel, safety heartbeat
   ui               ← Web-based user interface
 
 Testing
@@ -85,6 +85,8 @@ Testing
 **`Plan` + `RunEngine`** (`experiment/src/`): Bluesky-inspired. Plans yield `PlanCommand` variants (`MoveTo`, `Read`, `Trigger`, `Wait`, `Checkpoint`, `EmitEvent`, `Set`). RunEngine executes them as a state machine (`Idle → Running → Paused → Aborting`) and emits Bluesky-style documents (`Start`, `Descriptor`, `Event`, `Stop`, `Manifest`). `Set` variant: `Set { device_id, parameter, value }` — set a device parameter.
 
 **`RingBuffer`** (`storage/src/ring_buffer.rs`): mmap-backed circular buffer with seqlock for lock-free reads. Uses Apache Arrow IPC format. "Tap" consumers receive every Nth frame via async channel for live visualization without blocking writers.
+
+**SafetyHeartbeat** (`bin/src/safety_heartbeat_task.rs`): Toggles a Comedi DIO channel at 100ms to drive an external hardware interlock. Feature-gated on `comedi_hardware`. **HardwareWatchdog** (`common/src/health/watchdog.rs`): Dedicated OS thread fires a 5-step emergency shutdown (close shutters, disable emission, stop motors, zero DAQ outputs) if the Tokio runtime hangs. See [ADR-004](docs/adr/004-panic-safety.md).
 
 **Frame streaming compression** (`protocol/src/compression.rs`): LZ4 compression for camera frame data. Use the buffer-reuse variants (`compress_frame_into`, `decompress_frame_into`) on hot paths — they write into pre-allocated `Vec<u8>` buffers via `std::mem::swap`, eliminating per-frame heap allocations. The server runs a dedicated `std::thread` per stream for compression; the client reuses a decompression buffer in its streaming loop. See [ADR-014](docs/adr/014-frame-streaming-buffer-reuse.md).
 

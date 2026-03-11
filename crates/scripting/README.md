@@ -91,6 +91,24 @@ Important source modules include:
 - HDF5 paths and Comedi device paths are validated before use.
 - `with_shutter_open(...)` should be preferred for any script that needs beam-on sections.
 
+### shutter_safety module
+
+The `shutter_safety` module (`shutter_safety.rs`) provides the `ShutterRegistry`
+and `HeartbeatShutterGuard` for defense-in-depth hardware safety. The panic hook
+(installed via `install_panic_hook_with_hardware()`) runs a 5-step emergency
+shutdown sequence:
+
+1. `emergency_close_all()` — Close scripting-registered shutters
+2. `emergency_close_all_shutters_from_registry()` — Close ALL `ShutterControl` devices from the `DeviceRegistry`
+3. `emergency_disable_all_emission()` — Disable ALL `EmissionControl` devices (laser sources)
+4. `emergency_stop_motors()` — Stop all `Movable` devices
+5. `emergency_zero_outputs()` — Zero all `Settable` DAQ outputs
+
+All five functions are public and use the bridge-thread pattern to execute
+async hardware calls from sync/panic contexts. Each device operation has a
+2-second timeout. The same sequence is used by the `HardwareWatchdog` in
+the bin crate. See [ADR-004](../../docs/adr/004-panic-safety.md).
+
 ## Related Docs
 
 - `docs/how-to/scripting.md`
