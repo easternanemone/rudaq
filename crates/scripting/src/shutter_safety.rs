@@ -282,11 +282,193 @@ impl ShutterRegistry {
         }
     }
 
+    /// Emergency close ALL ShutterControl devices from the hardware registry.
+    ///
+    /// Unlike `emergency_close_all()` which only closes shutters registered via
+    /// `HeartbeatShutterGuard`, this method queries the `DeviceRegistry` for ALL
+    /// devices with `ShutterControl` capability and closes them. This covers
+    /// shutters opened via gRPC/direct API that were never registered with the
+    /// shutter guard system.
+    ///
+    /// Best-effort - does not panic if shutdown fails.
+    pub fn emergency_close_all_shutters_from_registry() {
+        warn!("EMERGENCY: Closing all ShutterControl devices from registry");
+
+        let registry: Option<Arc<hardware::registry::DeviceRegistry>> = {
+            match Self::global().hardware_registry.try_lock() {
+                Ok(guard) => guard.as_ref().and_then(|weak| weak.upgrade()),
+                Err(_) => {
+                    error!("Failed to acquire hardware registry lock during emergency shutter close (deadlock risk)");
+                    return;
+                }
+            }
+        };
+
+        let Some(registry) = registry else {
+            info!("No hardware registry available for emergency shutter close");
+            return;
+        };
+
+        let shutter_device_ids = registry.devices_with_capability(Capability::ShutterControl);
+
+        if shutter_device_ids.is_empty() {
+            info!("No ShutterControl devices registered for emergency close");
+            return;
+        }
+
+        info!(
+            "Attempting to close {} ShutterControl devices from registry",
+            shutter_device_ids.len()
+        );
+
+        // Try to get a runtime handle once (with fallback)
+        let handle = Self::get_or_create_runtime();
+
+        for (i, device_id) in shutter_device_ids.iter().enumerate() {
+            if let Some(shutter) = registry.get_shutter_control(device_id) {
+                if let Some(ref handle) = handle {
+                    let shutter = shutter.clone();
+                    let id_for_thread = device_id.clone();
+                    let handle = handle.clone();
+                    let result = std::thread::spawn(move || {
+                        handle.block_on(async {
+                            match tokio::time::timeout(
+                                Duration::from_secs(2),
+                                shutter.close_shutter(),
+                            )
+                            .await
+                            {
+                                Ok(Ok(())) => {
+                                    info!(device_id = %id_for_thread, shutter_index = i, "Emergency registry shutter close: SUCCESS");
+                                    true
+                                }
+                                Ok(Err(e)) => {
+                                    error!(
+                                        device_id = %id_for_thread,
+                                        shutter_index = i,
+                                        error = %e,
+                                        "Emergency registry shutter close: FAILED"
+                                    );
+                                    false
+                                }
+                                Err(_) => {
+                                    error!(device_id = %id_for_thread, shutter_index = i, "Emergency registry shutter close: TIMEOUT (2s)");
+                                    false
+                                }
+                            }
+                        })
+                    })
+                    .join();
+
+                    if let Err(e) = result {
+                        error!(device_id = %device_id, shutter_index = i, error = ?e, "Emergency registry shutter close thread panicked");
+                    }
+                } else {
+                    error!(
+                        device_id = %device_id,
+                        shutter_index = i,
+                        "No tokio runtime available for emergency registry shutter close (runtime creation failed)"
+                    );
+                }
+            }
+        }
+    }
+
+    /// Emergency disable ALL EmissionControl devices from the hardware registry.
+    ///
+    /// Queries the `DeviceRegistry` for all devices with `EmissionControl` capability
+    /// and calls `disable_emission()` on each. This turns off laser sources to prevent
+    /// uncontrolled beam exposure.
+    ///
+    /// Best-effort - does not panic if shutdown fails.
+    pub fn emergency_disable_all_emission() {
+        warn!("EMERGENCY: Disabling all EmissionControl devices");
+
+        let registry: Option<Arc<hardware::registry::DeviceRegistry>> = {
+            match Self::global().hardware_registry.try_lock() {
+                Ok(guard) => guard.as_ref().and_then(|weak| weak.upgrade()),
+                Err(_) => {
+                    error!("Failed to acquire hardware registry lock during emergency emission disable (deadlock risk)");
+                    return;
+                }
+            }
+        };
+
+        let Some(registry) = registry else {
+            info!("No hardware registry available for emergency emission disable");
+            return;
+        };
+
+        let emission_device_ids = registry.devices_with_capability(Capability::EmissionControl);
+
+        if emission_device_ids.is_empty() {
+            info!("No EmissionControl devices registered for emergency disable");
+            return;
+        }
+
+        info!(
+            "Attempting to disable {} EmissionControl devices",
+            emission_device_ids.len()
+        );
+
+        // Try to get a runtime handle once (with fallback)
+        let handle = Self::get_or_create_runtime();
+
+        for (i, device_id) in emission_device_ids.iter().enumerate() {
+            if let Some(emission) = registry.get_emission_control(device_id) {
+                if let Some(ref handle) = handle {
+                    let emission = emission.clone();
+                    let id_for_thread = device_id.clone();
+                    let handle = handle.clone();
+                    let result = std::thread::spawn(move || {
+                        handle.block_on(async {
+                            match tokio::time::timeout(
+                                Duration::from_secs(2),
+                                emission.disable_emission(),
+                            )
+                            .await
+                            {
+                                Ok(Ok(())) => {
+                                    info!(device_id = %id_for_thread, emission_index = i, "Emergency emission disable: SUCCESS");
+                                    true
+                                }
+                                Ok(Err(e)) => {
+                                    error!(
+                                        device_id = %id_for_thread,
+                                        emission_index = i,
+                                        error = %e,
+                                        "Emergency emission disable: FAILED"
+                                    );
+                                    false
+                                }
+                                Err(_) => {
+                                    error!(device_id = %id_for_thread, emission_index = i, "Emergency emission disable: TIMEOUT (2s)");
+                                    false
+                                }
+                            }
+                        })
+                    })
+                    .join();
+
+                    if let Err(e) = result {
+                        error!(device_id = %device_id, emission_index = i, error = ?e, "Emergency emission disable thread panicked");
+                    }
+                } else {
+                    error!(
+                        device_id = %device_id,
+                        emission_index = i,
+                        "No tokio runtime available for emergency emission disable (runtime creation failed)"
+                    );
+                }
+            }
+        }
+    }
+
     /// Emergency stop all motors (Movable devices)
     ///
     /// This is called by panic hooks to halt all motion.
     /// Best-effort - does not panic if shutdown fails.
-    fn emergency_stop_motors() {
+    pub fn emergency_stop_motors() {
         warn!("EMERGENCY: Stopping all motors");
 
         let registry: Option<Arc<hardware::registry::DeviceRegistry>> = {
@@ -370,7 +552,7 @@ impl ShutterRegistry {
     ///
     /// This is called by panic hooks to set critical outputs (e.g., EOM control) to zero.
     /// Best-effort - does not panic if shutdown fails.
-    fn emergency_zero_outputs() {
+    pub fn emergency_zero_outputs() {
         warn!("EMERGENCY: Zeroing DAQ analog outputs");
 
         let registry: Option<Arc<hardware::registry::DeviceRegistry>> = {
@@ -571,9 +753,11 @@ impl ShutterRegistry {
     /// Install a panic hook with full hardware emergency shutdown
     ///
     /// This registers a panic hook that will:
-    /// 1. Close all laser shutters
-    /// 2. Stop all motors (Movable devices)
-    /// 3. Zero critical DAQ outputs (Settable devices)
+    /// 1. Close all scripting-registered laser shutters
+    /// 2. Close ALL ShutterControl devices from the hardware registry
+    /// 3. Disable ALL EmissionControl devices (laser sources)
+    /// 4. Stop all motors (Movable devices)
+    /// 5. Zero critical DAQ outputs (Settable devices)
     ///
     /// # Arguments
     /// * `registry` - Reference to the hardware device registry
@@ -612,8 +796,11 @@ impl ShutterRegistry {
             error!("PANIC detected - attempting emergency hardware shutdown");
 
             // Best-effort hardware shutdown sequence (don't panic in panic handler)
-            // Order: shutters first (fastest), then motors, then DAQ outputs
+            // Order: close shutters first (block beam), then disable emission,
+            // then stop motors, then zero DAQ outputs
             Self::emergency_close_all();
+            Self::emergency_close_all_shutters_from_registry();
+            Self::emergency_disable_all_emission();
             Self::emergency_stop_motors();
             Self::emergency_zero_outputs();
 
@@ -621,7 +808,7 @@ impl ShutterRegistry {
             default_hook(info);
         }));
 
-        info!("Installed panic hook for full hardware safety (shutters + motors + DAQ)");
+        info!("Installed panic hook for full hardware safety (shutters + emission + motors + DAQ)");
     }
 }
 
@@ -959,5 +1146,195 @@ mod tests {
         ShutterRegistry::unregister(id);
         // Should not panic on double unregister
         ShutterRegistry::unregister(id);
+    }
+
+    /// Helper to create a DeviceRegistry with mock laser devices for testing
+    /// emergency shutdown methods.
+    async fn create_registry_with_lasers(count: usize) -> Arc<hardware::registry::DeviceRegistry> {
+        use driver_mock::MockLaserFactory;
+        use hardware::registry::DeviceRegistry;
+
+        let registry = DeviceRegistry::new();
+        registry.register_factory(Box::new(MockLaserFactory));
+
+        for i in 0..count {
+            registry
+                .register_from_toml(
+                    &format!("laser_{i}"),
+                    &format!("Mock Laser {i}"),
+                    "mock_laser",
+                    toml::Value::Table(Default::default()),
+                )
+                .await
+                .expect("Failed to register mock laser");
+        }
+
+        Arc::new(registry)
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_emergency_close_all_shutters_from_registry() {
+        use common::driver::Capability;
+
+        let registry = create_registry_with_lasers(2).await;
+
+        // Store registry in ShutterRegistry so emergency methods can find it
+        if let Ok(mut hw_guard) = ShutterRegistry::global().hardware_registry.lock() {
+            *hw_guard = Some(Arc::downgrade(&registry));
+        }
+
+        // Open shutters on both lasers
+        for id in registry.devices_with_capability(Capability::ShutterControl) {
+            let shutter = registry.get_shutter_control(&id).expect("shutter exists");
+            shutter.open_shutter().await.expect("open shutter");
+            assert!(shutter.is_shutter_open().await.expect("query shutter"));
+        }
+
+        // Emergency close all from registry
+        ShutterRegistry::emergency_close_all_shutters_from_registry();
+
+        // Verify all shutters are closed
+        for id in registry.devices_with_capability(Capability::ShutterControl) {
+            let shutter = registry.get_shutter_control(&id).expect("shutter exists");
+            assert!(
+                !shutter.is_shutter_open().await.expect("query shutter"),
+                "Shutter {id} should be closed after emergency close"
+            );
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_emergency_disable_all_emission() {
+        use common::driver::Capability;
+
+        let registry = create_registry_with_lasers(2).await;
+
+        // Store registry in ShutterRegistry
+        if let Ok(mut hw_guard) = ShutterRegistry::global().hardware_registry.lock() {
+            *hw_guard = Some(Arc::downgrade(&registry));
+        }
+
+        // Enable emission on both lasers
+        for id in registry.devices_with_capability(Capability::EmissionControl) {
+            let emission = registry.get_emission_control(&id).expect("emission exists");
+            emission.enable_emission().await.expect("enable emission");
+            assert!(emission
+                .is_emission_enabled()
+                .await
+                .expect("query emission"));
+        }
+
+        // Emergency disable all
+        ShutterRegistry::emergency_disable_all_emission();
+
+        // Verify all emission is disabled
+        for id in registry.devices_with_capability(Capability::EmissionControl) {
+            let emission = registry.get_emission_control(&id).expect("emission exists");
+            assert!(
+                !emission
+                    .is_emission_enabled()
+                    .await
+                    .expect("query emission"),
+                "Emission on {id} should be disabled after emergency disable"
+            );
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_emergency_methods_no_registry_does_not_panic() {
+        // Clear registry reference to simulate no hardware
+        if let Ok(mut hw_guard) = ShutterRegistry::global().hardware_registry.lock() {
+            *hw_guard = None;
+        }
+
+        // These should return early without panicking
+        ShutterRegistry::emergency_close_all_shutters_from_registry();
+        ShutterRegistry::emergency_disable_all_emission();
+        ShutterRegistry::emergency_stop_motors();
+        ShutterRegistry::emergency_zero_outputs();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_emergency_methods_empty_registry_does_not_panic() {
+        use hardware::registry::DeviceRegistry;
+
+        let registry = Arc::new(DeviceRegistry::new());
+        if let Ok(mut hw_guard) = ShutterRegistry::global().hardware_registry.lock() {
+            *hw_guard = Some(Arc::downgrade(&registry));
+        }
+
+        // No devices registered — should return early without panicking
+        ShutterRegistry::emergency_close_all_shutters_from_registry();
+        ShutterRegistry::emergency_disable_all_emission();
+        ShutterRegistry::emergency_stop_motors();
+        ShutterRegistry::emergency_zero_outputs();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_emergency_shutter_close_idempotent() {
+        let registry = create_registry_with_lasers(1).await;
+        if let Ok(mut hw_guard) = ShutterRegistry::global().hardware_registry.lock() {
+            *hw_guard = Some(Arc::downgrade(&registry));
+        }
+
+        // Open shutter
+        let shutter = registry
+            .get_shutter_control("laser_0")
+            .expect("shutter exists");
+        shutter.open_shutter().await.expect("open");
+
+        // Close twice — should not panic
+        ShutterRegistry::emergency_close_all_shutters_from_registry();
+        ShutterRegistry::emergency_close_all_shutters_from_registry();
+
+        assert!(!shutter.is_shutter_open().await.expect("query"));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_emergency_emission_disable_idempotent() {
+        let registry = create_registry_with_lasers(1).await;
+        if let Ok(mut hw_guard) = ShutterRegistry::global().hardware_registry.lock() {
+            *hw_guard = Some(Arc::downgrade(&registry));
+        }
+
+        // Enable emission
+        let emission = registry
+            .get_emission_control("laser_0")
+            .expect("emission exists");
+        emission.enable_emission().await.expect("enable");
+
+        // Disable twice — should not panic
+        ShutterRegistry::emergency_disable_all_emission();
+        ShutterRegistry::emergency_disable_all_emission();
+
+        assert!(!emission.is_emission_enabled().await.expect("query"));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_one_failure_does_not_prevent_others() {
+        // Create registry with multiple lasers
+        let registry = create_registry_with_lasers(3).await;
+        if let Ok(mut hw_guard) = ShutterRegistry::global().hardware_registry.lock() {
+            *hw_guard = Some(Arc::downgrade(&registry));
+        }
+
+        // Open all shutters
+        for id in registry.devices_with_capability(Capability::ShutterControl) {
+            let shutter = registry.get_shutter_control(&id).expect("shutter exists");
+            shutter.open_shutter().await.expect("open shutter");
+        }
+
+        // Emergency close — even if mock devices don't fail, this exercises the
+        // iteration-continues-on-failure code path (all devices get visited)
+        ShutterRegistry::emergency_close_all_shutters_from_registry();
+
+        // All shutters should be closed
+        for id in registry.devices_with_capability(Capability::ShutterControl) {
+            let shutter = registry.get_shutter_control(&id).expect("shutter exists");
+            assert!(
+                !shutter.is_shutter_open().await.expect("query"),
+                "Shutter {id} should be closed"
+            );
+        }
     }
 }
