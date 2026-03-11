@@ -26,14 +26,39 @@ pub(super) async fn fetch_device_state(
         )));
     }
 
+    // Populate health fields from registry (bd-vgrj)
+    let health = registry.get_device_health(device_id);
+    let (health_status, consecutive_failures, restart_attempts, last_error, is_faulted) =
+        if let Some(ref h) = health {
+            (
+                device_health_to_proto(h.health),
+                h.consecutive_failures,
+                h.restart_attempts,
+                h.last_error.clone().unwrap_or_default(),
+                h.health == common::health::DeviceHealth::Faulted,
+            )
+        } else {
+            (
+                device_health_to_proto(common::health::DeviceHealth::Healthy),
+                0,
+                0,
+                String::new(),
+                false,
+            )
+        };
+
     let mut response = DeviceStateResponse {
         device_id: device_id.to_string(),
-        online: true,
+        online: !is_faulted,
         position: None,
         last_reading: None,
         armed: None,
         streaming: None,
         exposure_ms: None,
+        health_status,
+        consecutive_failures,
+        restart_attempts,
+        last_error,
     };
 
     if let Some(movable) = movable
@@ -246,14 +271,37 @@ pub(super) fn map_hardware_error_to_status(error_msg: &str) -> Status {
     }
 }
 
-/// Convert internal DeviceInfo to proto DeviceInfo
-pub(super) fn device_info_to_proto(info: &hardware::registry::DeviceInfo) -> DeviceInfo {
+/// Map `common::health::DeviceHealth` to the proto `DeviceHealthLevel` i32 value (bd-vgrj).
+pub(super) fn device_health_to_proto(health: common::health::DeviceHealth) -> i32 {
+    use crate::grpc::proto::DeviceHealthLevel;
+    match health {
+        common::health::DeviceHealth::Healthy => DeviceHealthLevel::DeviceHealthHealthy as i32,
+        common::health::DeviceHealth::Degraded => DeviceHealthLevel::DeviceHealthDegraded as i32,
+        common::health::DeviceHealth::Faulted => DeviceHealthLevel::DeviceHealthFaulted as i32,
+        common::health::DeviceHealth::Recovering => {
+            DeviceHealthLevel::DeviceHealthRecovering as i32
+        }
+    }
+}
+
+/// Convert internal DeviceInfo to proto DeviceInfo, optionally including health state (bd-vgrj).
+pub(super) fn device_info_to_proto_with_health(
+    info: &hardware::registry::DeviceInfo,
+    health: Option<&common::health::DeviceHealthState>,
+) -> DeviceInfo {
     // Use explicit category from metadata if set, otherwise infer from driver/capabilities
     let category = get_device_category(
         info.metadata.category,
         &info.driver_type,
         &info.capabilities,
     );
+
+    let health_status =
+        health
+            .map(|h| device_health_to_proto(h.health))
+            .unwrap_or(device_health_to_proto(
+                common::health::DeviceHealth::Healthy,
+            ));
 
     #[allow(deprecated)]
     DeviceInfo {
@@ -296,6 +344,8 @@ pub(super) fn device_info_to_proto(info: &hardware::registry::DeviceInfo) -> Dev
             .iter()
             .map(|c| c.as_str().to_string())
             .collect(),
+        // Device health status (bd-vgrj)
+        health_status,
     }
 }
 

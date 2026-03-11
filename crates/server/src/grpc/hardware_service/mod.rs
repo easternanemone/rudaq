@@ -360,14 +360,20 @@ impl HardwareService for HardwareServiceImpl {
                 .devices_with_capability(cap)
                 .iter()
                 .filter_map(|id| self.registry.get_device_info(id))
-                .map(|info| device_info_to_proto(&info))
+                .map(|info| {
+                    let health = self.registry.get_device_health(&info.id);
+                    helpers::device_info_to_proto_with_health(&info, health.as_ref())
+                })
                 .collect()
         } else {
             // Return all devices
             self.registry
                 .list_devices()
                 .iter()
-                .map(device_info_to_proto)
+                .map(|info| {
+                    let health = self.registry.get_device_health(&info.id);
+                    helpers::device_info_to_proto_with_health(info, health.as_ref())
+                })
                 .collect()
         };
 
@@ -423,14 +429,39 @@ impl HardwareService for HardwareServiceImpl {
             )));
         }
 
+        // Populate health fields from registry (bd-vgrj)
+        let health = self.registry.get_device_health(&req.device_id);
+        let (health_status, consecutive_failures, restart_attempts, last_error, is_faulted) =
+            if let Some(ref h) = health {
+                (
+                    helpers::device_health_to_proto(h.health),
+                    h.consecutive_failures,
+                    h.restart_attempts,
+                    h.last_error.clone().unwrap_or_default(),
+                    h.health == common::health::DeviceHealth::Faulted,
+                )
+            } else {
+                (
+                    helpers::device_health_to_proto(common::health::DeviceHealth::Healthy),
+                    0,
+                    0,
+                    String::new(),
+                    false,
+                )
+            };
+
         let mut response = DeviceStateResponse {
             device_id: req.device_id.clone(),
-            online: true,
+            online: !is_faulted,
             position: None,
             last_reading: None,
             armed: None,
             streaming: None,
             exposure_ms: None,
+            health_status,
+            consecutive_failures,
+            restart_attempts,
+            last_error,
         };
 
         // Now perform async operations WITHOUT holding the lock

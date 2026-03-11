@@ -2862,4 +2862,70 @@ initial_position = 0.0
         assert_eq!(device_info.name, "Mock Stage");
         assert_eq!(device_info.driver_type, "mock_stage");
     }
+
+    // =========================================================================
+    // Health broadcast tests (bd-vgrj)
+    // =========================================================================
+
+    #[tokio::test]
+    async fn test_health_broadcast_on_failure() {
+        let registry = create_mock_registry().await.unwrap();
+        let mut rx = registry.subscribe_health_changes();
+
+        // First failure transitions Healthy -> Degraded
+        registry.report_device_failure("mock_stage", "test error");
+
+        let event = rx.try_recv().expect("should receive health event");
+        assert_eq!(event.device_id, "mock_stage");
+        assert_eq!(event.old_state, DeviceHealth::Healthy);
+        assert_eq!(event.new_state, DeviceHealth::Degraded);
+        assert_eq!(event.consecutive_failures, 1);
+    }
+
+    #[tokio::test]
+    async fn test_health_broadcast_on_success() {
+        let registry = create_mock_registry().await.unwrap();
+        let mut rx = registry.subscribe_health_changes();
+
+        // Cause degradation first
+        registry.report_device_failure("mock_stage", "test error");
+        let _ = rx.try_recv(); // consume the Healthy->Degraded event
+
+        // Success should transition Degraded -> Healthy
+        registry.report_device_success("mock_stage");
+
+        let event = rx.try_recv().expect("should receive health event");
+        assert_eq!(event.device_id, "mock_stage");
+        assert_eq!(event.old_state, DeviceHealth::Degraded);
+        assert_eq!(event.new_state, DeviceHealth::Healthy);
+    }
+
+    #[tokio::test]
+    async fn test_health_broadcast_no_event_when_unchanged() {
+        let registry = create_mock_registry().await.unwrap();
+        let mut rx = registry.subscribe_health_changes();
+
+        // Success on already-healthy device should not emit
+        registry.report_device_success("mock_stage");
+        assert!(
+            rx.try_recv().is_err(),
+            "no event expected when health unchanged"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_health_no_subscribers_no_error() {
+        let registry = create_mock_registry().await.unwrap();
+        // No subscribers — should not panic or error
+        registry.report_device_failure("mock_stage", "test error");
+        registry.report_device_success("mock_stage");
+    }
+
+    #[tokio::test]
+    async fn test_subscribe_health_changes_returns_receiver() {
+        let registry = create_mock_registry().await.unwrap();
+        let _rx1 = registry.subscribe_health_changes();
+        let _rx2 = registry.subscribe_health_changes();
+        // Multiple subscriptions should work without issue
+    }
 }

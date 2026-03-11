@@ -3,6 +3,7 @@ syntax = "proto3";
 package daq;
 
 import "experiment.proto";
+import "hardware.proto";
 
 // =============================================================================
 // StorageService - HDF5 Data Storage and Export (bd-p6im)
@@ -860,14 +861,8 @@ enum SystemHealthStatus {
   SYSTEM_HEALTH_CRITICAL = 3;
 }
 
-// Per-device health status (bd-qa36.4.3)
-enum DeviceHealthLevel {
-  DEVICE_HEALTH_UNKNOWN = 0;
-  DEVICE_HEALTH_HEALTHY = 1;
-  DEVICE_HEALTH_DEGRADED = 2;
-  DEVICE_HEALTH_FAULTED = 3;
-  DEVICE_HEALTH_RECOVERING = 4;
-}
+// Per-device health status — enum moved to hardware.proto (bd-vgrj).
+// DeviceHealthLevel is available here via experiment.proto -> hardware.proto.
 
 // Request for per-device health status
 message GetDeviceHealthRequest {

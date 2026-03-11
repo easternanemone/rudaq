@@ -110,6 +110,16 @@ message RegistrationFailure {
   string error = 4;
 }
 
+// Per-device health status (bd-vgrj)
+// Canonical definition — also used by storage.proto (DeviceHealthEntry).
+enum DeviceHealthLevel {
+  DEVICE_HEALTH_UNKNOWN = 0;
+  DEVICE_HEALTH_HEALTHY = 1;
+  DEVICE_HEALTH_DEGRADED = 2;
+  DEVICE_HEALTH_FAULTED = 3;
+  DEVICE_HEALTH_RECOVERING = 4;
+}
+
 // Device categorization for GUI organization
 enum DeviceCategory {
   DEVICE_CATEGORY_UNSPECIFIED = 0;
@@ -147,6 +157,9 @@ message DeviceInfo {
   //         "exposure_controllable", "shutter_controllable",
   //         "wavelength_tunable", "emission_controllable", "parameterized"
   repeated string capabilities = 100;
+
+  // Device health status (bd-vgrj). Uses DeviceHealthLevel from storage.proto.
+  DeviceHealthLevel health_status = 101;
 }
 
 message DeviceMetadata {
@@ -200,6 +213,12 @@ message DeviceStateResponse {
   optional bool armed = 12;             // For Triggerable
   optional bool streaming = 13;         // For FrameProducer
   optional double exposure_ms = 14;     // For ExposureControl
+
+  // Device health (bd-vgrj). Uses DeviceHealthLevel from storage.proto.
+  DeviceHealthLevel health_status = 20;
+  uint32 consecutive_failures = 21;
+  uint32 restart_attempts = 22;
+  string last_error = 23;
 }
 
 // --------------------------------------------------------------------------
