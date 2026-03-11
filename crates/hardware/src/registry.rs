@@ -79,13 +79,34 @@ use common::pipeline::MeasurementSource;
 
 #[cfg(feature = "serial")]
 use crate::manifest_driver::driver::GenericDriver;
+use common::health::{DeviceHealth, DeviceHealthState};
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
+use tokio::sync::broadcast;
 #[cfg(feature = "serial")]
 use tokio::sync::RwLock;
+
+/// Event emitted when a device's health state changes.
+#[derive(Debug, Clone)]
+pub struct DeviceHealthEvent {
+    /// The device whose health changed.
+    pub device_id: String,
+    /// Health state before the change.
+    pub old_state: DeviceHealth,
+    /// Health state after the change.
+    pub new_state: DeviceHealth,
+    /// Human-readable reason for the transition.
+    pub reason: String,
+    /// Timestamp when the transition occurred.
+    pub timestamp: std::time::Instant,
+    /// Number of consecutive failures at the time of the event.
+    pub consecutive_failures: u32,
+    /// Total restart attempts at the time of the event.
+    pub restart_attempts: u32,
+}
 
 // Configuration validation is now handled by individual DriverFactory::validate() implementations.
 
@@ -430,7 +451,10 @@ pub struct DeviceRegistry {
     registration_failures: DashMap<DeviceId, RegistrationFailure>,
 
     /// Per-device health tracking for supervisor (bd-qa36.4.2)
-    device_health: DashMap<DeviceId, common::health::DeviceHealthState>,
+    device_health: DashMap<DeviceId, DeviceHealthState>,
+
+    /// Broadcast channel for health state change notifications (bd-vgrj).
+    health_broadcast: broadcast::Sender<DeviceHealthEvent>,
 
     /// Consecutive failures before transitioning to Faulted (default: 3).
     /// Configurable via [`set_fault_threshold`](DeviceRegistry::set_fault_threshold).
@@ -514,6 +538,7 @@ impl DeviceRegistry {
     }
     /// Create a new empty device registry
     pub fn new() -> Self {
+        let (health_tx, _) = broadcast::channel(64);
         Self {
             devices: DashMap::new(),
             factories: DashMap::new(),
@@ -523,6 +548,7 @@ impl DeviceRegistry {
             )),
             registration_failures: DashMap::new(),
             device_health: DashMap::new(),
+            health_broadcast: health_tx,
             fault_threshold: AtomicU32::new(3),
             measurement_locks: DashMap::new(),
         }
@@ -533,12 +559,14 @@ impl DeviceRegistry {
     pub fn with_plugin_factory(
         plugin_factory: Arc<RwLock<crate::manifest_driver::registry::PluginFactory>>,
     ) -> Self {
+        let (health_tx, _) = broadcast::channel(64);
         Self {
             devices: DashMap::new(),
             factories: DashMap::new(),
             plugin_factory,
             registration_failures: DashMap::new(),
             device_health: DashMap::new(),
+            health_broadcast: health_tx,
             fault_threshold: AtomicU32::new(3),
             measurement_locks: DashMap::new(),
         }
@@ -802,10 +830,8 @@ impl DeviceRegistry {
         );
 
         self.devices.insert(device_id.to_string(), registered);
-        self.device_health.insert(
-            device_id.to_string(),
-            common::health::DeviceHealthState::new(),
-        );
+        self.device_health
+            .insert(device_id.to_string(), DeviceHealthState::new());
         tracing::info!(device_id = %device_id, "Device registered successfully");
         Ok(())
     }
@@ -958,7 +984,7 @@ impl DeviceRegistry {
         let device_id = registered.config.id.clone();
         self.devices.insert(device_id.clone(), registered);
         self.device_health
-            .insert(device_id, common::health::DeviceHealthState::new());
+            .insert(device_id, DeviceHealthState::new());
         Ok(())
     }
 
@@ -1095,10 +1121,12 @@ impl DeviceRegistry {
     ///
     /// Increments consecutive failures and transitions to Degraded/Faulted
     /// based on the configured fault threshold (default: 3).
+    /// Emits a [`DeviceHealthEvent`] on the broadcast channel if the health state changed.
     pub fn report_device_failure(&self, device_id: &str, error: impl Into<String>) {
         let threshold = self.fault_threshold.load(Ordering::Relaxed);
         let error_str = error.into();
         if let Some(mut state) = self.device_health.get_mut(device_id) {
+            let old_health = state.health;
             state.record_failure(&error_str, threshold);
             tracing::warn!(
                 device_id = %device_id,
@@ -1107,27 +1135,60 @@ impl DeviceRegistry {
                 error = %error_str,
                 "Device failure recorded"
             );
+            if state.health != old_health {
+                let _ = self.health_broadcast.send(DeviceHealthEvent {
+                    device_id: device_id.to_string(),
+                    old_state: old_health,
+                    new_state: state.health,
+                    reason: error_str,
+                    timestamp: std::time::Instant::now(),
+                    consecutive_failures: state.consecutive_failures,
+                    restart_attempts: state.restart_attempts,
+                });
+            }
         }
     }
 
     /// Report a successful device operation, resetting failure counters.
+    ///
+    /// Emits a [`DeviceHealthEvent`] on the broadcast channel if the health state changed.
     pub fn report_device_success(&self, device_id: &str) {
         if let Some(mut state) = self.device_health.get_mut(device_id) {
+            let old_health = state.health;
             state.record_success();
+            if state.health != old_health {
+                let _ = self.health_broadcast.send(DeviceHealthEvent {
+                    device_id: device_id.to_string(),
+                    old_state: old_health,
+                    new_state: state.health,
+                    reason: "operation succeeded".to_string(),
+                    timestamp: std::time::Instant::now(),
+                    consecutive_failures: state.consecutive_failures,
+                    restart_attempts: state.restart_attempts,
+                });
+            }
         }
     }
 
     /// Get the health state for a specific device.
-    pub fn get_device_health(&self, device_id: &str) -> Option<common::health::DeviceHealthState> {
+    pub fn get_device_health(&self, device_id: &str) -> Option<DeviceHealthState> {
         self.device_health.get(device_id).map(|s| s.clone())
     }
 
     /// Get health states for all devices.
-    pub fn list_device_health(&self) -> Vec<(DeviceId, common::health::DeviceHealthState)> {
+    pub fn list_device_health(&self) -> Vec<(DeviceId, DeviceHealthState)> {
         self.device_health
             .iter()
             .map(|entry| (entry.key().clone(), entry.value().clone()))
             .collect()
+    }
+
+    /// Subscribe to device health state changes.
+    ///
+    /// Returns a broadcast receiver that yields [`DeviceHealthEvent`] whenever
+    /// a device transitions between health states (e.g., Healthy -> Degraded).
+    pub fn subscribe_health_changes(&self) -> broadcast::Receiver<DeviceHealthEvent> {
+        self.health_broadcast.subscribe()
     }
 
     /// Get device IDs that are in Faulted state.
@@ -1160,7 +1221,7 @@ impl DeviceRegistry {
 
         let is_faulted = prev_health
             .as_ref()
-            .map(|s| s.health == common::health::DeviceHealth::Faulted)
+            .map(|s| s.health == DeviceHealth::Faulted)
             .unwrap_or(false);
 
         if !is_faulted {
@@ -1170,6 +1231,15 @@ impl DeviceRegistry {
         // Mark as recovering (increments restart_attempts in the snapshot)
         if let Some(mut state) = self.device_health.get_mut(device_id) {
             state.mark_recovering();
+            let _ = self.health_broadcast.send(DeviceHealthEvent {
+                device_id: device_id.to_string(),
+                old_state: DeviceHealth::Faulted,
+                new_state: DeviceHealth::Recovering,
+                reason: "restart initiated".to_string(),
+                timestamp: std::time::Instant::now(),
+                consecutive_failures: state.consecutive_failures,
+                restart_attempts: state.restart_attempts,
+            });
         }
 
         // Re-snapshot after mark_recovering so we have the updated restart_attempts
@@ -1227,6 +1297,16 @@ impl DeviceRegistry {
                         new_state.restart_attempts = prev.restart_attempts;
                     }
                 }
+                // Emit Recovering -> Healthy transition event
+                let _ = self.health_broadcast.send(DeviceHealthEvent {
+                    device_id: device_id.to_string(),
+                    old_state: DeviceHealth::Recovering,
+                    new_state: DeviceHealth::Healthy,
+                    reason: "restart succeeded".to_string(),
+                    timestamp: std::time::Instant::now(),
+                    consecutive_failures: 0,
+                    restart_attempts: preserved_health.as_ref().map_or(0, |s| s.restart_attempts),
+                });
                 tracing::info!(device_id = %device_id, "Device restart successful");
                 Ok(true)
             }
@@ -1241,6 +1321,16 @@ impl DeviceRegistry {
                 let threshold = self.fault_threshold.load(Ordering::Relaxed);
                 let mut state = preserved_health.unwrap_or_default();
                 state.record_failure(e.to_string(), threshold);
+                // Emit Recovering -> Faulted transition event
+                let _ = self.health_broadcast.send(DeviceHealthEvent {
+                    device_id: device_id.to_string(),
+                    old_state: DeviceHealth::Recovering,
+                    new_state: state.health,
+                    reason: e.to_string(),
+                    timestamp: std::time::Instant::now(),
+                    consecutive_failures: state.consecutive_failures,
+                    restart_attempts: state.restart_attempts,
+                });
                 self.device_health.insert(device_id.to_string(), state);
 
                 // Re-insert a stub device entry so the supervisor can retry.
