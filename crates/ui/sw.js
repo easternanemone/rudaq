@@ -29,14 +29,15 @@ self.addEventListener('fetch', (event) => {
 
   // Network-first for app shell assets (WASM, JS, HTML)
   event.respondWith(
-    fetch(event.request)
-      .then((response) => {
-        if (response.ok) {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-        }
-        return response;
-      })
-      .catch(() => caches.match(event.request))
+    caches.open(CACHE_NAME).then((cache) =>
+      fetch(event.request)
+        .then((response) => {
+          if (response.ok) {
+            cache.put(event.request, response.clone());
+          }
+          return response;
+        })
+        .catch(() => cache.match(event.request))
+    )
   );
 });

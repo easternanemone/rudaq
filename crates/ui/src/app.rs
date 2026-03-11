@@ -916,6 +916,10 @@ pub struct DaqApp {
     /// WASM connection state (URL input + pending connect)
     #[cfg(target_arch = "wasm32")]
     wasm_connection: WasmConnectionState,
+
+    /// Whether touch-friendly style has been applied (avoids per-frame style_mut calls)
+    #[cfg(target_arch = "wasm32")]
+    touch_style_applied: bool,
 }
 
 /// Action to perform on the UI state
@@ -1619,6 +1623,7 @@ impl DaqApp {
                     ..Default::default()
                 }
             },
+            touch_style_applied: false,
         }
     }
 
@@ -2261,9 +2266,7 @@ impl DaqApp {
         self.docked_rotator_panels.clear();
         self.docked_stage_panels.clear();
         self.docked_comedi_panels.clear();
-        #[cfg(not(target_arch = "wasm32"))]
         self.docked_config_driven_panels.clear();
-        #[cfg(not(target_arch = "wasm32"))]
         self.grpc_ui_config_cache.clear();
         self.docked_command_widgets.clear();
     }
@@ -2279,9 +2282,7 @@ impl DaqApp {
         self.docked_rotator_panels.remove(&id);
         self.docked_stage_panels.remove(&id);
         self.docked_comedi_panels.remove(&id);
-        #[cfg(not(target_arch = "wasm32"))]
         self.docked_config_driven_panels.remove(&id);
-        #[cfg(not(target_arch = "wasm32"))]
         self.grpc_ui_config_cache.remove(&id);
         self.docked_command_widgets.remove(&id);
         self.device_panel_info.remove(&id)
@@ -2740,17 +2741,12 @@ impl DaqApp {
         self.client = None;
         self.daemon_version = None;
         self.device_panel_info.clear();
-        self.docked_panels.clear();
-        self.docked_maitai_panels.clear();
-        self.docked_power_meter_panels.clear();
-        self.docked_rotator_panels.clear();
-        self.docked_stage_panels.clear();
-        self.docked_comedi_panels.clear();
-        self.docked_config_driven_panels.clear();
-        self.docked_command_widgets.clear();
-        self.grpc_ui_config_cache.clear();
+        self.invalidate_all_panel_widgets();
         self.was_connected = false;
         self.device_reconcile_epoch += 1;
+        // Cancel any in-flight connection attempt
+        self.wasm_connection.connecting = false;
+        self.wasm_connection.connect_rx = None;
         // Remove device control tabs from the dock
         if let Some(ref mut dock) = self.dock_state {
             dock.retain_tabs(|tab| !matches!(tab, Panel::DeviceControl { .. }));
@@ -3202,9 +3198,11 @@ impl eframe::App for DaqApp {
         }
 
         // --- Touch-friendly style for tablets (iPad/Android) ---
+        // Applied once on first touch detection to avoid per-frame style_mut overhead.
         #[cfg(target_arch = "wasm32")]
-        if crate::layout::is_touch_device(ctx) {
+        if !self.touch_style_applied && crate::layout::is_touch_device(ctx) {
             crate::layout::apply_touch_style(ctx);
+            self.touch_style_applied = true;
         }
 
         // --- Cross-platform polling ---
