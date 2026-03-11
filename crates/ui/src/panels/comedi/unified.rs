@@ -151,6 +151,17 @@ impl ComediPanel {
     /// server's `GetDaqStatus` response.
     pub fn new(device_id: &str) -> Self {
         let (status_tx, status_rx) = mpsc::channel(4);
+
+        let dio_monitor_panel = DioMonitorPanel::new(24);
+        let counter_display_panel = CounterDisplayPanel::new(3);
+
+        // Wire source panels to their display panels via mpsc senders
+        let mut dio_panel = DigitalIOPanel::new(device_id, 24);
+        dio_panel.set_monitor_sender(dio_monitor_panel.get_sender());
+
+        let mut counter_panel = CounterPanel::new(device_id, 3);
+        counter_panel.set_display_sender(counter_display_panel.get_sender());
+
         Self {
             device_id: device_id.to_string(),
             device_path: String::new(),
@@ -160,13 +171,13 @@ impl ComediPanel {
             active_tab: ComediTab::Overview,
             ai_panel: AnalogInputPanel::new(device_id, 16),
             ao_panel: AnalogOutputPanel::new(device_id, 2),
-            dio_panel: DigitalIOPanel::new(device_id, 24),
-            counter_panel: CounterPanel::new(device_id, 3),
+            dio_panel,
+            counter_panel,
             trigger_panel: TriggerConfigPanel::new(device_id),
             oscilloscope_panel: OscilloscopePanel::new(),
             voltmeter_panel: VoltmeterPanel::new(),
-            dio_monitor_panel: DioMonitorPanel::new(24),
-            counter_display_panel: CounterDisplayPanel::new(3),
+            dio_monitor_panel,
+            counter_display_panel,
             error_log: VecDeque::new(),
             max_log_entries: 100,
             timing_caps: None,

@@ -1,10 +1,11 @@
 //! Analog Input Control Panel for Comedi DAQ devices.
 //!
-//! Provides channel selection, voltage range configuration, and real-time
-//! voltage readout for analog input subsystems.
+//! Provides channel selection, voltage range configuration, single-shot reads,
+//! and hardware-timed streaming via the `StreamAnalogInput` gRPC RPC.
 
 use crate::runtime::Runtime;
 use eframe::egui::{self, Color32, RichText, Ui};
+use futures::StreamExt;
 use protocol::ni_daq::ReadAnalogInputRequest;
 use std::collections::HashMap;
 use tokio::sync::mpsc;
@@ -17,9 +18,44 @@ use super::{AnalogReference, NI_VOLTAGE_RANGES};
 /// Action results from async operations.
 #[derive(Debug)]
 enum ActionResult {
-    Reading { channel: u32, voltage: f64 },
-    ReadingError { channel: u32, error: String },
-    AllReadings { voltages: Vec<(u32, f64)> },
+    Reading {
+        channel: u32,
+        voltage: f64,
+    },
+    ReadingError {
+        channel: u32,
+        error: String,
+    },
+    AllReadings {
+        voltages: Vec<(u32, f64)>,
+    },
+    /// The RPC connected successfully — transition from Starting → Running.
+    StreamStarted {
+        generation: u64,
+    },
+    /// Batch of interleaved streaming samples, de-interleaved into per-channel voltages.
+    StreamBatch {
+        generation: u64,
+        /// (channel_number, latest_voltage) for each channel in the stream.
+        voltages: Vec<(u32, f64)>,
+        overflow: bool,
+    },
+    StreamError {
+        generation: u64,
+        error: String,
+    },
+    StreamEnded {
+        generation: u64,
+    },
+}
+
+/// Streaming lifecycle state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StreamingState {
+    Stopped,
+    Starting,
+    Running,
+    Stopping,
 }
 
 /// Channel configuration state.
@@ -45,6 +81,7 @@ impl Default for ChannelConfig {
 /// Analog Input Control Panel.
 ///
 /// Provides UI for configuring and reading from analog input channels.
+/// Supports both single-shot reads and hardware-timed DMA streaming.
 pub struct AnalogInputPanel {
     /// Device ID for the Comedi device
     device_id: String,
@@ -54,7 +91,7 @@ pub struct AnalogInputPanel {
     channels: HashMap<u32, ChannelConfig>,
     /// Currently selected channel for detailed view
     selected_channel: u32,
-    /// Auto-refresh enabled
+    /// Auto-refresh enabled (software-polled fallback)
     auto_refresh: bool,
     /// Refresh interval in milliseconds
     refresh_interval_ms: u32,
@@ -70,6 +107,20 @@ pub struct AnalogInputPanel {
     action_tx: mpsc::Sender<ActionResult>,
     /// Async action receiver
     action_rx: mpsc::Receiver<ActionResult>,
+    // -- Streaming state --
+    /// Current streaming lifecycle state
+    streaming_state: StreamingState,
+    /// Abort handle: dropping or sending cancels the background stream task
+    streaming_abort_tx: Option<mpsc::Sender<()>>,
+    /// Sample rate for streaming (Hz per channel)
+    stream_sample_rate: f64,
+    /// Ordered list of channel numbers currently being streamed
+    streaming_channels: Vec<u32>,
+    /// Overflow indicator (set by stream, cleared on next batch)
+    stream_overflow: bool,
+    /// Monotonically increasing counter to distinguish stream sessions.
+    /// Events from a prior generation are silently discarded.
+    stream_generation: u64,
 }
 
 impl Default for AnalogInputPanel {
@@ -93,6 +144,12 @@ impl Default for AnalogInputPanel {
             error: None,
             action_tx,
             action_rx,
+            streaming_state: StreamingState::Stopped,
+            streaming_abort_tx: None,
+            stream_sample_rate: 10.0,
+            streaming_channels: Vec::new(),
+            stream_overflow: false,
+            stream_generation: 0,
         }
     }
 }
@@ -108,7 +165,7 @@ impl AnalogInputPanel {
     }
 
     /// Main UI entry point.
-    pub fn ui(&mut self, ui: &mut Ui, client: Option<&mut DaqClient>, runtime: &Runtime) {
+    pub fn ui(&mut self, ui: &mut Ui, mut client: Option<&mut DaqClient>, runtime: &Runtime) {
         // Check for offline mode
         if offline_notice(ui, client.is_none(), OfflineContext::Devices) {
             return;
@@ -117,8 +174,8 @@ impl AnalogInputPanel {
         // Poll async results
         self.poll_results();
 
-        // Auto-refresh logic
-        if self.auto_refresh {
+        // Auto-refresh logic (only active when NOT streaming)
+        if self.auto_refresh && self.streaming_state == StreamingState::Stopped {
             let elapsed = self.last_refresh.elapsed();
             if elapsed.as_millis() >= u128::from(self.refresh_interval_ms) {
                 if let Some(c) = client.as_deref() {
@@ -134,6 +191,13 @@ impl AnalogInputPanel {
             ui.heading("Analog Input");
             ui.separator();
             ui.label(format!("Device: {}", self.device_id));
+            if self.streaming_state == StreamingState::Running {
+                ui.separator();
+                ui.label(RichText::new("LIVE").color(Color32::GREEN));
+                if self.stream_overflow {
+                    ui.label(RichText::new("OVF").color(Color32::RED));
+                }
+            }
         });
 
         ui.separator();
@@ -153,17 +217,54 @@ impl AnalogInputPanel {
 
         // Control bar
         ui.horizontal(|ui| {
-            // Auto-refresh toggle
-            ui.checkbox(&mut self.auto_refresh, "Auto-refresh");
+            // Streaming controls
+            match self.streaming_state {
+                StreamingState::Stopped => {
+                    if ui.button("Stream").clicked() {
+                        if let Some(c) = client.as_mut() {
+                            self.start_streaming(c, runtime);
+                        }
+                    }
 
-            if self.auto_refresh {
-                ui.add(
-                    egui::DragValue::new(&mut self.refresh_interval_ms)
-                        .range(50..=1000)
-                        .suffix(" ms")
-                        .speed(10),
-                );
+                    ui.separator();
+
+                    // Auto-refresh toggle (fallback when not streaming)
+                    ui.checkbox(&mut self.auto_refresh, "Auto-refresh");
+                    if self.auto_refresh {
+                        ui.add(
+                            egui::DragValue::new(&mut self.refresh_interval_ms)
+                                .range(50..=1000)
+                                .suffix(" ms")
+                                .speed(10),
+                        );
+                    }
+                }
+                StreamingState::Running => {
+                    if ui.button("Stop").clicked() {
+                        self.stop_streaming(runtime);
+                    }
+                }
+                StreamingState::Starting => {
+                    ui.spinner();
+                    ui.label("Starting stream...");
+                }
+                StreamingState::Stopping => {
+                    ui.spinner();
+                    ui.label("Stopping...");
+                }
             }
+
+            ui.separator();
+
+            // Sample rate (editable when stopped)
+            ui.label("Rate:");
+            ui.add_enabled(
+                self.streaming_state == StreamingState::Stopped,
+                egui::DragValue::new(&mut self.stream_sample_rate)
+                    .range(1.0..=100_000.0)
+                    .suffix(" Hz")
+                    .speed(1.0),
+            );
 
             ui.separator();
 
@@ -183,8 +284,14 @@ impl AnalogInputPanel {
 
             ui.separator();
 
-            // Read all button
-            if ui.button("Read All").clicked() {
+            // Read all button (always available for one-shot)
+            if ui
+                .add_enabled(
+                    self.streaming_state == StreamingState::Stopped,
+                    egui::Button::new("Read All"),
+                )
+                .clicked()
+            {
                 if let Some(c) = client.as_deref() {
                     self.read_all_channels(runtime, c);
                 }
@@ -194,7 +301,7 @@ impl AnalogInputPanel {
         ui.separator();
 
         // Main content: channel grid + detail panel
-        let client_clone = client.as_deref().cloned();
+        let client_clone = client.map(|c| c.clone());
         ui.columns(2, |columns| {
             // Left: Channel grid
             self.render_channel_grid(&mut columns[0], client_clone.clone(), runtime);
@@ -202,7 +309,163 @@ impl AnalogInputPanel {
             // Right: Selected channel details
             self.render_channel_details(&mut columns[1], client_clone, runtime);
         });
+
+        // Request repaint when streaming for live updates
+        if self.streaming_state == StreamingState::Running {
+            ui.ctx().request_repaint();
+        }
     }
+
+    // =========================================================================
+    // Streaming
+    // =========================================================================
+
+    /// Start hardware-timed streaming for all enabled channels.
+    #[allow(clippy::cast_possible_truncation)] // range_index is always < 14
+    fn start_streaming(&mut self, client: &mut DaqClient, runtime: &Runtime) {
+        if self.streaming_state != StreamingState::Stopped {
+            return;
+        }
+
+        // Collect enabled channels in sorted order
+        let mut stream_channels: Vec<u32> = self
+            .channels
+            .iter()
+            .filter(|(_, c)| c.enabled)
+            .map(|(ch, _)| *ch)
+            .collect();
+        stream_channels.sort_unstable();
+
+        if stream_channels.is_empty() {
+            self.error = Some("No channels enabled".to_string());
+            return;
+        }
+
+        // Use range from the first enabled channel (RPC accepts a single range_index
+        // shared by all channels in the stream).
+        let range_index = stream_channels
+            .first()
+            .and_then(|ch| self.channels.get(ch))
+            .map(|c| c.range_index as u32)
+            .unwrap_or(0);
+
+        self.stream_generation += 1;
+        let generation = self.stream_generation;
+
+        self.streaming_state = StreamingState::Starting;
+        self.streaming_channels.clone_from(&stream_channels);
+        self.stream_overflow = false;
+        self.error = None;
+        self.status = Some(format!(
+            "Starting stream: {} ch @ {:.0} Hz",
+            stream_channels.len(),
+            self.stream_sample_rate
+        ));
+
+        let (abort_tx, mut abort_rx) = mpsc::channel::<()>(1);
+        self.streaming_abort_tx = Some(abort_tx);
+
+        let tx = self.action_tx.clone();
+        let device_id = self.device_id.clone();
+        let sample_rate = self.stream_sample_rate;
+        let channels_for_task = stream_channels;
+
+        let mut ni_daq_client = client.ni_daq_streaming_client().clone();
+
+        runtime.spawn(async move {
+            use protocol::ni_daq::StreamAnalogInputRequest;
+
+            let request = StreamAnalogInputRequest {
+                device_id: device_id.clone(),
+                channels: channels_for_task.clone(),
+                sample_rate_hz: sample_rate,
+                range_index,
+                stop_condition: Some(
+                    protocol::ni_daq::stream_analog_input_request::StopCondition::Continuous(true),
+                ),
+                buffer_size: 256,
+            };
+
+            let mut stream = match ni_daq_client.stream_analog_input(request).await {
+                Ok(response) => {
+                    let _ = tx.send(ActionResult::StreamStarted { generation }).await;
+                    response.into_inner()
+                }
+                Err(e) => {
+                    let _ = tx
+                        .send(ActionResult::StreamError {
+                            generation,
+                            error: format!("Failed to start stream: {}", e),
+                        })
+                        .await;
+                    return;
+                }
+            };
+
+            loop {
+                tokio::select! {
+                    _ = abort_rx.recv() => {
+                        break;
+                    }
+                    message = stream.next() => {
+                        match message {
+                            Some(Ok(data)) => {
+                                let n_ch = data.n_channels.max(1) as usize;
+                                let voltages = de_interleave_latest(
+                                    &data.voltages,
+                                    n_ch,
+                                    &channels_for_task,
+                                );
+                                let _ = tx.try_send(ActionResult::StreamBatch {
+                                    generation,
+                                    voltages,
+                                    overflow: data.overflow,
+                                });
+                            }
+                            Some(Err(e)) => {
+                                let _ = tx.send(ActionResult::StreamError {
+                                    generation,
+                                    error: format!("Stream error: {}", e),
+                                }).await;
+                                break;
+                            }
+                            None => {
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            let _ = tx.send(ActionResult::StreamEnded { generation }).await;
+        });
+    }
+
+    /// Stop the active stream.
+    ///
+    /// Sets state to `Stopping` and sends the abort signal. The background task
+    /// will emit `StreamEnded` when it finishes, which transitions to `Stopped`.
+    fn stop_streaming(&mut self, runtime: &Runtime) {
+        if !matches!(
+            self.streaming_state,
+            StreamingState::Running | StreamingState::Starting
+        ) {
+            return;
+        }
+        self.streaming_state = StreamingState::Stopping;
+        self.streaming_channels.clear();
+        self.status = Some("Stopping stream...".to_string());
+
+        if let Some(abort_tx) = self.streaming_abort_tx.take() {
+            runtime.spawn(async move {
+                let _ = abort_tx.send(()).await;
+            });
+        }
+    }
+
+    // =========================================================================
+    // Rendering
+    // =========================================================================
 
     /// Render the channel selection grid.
     fn render_channel_grid(&mut self, ui: &mut Ui, client: Option<DaqClient>, runtime: &Runtime) {
@@ -332,6 +595,10 @@ impl AnalogInputPanel {
         });
     }
 
+    // =========================================================================
+    // Single-shot reads
+    // =========================================================================
+
     /// Read a single channel via NiDaqService.ReadAnalogInput RPC.
     fn read_channel(&self, channel: u32, client: Option<DaqClient>, runtime: &Runtime) {
         let tx = self.action_tx.clone();
@@ -431,6 +698,10 @@ impl AnalogInputPanel {
         });
     }
 
+    // =========================================================================
+    // Result polling
+    // =========================================================================
+
     /// Poll for async results.
     fn poll_results(&mut self) {
         while let Ok(result) = self.action_rx.try_recv() {
@@ -452,7 +723,80 @@ impl AnalogInputPanel {
                     }
                     self.error = None;
                 }
+                ActionResult::StreamStarted { generation } => {
+                    if generation == self.stream_generation {
+                        self.streaming_state = StreamingState::Running;
+                        self.status = Some("Streaming".to_string());
+                    }
+                }
+                ActionResult::StreamBatch {
+                    generation,
+                    voltages,
+                    overflow,
+                } => {
+                    if generation == self.stream_generation {
+                        self.stream_overflow = overflow;
+                        for (channel, voltage) in voltages {
+                            if let Some(config) = self.channels.get_mut(&channel) {
+                                config.last_reading = Some(voltage);
+                            }
+                        }
+                        self.error = None;
+                    }
+                }
+                ActionResult::StreamError { generation, error } => {
+                    if generation == self.stream_generation {
+                        self.error = Some(error);
+                        self.streaming_state = StreamingState::Stopped;
+                        self.streaming_abort_tx = None;
+                        self.streaming_channels.clear();
+                    }
+                }
+                ActionResult::StreamEnded { generation } => {
+                    if generation == self.stream_generation
+                        && self.streaming_state != StreamingState::Stopped
+                    {
+                        self.streaming_state = StreamingState::Stopped;
+                        self.streaming_abort_tx = None;
+                        self.streaming_channels.clear();
+                        self.status = Some("Stream ended".to_string());
+                    }
+                }
             }
         }
     }
+}
+
+/// Extract the latest voltage per channel from interleaved stream data.
+///
+/// The server sends interleaved data: `[ch0_s0, ch1_s0, ch0_s1, ch1_s1, ...]`.
+/// We only need the most recent sample per channel for UI display, so we grab
+/// the last complete scan (last `n_channels` values) from the batch.
+fn de_interleave_latest(
+    interleaved: &[f64],
+    n_channels: usize,
+    channel_numbers: &[u32],
+) -> Vec<(u32, f64)> {
+    if interleaved.is_empty() || n_channels == 0 {
+        return Vec::new();
+    }
+
+    // Find the start of the last complete scan. Only consider fully
+    // complete scans; if there are fewer samples than channels, return
+    // no data to avoid misattributing voltages to channels.
+    let total = interleaved.len();
+    let n_scans = total / n_channels;
+    if n_scans == 0 {
+        return Vec::new();
+    }
+    let last_scan_start = (n_scans - 1) * n_channels;
+
+    channel_numbers
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, &ch)| {
+            let pos = last_scan_start + idx;
+            interleaved.get(pos).map(|&v| (ch, v))
+        })
+        .collect()
 }

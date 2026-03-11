@@ -13,6 +13,7 @@ use protocol::ni_daq::{
     WriteDigitalIoRequest,
 };
 
+use super::dio_monitor::{DioMonitorSender, DioStateUpdate};
 use super::DioDirection;
 
 /// Action results from async operations.
@@ -80,6 +81,8 @@ pub struct DigitalIOPanel {
     /// Async channels
     action_tx: mpsc::Sender<ActionResult>,
     action_rx: mpsc::Receiver<ActionResult>,
+    /// Optional sender to forward pin states to the DIO Monitor viewer panel.
+    monitor_sender: Option<DioMonitorSender>,
 }
 
 /// View mode for DIO panel.
@@ -114,11 +117,17 @@ impl Default for DigitalIOPanel {
             error: None,
             action_tx,
             action_rx,
+            monitor_sender: None,
         }
     }
 }
 
 impl DigitalIOPanel {
+    /// Set the sender used to forward pin state updates to the DIO Monitor panel.
+    pub fn set_monitor_sender(&mut self, sender: DioMonitorSender) {
+        self.monitor_sender = Some(sender);
+    }
+
     /// Create a new panel.
     pub fn new(device_id: &str, n_channels: u32) -> Self {
         Self {
@@ -635,8 +644,18 @@ impl DigitalIOPanel {
                 ActionResult::PortState { port, bits } => {
                     let start = port * 8;
                     for i in 0..8 {
-                        if let Some(p) = self.pins.get_mut((start + i) as usize) {
-                            p.state = (bits >> i) & 1 != 0;
+                        let pin = start + i;
+                        let state = (bits >> i) & 1 != 0;
+                        if let Some(p) = self.pins.get_mut(pin as usize) {
+                            p.state = state;
+                            // Forward to DIO Monitor viewer panel only for existing pins
+                            if let Some(sender) = &self.monitor_sender {
+                                let _ = sender.try_send(DioStateUpdate {
+                                    pin,
+                                    state,
+                                    timestamp: None,
+                                });
+                            }
                         }
                     }
                 }

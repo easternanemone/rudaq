@@ -10,6 +10,7 @@ use crate::widgets::{offline_notice, OfflineContext};
 use client::DaqClient;
 use protocol::ni_daq::{ReadCounterRequest, ResetCounterRequest};
 
+use super::counter_display::{CounterDisplaySender, CounterUpdate};
 use super::CounterMode;
 
 /// Action results from async operations.
@@ -105,6 +106,8 @@ pub struct CounterPanel {
     /// Async channels
     action_tx: mpsc::Sender<ActionResult>,
     action_rx: mpsc::Receiver<ActionResult>,
+    /// Optional sender to forward count values to the Counter Display viewer panel.
+    display_sender: Option<CounterDisplaySender>,
 }
 
 impl Default for CounterPanel {
@@ -123,11 +126,17 @@ impl Default for CounterPanel {
             error: None,
             action_tx,
             action_rx,
+            display_sender: None,
         }
     }
 }
 
 impl CounterPanel {
+    /// Set the sender used to forward count values to the Counter Display panel.
+    pub fn set_display_sender(&mut self, sender: CounterDisplaySender) {
+        self.display_sender = Some(sender);
+    }
+
     /// Create a new panel.
     pub fn new(device_id: &str, n_counters: u32) -> Self {
         Self {
@@ -559,6 +568,14 @@ impl CounterPanel {
                 ActionResult::CountValue { counter, count } => {
                     if let Some(c) = self.counters.get_mut(counter as usize) {
                         c.count = count;
+                    }
+                    // Forward to Counter Display viewer panel
+                    if let Some(sender) = &self.display_sender {
+                        let _ = sender.try_send(CounterUpdate {
+                            counter,
+                            count,
+                            timestamp: None,
+                        });
                     }
                     self.error = None;
                 }
