@@ -36,8 +36,10 @@ jobs:
       REMOTE_COMMAND: ${{ inputs.remote_command }}
       MAITAI_HOST: ${{ vars.MAITAI_TAILSCALE_HOST }}
       MAITAI_USER: ${{ vars.MAITAI_SSH_USER }}
+      MAITAI_KNOWN_HOSTS: ${{ vars.MAITAI_SSH_KNOWN_HOSTS }}
       LEABS_HOST: ${{ vars.LEABS_TAILSCALE_HOST }}
       LEABS_USER: ${{ vars.LEABS_SSH_USER }}
+      LEABS_KNOWN_HOSTS: ${{ vars.LEABS_SSH_KNOWN_HOSTS }}
       TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
       TS_OIDC_AUDIENCE: ${{ secrets.TS_OIDC_AUDIENCE }}
       TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
@@ -102,22 +104,69 @@ jobs:
         with:
           ssh-private-key: ${{ env.LAB_SSH_PRIVATE_KEY }}
 
+      - name: Prepare known_hosts
+        run: |
+          set -euo pipefail
+          mkdir -p "${HOME}/.ssh"
+          chmod 700 "${HOME}/.ssh"
+          : > "${HOME}/.ssh/known_hosts"
+          chmod 600 "${HOME}/.ssh/known_hosts"
+
+          append_known_host() {
+            local label="$1"
+            local entries="$2"
+            local required="$3"
+
+            if [[ -z "${entries}" ]]; then
+              if [[ "${required}" == "true" ]]; then
+                echo "::error::Missing pinned SSH host key data for ${label}"
+                exit 1
+              fi
+              echo "::warning::No pinned SSH host key data configured for ${label}; optional checks may be skipped if that host is unreachable."
+              return 0
+            fi
+
+            printf '%s\n' "${entries}" >> "${HOME}/.ssh/known_hosts"
+          }
+
+          case "${TARGET}" in
+            maitai-eos)
+              append_known_host "maitai-eos" "${MAITAI_KNOWN_HOSTS}" "true"
+              ;;
+            leabs-dev)
+              append_known_host "leabs-dev" "${LEABS_KNOWN_HOSTS}" "true"
+              ;;
+            both)
+              append_known_host "maitai-eos" "${MAITAI_KNOWN_HOSTS}" "true"
+              append_known_host "leabs-dev" "${LEABS_KNOWN_HOSTS}" "false"
+              ;;
+            *)
+              echo "::error::Unsupported target '${TARGET}'"
+              exit 2
+              ;;
+          esac
+
       - name: Connectivity + remote command
         run: |
           set -euo pipefail
+          requested_target="${TARGET:?TARGET is required}"
 
           check_host() {
             local host="$1"
             local user="$2"
             local allow_unreachable="$3"
             local target="${user}@${host}"
+            local escaped_remote_command
+
+            escaped_remote_command=$(printf '%q' "${REMOTE_COMMAND}")
 
             echo "==> Checking ${target}"
             if ! ssh \
               -o BatchMode=yes \
               -o ConnectTimeout=10 \
-              -o StrictHostKeyChecking=accept-new \
-              "${target}" "echo connected_to=\$(hostname); ${REMOTE_COMMAND}"; then
+              -o StrictHostKeyChecking=yes \
+              -o UserKnownHostsFile="${HOME}/.ssh/known_hosts" \
+              "${target}" "echo connected_to=\$(hostname); bash -lc ${escaped_remote_command}"; then
               if [[ "${allow_unreachable}" == "true" ]]; then
                 echo "::warning::Could not reach ${target}. This host may not yet be configured in Tailscale DNS/ACLs."
                 return 0
@@ -127,7 +176,7 @@ jobs:
             fi
           }
 
-          case "${TARGET}" in
+          case "${requested_target}" in
             maitai-eos)
               check_host "${MAITAI_HOST}" "${MAITAI_USER}" "false"
               ;;
@@ -140,7 +189,7 @@ jobs:
               check_host "${LEABS_HOST}" "${LEABS_USER}" "true"
               ;;
             *)
-              echo "::error::Unsupported target '${TARGET}'"
+              echo "::error::Unsupported target '${requested_target}'"
               exit 2
               ;;
           esac
