@@ -38,21 +38,56 @@ runs:
       if: runner.os == 'Linux' && inputs.dependency-profile != 'none'
       run: |
         set -euo pipefail
-        sudo apt-get update
-        sudo apt-get install -y --no-install-recommends \
-          libudev-dev \
-          libhdf5-dev \
-          lld \
-          pkg-config \
-          protobuf-compiler
+        profile="${{ inputs.dependency-profile }}"
 
-        if [ "${{ inputs.dependency-profile }}" = "full" ]; then
+        if command -v apt-get >/dev/null 2>&1; then
+          sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
+            libudev-dev \
             libhdf5-dev \
-            libxkbcommon-dev \
-            libwayland-dev \
-            libxcb-shape0-dev \
-            libxcb-xfixes0-dev
+            lld \
+            pkg-config \
+            protobuf-compiler
+
+          if [ "$profile" = "full" ]; then
+            sudo apt-get install -y --no-install-recommends \
+              libhdf5-dev \
+              libxkbcommon-dev \
+              libwayland-dev \
+              libxcb-shape0-dev \
+              libxcb-xfixes0-dev
+          fi
+        elif command -v pacman >/dev/null 2>&1; then
+          sudo pacman -Sy --noconfirm --needed \
+            systemd \
+            hdf5 \
+            lld \
+            pkgconf \
+            protobuf
+
+          if [ "$profile" = "full" ]; then
+            sudo pacman -Sy --noconfirm --needed \
+              libxkbcommon \
+              wayland \
+              libxcb
+          fi
+        elif command -v dnf >/dev/null 2>&1; then
+          sudo dnf install -y \
+            systemd-devel \
+            hdf5-devel \
+            lld \
+            pkgconf-pkg-config \
+            protobuf-compiler
+
+          if [ "$profile" = "full" ]; then
+            sudo dnf install -y \
+              libxkbcommon-devel \
+              wayland-devel \
+              libxcb-devel
+          fi
+        else
+          echo "::error::Unsupported Linux package manager on runner."
+          exit 1
         fi
 
     - name: Install system dependencies (macOS)

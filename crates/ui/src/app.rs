@@ -1096,19 +1096,8 @@ impl From<PersistedPanelInfo> for DeviceInfo {
             id: info.device_id,
             name: info.device_name,
             driver_type: info.driver_type,
-            category: 0,
-            is_movable: false,
-            is_readable: false,
-            is_triggerable: false,
-            is_frame_producer: false,
-            is_exposure_controllable: false,
-            is_shutter_controllable: false,
-            is_wavelength_tunable: false,
-            is_emission_controllable: false,
-            is_parameterized: false,
             capabilities,
-            metadata: None,
-            health_status: Default::default(),
+            ..Default::default()
         }
     }
 }

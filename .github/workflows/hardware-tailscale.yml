@@ -61,6 +61,7 @@ jobs:
           } >> "${GITHUB_ENV}"
 
       - name: Validate Tailscale credentials
+        if: ${{ runner.environment != 'self-hosted' }}
         run: |
           set -euo pipefail
           if [[ -z "${TS_OAUTH_CLIENT_ID}" ]]; then
@@ -73,7 +74,7 @@ jobs:
           fi
 
       - name: Connect to Tailscale (OIDC)
-        if: ${{ env.TS_OIDC_AUDIENCE != '' }}
+        if: ${{ runner.environment != 'self-hosted' && env.TS_OIDC_AUDIENCE != '' }}
         uses: tailscale/github-action@v4
         with:
           oauth-client-id: ${{ env.TS_OAUTH_CLIENT_ID }}
@@ -81,7 +82,7 @@ jobs:
           tags: tag:ci
 
       - name: Connect to Tailscale (OAuth secret fallback)
-        if: ${{ env.TS_OIDC_AUDIENCE == '' && env.TS_OAUTH_SECRET != '' }}
+        if: ${{ runner.environment != 'self-hosted' && env.TS_OIDC_AUDIENCE == '' && env.TS_OAUTH_SECRET != '' }}
         uses: tailscale/github-action@v4
         with:
           oauth-client-id: ${{ env.TS_OAUTH_CLIENT_ID }}
