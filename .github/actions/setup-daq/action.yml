@@ -59,7 +59,6 @@ runs:
           fi
         elif command -v pacman >/dev/null 2>&1; then
           sudo pacman -Sy --noconfirm --needed \
-            systemd \
             hdf5 \
             lld \
             pkgconf \
