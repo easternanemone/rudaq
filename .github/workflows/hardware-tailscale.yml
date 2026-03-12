@@ -29,7 +29,7 @@ concurrency:
 jobs:
   tailscale-remote-smoke:
     name: Tailscale remote smoke (${{ inputs.target }})
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: [self-hosted, Linux, X64, leabs]
     timeout-minutes: 25
     env:
       TARGET: ${{ inputs.target }}

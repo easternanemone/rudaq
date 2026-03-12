@@ -33,7 +33,7 @@ defaults:
 jobs:
   feature-matrix:
     name: "${{ matrix.name }}"
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: [self-hosted, Linux, X64, leabs]
     timeout-minutes: ${{ matrix.timeout }}
     env:
       CARGO_BUILD_JOBS: "2"
@@ -126,7 +126,7 @@ jobs:
 
   wasm-check:
     name: "ui / wasm32 compilation"
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: [self-hosted, Linux, X64, leabs]
     timeout-minutes: 15
     env:
       CARGO_BUILD_JOBS: "2"
