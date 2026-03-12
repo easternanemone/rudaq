@@ -194,6 +194,7 @@ fn clear_session_file() {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// Result of a health check sent through the channel (bd-j3xz.3.3: includes RTT).
 enum HealthCheckResult {
     /// Health check succeeded with round-trip time in milliseconds.
@@ -778,15 +779,18 @@ pub struct DaqApp {
     daemon_address: DaemonAddress,
 
     /// Text input field for address (may be invalid during editing)
+    #[cfg(not(target_arch = "wasm32"))]
     address_input: String,
 
     /// Address validation error (shown in UI)
+    #[cfg(not(target_arch = "wasm32"))]
     address_error: Option<String>,
 
     /// Daemon version (retrieved via GetDaemonInfo)
     daemon_version: Option<String>,
 
     /// GUI version (from CARGO_PKG_VERSION)
+    #[cfg(not(target_arch = "wasm32"))]
     gui_version: String,
 
     /// Dock state for panel management
@@ -814,7 +818,9 @@ pub struct DaqApp {
     runtime: crate::runtime::Runtime,
 
     /// Channel for health check results
+    #[cfg(not(target_arch = "wasm32"))]
     health_tx: mpsc::Sender<HealthCheckResult>,
+    #[cfg(not(target_arch = "wasm32"))]
     health_rx: mpsc::Receiver<HealthCheckResult>,
 
     /// Device reconciliation epoch (incremented on each reconcile request)
@@ -947,6 +953,7 @@ pub enum ControlPanelLayoutMode {
 }
 
 impl ControlPanelLayoutMode {
+    #[cfg(not(target_arch = "wasm32"))]
     fn label(self) -> &'static str {
         match self {
             Self::Simple => "Simple",
@@ -1488,8 +1495,6 @@ impl DaqApp {
             .and_then(|s| eframe::get_value(s, "control_panel_layout_mode"))
             .unwrap_or(ControlPanelLayoutMode::Simple);
 
-        // Health check channel
-        let (health_tx, health_rx) = mpsc::channel(4);
         // Device reconciliation channel
         let (device_reconcile_tx, device_reconcile_rx) = mpsc::channel(4);
 
@@ -1551,10 +1556,7 @@ impl DaqApp {
 
         Self {
             client: None,
-            address_input: String::new(),
-            address_error: None,
             daemon_version: None,
-            gui_version: env!("CARGO_PKG_VERSION").to_string(),
             dock_state: Some(dock_state),
             ui_actions: Vec::new(),
             getting_started_panel: GettingStartedPanel::default(),
@@ -1564,15 +1566,13 @@ impl DaqApp {
             modules_panel: ModulesPanel::default(),
             plan_runner_panel: PlanRunnerPanel::default(),
             scan_builder_panel: ScanBuilderPanel::default(),
-            experiment_designer_panel: ExperimentDesignerPanel::default(),
+            experiment_designer_panel: ExperimentDesignerPanel,
             document_viewer_panel: DocumentViewerPanel::default(),
             instrument_manager_panel: InstrumentManagerPanel::default(),
             signal_plotter_panel: SignalPlotterPanel::new(),
             image_viewer_panel: ImageViewerPanel::new(),
             logging_panel: LoggingPanel::new(),
             runtime,
-            health_tx,
-            health_rx,
             device_reconcile_epoch: 0,
             device_reconcile_tx,
             device_reconcile_rx,
@@ -2237,6 +2237,7 @@ impl DaqApp {
 
 /// Additional DaqApp methods in a separate impl block (split for helper functions)
 impl DaqApp {
+    #[cfg(not(target_arch = "wasm32"))]
     fn set_control_panel_layout_mode(&mut self, mode: ControlPanelLayoutMode) {
         if self.control_panel_layout_mode == mode {
             return;
@@ -2486,6 +2487,7 @@ impl DaqApp {
     }
 
     /// Called when connection is established - trigger panel refreshes
+    #[cfg(not(target_arch = "wasm32"))]
     fn on_connection_established(&mut self) {
         tracing::info!("Connection established - triggering panel refreshes");
 

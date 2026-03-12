@@ -125,7 +125,7 @@ jobs:
             --profile ci
 
   wasm-check:
-    name: "ui / wasm32 compilation"
+    name: "ui / wasm32 lint + compilation"
     runs-on: [self-hosted, Linux, X64, leabs]
     timeout-minutes: 15
     env:
@@ -140,6 +140,7 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.92.0
+          components: clippy
           targets: wasm32-unknown-unknown
 
       - name: Cache cargo build
@@ -155,3 +156,11 @@ jobs:
             --target wasm32-unknown-unknown \
             --no-default-features \
             --features web
+
+      - name: Clippy WASM target
+        run: |
+          cargo clippy -p ui --lib \
+            --target wasm32-unknown-unknown \
+            --no-default-features \
+            --features web \
+            -- -D warnings

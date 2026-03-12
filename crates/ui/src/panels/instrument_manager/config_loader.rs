@@ -61,7 +61,7 @@ impl DeviceConfigCache {
 
         #[cfg(target_arch = "wasm32")]
         {
-            return Ok(());
+            Ok(())
         }
 
         #[cfg(not(target_arch = "wasm32"))]
