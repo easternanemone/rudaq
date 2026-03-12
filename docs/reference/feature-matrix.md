@@ -220,6 +220,7 @@ The CI system tests these combinations:
 | **Format check** | `cargo fmt --all -- --check` |
 | **Clippy** | Workspace-wide lint |
 | **Unit & integration tests** | `cargo nextest run` (default features) |
+| **Performance regression gate** | Checked ring buffer + Hg2 extraction benchmarks vs committed baseline |
 | **Ring buffer benchmark** | Performance regression check |
 | **SBOM generation** | CycloneDX bill of materials |
 
@@ -248,6 +249,8 @@ The CI system tests these combinations:
 **Not covered in routine PR CI:**
 - Real hardware feature paths such as `pvcam_hardware`, `comedi_hardware`, `andor_hardware`, and `hardware_tests`
 - Manual Tailscale-driven lab orchestration in `hardware-tailscale.yml`
+
+**Benchmark artifacts:** `ci.yml` uploads the structured regression-gate results plus the Criterion HTML report for ring-buffer write throughput.
 
 ---
 
