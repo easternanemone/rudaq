@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       run_security_audit:
-        description: "Run cargo-audit and cargo-deny checks"
+        description: "Run dependency hygiene checks (audit, deny, machete)"
         required: false
         default: true
         type: boolean
@@ -73,11 +73,13 @@ jobs:
         with:
           tool: cargo-deny
 
-      - name: cargo audit
-        run: cargo audit
+      - name: Install cargo-machete
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-machete
 
-      - name: cargo deny advisories
-        run: cargo deny check advisories
+      - name: Dependency hygiene checks
+        run: bash scripts/check-dependency-hygiene.sh
 
   release-please:
     name: Release Please (manual)

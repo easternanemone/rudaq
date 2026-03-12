@@ -3,6 +3,7 @@ name = "db"
 version = "0.1.0"
 edition = "2021"
 description = "Embedded SurrealDB persistence layer for rust-daq (control plane)"
+license = "MIT"
 
 [dependencies]
 common = { path = "../common" }

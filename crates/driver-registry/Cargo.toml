@@ -3,6 +3,7 @@ name = "driver-registry"
 version = "0.1.0"
 edition = "2021"
 description = "Concrete driver factory registration for rust-daq. Owns feature gating for all hardware drivers."
+license = "MIT"
 
 [dependencies]
 # Foundation: hardware provides DeviceRegistry, HardwareConfig, and abstract APIs
