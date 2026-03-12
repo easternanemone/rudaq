@@ -20,7 +20,9 @@ set -euo pipefail
 # ============================================================================
 # Configuration
 # ============================================================================
-LEABS_SSH="leabs-dev"  # Tailscale hostname
+LEABS_USER="${LEABS_USER:-brian}"
+LEABS_HOST="${LEABS_HOST:-leabs-dev}"  # Tailscale hostname
+LEABS_SSH="${LEABS_SSH:-${LEABS_USER}@${LEABS_HOST}}"
 REMOTE_DIR="/home/brian/code/rust-daq"
 DAEMON_PORT=50051
 REMOTE_LOG="/tmp/rust-daq-daemon.log"

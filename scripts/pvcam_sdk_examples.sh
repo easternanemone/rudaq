@@ -3,9 +3,9 @@ set -euo pipefail
 
 # Helper: run PVCAM SDK example binaries on the maitai host with correct env.
 # Usage: scripts/pvcam_sdk_examples.sh [ExampleBinary] [args...]
-# Env: PVCAM_HOST (default maitai@100.117.5.12), TIMEOUT_SECONDS (default 12)
+# Env: PVCAM_HOST (default maitai@maitai-eos), TIMEOUT_SECONDS (default 12)
 
-HOST="${PVCAM_HOST:-maitai@100.117.5.12}"
+HOST="${PVCAM_HOST:-maitai@maitai-eos}"
 DEFAULT_EXAMPLE="LiveImage"
 
 usage() {
@@ -14,7 +14,7 @@ Usage: pvcam_sdk_examples.sh [ExampleBinary] [args...]
 
 Runs a PVCAM SDK example on the remote host with the correct env vars.
 Env:
-  PVCAM_HOST        SSH target (default: maitai@100.117.5.12)
+  PVCAM_HOST        SSH target (default: maitai@maitai-eos)
   TIMEOUT_SECONDS   Timeout for the example (default: 12)
 Examples:
   pvcam_sdk_examples.sh LiveImage
