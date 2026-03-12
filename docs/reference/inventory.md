@@ -40,7 +40,7 @@
 
 | Flag | Crate Owner | Description |
 |---|---|---|
-| `comedi_hardware` | `bin`, `driver-registry` | Enables real Comedi DAQ driver compilation (Linux/Windows only). |
+| `comedi_hardware` | `bin`, `driver-registry` | Enables real Comedi hardware driver compilation (Linux only). |
 | `comedi-sdk` | `comedi-sys` | Links the Linux Comedi C SDK. |
 | `db-surreal` | `bin`, `server`, `db` | Compiles SurrealDB for configuration persistence. |
 | `storage_arrow` | `storage` | Enables Apache Arrow IPC and Tensor formatting backends. |

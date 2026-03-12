@@ -61,4 +61,17 @@ if [[ ! -e "$canonical_db" ]]; then
   exit 1
 fi
 
-exec bd --no-daemon --no-auto-import --db "$canonical_db" "$@"
+# Keep compatibility across bd releases: older versions supported
+# extra global flags here, while newer releases removed them.
+bd_args=(--db "$canonical_db")
+bd_help="$(bd --help 2>/dev/null || true)"
+
+if [[ "$bd_help" == *"--no-daemon"* ]]; then
+  bd_args+=(--no-daemon)
+fi
+
+if [[ "$bd_help" == *"--no-auto-import"* ]]; then
+  bd_args+=(--no-auto-import)
+fi
+
+exec bd "${bd_args[@]}" "$@"

@@ -716,9 +716,290 @@ pub fn register_hardware(engine: &mut Engine) {
 
 #[cfg(feature = "hardware_factories")]
 fn register_hardware_factories(engine: &mut Engine) {
+    let _ = engine;
     // Legacy serial driver factories (Newport, Thorlabs, Spectra-Physics) have been
     // removed. Serial/TCP/SCPI devices now use driver-universal TOML manifests
     // in config/devices/ and are accessed via ExecuteDeviceCommand RPC.
+}
+
+// =============================================================================
+// HDF5 Functions (feature-gated)
+// =============================================================================
+
+#[cfg(feature = "hdf5_scripting")]
+fn register_hdf5_functions(engine: &mut Engine) {
+    engine.register_type_with_name::<Hdf5Handle>("Hdf5File");
+
+    // create_hdf5(path) - Create new HDF5 file for writing
+    // SECURITY (bd-qa36.8.1): Path is validated to prevent directory traversal.
+    // Scripts can only create HDF5 files under the configured data directory.
+    engine.register_fn(
+        "create_hdf5",
+        |path: &str| -> Result<Hdf5Handle, Box<EvalAltResult>> {
+            let validated_path = crate::path_security::validate_hdf5_path(path)?;
+
+            // Store the original user-provided path for display (not the canonical path,
+            // which would leak internal directory structure to script callers)
+            let user_path = path.to_string();
+
+            let file = hdf5::File::create(&validated_path).map_err(|e| {
+                // Use generic error message — don't expose canonical path to scripts
+                tracing::warn!(
+                    path = %validated_path.display(),
+                    error = %e,
+                    "Failed to create HDF5 file"
+                );
+                Box::new(EvalAltResult::ErrorRuntime(
+                    format!("Failed to create HDF5 file '{}': {}", user_path, e).into(),
+                    Position::NONE,
+                ))
+            })?;
+
+            Ok(Hdf5Handle {
+                file: Arc::new(tokio::sync::Mutex::new(Some(file))),
+                path: std::path::PathBuf::from(user_path),
+            })
+        },
+    );
+
+    // hdf5.path() - Get file path
+    engine.register_fn("path", |hdf5: &mut Hdf5Handle| -> String {
+        hdf5.path.display().to_string()
+    });
+
+    // hdf5.write_attr(name, value) - Write string attribute
+    engine.register_fn(
+        "write_attr",
+        |hdf5: &mut Hdf5Handle, name: &str, value: &str| -> Result<Dynamic, Box<EvalAltResult>> {
+            let name = name.to_string();
+            let value = value.to_string();
+            run_blocking("HDF5 write_attr", async {
+                let guard = hdf5.file.lock().await;
+                let file = guard
+                    .as_ref()
+                    .ok_or_else(|| anyhow::anyhow!("HDF5 file already closed"))?;
+                let vlu: hdf5::types::VarLenUnicode = value
+                    .parse()
+                    .map_err(|_| anyhow::anyhow!("Failed to parse string as VarLenUnicode"))?;
+                file.new_attr::<hdf5::types::VarLenUnicode>()
+                    .shape(())
+                    .create(name.as_str())
+                    .map_err(|e| anyhow::anyhow!("Failed to create attr '{}': {}", name, e))?
+                    .write_scalar(&vlu)
+                    .map_err(|e| anyhow::anyhow!("Failed to write attr '{}': {}", name, e))?;
+                Ok::<_, anyhow::Error>(())
+            })?;
+            Ok(Dynamic::UNIT)
+        },
+    );
+
+    // hdf5.write_attr_f64(name, value) - Write float attribute
+    engine.register_fn(
+        "write_attr_f64",
+        |hdf5: &mut Hdf5Handle, name: &str, value: f64| -> Result<Dynamic, Box<EvalAltResult>> {
+            run_blocking("HDF5 write_attr_f64", async {
+                let guard = hdf5.file.lock().await;
+                let file = guard
+                    .as_ref()
+                    .ok_or_else(|| anyhow::anyhow!("HDF5 file already closed"))?;
+                file.new_attr::<f64>()
+                    .shape(())
+                    .create(name)
+                    .map_err(|e| anyhow::anyhow!("Failed to create attr '{}': {}", name, e))?
+                    .write_scalar(&value)
+                    .map_err(|e| anyhow::anyhow!("Failed to write attr '{}': {}", name, e))?;
+                Ok::<_, anyhow::Error>(())
+            })?;
+            Ok(Dynamic::UNIT)
+        },
+    );
+
+    // hdf5.write_attr_i64(name, value) - Write integer attribute
+    engine.register_fn(
+        "write_attr_i64",
+        |hdf5: &mut Hdf5Handle, name: &str, value: i64| -> Result<Dynamic, Box<EvalAltResult>> {
+            run_blocking("HDF5 write_attr_i64", async {
+                let guard = hdf5.file.lock().await;
+                let file = guard
+                    .as_ref()
+                    .ok_or_else(|| anyhow::anyhow!("HDF5 file already closed"))?;
+                file.new_attr::<i64>()
+                    .shape(())
+                    .create(name)
+                    .map_err(|e| anyhow::anyhow!("Failed to create attr '{}': {}", name, e))?
+                    .write_scalar(&value)
+                    .map_err(|e| anyhow::anyhow!("Failed to write attr '{}': {}", name, e))?;
+                Ok::<_, anyhow::Error>(())
+            })?;
+            Ok(Dynamic::UNIT)
+        },
+    );
+
+    // hdf5.write_array_1d(name, data) - Write 1D f64 array as dataset
+    engine.register_fn(
+        "write_array_1d",
+        |hdf5: &mut Hdf5Handle,
+         name: &str,
+         data: rhai::Array|
+         -> Result<Dynamic, Box<EvalAltResult>> {
+            let values: Vec<f64> = data
+                .iter()
+                .map(|v| {
+                    v.as_float()
+                        .or_else(|_| v.as_int().map(|i| i as f64))
+                        .map_err(|_| {
+                            Box::new(EvalAltResult::ErrorRuntime(
+                                format!("Array element is not a number: {:?}", v).into(),
+                                Position::NONE,
+                            ))
+                        })
+                })
+                .collect::<Result<Vec<f64>, _>>()?;
+
+            run_blocking("HDF5 write_array_1d", async {
+                let guard = hdf5.file.lock().await;
+                let file = guard
+                    .as_ref()
+                    .ok_or_else(|| anyhow::anyhow!("HDF5 file already closed"))?;
+
+                let dataset = file
+                    .new_dataset::<f64>()
+                    .shape([values.len()])
+                    .create(name)
+                    .map_err(|e| anyhow::anyhow!("Failed to create dataset '{}': {}", name, e))?;
+
+                dataset
+                    .write(&values)
+                    .map_err(|e| anyhow::anyhow!("Failed to write dataset '{}': {}", name, e))?;
+
+                Ok::<_, anyhow::Error>(())
+            })?;
+            Ok(Dynamic::UNIT)
+        },
+    );
+
+    // hdf5.write_array_2d(name, data) - Write 2D array (array of [angle, power] pairs)
+    engine.register_fn(
+        "write_array_2d",
+        |hdf5: &mut Hdf5Handle,
+         name: &str,
+         data: rhai::Array|
+         -> Result<Dynamic, Box<EvalAltResult>> {
+            let mut values: Vec<f64> = Vec::new();
+            let mut ncols = 0usize;
+
+            for (i, row) in data.iter().enumerate() {
+                let row_arr = row.clone().into_array().map_err(|_| {
+                    Box::new(EvalAltResult::ErrorRuntime(
+                        format!("Row {} is not an array", i).into(),
+                        Position::NONE,
+                    ))
+                })?;
+
+                if i == 0 {
+                    ncols = row_arr.len();
+                } else if row_arr.len() != ncols {
+                    return Err(Box::new(EvalAltResult::ErrorRuntime(
+                        format!(
+                            "Row {} has {} columns, expected {}",
+                            i,
+                            row_arr.len(),
+                            ncols
+                        )
+                        .into(),
+                        Position::NONE,
+                    )));
+                }
+
+                for v in row_arr {
+                    let val = v
+                        .as_float()
+                        .or_else(|_| v.as_int().map(|i| i as f64))
+                        .map_err(|_| {
+                            Box::new(EvalAltResult::ErrorRuntime(
+                                format!("Array element is not a number: {:?}", v).into(),
+                                Position::NONE,
+                            ))
+                        })?;
+                    values.push(val);
+                }
+            }
+
+            let nrows = data.len();
+
+            run_blocking("HDF5 write_array_2d", async {
+                let guard = hdf5.file.lock().await;
+                let file = guard
+                    .as_ref()
+                    .ok_or_else(|| anyhow::anyhow!("HDF5 file already closed"))?;
+
+                let (group, dataset_name) = if name.contains('/') {
+                    let parts: Vec<&str> = name.rsplitn(2, '/').collect();
+                    let ds_name = parts[0];
+                    let group_path = parts[1];
+
+                    let group = file
+                        .create_group(group_path)
+                        .or_else(|_| file.group(group_path))
+                        .map_err(|e| {
+                            anyhow::anyhow!("Failed to create group '{}': {}", group_path, e)
+                        })?;
+
+                    (Some(group), ds_name)
+                } else {
+                    (None, name)
+                };
+
+                let dataset = match &group {
+                    Some(g) => g.new_dataset::<f64>(),
+                    None => file.new_dataset::<f64>(),
+                }
+                .shape([nrows, ncols])
+                .create(dataset_name)
+                .map_err(|e| anyhow::anyhow!("Failed to create dataset '{}': {}", name, e))?;
+
+                dataset
+                    .write_raw(&values)
+                    .map_err(|e| anyhow::anyhow!("Failed to write dataset '{}': {}", name, e))?;
+
+                Ok::<_, anyhow::Error>(())
+            })?;
+            Ok(Dynamic::UNIT)
+        },
+    );
+
+    // hdf5.create_group(name) - Create a group
+    engine.register_fn(
+        "create_group",
+        |hdf5: &mut Hdf5Handle, name: &str| -> Result<Dynamic, Box<EvalAltResult>> {
+            run_blocking("HDF5 create_group", async {
+                let guard = hdf5.file.lock().await;
+                let file = guard
+                    .as_ref()
+                    .ok_or_else(|| anyhow::anyhow!("HDF5 file already closed"))?;
+                file.create_group(name)
+                    .map_err(|e| anyhow::anyhow!("Failed to create group '{}': {}", name, e))?;
+                Ok::<_, anyhow::Error>(())
+            })?;
+            Ok(Dynamic::UNIT)
+        },
+    );
+
+    // hdf5.close() - Close the file
+    engine.register_fn(
+        "close",
+        |hdf5: &mut Hdf5Handle| -> Result<Dynamic, Box<EvalAltResult>> {
+            run_blocking("HDF5 close", async {
+                let mut guard = hdf5.file.lock().await;
+                if let Some(file) = guard.take() {
+                    file.flush()
+                        .map_err(|e| anyhow::anyhow!("Failed to flush HDF5 file: {}", e))?;
+                }
+                Ok::<_, anyhow::Error>(())
+            })?;
+            Ok(Dynamic::UNIT)
+        },
+    );
 }
 
 // =============================================================================

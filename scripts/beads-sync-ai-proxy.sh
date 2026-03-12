@@ -19,27 +19,35 @@ ISSUES_JSONL="$REPO_ROOT/.beads/backup/issues.jsonl"
 LOCK_FILE="/tmp/beads-sync-ai-proxy.lock"
 LOG_FILE="${HOME}/Library/Logs/beads-sync-ai-proxy.log"
 
-# ai-proxy endpoints (credentials via env only; never hardcode secrets in-repo)
+# ai-proxy endpoints
 BEADHUB_URL="${BEADHUB_URL:-http://100.105.113.58:8080}"
-API_KEY="${BEADHUB_API_KEY:-}"
-WORKSPACE_ID="${BEADHUB_WORKSPACE_ID:-}"
-REPO_ORIGIN="${BEADHUB_REPO_ORIGIN:-git@github.com-thefermisea:TheFermiSea/rust-daq.git}"
-HUMAN_NAME="${BEADHUB_HUMAN_NAME:-$(id -un 2>/dev/null || echo unknown)}"
-ROLE="${BEADHUB_ROLE:-developer}"
-ALIAS="${BEADHUB_ALIAS:-codex}"
+BEADHUB_API_KEY="${BEADHUB_API_KEY:-}"
+BEADHUB_WORKSPACE_ID="${BEADHUB_WORKSPACE_ID:-}"
+BEADHUB_HUMAN_NAME="${BEADHUB_HUMAN_NAME:-$(id -un 2>/dev/null || echo "${USER:-unknown}")}"
+BEADHUB_ROLE="${BEADHUB_ROLE:-developer}"
+BEADHUB_ALIAS="${BEADHUB_ALIAS:-alice}"
+REPO_ORIGIN="${BEADHUB_REPO_ORIGIN:-$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null || true)}"
 
 # Dolt SQL servers
-LOCAL_DOLT_HOST="127.0.0.1"
-LOCAL_DOLT_PORT="13418"
-REMOTE_DOLT_HOST="100.105.113.58"
-REMOTE_DOLT_PORT="3307"
-DOLT_DB="beads"
+LOCAL_DOLT_HOST="${LOCAL_DOLT_HOST:-127.0.0.1}"
+LOCAL_DOLT_PORT="${LOCAL_DOLT_PORT:-13418}"
+REMOTE_DOLT_HOST="${REMOTE_DOLT_HOST:-100.105.113.58}"
+REMOTE_DOLT_PORT="${REMOTE_DOLT_PORT:-3307}"
+DOLT_DB="${DOLT_DB:-beads}"
 
 # Python with pymysql
-PYTHON="/tmp/dolt-sync-venv/bin/python3"
+PYTHON="${PYTHON:-/tmp/dolt-sync-venv/bin/python3}"
 
 log() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') $*" | tee -a "$LOG_FILE"
+}
+
+require_env() {
+    local name="$1"
+    if [ -z "${!name:-}" ]; then
+        log "ERROR: required environment variable $name is not set"
+        exit 1
+    fi
 }
 
 # Prevent concurrent syncs
@@ -62,13 +70,11 @@ if [ ! -f "$ISSUES_JSONL" ]; then
     exit 1
 fi
 
-if [ -z "$API_KEY" ]; then
-    log "ERROR: missing BEADHUB_API_KEY"
-    exit 1
-fi
+require_env BEADHUB_API_KEY
+require_env BEADHUB_WORKSPACE_ID
 
-if [ -z "$WORKSPACE_ID" ]; then
-    log "ERROR: missing BEADHUB_WORKSPACE_ID"
+if [ -z "$REPO_ORIGIN" ]; then
+    log "ERROR: could not determine REPO_ORIGIN; set REPO_ORIGIN explicitly"
     exit 1
 fi
 
@@ -87,18 +93,18 @@ RESPONSE=$(python3 -c "
 import json, sys
 issues_jsonl = open('$ISSUES_JSONL').read().strip()
 payload = {
-    'workspace_id': '$WORKSPACE_ID',
+    'workspace_id': '$BEADHUB_WORKSPACE_ID',
     'repo_origin': '$REPO_ORIGIN',
     'sync_mode': 'full',
     'issues_jsonl': issues_jsonl,
-    'human_name': '$HUMAN_NAME',
-    'role': '$ROLE',
-    'alias': '$ALIAS'
+    'human_name': '$BEADHUB_HUMAN_NAME',
+    'role': '$BEADHUB_ROLE',
+    'alias': '$BEADHUB_ALIAS'
 }
 json.dump(payload, sys.stdout)
 " | curl -s --connect-timeout 10 --max-time 120 \
     -X POST "$BEADHUB_URL/v1/bdh/sync" \
-    -H "Authorization: Bearer $API_KEY" \
+    -H "Authorization: Bearer $BEADHUB_API_KEY" \
     -H "Content-Type: application/json" \
     -d @- 2>&1)
 

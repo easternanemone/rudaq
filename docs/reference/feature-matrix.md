@@ -92,7 +92,7 @@ Top-level feature flags on the `bin` crate:
 |---------|-------------|-------------|
 | `all_hardware` | `bin` | Enable all native driver crates in default mode |
 | `pvcam_hardware` | `bin` | Real PVCAM SDK (via `driver-pvcam/hardware`) |
-| `comedi_hardware` | `bin` | Real Comedi DAQ (via `driver-comedi/hardware`) |
+| `comedi_hardware` | `bin` | Real Comedi DAQ (via `driver-registry/comedi_hardware`) |
 | `maitai` | `bin` | Complete maitai lab profile |
 
 #### Driver Registry Features (`crates/driver-registry`)

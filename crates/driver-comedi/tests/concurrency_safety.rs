@@ -39,8 +39,7 @@ fn test_concurrent_analog_reads() {
     let path = device_path();
     let device = ComediDevice::open(&path).expect("Failed to open device");
 
-    // We wrap the device in an Arc to share among threads, though ComediDevice itself
-    // internally uses an Arc<DeviceInner>, so cloning it is cheap and safe.
+    // Cloning ComediDevice is cheap and safe because it shares the inner handle.
     let num_threads = 8;
     let reads_per_thread = 50;
 
