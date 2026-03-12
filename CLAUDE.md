@@ -11,6 +11,8 @@ cargo build                              # Default feature set (see Cargo.toml)
 cargo nextest run                        # Parallel test runner (install: cargo install cargo-nextest --locked)
 cargo nextest run test_name              # Single test by name
 cargo nextest run -p common              # Single crate
+cargo nextest run -p integration-tests --features universal --profile ci  # Runtime smoke test (CI parity)
+cargo nextest run -p integration-tests --no-default-features --features networking,server,scripting,storage_hdf5,storage_arrow,serial,modules,pvcam,universal,db-surreal-rocksdb --profile ci  # Runtime RocksDB smoke (CI parity)
 cargo nextest run --profile ci           # CI profile (3 retries, no fail-fast)
 cargo nextest run --workspace --exclude ui --exclude comedi-sys --exclude driver-comedi --profile ci  # Full CI parity test slice
 cargo check -p ui --lib --target wasm32-unknown-unknown --no-default-features --features web  # UI WASM compile smoke (CI parity)
@@ -134,6 +136,8 @@ registry.register_from_config(DeviceConfig { id, name, driver: DriverConfig { ty
 
 **Issue tracking**: This project uses `bdh` (beads). Run `bdh prime` for the authoritative workflow — it is auto-injected at session start by hooks. Run `bdh onboard` to generate agent policy guidance including multi-agent coordination and recording guidelines.
 
+**Worktree safety**: In worktrees, run beads through `bash scripts/bd-safe.sh ...`. Verify local/runtime artifact drift with `bash scripts/beads-worktree-hygiene.sh status`, and use `bash scripts/beads-worktree-hygiene.sh cleanup --apply` to move stale worktree-local `.beads` artifacts.
+
 **Code search**: Primary tool is `grepai search "query" --json --compact`. Trace calls with `grepai trace callers/callees "Symbol" --json`. Fall back to `rg`/`grep` if grepai is unavailable.
 
 **Structural search**: `sg` (ast-grep) for AST-aware code patterns. E.g., `sg -p '$EXPR.unwrap()' --lang rust`.
@@ -168,10 +172,14 @@ WASM GUI: `http://100.117.5.12:8080`. Known reconnect bug (beefcake-48ad): must 
 | `scripts/install-service.sh` | Install daemon as systemd service |
 | `scripts/calibrate-comedi.sh` | Comedi DAQ calibration |
 | `scripts/leabs-daemon-watchdog.sh` | Leabs daemon health monitor |
+| `scripts/repro-istar-stream-crash.sh` | iSTAR stream crash repro harness (grpcurl soak + artifact capture) |
+| `scripts/istar-stream-overnight-matrix.sh` | Long-run iSTAR repro matrix over quality/FPS/exposure grids |
+| `scripts/leabs-daemon-crash-wrapper.sh` | Remote daemon crash-capture wrapper used by repro/watchdog flows |
 | `scripts/install-target-maintenance.sh` | Install target cleanup cron job |
 | `scripts/run-ast-grep.sh` | AST-grep structural search helper |
 | `scripts/target-maintenance.sh` | Clean bloated target/ directory |
 | `scripts/bd-safe.sh` | Worktree-safe beads commands (auto-discovers Dolt/SQLite backend) |
+| `scripts/beads-worktree-hygiene.sh` | Detect/clean stale worktree-local beads runtime artifacts |
 
 ## References
 
