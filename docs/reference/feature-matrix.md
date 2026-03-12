@@ -221,6 +221,7 @@ The CI system tests these combinations:
 | **Clippy** | Workspace-wide lint |
 | **Unit & integration tests** | `cargo nextest run` (default features) |
 | **Dependency hygiene + SBOM** | `cargo-audit`, `cargo-deny`, `cargo-machete`, plus CycloneDX SBOM on push; `cargo-deny` excludes the evaluation-only `ui-slint` crate pending upstream license review |
+| **Nightly hardware smoke** | Scheduled deploy + gRPC frame validation on `maitai-eos` and `leabs-dev` |
 | **Performance regression gate** | Checked ring buffer + Hg2 extraction benchmarks vs committed baseline |
 | **Ring buffer benchmark** | Performance regression check |
 | **SBOM generation** | CycloneDX bill of materials |
