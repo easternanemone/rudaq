@@ -181,6 +181,14 @@ WASM GUI: `http://100.117.5.12:8080`. Known reconnect bug (beefcake-48ad): must 
 | `scripts/bd-safe.sh` | Worktree-safe beads commands (auto-discovers Dolt/SQLite backend) |
 | `scripts/beads-worktree-hygiene.sh` | Detect/clean stale worktree-local beads runtime artifacts |
 
+### Leabs/iSTAR Repro Commands
+
+```bash
+bash scripts/leabs-daemon-watchdog.sh --build-remote-on-start   # Health monitor + auto-restart for leabs daemon
+bash scripts/repro-istar-stream-crash.sh --build-remote --soak-seconds 1800  # iSTAR crash repro soak + artifact capture
+bash scripts/istar-stream-overnight-matrix.sh --hours 10 --batch-size 6       # Overnight iSTAR stream matrix run
+```
+
 ## References
 
 - Agent policy: `AGENTS.md` (local/gitignored, auto-injected by hooks; generate with `bdh onboard`)
