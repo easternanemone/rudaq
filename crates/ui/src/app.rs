@@ -1108,6 +1108,7 @@ impl From<PersistedPanelInfo> for DeviceInfo {
             is_parameterized: false,
             capabilities,
             metadata: None,
+            health_status: Default::default(),
         }
     }
 }

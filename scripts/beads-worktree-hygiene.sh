@@ -52,7 +52,12 @@ print_status() {
   echo "worktree_root=$worktree_root"
   echo "canonical_root=$common_root"
   echo "canonical_db=$common_db"
-  echo "bd_safe_where=$("$bd_safe" where --json | tr '\n' ' ')"
+  local safe_where
+  if safe_where="$("$bd_safe" where --json 2>&1 | tr '\n' ' ')"; then
+    echo "bd_safe_where=$safe_where"
+  else
+    echo "bd_safe_where_error=$safe_where"
+  fi
 
   if [[ "$worktree_root" == "$common_root" ]]; then
     echo "status=main-worktree (local .beads is canonical)"

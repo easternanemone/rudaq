@@ -97,6 +97,8 @@ Additional: ~2,300 LOC in tests, examples, and benchmarks.
 
 **Location:** `components/connection.rs:15-45`
 
+> [!NOTE] **EXECUTABLE EXAMPLE** (Source: `crates/driver-pvcam/src/components/connection.rs`)
+
 ```rust
 static SDK_REF_COUNT: AtomicU32 = AtomicU32::new(0);
 static SDK_INIT_MUTEX: Mutex<()> = Mutex::new(());

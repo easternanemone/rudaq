@@ -813,7 +813,7 @@ impl ComediStreamWriter {
         &self,
         id: String,
         nth_frame: usize,
-    ) -> Result<tokio::sync::mpsc::Receiver<Vec<u8>>> {
+    ) -> Result<tokio::sync::mpsc::Receiver<bytes::Bytes>> {
         if let Some(ref rb) = self.ring_buffer {
             rb.register_tap(id, nth_frame)
         } else {

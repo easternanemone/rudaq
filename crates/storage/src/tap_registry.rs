@@ -58,7 +58,7 @@ pub struct TapConsumer {
 
     /// Async channel sender for delivering frames
     /// Uses try_send to avoid blocking on backpressure
-    sender: mpsc::Sender<Vec<u8>>,
+    sender: mpsc::Sender<bytes::Bytes>,
 
     /// Number of dropped frames due to backpressure
     dropped_frames: AtomicU64,
@@ -79,7 +79,7 @@ impl TapConsumer {
         id: String,
         nth_frame: usize,
         channel_capacity: usize,
-        sender: mpsc::Sender<Vec<u8>>,
+        sender: mpsc::Sender<bytes::Bytes>,
     ) -> Self {
         let metrics_label = allocate_metrics_label(&id);
         Self {
@@ -103,7 +103,7 @@ impl TapConsumer {
 
     /// Attempt to send a frame without blocking
     /// Returns true if sent successfully, false if dropped due to backpressure
-    pub fn try_send_frame(&self, data: Vec<u8>) -> bool {
+    pub fn try_send_frame(&self, data: bytes::Bytes) -> bool {
         match self.sender.try_send(data) {
             Ok(_) => {
                 self.delivered_frames.fetch_add(1, Ordering::Relaxed);
@@ -275,7 +275,7 @@ impl TapRegistry {
     }
 
     /// Register a new tap
-    pub fn register(&self, id: String, nth_frame: usize) -> Result<mpsc::Receiver<Vec<u8>>> {
+    pub fn register(&self, id: String, nth_frame: usize) -> Result<mpsc::Receiver<bytes::Bytes>> {
         let mut taps = self
             .taps
             .write()
@@ -318,19 +318,14 @@ impl TapRegistry {
             return;
         }
 
-        // Clone data once if needed, or per tap?
-        // Optimization: only clone if we have at least one consumer that wants it
-        // But here we just iterate.
-
-        // Since we need to send owned Vec<u8> to channel, we might need multiple clones
-        // if multiple taps want the frame.
-        // To avoid cloning for *skipped* frames, we check should_deliver first.
+        let mut shared_payload: Option<bytes::Bytes> = None;
 
         for tap in taps.values() {
             if tap.should_deliver() {
-                // Clone data only when sending
-                let frame_data = data.to_vec();
-                tap.try_send_frame(frame_data);
+                // Lazily allocate the shared payload on the first tap that wants it
+                let payload =
+                    shared_payload.get_or_insert_with(|| bytes::Bytes::copy_from_slice(data));
+                tap.try_send_frame(payload.clone());
             }
         }
     }

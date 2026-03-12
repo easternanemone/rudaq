@@ -76,7 +76,7 @@ use tokio::sync::mpsc::Receiver;
 /// ```
 pub struct RingBufferReader {
     /// Channel receiver from ring buffer tap
-    receiver: Receiver<Vec<u8>>,
+    receiver: Receiver<bytes::Bytes>,
 
     /// Number of frames successfully received
     frames_received: usize,
@@ -110,7 +110,7 @@ impl RingBufferReader {
     /// # }
     /// ```
     #[must_use]
-    pub fn new(receiver: Receiver<Vec<u8>>) -> Self {
+    pub fn new(receiver: Receiver<bytes::Bytes>) -> Self {
         Self {
             receiver,
             frames_received: 0,
@@ -125,7 +125,7 @@ impl RingBufferReader {
     ///
     /// # Returns
     ///
-    /// - `Some(Vec<u8>)` - Frame data if available
+    /// - `Some(bytes::Bytes)` - Frame data if available
     /// - `None` - Channel closed, no more frames will arrive
     ///
     /// # Example
@@ -144,7 +144,7 @@ impl RingBufferReader {
     /// }
     /// # }
     /// ```
-    pub async fn read_frame(&mut self) -> Option<Vec<u8>> {
+    pub async fn read_frame(&mut self) -> Option<bytes::Bytes> {
         match self.receiver.recv().await {
             Some(data) => {
                 self.frames_received += 1;
@@ -368,11 +368,13 @@ mod tests {
 
         // Send a frame
         let frame_data = vec![1, 2, 3, 4, 5];
-        tx.send(frame_data.clone()).await.unwrap();
+        tx.send(bytes::Bytes::from(frame_data.clone()))
+            .await
+            .unwrap();
 
         // Read it back
         let received = reader.read_frame().await;
-        assert_eq!(received, Some(frame_data));
+        assert_eq!(received, Some(bytes::Bytes::from(frame_data)));
 
         // Check stats
         let stats = reader.stats();
@@ -392,7 +394,7 @@ mod tests {
             value: 3.14,
         };
         let json_data = serde_json::to_vec(&frame).unwrap();
-        tx.send(json_data).await.unwrap();
+        tx.send(bytes::Bytes::from(json_data)).await.unwrap();
 
         // Read and deserialize
         let received = reader.read_typed::<TestFrame>().await.unwrap();
@@ -428,7 +430,7 @@ mod tests {
                 value: f64::from(i) * 1.5,
             };
             let json_data = serde_json::to_vec(&frame).unwrap();
-            tx.send(json_data).await.unwrap();
+            tx.send(bytes::Bytes::from(json_data)).await.unwrap();
         }
 
         // Read all frames
@@ -453,7 +455,9 @@ mod tests {
         let mut reader = RingBufferReader::new(rx);
 
         // Send invalid JSON
-        tx.send(vec![1, 2, 3, 4, 5]).await.unwrap();
+        tx.send(bytes::Bytes::from(vec![1, 2, 3, 4, 5]))
+            .await
+            .unwrap();
 
         // Should return error
         let result = reader.read_typed::<TestFrame>().await;

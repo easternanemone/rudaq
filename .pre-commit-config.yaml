@@ -46,6 +46,13 @@ repos:
   # Rust linting with clippy
   - repo: local
     hooks:
+      - id: doc-drift-check
+        name: doc drift check
+        entry: ./scripts/check-doc-drift.sh
+        language: script
+        types: [markdown]
+        pass_filenames: false
+        description: "Check for stale documentation patterns"
       - id: cargo-clippy
         name: cargo clippy
         entry: bash -c 'cargo clippy --workspace --all-targets --all-features --exclude ui -- -D warnings'

@@ -450,9 +450,9 @@ impl StreamAcquisition {
             .channels
             .iter()
             .map(|ch| {
-                let ptr = unsafe {
-                    comedi_sys::comedi_get_range(device.handle(), subdevice, ch.channel, ch.range)
-                };
+                let ptr = device.with_handle(|handle| unsafe {
+                    comedi_sys::comedi_get_range(handle, subdevice, ch.channel, ch.range)
+                });
                 unsafe { Range::from_ptr(ch.range, ptr) }
                     .unwrap_or_else(|| Range::new(ch.range, -10.0, 10.0))
             })

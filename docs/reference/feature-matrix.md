@@ -60,13 +60,13 @@ Use these for common build configurations:
 
 These storage features are owned by the `storage` crate. Some are passed through by `bin`, `server`, or `integration-tests`, but not every storage feature is exposed at every layer.
 
-| Feature | Description | Dependencies |
-|---------|-------------|--------------|
-| `storage_hdf5` | HDF5 scientific format | `hdf5-metno`, requires `libhdf5-dev` |
-| `storage_arrow` | Apache Arrow IPC format | `arrow` crate |
-| `storage_parquet` | Apache Parquet columnar format | `parquet` crate (requires `storage_arrow`) |
-| `storage_tiff` | TIFF image export | `image` crate |
-| `storage_zarr` | Zarr V3 array storage | `zarrs` crate |
+| Feature | Crate Owner | Description | Dependencies |
+|---------|-------------|-------------|--------------|
+| `storage_hdf5` | `storage` | HDF5 scientific format | `hdf5-metno`, requires `libhdf5-dev` |
+| `storage_arrow` | `storage` | Apache Arrow IPC format | `arrow` crate |
+| `storage_parquet`| `storage` | Apache Parquet format | `parquet` (requires `storage_arrow`) |
+| `storage_tiff` | `storage` | TIFF image export | `image` crate |
+| `storage_zarr` | `storage` | Zarr V3 array storage | `zarrs` crate |
 
 **Storage Feature Propagation:**
 - `storage_hdf5` propagates to `storage/storage_hdf5`
@@ -88,12 +88,12 @@ Serial port access uses `serial2_tokio` throughout the codebase.
 
 Top-level feature flags on the `bin` crate:
 
-| Feature | Description |
-|---------|-------------|
-| `all_hardware` | Enable all registry-managed native driver crates in their default/mock-safe mode |
-| `pvcam_hardware` | Real PVCAM SDK (requires PVCAM installed) |
-| `comedi_hardware` | Real Comedi DAQ (requires libcomedi) |
-| `maitai` | Complete maitai lab profile (all real hardware) |
+| Feature | Crate Owner | Description |
+|---------|-------------|-------------|
+| `all_hardware` | `bin` | Enable all native driver crates in default mode |
+| `pvcam_hardware` | `bin` | Real PVCAM SDK (via `driver-pvcam/hardware`) |
+| `comedi_hardware` | `bin` | Real Comedi DAQ (via `driver-registry/comedi_hardware`) |
+| `maitai` | `bin` | Complete maitai lab profile |
 
 #### Driver Registry Features (`crates/driver-registry`)
 

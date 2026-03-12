@@ -1,3 +1,6 @@
+> [!WARNING] **ARCHIVAL / HISTORICAL**
+> This document is a historical log of vendor quirk observations and is preserved for context. It does not represent current operational guidance or source-of-truth architecture.
+
 # ANDOR SDK Fixes / Vendor Requests
 
 This file is a running log of Andor SDK (and SDK-facing integration) quirks observed while

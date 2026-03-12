@@ -1,3 +1,6 @@
+> [!WARNING] **ARCHIVAL / HISTORICAL**
+> This document is a historical snapshot and is preserved for context. It does not represent current operational guidance or source-of-truth architecture.
+
 # Handoff: Comedi Panel Fixes & Deployment
 
 **Date:** 2026-03-10

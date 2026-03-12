@@ -793,7 +793,7 @@ impl RingBuffer {
         &self,
         id: String,
         nth_frame: usize,
-    ) -> Result<mpsc::Receiver<Vec<u8>>, DaqError> {
+    ) -> Result<mpsc::Receiver<bytes::Bytes>, DaqError> {
         let rx = self.taps.register(id.clone(), nth_frame).map_err(|e| {
             DaqError::Storage(StorageError::new(
                 StorageErrorKind::RingBuffer,
@@ -1500,7 +1500,7 @@ impl AsyncRingBuffer {
         &self,
         id: String,
         nth_frame: usize,
-    ) -> Result<mpsc::Receiver<Vec<u8>>, DaqError> {
+    ) -> Result<mpsc::Receiver<bytes::Bytes>, DaqError> {
         self.inner.register_tap(id, nth_frame)
     }
 
@@ -2056,7 +2056,10 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(received.as_ref(), Some(&test_data.to_vec()));
+        assert_eq!(
+            received.as_ref(),
+            Some(&bytes::Bytes::copy_from_slice(test_data))
+        );
 
         // Unregister tap
         assert!(rb.unregister_tap("test_tap").unwrap());
@@ -2372,7 +2375,10 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(received.as_ref(), Some(&test_data.to_vec()));
+        assert_eq!(
+            received.as_ref(),
+            Some(&bytes::Bytes::copy_from_slice(test_data))
+        );
 
         // Unregister tap
         assert!(async_rb.unregister_tap("test_tap").unwrap());
