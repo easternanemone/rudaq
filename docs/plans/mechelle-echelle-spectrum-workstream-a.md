@@ -1,3 +1,6 @@
+> [!WARNING] **ARCHIVAL / HISTORICAL**
+> This document is a historical snapshot and is preserved for context. It does not represent current operational guidance or source-of-truth architecture.
+
 # Mechelle Echelle Spectrum Workstream A Plan
 
 > Related issues: `bd-2kla`, `bd-2kla.1`, `bd-2kla.1.1`, `bd-2kla.1.2`, `bd-2kla.1.3`, `bd-2kla.1.4`, `bd-2kla.1.5`

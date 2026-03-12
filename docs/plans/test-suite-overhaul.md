@@ -1,3 +1,6 @@
+> [!WARNING] **ARCHIVAL / HISTORICAL**
+> This document is a historical snapshot and is preserved for context. It does not represent current operational guidance or source-of-truth architecture.
+
 # Test Suite Overhaul Plan
 
 > Authored via 3 Codex planning sessions (2026-02-24).

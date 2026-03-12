@@ -170,7 +170,7 @@ This allows generic experiment scripts to work with any compatible hardware (e.g
 
 The system uses a 3-layer safety stack to protect against hardware being left in dangerous states:
 
-*   **Layer 1: SafetyHeartbeat** (proactive) — A Tokio task toggles a Comedi DIO channel at 100ms to drive an external hardware interlock. If the daemon process dies for any reason (crash, SIGKILL, power loss), the pulse stops and the external circuitry cuts laser power. Feature-gated on `comedi_hardware`.
+*   **Layer 1: SafetyHeartbeat** (proactive) — A Tokio task toggles a Comedi DIO channel at 100ms to drive an external hardware interlock. If the daemon process dies for any reason (crash, SIGKILL, power loss), the pulse stops and the external circuitry cuts laser power. Feature-gated on `hardware`.
 *   **Layer 2: HardwareWatchdog** (reactive) — A dedicated OS thread monitors daemon liveness. If the Tokio runtime hangs or deadlocks (no kick received within 30s), it fires a 5-step emergency shutdown: close shutters, disable emission, stop motors, zero DAQ outputs.
 *   **Layer 3: Panic hook** — On Rust panics, the same 5-step emergency shutdown sequence runs from the panic handler, using bridge threads and a pre-allocated emergency runtime to execute async hardware calls.
 

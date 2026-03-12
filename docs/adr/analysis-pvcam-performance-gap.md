@@ -1,3 +1,6 @@
+> [!WARNING] **ARCHIVAL / HISTORICAL**
+> This document is a historical snapshot of an investigation and is preserved for context. It does not represent current operational guidance or source-of-truth architecture.
+
 # PVCAM Performance Gap Analysis
 
 **Date:** 2026-01-11

@@ -100,6 +100,8 @@ for i in 0..1000 {
 
 SIGTERM and SIGINT are intercepted to close all shutters before process exit:
 
+> [!NOTE] **EXECUTABLE EXAMPLE** (Source: `crates/bin/src/panic_handler.rs`)
+
 ```rust
 #[cfg(unix)]
 pub fn install_signal_handlers() {
@@ -136,6 +138,8 @@ pub fn install_signal_handlers() {
 ### Layer 4: Pre-Allocated Emergency Runtime
 
 To enable async operations during panic (when the current runtime may not be available), an emergency runtime is pre-allocated at startup:
+
+> [!NOTE] **EXECUTABLE EXAMPLE** (Source: `crates/bin/src/panic_handler.rs`)
 
 ```rust
 /// Pre-allocated emergency runtime for panic/signal handlers.
@@ -352,7 +356,7 @@ channel = 0
 interval_ms = 100
 ```
 
-**Feature gate:** Only compiled with `comedi_hardware`. On non-Comedi builds, the heartbeat is silently skipped.
+**Feature gate:** Only compiled with `hardware`. On non-Comedi builds, the heartbeat is silently skipped.
 
 **Source:** `crates/bin/src/safety_heartbeat_task.rs`
 

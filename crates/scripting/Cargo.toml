@@ -32,8 +32,6 @@ default = []
 python = ["dep:pyo3"]
 # HDF5 data storage from Rhai scripts
 hdf5_scripting = ["dep:hdf5"]
-# Comedi DAQ support for analog I/O and digital I/O
-comedi_scripting = ["dep:driver-comedi"]
 # LIBS hardware scripting (Andor iStar + Shamrock + Dover SmartStage)
 libs_scripting = ["dep:driver-andor-sdk3", "dep:driver-dover-motion"]
 # Marker feature for cfg guards on hardware factory functions
@@ -48,11 +46,6 @@ scripting_full = [
 scripting_full_libs = [
     "scripting_full",
     "libs_scripting",
-]
-# Full scripting with Comedi DAQ support (requires comedilib on Linux)
-scripting_full_comedi = [
-    "scripting_full",
-    "comedi_scripting",
 ]
 # Alias for backwards compatibility (prefer scripting_full)
 polarization = ["scripting_full"]

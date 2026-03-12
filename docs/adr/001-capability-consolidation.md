@@ -101,6 +101,8 @@ Consolidate to a single source of truth: the `Capability` enum in Rust.
 
 Add missing flag to unblock current work:
 
+> [!NOTE] **CONCEPTUAL ILLUSTRATION** (Implemented in Phase 2)
+
 ```protobuf
 // daq.proto
 message DeviceInfo {

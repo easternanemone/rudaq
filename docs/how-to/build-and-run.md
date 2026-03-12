@@ -13,7 +13,7 @@ The `maitai` feature is defined in `crates/bin/Cargo.toml` and includes:
 ```toml
 maitai = [
     "pvcam_hardware",              # Real PVCAM SDK (NOT mock)
-    "comedi_hardware",             # Real Comedi-based DAQ hardware
+    "hardware",             # Real Comedi-based DAQ hardware
     "hardware/serial",             # Serial port base for driver-universal manifests
 ]
 ```

@@ -132,7 +132,7 @@ Full architecture docs: [System Architecture](docs/explanation/architecture.md)
 |-------------|--------|--------------|--------|--------------|
 | **Cameras** | Photometrics Prime 95B, Prime BSI | FrameProducer, Triggerable, ExposureControl | Production | `pvcam_hardware` |
 | **Cameras** | Andor iStar sCMOS | FrameProducer, ExposureControl, GatedCamera | Production | `andor_hardware` |
-| **DAQ** | NI PCI-MIO-16XE-10 | Readable, Settable (Comedi) | Production | `comedi_hardware` |
+| **DAQ** | NI PCI-MIO-16XE-10 | Readable, Settable (Comedi) | Production | `hardware` |
 | **Motion** | Dover SmartStage | Movable, Parameterized | In Development | Built-in |
 | **Motion** | Newport ESP300 | Movable, Parameterized | Production | `serial` (via driver-universal) |
 | **Rotators** | Thorlabs ELL14 (RS-485) | Movable, Parameterized | Production | `serial` (via driver-universal) |

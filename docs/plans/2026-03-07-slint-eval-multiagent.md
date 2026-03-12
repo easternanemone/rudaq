@@ -1,3 +1,6 @@
+> [!WARNING] **ARCHIVAL / HISTORICAL**
+> This document is a historical snapshot and is preserved for context. It does not represent current operational guidance or source-of-truth architecture.
+
 # Slint GUI Evaluation — Multi-Agent Coordination Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.

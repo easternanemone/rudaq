@@ -1108,6 +1108,7 @@ impl From<PersistedPanelInfo> for DeviceInfo {
             is_parameterized: false,
             capabilities,
             metadata: None,
+            health_status: 0, // DEVICE_HEALTH_UNKNOWN
         }
     }
 }

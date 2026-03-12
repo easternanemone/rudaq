@@ -38,6 +38,8 @@ The project is a Rust workspace with 26 crates organized into layers:
 - **Maitai Hardware (Production)**: `bash scripts/build-maitai.sh` (Required for real hardware to ensure feature flags and environment are correct).
 
 ### Running
+See [Project Inventory](docs/reference/inventory.md) for canonical binaries and config paths.
+
 - **Daemon (Mock)**: `cargo run -p bin -- daemon --hardware-config config/demo.toml`
 - **Daemon (Maitai)**: `./target/release/rust-daq-daemon daemon --hardware-config config/maitai_universal.toml`
 - **Run Script**: `cargo run -p bin -- run examples/demo_scan.rhai`

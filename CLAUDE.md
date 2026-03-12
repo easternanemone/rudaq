@@ -86,7 +86,7 @@ Testing
 
 **`RingBuffer`** (`storage/src/ring_buffer.rs`): mmap-backed circular buffer with seqlock for lock-free reads. Uses Apache Arrow IPC format. "Tap" consumers receive every Nth frame via async channel for live visualization without blocking writers.
 
-**SafetyHeartbeat** (`bin/src/safety_heartbeat_task.rs`): Toggles a Comedi DIO channel at 100ms to drive an external hardware interlock. Feature-gated on `comedi_hardware`. **HardwareWatchdog** (`common/src/health/watchdog.rs`): Dedicated OS thread fires a 5-step emergency shutdown (close shutters, disable emission, stop motors, zero DAQ outputs) if the Tokio runtime hangs. See [ADR-004](docs/adr/004-panic-safety.md).
+**SafetyHeartbeat** (`bin/src/safety_heartbeat_task.rs`): Toggles a Comedi DIO channel at 100ms to drive an external hardware interlock. Feature-gated on `hardware`. **HardwareWatchdog** (`common/src/health/watchdog.rs`): Dedicated OS thread fires a 5-step emergency shutdown (close shutters, disable emission, stop motors, zero DAQ outputs) if the Tokio runtime hangs. See [ADR-004](docs/adr/004-panic-safety.md).
 
 **Frame streaming compression** (`protocol/src/compression.rs`): LZ4 compression for camera frame data. Use the buffer-reuse variants (`compress_frame_into`, `decompress_frame_into`) on hot paths — they write into pre-allocated `Vec<u8>` buffers via `std::mem::swap`, eliminating per-frame heap allocations. The server runs a dedicated `std::thread` per stream for compression; the client reuses a decompression buffer in its streaming loop. See [ADR-014](docs/adr/014-frame-streaming-buffer-reuse.md).
 
@@ -111,7 +111,7 @@ registry.register_from_config(DeviceConfig { id, name, driver: DriverConfig { ty
 
 ### Feature Flags
 
-**Compile-time** (Cargo features in `driver-registry/Cargo.toml`): `serial` (default), `pvcam`/`pvcam_sdk`/`pvcam_hardware`, `comedi`/`comedi_hardware`, `andor`/`andor_hardware`, `all_hardware`, `full`. Mock drivers (`driver-mock`) and `driver-universal` are always compiled. Serial/SCPI devices use `driver-universal` TOML manifests (always compiled, no feature flag needed).
+**Compile-time** (Cargo features in `driver-registry/Cargo.toml`): `serial` (default), `pvcam`/`pvcam_sdk`/`pvcam_hardware`, `comedi`/`hardware`, `andor`/`andor_hardware`, `all_hardware`, `full`. Mock drivers (`driver-mock`) and `driver-universal` are always compiled. Serial/SCPI devices use `driver-universal` TOML manifests (always compiled, no feature flag needed).
 
 **Runtime** (`config/feature_flags.toml`): Loaded via `FeatureFlags::load()`. Toggles: `frame_pool_preallocation`, `async_ring_buffer`, `experimental_streaming`, `debug_frame_timing`, etc.
 

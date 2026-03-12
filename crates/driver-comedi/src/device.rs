@@ -564,17 +564,6 @@ impl ComediDevice {
         })
     }
 
-    /// Get the raw device handle.
-    ///
-    /// # Safety
-    ///
-    /// The returned pointer is only valid while this `ComediDevice` exists.
-    /// Do not store the pointer or pass it to functions that might close it.
-    /// Prefer using `with_handle` for thread-safe access.
-    pub(crate) fn handle(&self) -> *mut comedi_t {
-        self.inner.handle.as_ptr()
-    }
-
     /// Execute a closure with exclusive access to the device handle.
     ///
     /// This method acquires the FFI lock to ensure thread-safe access to the
@@ -604,7 +593,7 @@ impl ComediDevice {
     pub fn board_name(&self) -> String {
         // SAFETY: handle is valid
         unsafe {
-            let ptr = comedi_sys::comedi_get_board_name(self.handle());
+            let ptr = self.with_handle(|handle| comedi_sys::comedi_get_board_name(handle));
             if ptr.is_null() {
                 "unknown".to_string()
             } else {
@@ -617,7 +606,7 @@ impl ComediDevice {
     pub fn driver_name(&self) -> String {
         // SAFETY: handle is valid
         unsafe {
-            let ptr = comedi_sys::comedi_get_driver_name(self.handle());
+            let ptr = self.with_handle(|handle| comedi_sys::comedi_get_driver_name(handle));
             if ptr.is_null() {
                 "unknown".to_string()
             } else {
@@ -631,7 +620,7 @@ impl ComediDevice {
     // SAFETY: Comedi returns non-negative subdevice count as i32; fits in u32.
     pub fn n_subdevices(&self) -> u32 {
         // SAFETY: handle is valid
-        unsafe { comedi_sys::comedi_get_n_subdevices(self.handle()) as u32 }
+        self.with_handle(|handle| unsafe { comedi_sys::comedi_get_n_subdevices(handle) as u32 })
     }
 
     /// Get the type of a subdevice.
@@ -645,7 +634,9 @@ impl ComediDevice {
         }
 
         // SAFETY: handle is valid and subdevice is in range
-        let raw = unsafe { comedi_sys::comedi_get_subdevice_type(self.handle(), subdevice) };
+        let raw = self.with_handle(|handle| unsafe {
+            comedi_sys::comedi_get_subdevice_type(handle, subdevice)
+        });
 
         SubdeviceType::from_raw(raw).ok_or_else(|| ComediError::HardwareError {
             message: format!("Unknown subdevice type: {}", raw),
@@ -667,11 +658,11 @@ impl ComediDevice {
         // SAFETY: handle is valid and subdevice is in range.
         // Comedi FFI returns i32 for counts/flags that are always non-negative.
         #[allow(clippy::cast_sign_loss)]
-        unsafe {
-            let n_channels = comedi_sys::comedi_get_n_channels(self.handle(), subdevice) as u32;
-            let maxdata = comedi_sys::comedi_get_maxdata(self.handle(), subdevice, 0);
-            let flags = comedi_sys::comedi_get_subdevice_flags(self.handle(), subdevice) as u32;
-            let n_ranges = comedi_sys::comedi_get_n_ranges(self.handle(), subdevice, 0) as u32;
+        self.with_handle(|handle| unsafe {
+            let n_channels = comedi_sys::comedi_get_n_channels(handle, subdevice) as u32;
+            let maxdata = comedi_sys::comedi_get_maxdata(handle, subdevice, 0);
+            let flags = comedi_sys::comedi_get_subdevice_flags(handle, subdevice) as u32;
+            let n_ranges = comedi_sys::comedi_get_n_ranges(handle, subdevice, 0) as u32;
 
             Ok(SubdeviceInfo {
                 index: subdevice,
@@ -681,7 +672,7 @@ impl ComediDevice {
                 flags,
                 n_ranges,
             })
-        }
+        })
     }
 
     /// Get comprehensive device information (cached after first call).
@@ -807,7 +798,7 @@ impl ComediDevice {
     /// Get the file descriptor for the device (for select/poll).
     pub fn fileno(&self) -> i32 {
         // SAFETY: handle is valid
-        unsafe { comedi_sys::comedi_fileno(self.handle()) }
+        self.with_handle(|handle| unsafe { comedi_sys::comedi_fileno(handle) })
     }
 
     /// Create a calibration manager for this device.
@@ -932,9 +923,9 @@ mod tests {
     /// All FFI access from subsystem modules (under src/subsystem/) must go through
     /// with_handle() for ffi_lock serialization. See bd-ucyu.1.1 for the original fix.
     ///
-    /// Note: ComediDevice methods in device.rs legitimately use self.handle() since
-    /// they own the device — this test only covers subsystem files which must not
-    /// bypass the lock.
+    /// Note: The `.handle()` method was completely removed in bd-pman.5.1 to enforce
+    /// this at compile time, but this test remains as an architectural guardrail
+    /// against re-introducing it.
     #[test]
     fn test_no_direct_handle_in_subsystems() {
         let subsystem_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/subsystem");
