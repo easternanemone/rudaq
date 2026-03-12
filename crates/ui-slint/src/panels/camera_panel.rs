@@ -17,6 +17,8 @@ pub struct FrameData {
     pub width: u32,
     pub height: u32,
     pub data: Vec<u16>,
+    // Preserved for telemetry/ordering consumers outside render path.
+    #[allow(dead_code)]
     pub frame_number: u64,
 }
 
@@ -46,10 +48,11 @@ pub fn render_frame(frame: &FrameData, buf: &mut SharedPixelBuffer<Rgb8Pixel>) -
     if frame.data.is_empty() {
         // Resize if the dimensions are valid, then zero the buffer so stale
         // pixels from a previous frame are not displayed.
-        if frame.width > 0 && frame.height > 0 {
-            if buf.width() != frame.width || buf.height() != frame.height {
-                *buf = SharedPixelBuffer::new(frame.width, frame.height);
-            }
+        if frame.width > 0
+            && frame.height > 0
+            && (buf.width() != frame.width || buf.height() != frame.height)
+        {
+            *buf = SharedPixelBuffer::new(frame.width, frame.height);
         }
         buf.make_mut_bytes().fill(0);
         return Image::from_rgb8(buf.clone());
@@ -141,7 +144,7 @@ impl FpsTracker {
         // Drain expired entries from the front; timestamps are monotonically
         // increasing so we stop at the first entry still within the window.
         let cutoff = now - std::time::Duration::from_secs_f64(self.window_secs);
-        while self.timestamps.front().map_or(false, |t| *t < cutoff) {
+        while self.timestamps.front().is_some_and(|t| *t < cutoff) {
             self.timestamps.pop_front();
         }
     }
@@ -171,7 +174,7 @@ impl FpsTracker {
     fn tick_at(&mut self, at: Instant) {
         self.timestamps.push_back(at);
         let cutoff = at - std::time::Duration::from_secs_f64(self.window_secs);
-        while self.timestamps.front().map_or(false, |t| *t < cutoff) {
+        while self.timestamps.front().is_some_and(|t| *t < cutoff) {
             self.timestamps.pop_front();
         }
     }

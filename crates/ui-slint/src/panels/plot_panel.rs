@@ -74,6 +74,7 @@ impl PlotState {
         }
     }
 
+    #[allow(dead_code)]
     pub fn reset_bounds(&mut self) {
         self.y_min = f64::INFINITY;
         self.y_max = f64::NEG_INFINITY;
