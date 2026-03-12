@@ -38,6 +38,10 @@ jobs:
       MAITAI_USER: ${{ vars.MAITAI_SSH_USER }}
       LEABS_HOST: ${{ vars.LEABS_TAILSCALE_HOST }}
       LEABS_USER: ${{ vars.LEABS_SSH_USER }}
+      TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+      TS_OIDC_AUDIENCE: ${{ secrets.TS_OIDC_AUDIENCE }}
+      TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+      LAB_SSH_PRIVATE_KEY: ${{ secrets.LAB_SSH_PRIVATE_KEY }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -59,35 +63,35 @@ jobs:
       - name: Validate Tailscale credentials
         run: |
           set -euo pipefail
-          if [[ -z "${{ secrets.TS_OAUTH_CLIENT_ID }}" ]]; then
+          if [[ -z "${TS_OAUTH_CLIENT_ID}" ]]; then
             echo "::error::Missing repository secret TS_OAUTH_CLIENT_ID"
             exit 1
           fi
-          if [[ -z "${{ secrets.TS_OIDC_AUDIENCE }}" && -z "${{ secrets.TS_OAUTH_SECRET }}" ]]; then
+          if [[ -z "${TS_OIDC_AUDIENCE}" && -z "${TS_OAUTH_SECRET}" ]]; then
             echo "::error::Set TS_OIDC_AUDIENCE (recommended) or TS_OAUTH_SECRET"
             exit 1
           fi
 
       - name: Connect to Tailscale (OIDC)
-        if: ${{ secrets.TS_OIDC_AUDIENCE != '' }}
+        if: ${{ env.TS_OIDC_AUDIENCE != '' }}
         uses: tailscale/github-action@v4
         with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          audience: ${{ secrets.TS_OIDC_AUDIENCE }}
+          oauth-client-id: ${{ env.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ env.TS_OIDC_AUDIENCE }}
           tags: tag:ci
 
       - name: Connect to Tailscale (OAuth secret fallback)
-        if: ${{ secrets.TS_OIDC_AUDIENCE == '' && secrets.TS_OAUTH_SECRET != '' }}
+        if: ${{ env.TS_OIDC_AUDIENCE == '' && env.TS_OAUTH_SECRET != '' }}
         uses: tailscale/github-action@v4
         with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          oauth-client-id: ${{ env.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ env.TS_OAUTH_SECRET }}
           tags: tag:ci
 
       - name: Validate SSH key
         run: |
           set -euo pipefail
-          if [[ -z "${{ secrets.LAB_SSH_PRIVATE_KEY }}" ]]; then
+          if [[ -z "${LAB_SSH_PRIVATE_KEY}" ]]; then
             echo "::error::Missing repository secret LAB_SSH_PRIVATE_KEY"
             exit 1
           fi
@@ -95,7 +99,7 @@ jobs:
       - name: Start ssh-agent
         uses: webfactory/ssh-agent@v0.9.0
         with:
-          ssh-private-key: ${{ secrets.LAB_SSH_PRIVATE_KEY }}
+          ssh-private-key: ${{ env.LAB_SSH_PRIVATE_KEY }}
 
       - name: Connectivity + remote command
         run: |
