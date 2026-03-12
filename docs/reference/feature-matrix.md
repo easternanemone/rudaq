@@ -92,7 +92,7 @@ Top-level feature flags on the `bin` crate:
 |---------|-------------|-------------|
 | `all_hardware` | `bin` | Enable all native driver crates in default mode |
 | `pvcam_hardware` | `bin` | Real PVCAM SDK (via `driver-pvcam/hardware`) |
-| `hardware` | `bin` | Real Comedi DAQ (via `driver-comedi/hardware`) |
+| `comedi_hardware` | `bin` | Real Comedi DAQ (via `driver-comedi/hardware`) |
 | `maitai` | `bin` | Complete maitai lab profile |
 
 #### Driver Registry Features (`crates/driver-registry`)
@@ -106,7 +106,7 @@ The `driver-registry` crate provides unified feature flags for all hardware driv
 | `pvcam_sdk` | PVCAM cameras (real SDK) | `driver-pvcam` with `pvcam_sdk` |
 | `pvcam_hardware` | PVCAM cameras (real hardware) | Alias for `pvcam_sdk` |
 | `comedi` | Linux Comedi DAQ (mock mode) | `driver-comedi` |
-| `hardware` | Linux Comedi DAQ (real hardware) | `driver-comedi` with `hardware` |
+| `comedi_hardware` | Linux Comedi DAQ (real hardware) | `driver-comedi` with `hardware` |
 | `andor` | Andor SDK3 cameras (mock mode) | `driver-andor-sdk3` |
 | `andor_hardware` | Andor SDK3 cameras (real hardware) | `driver-andor-sdk3` with `hardware` |
 | `all_hardware` | All drivers with mock implementations | `pvcam` + `comedi` + `andor` |
@@ -244,9 +244,9 @@ The CI system tests these combinations:
 
 ```
 bin crate features:
-  maitai → pvcam_hardware + hardware + hardware/serial
+  maitai → pvcam_hardware + comedi_hardware + hardware/serial
   pvcam_hardware → pvcam_sdk → driver-registry/pvcam_hardware
-  hardware → driver-registry/hardware
+  comedi_hardware → driver-registry/comedi_hardware
   all_hardware → driver-registry/all_hardware
   full → storage_arrow + serial + modules + all_hardware
   backend → modules + all_hardware
@@ -262,7 +262,7 @@ driver-registry features:
   pvcam_hardware → pvcam_sdk
   pvcam_sdk → pvcam + driver-pvcam/pvcam_sdk
   pvcam → dep:driver-pvcam
-  hardware → comedi + driver-comedi/hardware
+  comedi_hardware → comedi + driver-comedi/hardware
   comedi → dep:driver-comedi
   andor_hardware → andor + driver-andor-sdk3/hardware
   andor → dep:driver-andor-sdk3

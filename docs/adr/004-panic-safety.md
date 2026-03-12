@@ -356,7 +356,7 @@ channel = 0
 interval_ms = 100
 ```
 
-**Feature gate:** Only compiled with `hardware`. On non-Comedi builds, the heartbeat is silently skipped.
+**Feature gate:** Only compiled with `comedi_hardware`. On non-Comedi builds, the heartbeat is silently skipped.
 
 **Source:** `crates/bin/src/safety_heartbeat_task.rs`
 

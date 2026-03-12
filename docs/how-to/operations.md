@@ -205,7 +205,7 @@ See [ADR-004](../adr/004-panic-safety.md) for the full safety architecture.
 
 ### Safety heartbeat
 
-When running on hardware with Comedi DAQ support (`hardware` feature),
+When running on hardware with Comedi DAQ support (`comedi_hardware` feature),
 the daemon can drive an external hardware interlock via a DIO pulse train.
 A Tokio task toggles a digital output channel at a fixed interval (default
 100ms). If the daemon crashes, hangs, or is killed, the pulse stops and the
@@ -225,7 +225,7 @@ channel = 0             # DIO channel number to toggle
 interval_ms = 100       # Toggle interval in milliseconds (default: 100)
 ```
 
-The heartbeat task is only compiled when the `hardware` feature is
+The heartbeat task is only compiled when the `comedi_hardware` feature is
 enabled. On non-Comedi builds, the configuration is silently ignored.
 
 On graceful shutdown, the channel is driven LOW before the task exits. If

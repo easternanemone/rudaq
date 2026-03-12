@@ -16,8 +16,7 @@ fi
 
 STALE_PATTERNS=(
     "rust-daq-server:Replaced by rust-daq-daemon (crates/bin)"
-    "\bmock_all\.toml\b:Replaced by demo_mock_all.toml"
-    "comedi_hardware:Replaced by comedi-sdk or hardware"
+    "(^|[^[:alnum:]_])mock_all\\.toml([^[:alnum:]_]|$):Replaced by demo_mock_all.toml"
     "maitai_test\.toml:Replaced by maitai_declarative_test.toml"
 )
 

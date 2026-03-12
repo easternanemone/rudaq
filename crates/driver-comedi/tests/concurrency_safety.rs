@@ -15,9 +15,8 @@
 
 #![cfg(feature = "hardware")]
 
-use driver_comedi::{hal::ReadableAnalogInput, ComediDevice};
+use driver_comedi::{hal::ReadableAnalogInput, ComediDevice, ComediError};
 use std::env;
-use std::sync::Arc;
 use std::thread;
 
 fn concurrency_test_enabled() -> bool {
@@ -109,11 +108,10 @@ fn test_concurrent_invalid_path_validation() {
         handles.push(thread::spawn(move || {
             let res = ComediDevice::open("/dev/comedi_invalid_path_999");
             assert!(res.is_err());
-            let err_msg = res.unwrap_err().to_string();
-            assert!(
-                err_msg.contains("No such file or directory")
-                    || err_msg.contains("Permission denied")
-            );
+            assert!(matches!(
+                res.unwrap_err(),
+                ComediError::DeviceNotFound { .. } | ComediError::PermissionDenied { .. }
+            ));
         }));
     }
 

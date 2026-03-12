@@ -19,11 +19,14 @@ ISSUES_JSONL="$REPO_ROOT/.beads/backup/issues.jsonl"
 LOCK_FILE="/tmp/beads-sync-ai-proxy.lock"
 LOG_FILE="${HOME}/Library/Logs/beads-sync-ai-proxy.log"
 
-# ai-proxy endpoints
-BEADHUB_URL="http://100.105.113.58:8080"
-API_KEY="aw_sk_5b038c87c70dadb12591476ecbbd63ac0b614f64939638f755e022dd24e2e6e1"
-WORKSPACE_ID="53e0dd2f-2248-406f-b1a7-e38ee82196e8"
-REPO_ORIGIN="git@github.com-thefermisea:TheFermiSea/rust-daq.git"
+# ai-proxy endpoints (credentials via env only; never hardcode secrets in-repo)
+BEADHUB_URL="${BEADHUB_URL:-http://100.105.113.58:8080}"
+API_KEY="${BEADHUB_API_KEY:-}"
+WORKSPACE_ID="${BEADHUB_WORKSPACE_ID:-}"
+REPO_ORIGIN="${BEADHUB_REPO_ORIGIN:-git@github.com-thefermisea:TheFermiSea/rust-daq.git}"
+HUMAN_NAME="${BEADHUB_HUMAN_NAME:-$(id -un 2>/dev/null || echo unknown)}"
+ROLE="${BEADHUB_ROLE:-developer}"
+ALIAS="${BEADHUB_ALIAS:-codex}"
 
 # Dolt SQL servers
 LOCAL_DOLT_HOST="127.0.0.1"
@@ -59,6 +62,16 @@ if [ ! -f "$ISSUES_JSONL" ]; then
     exit 1
 fi
 
+if [ -z "$API_KEY" ]; then
+    log "ERROR: missing BEADHUB_API_KEY"
+    exit 1
+fi
+
+if [ -z "$WORKSPACE_ID" ]; then
+    log "ERROR: missing BEADHUB_WORKSPACE_ID"
+    exit 1
+fi
+
 # Check connectivity
 if ! curl -s --connect-timeout 5 "$BEADHUB_URL/health" | grep -q '"ok"'; then
     log "ERROR: ai-proxy BeadHub unreachable at $BEADHUB_URL"
@@ -78,9 +91,9 @@ payload = {
     'repo_origin': '$REPO_ORIGIN',
     'sync_mode': 'full',
     'issues_jsonl': issues_jsonl,
-    'human_name': 'briansquires',
-    'role': 'developer',
-    'alias': 'alice'
+    'human_name': '$HUMAN_NAME',
+    'role': '$ROLE',
+    'alias': '$ALIAS'
 }
 json.dump(payload, sys.stdout)
 " | curl -s --connect-timeout 10 --max-time 120 \

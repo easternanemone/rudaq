@@ -48,4 +48,3 @@ Run the consolidated fast-check script:
 ```bash
 ./scripts/fast-check.sh
 ```
-EOF

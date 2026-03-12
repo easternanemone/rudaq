@@ -40,10 +40,10 @@
 
 | Flag | Crate Owner | Description |
 |---|---|---|
-| `hardware` | Workspace/`driver-registry`| Enables real hardware driver compilation (Linux/Windows only). |
+| `comedi_hardware` | `bin`, `driver-registry` | Enables real Comedi DAQ driver compilation (Linux/Windows only). |
 | `comedi-sdk` | `comedi-sys` | Links the Linux Comedi C SDK. |
 | `db-surreal` | `bin`, `server`, `db` | Compiles SurrealDB for configuration persistence. |
 | `storage_arrow` | `storage` | Enables Apache Arrow IPC and Tensor formatting backends. |
-| `mock_only` | `driver-registry` | Forces the registry to exclude FFI drivers even if `hardware` is set. |
+| `mock_only` | `driver-registry` | Forces the registry to exclude FFI drivers even if `comedi_hardware` is set. |
 
 *See `config/feature_flags.toml` for runtime toggles rather than compile-time features.*
