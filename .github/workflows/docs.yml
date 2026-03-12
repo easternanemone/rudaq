@@ -21,7 +21,7 @@ concurrency:
 jobs:
   link-check:
     name: Check internal markdown links
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, leabs]
     timeout-minutes: 5
     steps:
       - name: Checkout

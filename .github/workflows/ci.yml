@@ -32,8 +32,8 @@ defaults:
 
 jobs:
   validate:
-    name: Format, lint, and tests (ubuntu)
-    runs-on: ubuntu-latest
+    name: Format, lint, and tests (self-hosted)
+    runs-on: [self-hosted, Linux, X64, leabs]
     timeout-minutes: 35
     env:
       CARGO_BUILD_JOBS: "2"

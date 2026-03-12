@@ -1,0 +1,195 @@
+name: Hardware Remote (Tailscale)
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Remote target to exercise over Tailscale"
+        required: true
+        default: maitai-eos
+        type: choice
+        options:
+          - maitai-eos
+          - leabs-dev
+          - both
+      remote_command:
+        description: "Command to run remotely after SSH connectivity succeeds"
+        required: false
+        default: "hostname && uname -a"
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: hardware-remote-${{ github.ref }}-${{ inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  tailscale-remote-smoke:
+    name: Tailscale remote smoke (${{ inputs.target }})
+    runs-on: [self-hosted, Linux, X64, leabs]
+    timeout-minutes: 25
+    env:
+      TARGET: ${{ inputs.target }}
+      REMOTE_COMMAND: ${{ inputs.remote_command }}
+      MAITAI_HOST: ${{ vars.MAITAI_TAILSCALE_HOST }}
+      MAITAI_USER: ${{ vars.MAITAI_SSH_USER }}
+      MAITAI_KNOWN_HOSTS: ${{ vars.MAITAI_SSH_KNOWN_HOSTS }}
+      LEABS_HOST: ${{ vars.LEABS_TAILSCALE_HOST }}
+      LEABS_USER: ${{ vars.LEABS_SSH_USER }}
+      LEABS_KNOWN_HOSTS: ${{ vars.LEABS_SSH_KNOWN_HOSTS }}
+      TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+      TS_OIDC_AUDIENCE: ${{ secrets.TS_OIDC_AUDIENCE }}
+      TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+      LAB_SSH_PRIVATE_KEY: ${{ secrets.LAB_SSH_PRIVATE_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Apply defaults
+        run: |
+          set -euo pipefail
+          : "${MAITAI_HOST:=maitai-eos}"
+          : "${MAITAI_USER:=maitai}"
+          : "${LEABS_HOST:=leabs-dev}"
+          : "${LEABS_USER:=brian}"
+          {
+            echo "MAITAI_HOST=${MAITAI_HOST}"
+            echo "MAITAI_USER=${MAITAI_USER}"
+            echo "LEABS_HOST=${LEABS_HOST}"
+            echo "LEABS_USER=${LEABS_USER}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Validate Tailscale credentials
+        if: ${{ runner.environment != 'self-hosted' }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${TS_OAUTH_CLIENT_ID}" ]]; then
+            echo "::error::Missing repository secret TS_OAUTH_CLIENT_ID"
+            exit 1
+          fi
+          if [[ -z "${TS_OIDC_AUDIENCE}" && -z "${TS_OAUTH_SECRET}" ]]; then
+            echo "::error::Set TS_OIDC_AUDIENCE (recommended) or TS_OAUTH_SECRET"
+            exit 1
+          fi
+
+      - name: Connect to Tailscale (OIDC)
+        if: ${{ runner.environment != 'self-hosted' && env.TS_OIDC_AUDIENCE != '' }}
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ env.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ env.TS_OIDC_AUDIENCE }}
+          tags: tag:ci
+
+      - name: Connect to Tailscale (OAuth secret fallback)
+        if: ${{ runner.environment != 'self-hosted' && env.TS_OIDC_AUDIENCE == '' && env.TS_OAUTH_SECRET != '' }}
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ env.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ env.TS_OAUTH_SECRET }}
+          tags: tag:ci
+
+      - name: Validate SSH key
+        run: |
+          set -euo pipefail
+          if [[ -z "${LAB_SSH_PRIVATE_KEY}" ]]; then
+            echo "::error::Missing repository secret LAB_SSH_PRIVATE_KEY"
+            exit 1
+          fi
+
+      - name: Start ssh-agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ env.LAB_SSH_PRIVATE_KEY }}
+
+      - name: Prepare known_hosts
+        run: |
+          set -euo pipefail
+          mkdir -p "${HOME}/.ssh"
+          chmod 700 "${HOME}/.ssh"
+          : > "${HOME}/.ssh/known_hosts"
+          chmod 600 "${HOME}/.ssh/known_hosts"
+
+          append_known_host() {
+            local label="$1"
+            local entries="$2"
+            local required="$3"
+
+            if [[ -z "${entries}" ]]; then
+              if [[ "${required}" == "true" ]]; then
+                echo "::error::Missing pinned SSH host key data for ${label}"
+                exit 1
+              fi
+              echo "::warning::No pinned SSH host key data configured for ${label}; optional checks may be skipped if that host is unreachable."
+              return 0
+            fi
+
+            printf '%s\n' "${entries}" >> "${HOME}/.ssh/known_hosts"
+          }
+
+          case "${TARGET}" in
+            maitai-eos)
+              append_known_host "maitai-eos" "${MAITAI_KNOWN_HOSTS}" "true"
+              ;;
+            leabs-dev)
+              append_known_host "leabs-dev" "${LEABS_KNOWN_HOSTS}" "true"
+              ;;
+            both)
+              append_known_host "maitai-eos" "${MAITAI_KNOWN_HOSTS}" "true"
+              append_known_host "leabs-dev" "${LEABS_KNOWN_HOSTS}" "false"
+              ;;
+            *)
+              echo "::error::Unsupported target '${TARGET}'"
+              exit 2
+              ;;
+          esac
+
+      - name: Connectivity + remote command
+        run: |
+          set -euo pipefail
+          requested_target="${TARGET:?TARGET is required}"
+
+          check_host() {
+            local host="$1"
+            local user="$2"
+            local allow_unreachable="$3"
+            local target="${user}@${host}"
+            local escaped_remote_command
+
+            escaped_remote_command=$(printf '%q' "${REMOTE_COMMAND}")
+
+            echo "==> Checking ${target}"
+            if ! ssh \
+              -o BatchMode=yes \
+              -o ConnectTimeout=10 \
+              -o StrictHostKeyChecking=yes \
+              -o UserKnownHostsFile="${HOME}/.ssh/known_hosts" \
+              "${target}" "echo connected_to=\$(hostname); bash -lc ${escaped_remote_command}"; then
+              if [[ "${allow_unreachable}" == "true" ]]; then
+                echo "::warning::Could not reach ${target}. This host may not yet be configured in Tailscale DNS/ACLs."
+                return 0
+              fi
+              echo "::error::Could not reach ${target}"
+              return 1
+            fi
+          }
+
+          case "${requested_target}" in
+            maitai-eos)
+              check_host "${MAITAI_HOST}" "${MAITAI_USER}" "false"
+              ;;
+            leabs-dev)
+              check_host "${LEABS_HOST}" "${LEABS_USER}" "false"
+              ;;
+            both)
+              check_host "${MAITAI_HOST}" "${MAITAI_USER}" "false"
+              # leabs-dev host may be provisioned later; warn instead of failing this combined mode.
+              check_host "${LEABS_HOST}" "${LEABS_USER}" "true"
+              ;;
+            *)
+              echo "::error::Unsupported target '${requested_target}'"
+              exit 2
+              ;;
+          esac

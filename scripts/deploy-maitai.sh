@@ -21,10 +21,10 @@ set -euo pipefail
 # ============================================================================
 # Configuration
 # ============================================================================
-MAITAI_USER="maitai"
-MAITAI_HOST="100.117.5.12"
-MAITAI_SSH="${MAITAI_USER}@${MAITAI_HOST}"
-REMOTE_DIR="/home/maitai/code/rust-daq"
+MAITAI_USER="${MAITAI_USER:-maitai}"
+MAITAI_HOST="${MAITAI_HOST:-maitai-eos}"  # Tailscale hostname
+MAITAI_SSH="${MAITAI_SSH:-${MAITAI_USER}@${MAITAI_HOST}}"
+REMOTE_DIR="${REMOTE_DIR:-/home/${MAITAI_USER}/code/rust-daq}"
 DAEMON_PORT=50051
 REMOTE_LOG="/tmp/rust-daq-daemon.log"
 
