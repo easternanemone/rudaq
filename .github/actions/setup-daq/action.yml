@@ -45,6 +45,7 @@ runs:
           sudo apt-get install -y --no-install-recommends \
             libudev-dev \
             libhdf5-dev \
+            libfontconfig1-dev \
             lld \
             pkg-config \
             protobuf-compiler
@@ -63,6 +64,7 @@ runs:
           command -v ld.lld >/dev/null 2>&1 || missing+=(lld)
           command -v pkg-config >/dev/null 2>&1 || missing+=(pkgconf)
           pkg-config --exists hdf5 >/dev/null 2>&1 || missing+=(hdf5)
+          pkg-config --exists fontconfig >/dev/null 2>&1 || missing+=(fontconfig)
 
           # libudev is typically provided by base systemd on Arch-like hosts.
           # Warn if absent, but avoid forcing a risky core package transaction.
@@ -86,6 +88,7 @@ runs:
           sudo dnf install -y \
             systemd-devel \
             hdf5-devel \
+            fontconfig-devel \
             lld \
             pkgconf-pkg-config \
             protobuf-compiler
