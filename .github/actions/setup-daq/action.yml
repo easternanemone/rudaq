@@ -58,17 +58,29 @@ runs:
               libxcb-xfixes0-dev
           fi
         elif command -v pacman >/dev/null 2>&1; then
-          sudo pacman -Sy --noconfirm --needed \
-            hdf5 \
-            lld \
-            pkgconf \
-            protobuf
+          missing=()
+          command -v protoc >/dev/null 2>&1 || missing+=(protobuf)
+          command -v ld.lld >/dev/null 2>&1 || missing+=(lld)
+          command -v pkg-config >/dev/null 2>&1 || missing+=(pkgconf)
+          pkg-config --exists hdf5 >/dev/null 2>&1 || missing+=(hdf5)
+
+          # libudev is typically provided by base systemd on Arch-like hosts.
+          # Warn if absent, but avoid forcing a risky core package transaction.
+          if [[ ! -f /usr/include/libudev.h ]] && ! pkg-config --exists libudev >/dev/null 2>&1; then
+            echo "::warning::libudev headers not found on runner; builds requiring libudev may fail."
+          fi
 
           if [ "$profile" = "full" ]; then
-            sudo pacman -Sy --noconfirm --needed \
-              libxkbcommon \
-              wayland \
-              libxcb
+            pkg-config --exists xkbcommon >/dev/null 2>&1 || missing+=(libxkbcommon)
+            pkg-config --exists wayland-client >/dev/null 2>&1 || missing+=(wayland)
+            pkg-config --exists xcb >/dev/null 2>&1 || missing+=(libxcb)
+          fi
+
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "Installing missing Arch dependencies: ${missing[*]}"
+            sudo pacman -S --noconfirm --needed "${missing[@]}"
+          else
+            echo "Arch dependencies already present; skipping pacman install."
           fi
         elif command -v dnf >/dev/null 2>&1; then
           sudo dnf install -y \
