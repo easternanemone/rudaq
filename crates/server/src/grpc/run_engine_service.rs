@@ -4,17 +4,21 @@
 //! Enables declarative plan execution with pause/resume/abort capabilities.
 
 use crate::grpc::proto::{
-    AbortPlanRequest, AbortPlanResponse, DeleteSavedPlanRequest, DeleteSavedPlanResponse,
+    AbortPlanRequest, AbortPlanResponse, CalibrationSnapshot as ProtoCalibrationSnapshot,
+    CalibrationWavelengthCoverage as ProtoCalibrationWavelengthCoverage,
+    ClearCalibrationSnapshotRequest, ClearCalibrationSnapshotResponse, DeleteSavedPlanRequest,
+    DeleteSavedPlanResponse, EchelleFrameCompatibility as ProtoEchelleFrameCompatibility,
     EngineStatus, GetEngineStatusRequest, HaltEngineRequest, HaltEngineResponse,
     ListPlanTypesRequest, ListPlanTypesResponse, ListRunsRequest, ListRunsResponse,
     ListSavedPlansRequest, ListSavedPlansResponse, LoadPlanRequest, LoadPlanResponse,
     PauseEngineRequest, PauseEngineResponse, PlanTypeInfo, QueuePlanRequest, QueuePlanResponse,
     ResumeEngineRequest, ResumeEngineResponse, SavePlanRequest, SavePlanResponse,
-    StartEngineRequest, StartEngineResponse, StreamDocumentsRequest,
-    run_engine_service_server::RunEngineService,
+    SetCalibrationSnapshotRequest, SetCalibrationSnapshotResponse, StartEngineRequest,
+    StartEngineResponse, StreamDocumentsRequest, run_engine_service_server::RunEngineService,
 };
 #[cfg(feature = "db-surreal")]
 use crate::grpc::proto::{RunRecord as ProtoRunRecord, SavedPlanSummary};
+use chrono::{DateTime, Utc};
 use experiment::Document; // Re-exported from common
 #[cfg(feature = "db-surreal")]
 use experiment::plans::CommandReplayPlan;
@@ -201,6 +205,76 @@ impl Clone for RunEngineServiceImpl {
     }
 }
 
+fn proto_snapshot_to_domain(
+    proto: ProtoCalibrationSnapshot,
+) -> Result<experiment::CalibrationFreshness, Status> {
+    let mut snapshot = experiment::CalibrationFreshness::new(proto.device_type);
+
+    if let Some(target_device_id) = proto.target_device_id {
+        snapshot = snapshot.with_target_device_id(target_device_id);
+    }
+
+    if let Some(timestamp_rfc3339) = proto.calibration_timestamp_rfc3339 {
+        let timestamp = DateTime::parse_from_rfc3339(&timestamp_rfc3339)
+            .map_err(|e| Status::invalid_argument(format!("Invalid calibration timestamp: {e}")))?
+            .with_timezone(&Utc);
+        snapshot = snapshot.with_timestamp(timestamp);
+    }
+
+    if !proto.grating_wavelength_coverage.is_empty() {
+        let coverage = proto
+            .grating_wavelength_coverage
+            .into_iter()
+            .map(
+                |ProtoCalibrationWavelengthCoverage {
+                     grating,
+                     min_nm,
+                     max_nm,
+                 }|
+                 -> Result<_, Status> {
+                    Ok((
+                        u8::try_from(grating).map_err(|_| {
+                            Status::invalid_argument(format!(
+                                "Grating index {grating} does not fit into u8"
+                            ))
+                        })?,
+                        experiment::CalibrationWavelengthCoverage { min_nm, max_nm },
+                    ))
+                },
+            )
+            .collect::<Result<std::collections::HashMap<_, _>, _>>()?;
+        snapshot = snapshot.with_grating_wavelength_coverage(coverage);
+    }
+
+    if let Some(ProtoEchelleFrameCompatibility {
+        sensor_width,
+        sensor_height,
+        frame_width,
+        frame_height,
+        roi_x,
+        roi_y,
+        binning_x,
+        binning_y,
+        bit_depth,
+    }) = proto.echelle_frame_compatibility
+    {
+        snapshot =
+            snapshot.with_echelle_frame_compatibility(common::echelle::EchelleFrameCompatibility {
+                sensor_width,
+                sensor_height,
+                frame_width,
+                frame_height,
+                roi_x,
+                roi_y,
+                binning_x,
+                binning_y,
+                bit_depth,
+            });
+    }
+
+    Ok(snapshot)
+}
+
 #[tonic::async_trait]
 impl RunEngineService for RunEngineServiceImpl {
     async fn list_plan_types(
@@ -332,6 +406,57 @@ impl RunEngineService for RunEngineServiceImpl {
             .map_err(|e| Status::internal(format!("Failed to start engine: {}", e)))?;
 
         Ok(Response::new(StartEngineResponse {
+            success: true,
+            error_message: String::new(),
+        }))
+    }
+
+    async fn set_calibration_snapshot(
+        &self,
+        request: Request<SetCalibrationSnapshotRequest>,
+    ) -> Result<Response<SetCalibrationSnapshotResponse>, Status> {
+        let snapshot = request
+            .into_inner()
+            .snapshot
+            .ok_or_else(|| Status::invalid_argument("snapshot is required"))?;
+        let snapshot = proto_snapshot_to_domain(snapshot)?;
+        self.engine.register_calibration_snapshot(snapshot).await;
+
+        Ok(Response::new(SetCalibrationSnapshotResponse {
+            success: true,
+            error_message: String::new(),
+        }))
+    }
+
+    async fn clear_calibration_snapshot(
+        &self,
+        request: Request<ClearCalibrationSnapshotRequest>,
+    ) -> Result<Response<ClearCalibrationSnapshotResponse>, Status> {
+        let request = request.into_inner();
+        if request.device_type.trim().is_empty() {
+            return Err(Status::invalid_argument("device_type is required"));
+        }
+        if !request.clear_radiance_coverage && !request.clear_echelle_compatibility {
+            return Err(Status::invalid_argument(
+                "at least one clear flag must be set",
+            ));
+        }
+
+        if request.clear_radiance_coverage && request.clear_echelle_compatibility {
+            self.engine
+                .clear_calibration_snapshot(&request.device_type)
+                .await;
+        } else if request.clear_radiance_coverage {
+            self.engine
+                .clear_radiance_calibration_snapshot(&request.device_type)
+                .await;
+        } else {
+            self.engine
+                .clear_echelle_calibration_snapshot(&request.device_type)
+                .await;
+        }
+
+        Ok(Response::new(ClearCalibrationSnapshotResponse {
             success: true,
             error_message: String::new(),
         }))

@@ -436,7 +436,7 @@ impl ScriptPlanRunner {
                 .await;
         } else {
             self.run_engine
-                .clear_calibration_snapshot("spectroscopy")
+                .clear_radiance_calibration_snapshot("spectroscopy")
                 .await;
         }
 

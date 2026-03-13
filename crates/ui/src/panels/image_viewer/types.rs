@@ -195,6 +195,10 @@ pub(super) enum ImageViewerAction {
     },
     /// Recording status update (bd-3pdi.5.3)
     RecordingStatus(Option<protocol::daq::RecordingStatus>),
+    /// Result of syncing the active echelle profile into RunEngine readiness state.
+    EchelleCalibrationSynced { message: String },
+    /// Error while syncing the active echelle profile into RunEngine readiness state.
+    EchelleCalibrationSyncError(String),
 }
 
 /// Pixel statistics for the current frame (bd-li4i)

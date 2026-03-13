@@ -162,6 +162,8 @@ impl CalibrationWavelengthCoverage {
 pub struct CalibrationFreshness {
     /// Logical device type (for example `spectroscopy`).
     pub device_type: String,
+    /// Specific device the calibration snapshot should apply to, if scoped.
+    pub target_device_id: Option<String>,
     /// RFC 3339 timestamp of the loaded calibration set, if present.
     pub calibration_timestamp: Option<DateTime<Utc>>,
     /// Per-grating wavelength coverage for radiance calibrations, if known.
@@ -174,10 +176,16 @@ impl CalibrationFreshness {
     pub fn new(device_type: impl Into<String>) -> Self {
         Self {
             device_type: device_type.into(),
+            target_device_id: None,
             calibration_timestamp: None,
             grating_wavelength_coverage: HashMap::new(),
             echelle_frame_compatibility: None,
         }
+    }
+
+    pub fn with_target_device_id(mut self, target_device_id: impl Into<String>) -> Self {
+        self.target_device_id = Some(target_device_id.into());
+        self
     }
 
     pub fn with_timestamp(mut self, calibration_timestamp: DateTime<Utc>) -> Self {
@@ -199,6 +207,37 @@ impl CalibrationFreshness {
     ) -> Self {
         self.echelle_frame_compatibility = Some(echelle_frame_compatibility);
         self
+    }
+
+    fn merge_from(&mut self, incoming: Self) {
+        if let Some(target_device_id) = incoming.target_device_id {
+            self.target_device_id = Some(target_device_id);
+        }
+        if let Some(calibration_timestamp) = incoming.calibration_timestamp {
+            self.calibration_timestamp = Some(calibration_timestamp);
+        }
+        if !incoming.grating_wavelength_coverage.is_empty() {
+            self.grating_wavelength_coverage = incoming.grating_wavelength_coverage;
+        }
+        if let Some(echelle_frame_compatibility) = incoming.echelle_frame_compatibility {
+            self.echelle_frame_compatibility = Some(echelle_frame_compatibility);
+        }
+    }
+
+    fn clear_radiance_fields(&mut self) {
+        self.calibration_timestamp = None;
+        self.grating_wavelength_coverage.clear();
+    }
+
+    fn clear_echelle_fields(&mut self) {
+        self.target_device_id = None;
+        self.echelle_frame_compatibility = None;
+    }
+
+    fn is_empty(&self) -> bool {
+        self.calibration_timestamp.is_none()
+            && self.grating_wavelength_coverage.is_empty()
+            && self.echelle_frame_compatibility.is_none()
     }
 }
 
@@ -330,10 +369,13 @@ impl RunEngine {
     pub async fn register_calibration_snapshot(&self, snapshot: CalibrationFreshness) {
         let mut snapshot = snapshot;
         snapshot.device_type = snapshot.device_type.to_ascii_lowercase();
-        self.active_calibrations
-            .write()
-            .await
-            .insert(snapshot.device_type.clone(), snapshot);
+        let device_type = snapshot.device_type.clone();
+        let mut active_calibrations = self.active_calibrations.write().await;
+        if let Some(existing) = active_calibrations.get_mut(&device_type) {
+            existing.merge_from(snapshot);
+        } else {
+            active_calibrations.insert(device_type, snapshot);
+        }
     }
 
     /// Clear the active calibration snapshot for a device type.
@@ -342,6 +384,36 @@ impl RunEngine {
             .write()
             .await
             .remove(&device_type.to_ascii_lowercase());
+    }
+
+    /// Clear only the radiance/timestamp portion of the calibration snapshot.
+    pub async fn clear_radiance_calibration_snapshot(&self, device_type: &str) {
+        let device_type = device_type.to_ascii_lowercase();
+        let mut active_calibrations = self.active_calibrations.write().await;
+        let should_remove = if let Some(snapshot) = active_calibrations.get_mut(&device_type) {
+            snapshot.clear_radiance_fields();
+            snapshot.is_empty()
+        } else {
+            false
+        };
+        if should_remove {
+            active_calibrations.remove(&device_type);
+        }
+    }
+
+    /// Clear only the echelle-compatibility portion of the calibration snapshot.
+    pub async fn clear_echelle_calibration_snapshot(&self, device_type: &str) {
+        let device_type = device_type.to_ascii_lowercase();
+        let mut active_calibrations = self.active_calibrations.write().await;
+        let should_remove = if let Some(snapshot) = active_calibrations.get_mut(&device_type) {
+            snapshot.clear_echelle_fields();
+            snapshot.is_empty()
+        } else {
+            false
+        };
+        if should_remove {
+            active_calibrations.remove(&device_type);
+        }
     }
 
     /// Override the maximum allowed calibration age for a device type.
@@ -472,6 +544,14 @@ impl RunEngine {
 
         let mut issues = Vec::new();
         for device_id in device_ids {
+            if snapshot
+                .target_device_id
+                .as_deref()
+                .is_some_and(|target_device_id| target_device_id != device_id)
+            {
+                continue;
+            }
+
             if !snapshot.grating_wavelength_coverage.is_empty() {
                 issues.extend(
                     self.spectrometer_config_issues(device_id, device_type, snapshot)
@@ -2156,6 +2236,103 @@ mod tests {
             "unexpected issue: {:?}",
             issues
         );
+    }
+
+    #[tokio::test]
+    async fn test_register_calibration_snapshot_merges_radiance_and_echelle_fields() {
+        let registry = make_spectroscopy_registry().await;
+        let engine = RunEngine::new(registry);
+
+        engine
+            .register_calibration_snapshot(
+                CalibrationFreshness::new("spectroscopy")
+                    .with_grating_wavelength_coverage(HashMap::from([(
+                        1,
+                        CalibrationWavelengthCoverage {
+                            min_nm: 295.0,
+                            max_nm: 305.0,
+                        },
+                    )]))
+                    .with_timestamp(Utc::now()),
+            )
+            .await;
+        engine
+            .register_calibration_snapshot(
+                CalibrationFreshness::new("spectroscopy")
+                    .with_target_device_id("camera")
+                    .with_echelle_frame_compatibility(EchelleFrameCompatibility {
+                        sensor_width: 1024,
+                        sensor_height: 512,
+                        frame_width: 1024,
+                        frame_height: 512,
+                        roi_x: 0,
+                        roi_y: 0,
+                        binning_x: 1,
+                        binning_y: 1,
+                        bit_depth: Some(16),
+                    }),
+            )
+            .await;
+
+        let snapshots = engine.active_calibrations.read().await;
+        let snapshot = snapshots
+            .get("spectroscopy")
+            .expect("merged snapshot should exist");
+        assert!(snapshot.calibration_timestamp.is_some());
+        assert_eq!(
+            snapshot.grating_wavelength_coverage.get(&1),
+            Some(&CalibrationWavelengthCoverage {
+                min_nm: 295.0,
+                max_nm: 305.0,
+            })
+        );
+        assert_eq!(snapshot.target_device_id.as_deref(), Some("camera"));
+        assert!(snapshot.echelle_frame_compatibility.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_clear_echelle_snapshot_preserves_radiance_fields() {
+        let registry = make_spectroscopy_registry().await;
+        let engine = RunEngine::new(registry);
+
+        engine
+            .register_calibration_snapshot(
+                CalibrationFreshness::new("spectroscopy")
+                    .with_grating_wavelength_coverage(HashMap::from([(
+                        1,
+                        CalibrationWavelengthCoverage {
+                            min_nm: 295.0,
+                            max_nm: 305.0,
+                        },
+                    )]))
+                    .with_timestamp(Utc::now())
+                    .with_target_device_id("camera")
+                    .with_echelle_frame_compatibility(EchelleFrameCompatibility {
+                        sensor_width: 1024,
+                        sensor_height: 512,
+                        frame_width: 1024,
+                        frame_height: 512,
+                        roi_x: 0,
+                        roi_y: 0,
+                        binning_x: 1,
+                        binning_y: 1,
+                        bit_depth: Some(16),
+                    }),
+            )
+            .await;
+
+        engine
+            .clear_echelle_calibration_snapshot("spectroscopy")
+            .await;
+
+        let snapshots = engine.active_calibrations.read().await;
+        let snapshot = snapshots
+            .get("spectroscopy")
+            .expect("radiance fields should remain after clearing echelle state");
+        assert!(snapshot.calibration_timestamp.is_some());
+        assert!(!snapshot.grating_wavelength_coverage.is_empty());
+        assert_eq!(snapshot.target_device_id, None);
+        assert_eq!(snapshot.echelle_frame_compatibility, None);
     }
 
     #[tokio::test]
