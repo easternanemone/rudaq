@@ -1,6 +1,6 @@
-# ui
+# ui [PRIMARY]
 
-Main egui-based user interface crate for rust-daq.
+[PRIMARY] Main egui-based user interface crate for rust-daq.
 
 ## Overview
 
