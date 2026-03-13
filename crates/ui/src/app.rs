@@ -186,9 +186,12 @@ fn check_crashed_session() -> Option<String> {
 fn data_integrity_status_message(
     event: &crate::gui_log_layer::GuiLogEvent,
 ) -> Option<(crate::widgets::StatusLevel, String)> {
-    let is_fault_event =
-        event.target == "data_integrity" || event.message.contains("DataIntegrityFault");
-    if !is_fault_event {
+    let is_statusworthy_event = matches!(
+        event.target.as_str(),
+        "data_integrity" | "resource_pressure"
+    ) || event.message.contains("DataIntegrityFault")
+        || event.message.contains("ResourcePressureEvent");
+    if !is_statusworthy_event {
         return None;
     }
 
@@ -3803,5 +3806,20 @@ mod tests {
         };
 
         assert!(data_integrity_status_message(&event).is_none());
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn test_data_integrity_status_message_matches_resource_pressure_events() {
+        let event = crate::gui_log_layer::GuiLogEvent {
+            level: crate::panels::LogLevel::Error,
+            target: "resource_pressure".to_string(),
+            message: "ResourcePressureEvent: free disk on /data is 8.5 GiB".to_string(),
+        };
+
+        let (level, message) =
+            data_integrity_status_message(&event).expect("expected status bar resource alert");
+        assert!(matches!(level, crate::widgets::StatusLevel::Error));
+        assert_eq!(message, event.message);
     }
 }

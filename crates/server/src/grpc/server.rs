@@ -1782,6 +1782,16 @@ pub async fn start_server_with_hardware(
     // Detects plans stuck in Running/Paused with no client activity and aborts them.
     let _watchdog_handle = run_engine.spawn_watchdog();
 
+    // Pause the engine if disk or process RSS crosses danger thresholds (bd-102j).
+    tokio::spawn(
+        crate::health::sys_monitor::ResourceGuard::new(
+            health_monitor.clone(),
+            run_engine.clone(),
+            storage_settings.output_directory.clone(),
+        )
+        .run(),
+    );
+
     // Game loop for system state broadcasting (Phase 4)
     //
     // Drivers → mpsc → game loop → broadcast → { gRPC StreamSystemState, Rerun }
