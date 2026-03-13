@@ -60,4 +60,7 @@ pub use plans_daq::{
     VoltageScanBuilder,
 };
 pub use plans_imperative::ImperativePlan;
-pub use run_engine::{CalibrationFreshness, EngineState, RunEngine, RunReadinessIssue, RunResult};
+pub use run_engine::{
+    CalibrationFreshness, CalibrationWavelengthCoverage, EngineState, RunEngine, RunReadinessIssue,
+    RunResult,
+};

@@ -1504,6 +1504,13 @@ impl DeviceRegistry {
             .and_then(|d| d.wavelength_tunable.clone())
     }
 
+    /// Get a device as SpectrometerControl (if it supports this capability).
+    pub fn get_spectrometer_control(&self, id: &str) -> Option<Arc<dyn SpectrometerControl>> {
+        self.devices
+            .get(id)
+            .and_then(|d| d.spectrometer_control.clone())
+    }
+
     /// Get a device as Settable (if it supports this capability)
     pub fn get_settable(&self, id: &str) -> Option<Arc<dyn Settable>> {
         self.devices.get(id).and_then(|d| d.settable.clone())

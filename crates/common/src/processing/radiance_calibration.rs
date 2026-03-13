@@ -414,6 +414,21 @@ impl RadianceCalibrator {
         self.grating_calibrations.get(&grating)
     }
 
+    /// Returns the loaded grating indices in ascending order.
+    pub fn loaded_gratings(&self) -> Vec<u8> {
+        let mut gratings: Vec<u8> = self.grating_calibrations.keys().copied().collect();
+        gratings.sort_unstable();
+        gratings
+    }
+
+    /// Returns the min/max wavelength covered by the calibration for `grating`.
+    pub fn grating_wavelength_bounds(&self, grating: u8) -> Option<(f64, f64)> {
+        let spectrum = self.grating_calibration(grating)?;
+        let min_nm = *spectrum.wavelengths.first()?;
+        let max_nm = *spectrum.wavelengths.last()?;
+        Some((min_nm, max_nm))
+    }
+
     /// Returns the calibration timestamp, if present in the source files.
     pub fn calibration_timestamp(&self) -> Option<DateTime<Utc>> {
         self.calibration_timestamp
