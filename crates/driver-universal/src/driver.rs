@@ -721,6 +721,111 @@ impl common::capabilities::EmissionControl for UniversalDriver {
 }
 
 // =============================================================================
+// Post-Reconnection State Refresh (bd-47p2)
+// =============================================================================
+
+#[async_trait]
+impl common::capabilities::StateRefreshable for UniversalDriver {
+    async fn refresh_state(&self) -> Result<HashMap<String, serde_json::Value>> {
+        let mut state = HashMap::new();
+
+        // Refresh Movable.position if configured
+        if let Some(movable_cfg) = &self.manifest.capabilities.movable {
+            if let Some(position_mapping) = &movable_cfg.position {
+                match self.execute_read(position_mapping).await {
+                    Ok(pos) => {
+                        state.insert("position".to_string(), serde_json::json!(pos));
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            error = %e,
+                            "State refresh: failed to read position"
+                        );
+                    }
+                }
+            }
+        }
+
+        // Refresh WavelengthTunable.get_wavelength if configured
+        if let Some(wl_cfg) = &self.manifest.capabilities.wavelength_tunable {
+            if let Some(get_wl_mapping) = &wl_cfg.get_wavelength {
+                match self.execute_read(get_wl_mapping).await {
+                    Ok(wl) => {
+                        state.insert("wavelength_nm".to_string(), serde_json::json!(wl));
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            error = %e,
+                            "State refresh: failed to read wavelength"
+                        );
+                    }
+                }
+            }
+        }
+
+        // Refresh ShutterControl.is_open if configured
+        if let Some(shutter_cfg) = &self.manifest.capabilities.shutter_control {
+            if let Some(is_open_mapping) = &shutter_cfg.is_open {
+                match self.execute_read_bool(is_open_mapping).await {
+                    Ok(open) => {
+                        state.insert("shutter_open".to_string(), serde_json::json!(open));
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            error = %e,
+                            "State refresh: failed to read shutter state"
+                        );
+                    }
+                }
+            }
+        }
+
+        // Refresh EmissionControl.is_enabled if configured
+        if let Some(emission_cfg) = &self.manifest.capabilities.emission_control {
+            if let Some(is_enabled_mapping) = &emission_cfg.is_enabled {
+                match self.execute_read_bool(is_enabled_mapping).await {
+                    Ok(enabled) => {
+                        state.insert("emission_enabled".to_string(), serde_json::json!(enabled));
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            error = %e,
+                            "State refresh: failed to read emission state"
+                        );
+                    }
+                }
+            }
+        }
+
+        // Refresh Readable.read if configured
+        if let Some(readable_cfg) = &self.manifest.capabilities.readable {
+            if let Some(read_mapping) = &readable_cfg.read {
+                match self.execute_read(read_mapping).await {
+                    Ok(val) => {
+                        state.insert("value".to_string(), serde_json::json!(val));
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            error = %e,
+                            "State refresh: failed to read value"
+                        );
+                    }
+                }
+            }
+        }
+
+        tracing::debug!(
+            device = %self.manifest.device.name,
+            address = %self.address,
+            params_refreshed = state.len(),
+            "State refresh complete"
+        );
+
+        Ok(state)
+    }
+}
+
+// =============================================================================
 // Tests
 // =============================================================================
 
@@ -1038,5 +1143,128 @@ mod tests {
         let sent = mock.sent_strings();
         assert_eq!(sent.len(), 1);
         assert_eq!(sent[0], "2st");
+    }
+
+    // =========================================================================
+    // StateRefreshable tests (bd-47p2)
+    // =========================================================================
+
+    #[tokio::test]
+    async fn test_refresh_state_movable_position() {
+        let manifest = Arc::new(parse_ell14());
+        // ELL14 position response: 41395 pulses / 398.2222 ~ 103.95 degrees
+        let mock = MockTransport::new(vec!["2PO0000A1B3".to_string()]);
+
+        let driver = UniversalDriver::new(manifest, Box::new(mock.clone()), "2");
+        let state = common::capabilities::StateRefreshable::refresh_state(&driver)
+            .await
+            .expect("refresh_state should succeed");
+
+        // ELL14 has Movable.position configured, so we should get position back
+        assert!(
+            state.contains_key("position"),
+            "should contain position key"
+        );
+        let pos = state["position"].as_f64().expect("position should be f64");
+        assert!(
+            (pos - 103.95).abs() < 0.1,
+            "position was {pos}, expected ~103.95"
+        );
+
+        // Verify the query command was sent
+        let sent = mock.sent_strings();
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0], "2gp");
+    }
+
+    #[tokio::test]
+    async fn test_refresh_state_readable() {
+        let manifest = Arc::new(parse_scpi_tcp());
+        // SCPI readable device returns voltage
+        let mock = MockTransport::new(vec!["42.5".to_string()]);
+
+        let driver = UniversalDriver::new(manifest, Box::new(mock.clone()), "");
+        let state = common::capabilities::StateRefreshable::refresh_state(&driver)
+            .await
+            .expect("refresh_state should succeed");
+
+        // SCPI device has Readable configured
+        assert!(state.contains_key("value"), "should contain value key");
+        let val = state["value"].as_f64().expect("value should be f64");
+        assert!((val - 42.5).abs() < 0.001, "value was {val}, expected 42.5");
+
+        // Verify the query command was sent
+        let sent = mock.sent_strings();
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0], ":MEAS:VOLT?");
+    }
+
+    #[tokio::test]
+    async fn test_refresh_state_partial_failure_is_non_fatal() {
+        let manifest = Arc::new(parse_ell14());
+        // No responses queued -- the position query will fail
+        let mock = MockTransport::new(vec![]);
+
+        let driver = UniversalDriver::new(manifest, Box::new(mock), "2");
+        let state = common::capabilities::StateRefreshable::refresh_state(&driver)
+            .await
+            .expect("refresh_state should succeed even if individual reads fail");
+
+        // Position read failed, so it should be absent from the map
+        assert!(
+            !state.contains_key("position"),
+            "failed reads should be absent"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_refresh_state_multiple_capabilities() {
+        // Build a manifest with both Movable and Readable capabilities
+        let toml_str = r#"
+schema_version = 3
+
+[device]
+name = "Multi-Cap Device"
+capabilities = ["Movable", "Readable"]
+
+[connection]
+type = "tcp"
+host = "192.168.1.50"
+port = 5025
+timeout_ms = 2000
+
+[commands.get_position]
+template = "POS?"
+response_type = "float"
+
+[commands.read_value]
+template = "MEAS?"
+response_type = "float"
+
+[capabilities.movable]
+position = { command = "get_position" }
+
+[capabilities.readable]
+read = { command = "read_value" }
+"#;
+        let raw: RawManifest = toml::from_str(toml_str).unwrap();
+        let manifest = Arc::new(parse_manifest(raw).unwrap());
+
+        // Queue responses for both position and read queries
+        let mock = MockTransport::new(vec![
+            "45.0".to_string(),  // position response
+            "1.234".to_string(), // read value response
+        ]);
+
+        let driver = UniversalDriver::new(manifest, Box::new(mock.clone()), "");
+        let state = common::capabilities::StateRefreshable::refresh_state(&driver)
+            .await
+            .expect("refresh_state should succeed");
+
+        assert_eq!(state.len(), 2, "should have 2 refreshed parameters");
+        assert!(state.contains_key("position"));
+        assert!(state.contains_key("value"));
+        assert!((state["position"].as_f64().unwrap() - 45.0).abs() < 0.001);
+        assert!((state["value"].as_f64().unwrap() - 1.234).abs() < 0.001);
     }
 }

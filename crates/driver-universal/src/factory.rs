@@ -407,6 +407,11 @@ impl DriverFactory for UniversalDriverFactory {
                 );
             }
 
+            // StateRefreshable: always wired — queries only configured capabilities (bd-47p2)
+            components = components.with_state_refreshable(
+                driver_arc.clone() as Arc<dyn common::capabilities::StateRefreshable>
+            );
+
             // Commandable: expose all manifest commands as executable operations.
             // Any device with commands in its manifest can support this.
             if manifest

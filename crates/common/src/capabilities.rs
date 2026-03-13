@@ -79,6 +79,8 @@
 //! }
 //! ```
 
+use std::collections::HashMap;
+
 use crate::observable::{ParameterMetadata, ParameterSet};
 use anyhow::Result;
 use async_trait::async_trait;
@@ -1566,6 +1568,44 @@ pub trait Reconfigurable: Send + Sync {
     /// - `Ok(())` if the config was applied successfully
     /// - `Err` if the change requires a full driver restart
     async fn reconfigure(&self, config: toml::Value) -> Result<()>;
+}
+
+// =============================================================================
+// Post-Reconnection State Refresh (bd-47p2)
+// =============================================================================
+
+/// Capability: Post-Reconnection State Refresh
+///
+/// Devices that can query their current hardware state after a reconnection
+/// (e.g., DeviceSupervisor restart). This ensures cached software state is
+/// re-synchronized with actual hardware state, preventing silent divergence.
+///
+/// # Contract
+/// - Query all readable parameters/state from the hardware
+/// - Update internal cached values without triggering hardware write callbacks
+/// - Return a summary of refreshed state as key-value pairs
+/// - Errors in individual parameter reads should be logged but not abort
+///   the entire refresh (best-effort)
+/// - Safe to call multiple times (idempotent)
+///
+/// # Motivation
+/// After a TCP/SCPI device reconnects, the device may have been power-cycled
+/// or manually adjusted. The software's cached position, wavelength, shutter
+/// state, etc. may no longer match reality. This trait provides a standardized
+/// hook for the supervisor to trigger a full state re-read.
+#[async_trait]
+pub trait StateRefreshable: Send + Sync {
+    /// Refresh all readable device state from hardware.
+    ///
+    /// Returns a map of parameter names to their current values as read
+    /// from the hardware. This is purely informational (for logging/events);
+    /// the implementation is responsible for updating its own internal state.
+    ///
+    /// # Errors
+    /// Returns `Err` only if the refresh failed catastrophically (e.g.,
+    /// transport is broken). Individual parameter read failures should be
+    /// logged and skipped.
+    async fn refresh_state(&self) -> Result<HashMap<String, serde_json::Value>>;
 }
 
 /// State machine for safe runtime reconfiguration.

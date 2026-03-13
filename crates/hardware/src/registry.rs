@@ -68,7 +68,7 @@
 use common::capabilities::{
     Commandable, EmissionControl, ExposureControl, FrameProducer, GatedCamera, Movable,
     Parameterized, Readable, Reconfigurable, Settable, ShutterControl, SpectrometerControl,
-    Stageable, Triggerable, WavelengthTunable,
+    Stageable, StateRefreshable, Triggerable, WavelengthTunable,
 };
 use common::data::Frame;
 use common::driver::{
@@ -329,6 +329,8 @@ struct RegisteredDevice {
     spectrometer_control: Option<Arc<dyn SpectrometerControl>>,
     /// Reconfigurable implementation (if supported) - runtime config changes
     reconfigurable: Option<Arc<dyn Reconfigurable>>,
+    /// StateRefreshable implementation (if supported) - post-reconnection refresh (bd-47p2)
+    state_refreshable: Option<Arc<dyn StateRefreshable>>,
     /// Optional lifecycle hooks for registration/shutdown
     lifecycle: Option<Arc<dyn DeviceLifecycle>>,
     /// Device metadata (units, ranges, etc.)
@@ -402,6 +404,9 @@ impl RegisteredDevice {
         }
         if self.reconfigurable.is_some() {
             caps.push(Capability::Reconfigurable);
+        }
+        if self.state_refreshable.is_some() {
+            caps.push(Capability::StateRefreshable);
         }
 
         caps
@@ -917,6 +922,7 @@ impl DeviceRegistry {
             gated_camera: components.gated_camera,
             spectrometer_control: components.spectrometer_control,
             reconfigurable: components.reconfigurable,
+            state_refreshable: components.state_refreshable,
             lifecycle: components.lifecycle,
             metadata,
             config_hash: 0, // Default — set by reconciler when registering from DB
@@ -1310,6 +1316,42 @@ impl DeviceRegistry {
                         new_state.restart_attempts = prev.restart_attempts;
                     }
                 }
+                // Post-reconnection state refresh (bd-47p2): query all
+                // readable parameters from hardware to re-sync cached state.
+                if let Some(refreshable) = self
+                    .devices
+                    .get(device_id)
+                    .and_then(|d| d.state_refreshable.clone())
+                {
+                    match refreshable.refresh_state().await {
+                        Ok(state) => {
+                            tracing::info!(
+                                device_id = %device_id,
+                                refreshed_params = state.len(),
+                                "Post-reconnection state refresh completed"
+                            );
+                            for (key, value) in &state {
+                                tracing::debug!(
+                                    device_id = %device_id,
+                                    param = %key,
+                                    value = %value,
+                                    "Refreshed parameter"
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            // State refresh failure is non-fatal: the device
+                            // reconnected successfully but cached state may
+                            // be stale.  Log a warning so operators are aware.
+                            tracing::warn!(
+                                device_id = %device_id,
+                                error = %e,
+                                "Post-reconnection state refresh failed — cached state may be stale"
+                            );
+                        }
+                    }
+                }
+
                 // Emit Recovering -> Healthy transition event
                 let _ = self.health_broadcast.send(DeviceHealthEvent {
                     device_id: device_id.to_string(),
@@ -1371,6 +1413,7 @@ impl DeviceRegistry {
                         gated_camera: None,
                         spectrometer_control: None,
                         reconfigurable: None,
+                        state_refreshable: None,
                         lifecycle: None,
                         metadata: old_metadata,
                         config_hash: 0,
@@ -1534,6 +1577,13 @@ impl DeviceRegistry {
     /// Get a device as Reconfigurable (if it supports runtime config changes)
     pub fn get_reconfigurable(&self, id: &str) -> Option<Arc<dyn Reconfigurable>> {
         self.devices.get(id).and_then(|d| d.reconfigurable.clone())
+    }
+
+    /// Get a device as StateRefreshable (if it supports post-reconnection refresh, bd-47p2)
+    pub fn get_state_refreshable(&self, id: &str) -> Option<Arc<dyn StateRefreshable>> {
+        self.devices
+            .get(id)
+            .and_then(|d| d.state_refreshable.clone())
     }
 
     /// Get the config hash for a registered device (for change detection).
@@ -1720,6 +1770,7 @@ impl DeviceRegistry {
             gated_camera: None,
             spectrometer_control: None,
             reconfigurable: None,
+            state_refreshable: None,
             lifecycle: None,
             metadata,
             config_hash: 0,
@@ -2961,5 +3012,163 @@ initial_position = 0.0
         let _rx1 = registry.subscribe_health_changes();
         let _rx2 = registry.subscribe_health_changes();
         // Multiple subscriptions should work without issue
+    }
+
+    // =========================================================================
+    // StateRefreshable / restart_device integration tests (bd-47p2)
+    // =========================================================================
+
+    /// Shared counter for tracking refresh_state calls across factory rebuilds.
+    type SharedCallCount = Arc<std::sync::atomic::AtomicU32>;
+
+    /// A mock device that tracks refresh_state calls via a shared counter.
+    struct MockRefreshableDevice {
+        call_count: SharedCallCount,
+    }
+
+    #[async_trait::async_trait]
+    impl Movable for MockRefreshableDevice {
+        async fn move_abs(&self, _position: f64) -> Result<()> {
+            Ok(())
+        }
+        async fn move_rel(&self, _distance: f64) -> Result<()> {
+            Ok(())
+        }
+        async fn position(&self) -> Result<f64> {
+            Ok(42.0)
+        }
+        async fn stop(&self) -> Result<()> {
+            Ok(())
+        }
+        async fn wait_settled(&self) -> Result<()> {
+            Ok(())
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl StateRefreshable for MockRefreshableDevice {
+        async fn refresh_state(&self) -> Result<HashMap<String, serde_json::Value>> {
+            self.call_count.fetch_add(1, Ordering::SeqCst);
+            let mut state = HashMap::new();
+            state.insert("position".to_string(), serde_json::json!(42.0));
+            Ok(state)
+        }
+    }
+
+    /// A factory that produces MockRefreshableDevice instances and shares a
+    /// call counter so tests can verify refresh_state was invoked.
+    struct MockRefreshableFactory {
+        call_count: SharedCallCount,
+    }
+
+    impl MockRefreshableFactory {
+        fn new(call_count: SharedCallCount) -> Self {
+            Self { call_count }
+        }
+    }
+
+    impl DriverFactory for MockRefreshableFactory {
+        fn driver_type(&self) -> &'static str {
+            "mock_refreshable"
+        }
+
+        fn name(&self) -> &'static str {
+            "Mock Refreshable Device"
+        }
+
+        fn capabilities(&self) -> &'static [Capability] {
+            &[Capability::Movable, Capability::StateRefreshable]
+        }
+
+        fn validate(&self, _config: &toml::Value) -> Result<()> {
+            Ok(())
+        }
+
+        fn build(
+            &self,
+            _config: toml::Value,
+        ) -> futures::future::BoxFuture<'static, Result<DeviceComponents>> {
+            let call_count = self.call_count.clone();
+            Box::pin(async move {
+                let device = Arc::new(MockRefreshableDevice { call_count });
+                let components = DeviceComponents::new()
+                    .with_movable(device.clone() as Arc<dyn Movable>)
+                    .with_state_refreshable(device as Arc<dyn StateRefreshable>);
+                Ok(components)
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn test_restart_device_triggers_state_refresh() {
+        let call_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let registry = DeviceRegistry::new();
+        registry.register_factory(Box::new(MockRefreshableFactory::new(call_count.clone())));
+
+        // Register the device
+        registry
+            .register_from_toml(
+                "refreshable_dev",
+                "Refreshable Device",
+                "mock_refreshable",
+                toml::Value::Table(Default::default()),
+            )
+            .await
+            .expect("registration should succeed");
+
+        // Verify device is registered with StateRefreshable
+        assert!(registry.get_state_refreshable("refreshable_dev").is_some());
+        assert!(registry.get_movable("refreshable_dev").is_some());
+
+        // No refresh calls yet (registration does not trigger refresh)
+        assert_eq!(call_count.load(Ordering::SeqCst), 0);
+
+        // Fault the device so restart_device will attempt restart
+        registry.set_fault_threshold(1);
+        registry.report_device_failure("refreshable_dev", "simulated fault");
+
+        // Verify device is faulted
+        let health = registry
+            .get_device_health("refreshable_dev")
+            .expect("health should exist");
+        assert_eq!(health.health, DeviceHealth::Faulted);
+
+        // Restart the device — should trigger state refresh
+        let result = registry.restart_device("refreshable_dev").await;
+        assert!(result.is_ok());
+        assert!(result.unwrap(), "restart should succeed and return true");
+
+        // refresh_state should have been called exactly once on the new instance
+        assert_eq!(
+            call_count.load(Ordering::SeqCst),
+            1,
+            "refresh_state should be called once after restart"
+        );
+
+        // Capabilities should still be wired up after restart
+        assert!(registry.get_state_refreshable("refreshable_dev").is_some());
+        assert!(registry.get_movable("refreshable_dev").is_some());
+    }
+
+    #[tokio::test]
+    async fn test_restart_device_without_state_refreshable_succeeds() {
+        // Ensure restart works fine for devices that don't implement StateRefreshable
+        let registry = create_mock_registry().await.unwrap();
+
+        // Mock stage does not implement StateRefreshable
+        assert!(registry.get_state_refreshable("mock_stage").is_none());
+
+        // Fault and restart
+        registry.set_fault_threshold(1);
+        registry.report_device_failure("mock_stage", "simulated fault");
+        let result = registry.restart_device("mock_stage").await;
+        assert!(result.is_ok());
+        assert!(result.unwrap(), "restart should succeed");
+
+        // Device should be healthy again
+        let health = registry
+            .get_device_health("mock_stage")
+            .expect("health should exist");
+        assert_eq!(health.health, DeviceHealth::Healthy);
     }
 }

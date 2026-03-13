@@ -69,8 +69,8 @@
 use crate::capabilities::{
     Commandable, DeviceCategory, EmissionControl, ExposureControl, FrameProducer, GatedCamera,
     Movable, Parameterized, PulseGenerator, Readable, Reconfigurable, SafetyInterlock, Settable,
-    ShutterControl, SpectrometerControl, Stageable, TriggerOnPosition, Triggerable,
-    WavelengthTunable,
+    ShutterControl, SpectrometerControl, Stageable, StateRefreshable, TriggerOnPosition,
+    Triggerable, WavelengthTunable,
 };
 use crate::data::Frame;
 use crate::pipeline::MeasurementSource;
@@ -173,6 +173,10 @@ pub enum Capability {
     /// Runtime reconfiguration without full restart
     /// Corresponds to [`crate::capabilities::Reconfigurable`]
     Reconfigurable,
+
+    /// Post-reconnection state refresh (bd-47p2)
+    /// Corresponds to [`crate::capabilities::StateRefreshable`]
+    StateRefreshable,
 }
 
 impl Capability {
@@ -197,6 +201,7 @@ impl Capability {
             Self::PulseGenerator => "Pulse Generator",
             Self::SafetyInterlock => "Safety Interlock",
             Self::Reconfigurable => "Reconfigurable",
+            Self::StateRefreshable => "State Refreshable",
         }
     }
 
@@ -221,6 +226,7 @@ impl Capability {
             Self::PulseGenerator => "pulse_generator",
             Self::SafetyInterlock => "safety_interlock",
             Self::Reconfigurable => "reconfigurable",
+            Self::StateRefreshable => "state_refreshable",
         }
     }
 }
@@ -318,6 +324,9 @@ pub struct DeviceComponents {
     /// Reconfigurable implementation (runtime config changes)
     pub reconfigurable: Option<Arc<dyn Reconfigurable>>,
 
+    /// StateRefreshable implementation (post-reconnection state refresh, bd-47p2)
+    pub state_refreshable: Option<Arc<dyn StateRefreshable>>,
+
     /// Optional lifecycle hooks for device registration/shutdown
     pub lifecycle: Option<Arc<dyn DeviceLifecycle>>,
 
@@ -385,6 +394,9 @@ impl DeviceComponents {
         }
         if self.safety_interlock.is_some() {
             caps.push(Capability::SafetyInterlock);
+        }
+        if self.state_refreshable.is_some() {
+            caps.push(Capability::StateRefreshable);
         }
 
         caps
@@ -513,6 +525,12 @@ impl DeviceComponents {
     /// Set Reconfigurable implementation
     pub fn with_reconfigurable(mut self, r: Arc<dyn Reconfigurable>) -> Self {
         self.reconfigurable = Some(r);
+        self
+    }
+
+    /// Set StateRefreshable implementation (bd-47p2)
+    pub fn with_state_refreshable(mut self, s: Arc<dyn StateRefreshable>) -> Self {
+        self.state_refreshable = Some(s);
         self
     }
 
