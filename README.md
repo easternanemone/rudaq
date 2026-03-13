@@ -120,7 +120,7 @@ graph TD
 | **Applications** | `bin`, `ui` | Daemon CLI, Desktop GUI |
 | **Testing** | `integration-tests` | Cross-crate integration suite |
 
-**Total: 26 crates** (includes `ui-slint` and 4 FFI sys crates: `pvcam-sys`, `andor-sdk3-sys`, `comedi-sys`, `dover-motion-sys`)
+**Total: 26 crates** (includes `ui-slint` [EXPERIMENTAL] and 4 FFI sys crates: `pvcam-sys`, `andor-sdk3-sys`, `comedi-sys`, `dover-motion-sys`)
 
 Full architecture docs: [System Architecture](docs/explanation/architecture.md)
 
