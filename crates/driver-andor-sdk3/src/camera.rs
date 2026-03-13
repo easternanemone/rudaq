@@ -109,6 +109,8 @@ const CORE_FEATURE_NAMES: &[&str] = &[
 use crate::error::AndorError;
 #[cfg(feature = "camera")]
 use std::sync::atomic::AtomicUsize;
+#[cfg(feature = "camera")]
+use std::sync::Mutex as StdMutex;
 
 #[cfg(feature = "camera")]
 use andor_sdk3_sys::*;
@@ -149,6 +151,21 @@ where
 /// This counter tracks the number of live camera instances to ensure proper cleanup.
 #[cfg(feature = "camera")]
 static LIBRARY_INSTANCE_COUNT: AtomicUsize = AtomicUsize::new(0);
+#[cfg(feature = "camera")]
+static LIBRARY_INIT_MUTEX: StdMutex<()> = StdMutex::new(());
+#[cfg(feature = "camera")]
+const ANDOR_RECOVERY_ROOTS: &[&str] = &["/tmp", "/dev/shm"];
+#[cfg(feature = "camera")]
+const ANDOR_RECOVERY_PREFIXES: &[&str] = &[
+    "andor",
+    "atcore",
+    "atdebug",
+    "shamrock",
+    "sem.andor",
+    "sem.atcore",
+    "sem.atdebug",
+    "sem.shamrock",
+];
 
 /// Bridge between the C FFI callback thread and the async parameter update task.
 ///
@@ -530,6 +547,46 @@ impl AndorCamera {
 
     #[cfg(feature = "camera")]
     fn init_hardware(camera_index: i32) -> Result<(AT_H, CameraInfo)> {
+        let _guard = match LIBRARY_INIT_MUTEX.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                tracing::warn!("Andor library init mutex poisoned during recovery, proceeding");
+                poisoned.into_inner()
+            }
+        };
+
+        match unsafe { Self::init_hardware_once(camera_index) } {
+            Ok(result) => Ok(result),
+            Err(err) => {
+                let Some(andor_error) = err.downcast_ref::<AndorError>() else {
+                    return Err(err);
+                };
+                if !andor_error.is_recoverable_init_conflict() {
+                    return Err(err);
+                }
+
+                let cleanup_report =
+                    crate::cleanup_runtime_artifacts(ANDOR_RECOVERY_ROOTS, ANDOR_RECOVERY_PREFIXES);
+                tracing::warn!(
+                    error = %andor_error,
+                    removed = cleanup_report.removed_count(),
+                    failed = cleanup_report.failed_count(),
+                    artifacts = ?cleanup_report,
+                    "Andor SDK init reported a stale runtime conflict; cleaning artifacts and retrying once"
+                );
+
+                unsafe { Self::init_hardware_once(camera_index) }.map_err(|retry_err| {
+                    retry_err.context(format!(
+                        "Andor SDK recovery retry failed after cleanup ({})",
+                        cleanup_report.summary()
+                    ))
+                })
+            }
+        }
+    }
+
+    #[cfg(feature = "camera")]
+    unsafe fn init_hardware_once(camera_index: i32) -> Result<(AT_H, CameraInfo)> {
         use crate::error::sdk_result;
 
         unsafe {

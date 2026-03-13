@@ -47,7 +47,7 @@ use crate::types::{
     FilterPosition, FlipperMirror, Grating, GratingInfo, SlitPort, SpectrographInfo,
     WavelengthCalibration, WavelengthLimits,
 };
-use anyhow::Result;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
 use common::capabilities::{Parameterized, ShutterControl, WavelengthTunable};
 use common::error::DaqError;
@@ -59,6 +59,8 @@ use tokio::sync::Mutex;
 
 #[cfg(feature = "spectrograph")]
 use std::sync::atomic::AtomicUsize;
+#[cfg(feature = "spectrograph")]
+use std::sync::Mutex as StdMutex;
 
 #[cfg(feature = "spectrograph")]
 use andor_sdk3_sys::*;
@@ -71,6 +73,21 @@ use andor_sdk3_sys::*;
 /// proper cleanup.
 #[cfg(feature = "spectrograph")]
 static SHAMROCK_INSTANCE_COUNT: AtomicUsize = AtomicUsize::new(0);
+#[cfg(feature = "spectrograph")]
+static SHAMROCK_INIT_MUTEX: StdMutex<()> = StdMutex::new(());
+#[cfg(feature = "spectrograph")]
+const SHAMROCK_RECOVERY_ROOTS: &[&str] = &["/tmp", "/dev/shm"];
+#[cfg(feature = "spectrograph")]
+const SHAMROCK_RECOVERY_PREFIXES: &[&str] = &[
+    "shamrock",
+    "atspectrograph",
+    "andor",
+    "atdebug",
+    "sem.shamrock",
+    "sem.atspectrograph",
+    "sem.andor",
+    "sem.atdebug",
+];
 
 /// Andor Shamrock spectrograph driver
 ///
@@ -185,6 +202,53 @@ impl AndorSpectrograph {
 
     #[cfg(feature = "spectrograph")]
     fn init_hardware(device_index: i32) -> Result<SpectrographInfo> {
+        let _guard = match SHAMROCK_INIT_MUTEX.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                tracing::warn!("Shamrock init mutex poisoned during recovery, proceeding");
+                poisoned.into_inner()
+            }
+        };
+
+        match unsafe { Self::init_hardware_once(device_index) } {
+            Ok(info) => Ok(info),
+            Err(err) => {
+                let err_text = err.to_string();
+                let Some(andor_error) = err.downcast_ref::<AndorError>() else {
+                    return Err(err);
+                };
+                if !matches!(
+                    andor_error,
+                    AndorError::SdkError { code, .. } if *code == 20201
+                ) || !err_text.contains("ShamrockInitialize")
+                {
+                    return Err(err);
+                }
+
+                let cleanup_report = crate::cleanup_runtime_artifacts(
+                    SHAMROCK_RECOVERY_ROOTS,
+                    SHAMROCK_RECOVERY_PREFIXES,
+                );
+                tracing::warn!(
+                    error = %andor_error,
+                    removed = cleanup_report.removed_count(),
+                    failed = cleanup_report.failed_count(),
+                    artifacts = ?cleanup_report,
+                    "Shamrock init reported a stale runtime conflict; cleaning artifacts and retrying once"
+                );
+
+                unsafe { Self::init_hardware_once(device_index) }.map_err(|retry_err| {
+                    retry_err.context(format!(
+                        "Shamrock recovery retry failed after cleanup ({})",
+                        cleanup_report.summary()
+                    ))
+                })
+            }
+        }
+    }
+
+    #[cfg(feature = "spectrograph")]
+    unsafe fn init_hardware_once(device_index: i32) -> Result<SpectrographInfo> {
         use crate::error::sdk_result;
 
         unsafe {
@@ -199,7 +263,7 @@ impl AndorSpectrograph {
                 if let Err(e) = sdk_result(ret) {
                     // Rollback the instance count on initialization failure
                     SHAMROCK_INSTANCE_COUNT.fetch_sub(1, Ordering::SeqCst);
-                    return Err(e.into());
+                    return Err(e.context("ShamrockInitialize failed"));
                 }
             }
 
@@ -213,7 +277,7 @@ impl AndorSpectrograph {
                 if SHAMROCK_INSTANCE_COUNT.fetch_sub(1, Ordering::SeqCst) == 1 {
                     ShamrockClose();
                 }
-                return Err(e.into());
+                return Err(e.context("ShamrockGetNumberDevices failed"));
             }
 
             if device_index >= num_devices {

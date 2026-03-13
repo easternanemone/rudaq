@@ -35,6 +35,97 @@ static SDK_REF_COUNT: AtomicU32 = AtomicU32::new(0);
 #[cfg(feature = "pvcam_sdk")]
 static SDK_INIT_MUTEX: Mutex<()> = Mutex::new(());
 
+#[cfg(feature = "pvcam_sdk")]
+const PVCAM_RECOVERY_ROOTS: &[&str] = &["/tmp", "/dev/shm"];
+#[cfg(feature = "pvcam_sdk")]
+const PVCAM_RECOVERY_PREFIXES: &[&str] = &[
+    "pvcam",
+    "photometrics",
+    "pmc",
+    "sem.pvcam",
+    "sem.photometrics",
+    "sem.pmc",
+];
+
+#[cfg(any(feature = "pvcam_sdk", test))]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct RuntimeCleanupReport {
+    removed: Vec<String>,
+    failed: Vec<String>,
+}
+
+#[cfg(any(feature = "pvcam_sdk", test))]
+#[cfg_attr(not(feature = "pvcam_sdk"), allow(dead_code))]
+impl RuntimeCleanupReport {
+    fn removed_count(&self) -> usize {
+        self.removed.len()
+    }
+
+    fn failed_count(&self) -> usize {
+        self.failed.len()
+    }
+
+    #[cfg(feature = "pvcam_sdk")]
+    fn summary(&self) -> String {
+        format!(
+            "{} removed, {} failed",
+            self.removed_count(),
+            self.failed_count()
+        )
+    }
+}
+
+#[cfg(any(feature = "pvcam_sdk", test))]
+fn cleanup_runtime_artifacts(roots: &[&str], prefixes: &[&str]) -> RuntimeCleanupReport {
+    let normalized_prefixes: Vec<String> = prefixes
+        .iter()
+        .map(|prefix| prefix.to_ascii_lowercase())
+        .collect();
+    let mut report = RuntimeCleanupReport::default();
+
+    for root in roots {
+        let Ok(entries) = std::fs::read_dir(root) else {
+            continue;
+        };
+
+        for entry in entries.flatten() {
+            let file_name = entry.file_name();
+            let name = file_name.to_string_lossy().to_ascii_lowercase();
+            if !normalized_prefixes
+                .iter()
+                .any(|prefix| name.starts_with(prefix))
+            {
+                continue;
+            }
+
+            let path = entry.path();
+            let removal_result = match entry.file_type() {
+                Ok(file_type) if file_type.is_dir() => std::fs::remove_dir_all(&path),
+                Ok(_) => std::fs::remove_file(&path),
+                Err(err) => Err(err),
+            };
+
+            match removal_result {
+                Ok(()) => report.removed.push(path.display().to_string()),
+                Err(err) => report.failed.push(format!("{}: {}", path.display(), err)),
+            }
+        }
+    }
+
+    report
+}
+
+#[cfg(any(feature = "pvcam_sdk", test))]
+fn is_recoverable_pvcam_init_conflict(error_message: &str) -> bool {
+    let normalized = error_message.to_ascii_lowercase();
+    normalized.contains("already initialized")
+        || normalized.contains("already initialised")
+        || normalized.contains("device in use")
+        || normalized.contains("camera in use")
+        || normalized.contains("shared memory")
+        || normalized.contains("lock file")
+}
+
 /// Helper to get PVCAM error string
 #[cfg(any(feature = "pvcam_sdk", feature = "pvcam_hardware"))]
 pub(crate) fn get_pvcam_error() -> String {
@@ -207,15 +298,40 @@ impl PvcamConnection {
                 }
 
                 tracing::trace!("Calling pl_pvcam_init()...");
-                let init_result = pl_pvcam_init();
+                let mut init_result = pl_pvcam_init();
                 tracing::debug!("pl_pvcam_init() returned {}", init_result);
 
                 if init_result == 0 {
                     let err = get_pvcam_error();
-                    tracing::error!("pl_pvcam_init() FAILED: {}", err);
-                    // Rollback ref count on failure
-                    SDK_REF_COUNT.fetch_sub(1, Ordering::SeqCst);
-                    return Err(anyhow!("Failed to initialize PVCAM SDK: {}", err));
+                    if is_recoverable_pvcam_init_conflict(&err) {
+                        let cleanup_report = cleanup_runtime_artifacts(
+                            PVCAM_RECOVERY_ROOTS,
+                            PVCAM_RECOVERY_PREFIXES,
+                        );
+                        tracing::warn!(
+                            error = %err,
+                            removed = cleanup_report.removed_count(),
+                            failed = cleanup_report.failed_count(),
+                            artifacts = ?cleanup_report,
+                            "PVCAM init reported a stale runtime conflict; cleaning artifacts and retrying once"
+                        );
+                        init_result = pl_pvcam_init();
+                        tracing::debug!("pl_pvcam_init() retry returned {}", init_result);
+                        if init_result == 0 {
+                            let retry_err = get_pvcam_error();
+                            tracing::error!("pl_pvcam_init() RETRY FAILED: {}", retry_err);
+                            SDK_REF_COUNT.fetch_sub(1, Ordering::SeqCst);
+                            return Err(anyhow!(retry_err).context(format!(
+                                "PVCAM SDK recovery retry failed after cleanup ({})",
+                                cleanup_report.summary()
+                            )));
+                        }
+                    } else {
+                        tracing::error!("pl_pvcam_init() FAILED: {}", err);
+                        // Rollback ref count on failure
+                        SDK_REF_COUNT.fetch_sub(1, Ordering::SeqCst);
+                        return Err(anyhow!("Failed to initialize PVCAM SDK: {}", err));
+                    }
                 }
             }
             tracing::info!("PVCAM SDK initialized successfully (ref count: 1)");
@@ -631,4 +747,57 @@ impl Drop for PvcamConnection {
 #[cfg(feature = "pvcam_sdk")]
 pub fn sdk_ref_count() -> u32 {
     SDK_REF_COUNT.load(Ordering::SeqCst)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn make_temp_root() -> std::path::PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "rust-daq-pvcam-cleanup-{}-{}",
+            std::process::id(),
+            unique
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    #[test]
+    fn pvcam_cleanup_removes_prefixed_entries() {
+        let root = make_temp_root();
+        let removable = root.join("pvcam-stale.lock");
+        let keep = root.join("unrelated.lock");
+        std::fs::write(&removable, b"stale").unwrap();
+        std::fs::write(&keep, b"keep").unwrap();
+
+        let report =
+            cleanup_runtime_artifacts(&[root.to_str().unwrap()], &["pvcam", "sem.photometrics"]);
+
+        assert_eq!(report.removed_count(), 1);
+        assert_eq!(report.failed_count(), 0);
+        assert!(!removable.exists());
+        assert!(keep.exists());
+
+        std::fs::remove_file(keep).unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn pvcam_conflict_classifier_matches_vendor_messages() {
+        assert!(is_recoverable_pvcam_init_conflict(
+            "error 42 - SDK already initialized by another process"
+        ));
+        assert!(is_recoverable_pvcam_init_conflict(
+            "error 77 - device in use due to stale shared memory"
+        ));
+        assert!(!is_recoverable_pvcam_init_conflict(
+            "error 13 - timeout waiting for exposure"
+        ));
+    }
 }

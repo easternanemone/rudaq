@@ -416,7 +416,7 @@ impl RadianceCalibrator {
 
     /// Returns the calibration timestamp, if present in the source files.
     pub fn calibration_timestamp(&self) -> Option<DateTime<Utc>> {
-        self.calibration_timestamp.as_ref().cloned()
+        self.calibration_timestamp
     }
 
     /// Returns the logical device type for freshness gating.
