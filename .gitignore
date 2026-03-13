@@ -176,5 +176,8 @@ __pycache__/
 # BeadHub workspace config (DO NOT COMMIT — machine-local)
 .beadhub
 
+# Claude Code workspace settings (machine-local)
+slate.json
+
 # ActivityWatch data directory
 .aw/
