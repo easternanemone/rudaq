@@ -12,8 +12,36 @@
 //!
 //! # Architecture
 //!
-//! Unlike HardwareService which uses capability traits (Readable, Movable, etc.),
-//! NiDaqService accesses Comedi drivers directly for low-level DAQ operations.
+//! NiDaqService is in a **partial migration** from direct Comedi FFI access to
+//! DeviceRegistry-owned capability handles (bd-krmn). The current state:
+//!
+//! ## Migrated to Registry Traits
+//! - `set_analog_output`: Uses `registry.get_settable()` -> `Settable::set_value()`
+//!
+//! ## Still Using Direct Comedi Access
+//! The following RPCs still use `get_or_open_device()` for direct Comedi FFI.
+//! Each has a specific blocker documented inline:
+//!
+//! - `read_analog_input`: `Readable::read()` returns only `f64` voltage; proto
+//!   requires `raw_value` (u32) and per-call `channel`/`range_index` selection.
+//! - `configure_analog_output`: Queries Comedi range info (min/max voltage) which
+//!   has no generic trait equivalent.
+//! - `configure_digital_io`, `read_digital_io`, `write_digital_io`,
+//!   `read_digital_port`, `write_digital_port`: No `comedi_digital_io` device is
+//!   registered in hardware configs. The DIO subsystem is accessed via the same
+//!   physical `/dev/comediN` node as AI/AO devices.
+//! - `read_counter`, `reset_counter`, `configure_counter`: No `comedi_counter`
+//!   device is registered in hardware configs.
+//! - `get_daq_status`: Deep Comedi device introspection (board name, subdevice
+//!   summaries, resolution, ranges) with no generic trait equivalent.
+//! - `stream_analog_input`: Multi-channel continuous acquisition via
+//!   `ComediMultiChannelAcquisition` -- no registry equivalent.
+//!
+//! ## Forward Path
+//! To complete the migration (see per-method TODOs):
+//! 1. Register `comedi_digital_io` and `comedi_counter` devices in hardware configs
+//! 2. Extend `Readable` or add a `ReadableWithMetadata` trait for raw+voltage reads
+//! 3. Add a `DeviceIntrospection` trait for board/subdevice info
 
 use anyhow::Error as AnyError;
 use common::limits::RPC_TIMEOUT;
@@ -31,8 +59,11 @@ use tracing::instrument;
 
 /// Implementation of NiDaqService gRPC interface.
 ///
-/// Provides direct access to NI PCI-MIO-16XE-10 capabilities through Comedi drivers.
-/// Complements HardwareService for DAQ-specific operations.
+/// Provides access to NI PCI-MIO-16XE-10 capabilities. Uses a mix of
+/// DeviceRegistry capability traits (the target architecture) and direct
+/// Comedi FFI (for operations that don't yet have registry equivalents).
+///
+/// See module-level docs for the per-RPC migration status (bd-krmn).
 ///
 /// # Device Handle Caching (bd-ucyu.3)
 ///
@@ -40,6 +71,10 @@ use tracing::instrument;
 /// `/dev/comedi0` on every RPC. `ComediDevice` is `Clone` (wraps `Arc<DeviceInner>`)
 /// and its internal `ffi_lock` serializes all FFI calls, so sharing a single handle
 /// across RPCs is both safe and eliminates the kernel deadlock risk from concurrent opens.
+///
+/// # TODO(bd-krmn): Remove `device_cache` once all RPCs use registry handles.
+/// The cache will become unnecessary when DIO and counter subsystems are
+/// registered as separate devices in the DeviceRegistry.
 #[derive(Clone)]
 pub struct NiDaqServiceImpl {
     /// Device registry for looking up Comedi devices
@@ -223,6 +258,10 @@ impl NiDaqService for NiDaqServiceImpl {
                 ));
             }
 
+            // TODO(bd-krmn): Multi-channel continuous streaming is deeply Comedi-specific
+            // (CMD-based DMA acquisition). No registry trait equivalent exists.
+            // This is fundamentally different from single-value Readable::read() and
+            // would require a StreamingAcquisition trait to express in the HAL.
             let device_path = self.resolve_device_path(&req.device_id);
 
             // Create multi-channel acquisition instance
@@ -510,6 +549,13 @@ impl NiDaqService for NiDaqServiceImpl {
                     Status::not_found(format!("Device '{}' not found", req.device_id))
                 })?;
 
+            // TODO(bd-krmn): Migrate to registry.get_readable(device_id).read().
+            // Blockers:
+            //   1. Readable::read() returns f64 (voltage only); proto requires raw_value (u32).
+            //   2. Per-RPC channel/range_index selection: the registered ReadableAnalogInput
+            //      is bound to a fixed channel+range at registration time.
+            // Fix: Extend Readable or add ReadableWithMetadata trait that returns
+            //   (voltage, raw_value, timestamp) tuple, and support runtime channel selection.
             let device_path = self.resolve_device_path(&req.device_id);
             let device = self.get_or_open_device(&device_path).await?;
 
@@ -586,7 +632,8 @@ impl NiDaqService for NiDaqServiceImpl {
             )));
         }
 
-        // Look up device in registry
+        // MIGRATED (bd-krmn): Uses registry.get_settable() -> Settable::set_value().
+        // This is the model for future RPC migrations.
         let settable = self.registry.get_settable(&req.device_id).ok_or_else(|| {
             Status::not_found(format!(
                 "Device '{}' not found or does not support analog output",
@@ -675,6 +722,9 @@ impl NiDaqService for NiDaqServiceImpl {
                     Status::not_found(format!("Device '{}' not found", req.device_id))
                 })?;
 
+            // TODO(bd-krmn): Migrate to registry trait once range introspection is available.
+            // Blocker: No generic trait exposes voltage range info (min/max/unit per range_index).
+            // Fix: Add Settable::get_value("range_info") or a DeviceIntrospection trait.
             let device_path = self.resolve_device_path(&req.device_id);
             let device = self.get_or_open_device(&device_path).await?;
             let channel = req.channel;
@@ -760,6 +810,13 @@ impl NiDaqService for NiDaqServiceImpl {
                     Status::not_found(format!("Device '{}' not found", req.device_id))
                 })?;
 
+            // TODO(bd-krmn): Migrate to registry.get_settable(dio_device_id).set_value("direction_N", ...).
+            // Blocker: No comedi_digital_io device is registered in hardware configs.
+            //   The DIO subsystem lives on the same /dev/comediN node as AI/AO devices,
+            //   but the device_id in the request (e.g. "photodiode") maps to an AI device
+            //   whose Settable is for analog operations, not DIO.
+            // Fix: Register a comedi_digital_io device (e.g. id="ni_daq_dio") in the
+            //   hardware config, then use get_settable("ni_daq_dio").set_value("direction_N", ...).
             let device_path = self.resolve_device_path(&req.device_id);
             let device = self.get_or_open_device(&device_path).await?;
 
@@ -842,6 +899,8 @@ impl NiDaqService for NiDaqServiceImpl {
                     Status::not_found(format!("Device '{}' not found", req.device_id))
                 })?;
 
+            // TODO(bd-krmn): Migrate to registry.get_settable(dio_device_id).get_value("N").
+            // Blocker: No comedi_digital_io device registered. See configure_digital_io TODO.
             let device_path = self.resolve_device_path(&req.device_id);
             let device = self.get_or_open_device(&device_path).await?;
 
@@ -908,6 +967,8 @@ impl NiDaqService for NiDaqServiceImpl {
                     Status::not_found(format!("Device '{}' not found", req.device_id))
                 })?;
 
+            // TODO(bd-krmn): Migrate to registry.get_settable(dio_device_id).set_value("N", value).
+            // Blocker: No comedi_digital_io device registered. See configure_digital_io TODO.
             let device_path = self.resolve_device_path(&req.device_id);
             let device = self.get_or_open_device(&device_path).await?;
 
@@ -969,6 +1030,9 @@ impl NiDaqService for NiDaqServiceImpl {
                     Status::not_found(format!("Device '{}' not found", req.device_id))
                 })?;
 
+            // TODO(bd-krmn): Migrate to registry.get_settable(dio_device_id).get_value("port").
+            // Blockers: (1) No comedi_digital_io device registered; (2) Settable port read
+            //   always uses base_channel=0, but the proto supports arbitrary base_channel.
             let device_path = self.resolve_device_path(&req.device_id);
             let device = self.get_or_open_device(&device_path).await?;
             let base_channel = req.base_channel;
@@ -1018,6 +1082,10 @@ impl NiDaqService for NiDaqServiceImpl {
                     Status::not_found(format!("Device '{}' not found", req.device_id))
                 })?;
 
+            // TODO(bd-krmn): Migrate to registry.get_settable(dio_device_id).set_value("port", value).
+            // Blockers: (1) No comedi_digital_io device registered; (2) Settable port write
+            //   uses mask=0xFFFFFFFF and base_channel=0, but the proto supports arbitrary
+            //   base_channel and per-bit mask.
             let device_path = self.resolve_device_path(&req.device_id);
             let device = self.get_or_open_device(&device_path).await?;
             let base_channel = req.base_channel;
@@ -1075,6 +1143,13 @@ impl NiDaqService for NiDaqServiceImpl {
                     Status::not_found(format!("Device '{}' not found", req.device_id))
                 })?;
 
+            // TODO(bd-krmn): Migrate to registry.get_readable(counter_device_id).read().
+            // Blocker: No comedi_counter device is registered in hardware configs.
+            //   The counter subsystem lives on the same /dev/comediN node as AI/AO,
+            //   but no device entry exists for it.
+            // Fix: Register comedi_counter devices (e.g. id="ni_daq_counter_0") in config,
+            //   then use get_readable("ni_daq_counter_0").read() for the count value.
+            //   Note: Readable::read() returns f64, proto needs u64 count + u64 timestamp.
             let device_path = self.resolve_device_path(&req.device_id);
             let device = self.get_or_open_device(&device_path).await?;
 
@@ -1153,6 +1228,8 @@ impl NiDaqService for NiDaqServiceImpl {
                     Status::not_found(format!("Device '{}' not found", req.device_id))
                 })?;
 
+            // TODO(bd-krmn): Migrate to registry.get_settable(counter_device_id).set_value("reset", ...).
+            // Blocker: No comedi_counter device registered. See read_counter TODO.
             let device_path = self.resolve_device_path(&req.device_id);
             let device = self.get_or_open_device(&device_path).await?;
 
@@ -1265,6 +1342,9 @@ impl NiDaqService for NiDaqServiceImpl {
                     Status::not_found(format!("Device '{}' not found", req.device_id))
                 })?;
 
+            // TODO(bd-krmn): Comedi-specific counter configuration (mode, edge, gate/source).
+            // Even with a registered counter device, the Settable trait has no way to express
+            // INSN_CONFIG commands for timing modes. Would need a CounterConfigurable trait.
             let device_path = self.resolve_device_path(&req.device_id);
             let device = self.get_or_open_device(&device_path).await?;
 
@@ -1396,6 +1476,9 @@ impl NiDaqService for NiDaqServiceImpl {
         // Comedi support is only available when the 'comedi' feature is enabled
         #[cfg(feature = "comedi")]
         {
+            // TODO(bd-krmn): Deeply Comedi-specific device introspection (board name,
+            // subdevice summaries, resolution, voltage ranges). No generic trait equivalent.
+            // Fix: Add a DeviceIntrospection trait or expose this info through Parameterized.
             let device_path = self.resolve_device_path(&device_id);
             let device = self.get_or_open_device(&device_path).await?;
 
