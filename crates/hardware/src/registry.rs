@@ -66,8 +66,9 @@
 // use anyhow::{anyhow, Result}; // Removed
 // use anyhow::anyhow; // Removed
 use common::capabilities::{
-    Commandable, EmissionControl, ExposureControl, FrameProducer, Movable, Parameterized, Readable,
-    Reconfigurable, Settable, ShutterControl, Stageable, Triggerable, WavelengthTunable,
+    Commandable, EmissionControl, ExposureControl, FrameProducer, GatedCamera, Movable,
+    Parameterized, Readable, Reconfigurable, Settable, ShutterControl, SpectrometerControl,
+    Stageable, Triggerable, WavelengthTunable,
 };
 use common::data::Frame;
 use common::driver::{
@@ -322,6 +323,10 @@ struct RegisteredDevice {
     emission_control: Option<Arc<dyn EmissionControl>>,
     /// WavelengthTunable implementation (if supported) - tunable laser wavelength (bd-pwjo)
     wavelength_tunable: Option<Arc<dyn WavelengthTunable>>,
+    /// GatedCamera implementation (if supported) - ICCD/DDG control.
+    gated_camera: Option<Arc<dyn GatedCamera>>,
+    /// SpectrometerControl implementation (if supported) - grating/wavelength control.
+    spectrometer_control: Option<Arc<dyn SpectrometerControl>>,
     /// Reconfigurable implementation (if supported) - runtime config changes
     reconfigurable: Option<Arc<dyn Reconfigurable>>,
     /// Optional lifecycle hooks for registration/shutdown
@@ -388,6 +393,12 @@ impl RegisteredDevice {
         }
         if self.wavelength_tunable.is_some() {
             caps.push(Capability::WavelengthTunable);
+        }
+        if self.gated_camera.is_some() {
+            caps.push(Capability::GatedCamera);
+        }
+        if self.spectrometer_control.is_some() {
+            caps.push(Capability::SpectrometerControl);
         }
         if self.reconfigurable.is_some() {
             caps.push(Capability::Reconfigurable);
@@ -903,6 +914,8 @@ impl DeviceRegistry {
             shutter_control: components.shutter_control,
             emission_control: components.emission_control,
             wavelength_tunable: components.wavelength_tunable,
+            gated_camera: components.gated_camera,
+            spectrometer_control: components.spectrometer_control,
             reconfigurable: components.reconfigurable,
             lifecycle: components.lifecycle,
             metadata,
@@ -1355,6 +1368,8 @@ impl DeviceRegistry {
                         shutter_control: None,
                         emission_control: None,
                         wavelength_tunable: None,
+                        gated_camera: None,
+                        spectrometer_control: None,
                         reconfigurable: None,
                         lifecycle: None,
                         metadata: old_metadata,
@@ -1425,6 +1440,16 @@ impl DeviceRegistry {
         self.devices.get(id).and_then(|d| d.source_frame.clone())
     }
 
+    /// Get a string-valued driver config entry for a registered device.
+    pub fn get_driver_config_string(&self, id: &str, key: &str) -> Option<String> {
+        self.devices.get(id).and_then(|device| {
+            let toml::Value::Table(config) = &device.config.driver.config else {
+                return None;
+            };
+            config.get(key)?.as_str().map(ToOwned::to_owned)
+        })
+    }
+
     /// Get a device as ExposureControl (if it supports this capability)
     pub fn get_exposure_control(&self, id: &str) -> Option<Arc<dyn ExposureControl>> {
         self.devices
@@ -1487,6 +1512,13 @@ impl DeviceRegistry {
         self.devices
             .get(id)
             .and_then(|d| d.wavelength_tunable.clone())
+    }
+
+    /// Get a device as SpectrometerControl (if it supports this capability).
+    pub fn get_spectrometer_control(&self, id: &str) -> Option<Arc<dyn SpectrometerControl>> {
+        self.devices
+            .get(id)
+            .and_then(|d| d.spectrometer_control.clone())
     }
 
     /// Get a device as Settable (if it supports this capability)
@@ -1685,6 +1717,8 @@ impl DeviceRegistry {
             shutter_control: None,
             emission_control: None,
             wavelength_tunable: None,
+            gated_camera: None,
+            spectrometer_control: None,
             reconfigurable: None,
             lifecycle: None,
             metadata,

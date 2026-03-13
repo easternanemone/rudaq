@@ -27,6 +27,7 @@ zarrs = { version = "0.22", optional = true, features = ["filesystem"] }
 
 # Binary data (for tensor/array event buffers)
 bytes = "1.5"
+bincode = "1"
 
 # Async & Logging
 tokio = { workspace = true, features = ["sync", "fs"] }
@@ -38,7 +39,6 @@ prometheus = { version = "0.14", optional = true }
 tempfile.workspace = true
 tokio = { workspace = true, features = ["full"] }
 chrono = { workspace = true, features = ["serde"] }
-bincode = "1"
 proptest.workspace = true
 criterion = { version = "0.5", features = ["async_tokio"] }
 
@@ -64,3 +64,7 @@ required-features = ["storage_arrow"]
 name = "arrow_tensor"
 harness = false
 required-features = ["storage_arrow"]
+
+[[bench]]
+name = "ring_buffer_write"
+harness = false

@@ -20,7 +20,7 @@ cargo build -p ui --features standalone
 cargo build -p bin --features all_hardware
 
 # WASM GUI for browser
-cargo build -p ui --target wasm32-unknown-unknown --features web
+cargo build -p ui --target wasm32-unknown-unknown --no-default-features --features web
 ```
 
 ---
@@ -220,6 +220,9 @@ The CI system tests these combinations:
 | **Format check** | `cargo fmt --all -- --check` |
 | **Clippy** | Workspace-wide lint |
 | **Unit & integration tests** | `cargo nextest run` (default features) |
+| **Dependency hygiene + SBOM** | `cargo-audit`, `cargo-deny`, `cargo-machete`, plus CycloneDX SBOM on push; `cargo-deny` excludes the evaluation-only `ui-slint` crate pending upstream license review |
+| **Nightly hardware smoke** | Scheduled deploy + gRPC frame validation on `maitai-eos` and `leabs-dev` |
+| **Performance regression gate** | Checked ring buffer + Hg2 extraction benchmarks vs committed baseline |
 | **Ring buffer benchmark** | Performance regression check |
 | **SBOM generation** | CycloneDX bill of materials |
 
@@ -235,8 +238,21 @@ The CI system tests these combinations:
 | **runtime / universal-smoke** | universal | driver-universal smoke test |
 | **runtime / hybrid-db-mem-smoke** | universal, db-surreal-mem | In-memory DB runtime |
 | **runtime / hybrid-db-rocksdb-smoke** | (many) | RocksDB runtime integration |
+| **ui / wasm32 lint + compilation** | web | Browser UI target compiles and passes clippy |
 
-**Note:** HDF5 and PVCAM tests run only on dedicated hardware runners.
+**Current platform coverage:**
+
+| Platform | Automation | Notes |
+|----------|------------|-------|
+| **Linux (self-hosted `leabs`)** | `ci.yml`, `feature-matrix.yml`, `docs.yml`, scheduled/manual `ops.yml` | Primary gate for format, workspace clippy, nextest, storage/db/runtime feature matrix, and the WASM browser target |
+| **Windows (GitHub-hosted)** | `libs-windows.yml`, manual `ops.yml` windows driver check | Covers LIBS mock smoke tests plus targeted Windows driver cross-checks |
+| **macOS** | None in routine CI | Manual verification only today |
+
+**Not covered in routine PR CI:**
+- Real hardware feature paths such as `pvcam_hardware`, `comedi_hardware`, `andor_hardware`, and `hardware_tests`
+- Manual Tailscale-driven lab orchestration in `hardware-tailscale.yml`
+
+**Benchmark artifacts:** `ci.yml` uploads the structured regression-gate results plus the Criterion HTML report for ring-buffer write throughput.
 
 ---
 

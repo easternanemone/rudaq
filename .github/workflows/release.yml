@@ -1,0 +1,282 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref to build for a dry-run release"
+        required: false
+        default: "main"
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x64
+            runner: ubuntu-24.04
+            package_format: tar.gz
+            archive_basename: rust-daq-linux-x64
+            daemon_binary: rust-daq-daemon
+            gui_binary: rust-daq-gui
+            signing: none
+          - name: windows-x64
+            runner: windows-latest
+            package_format: zip
+            archive_basename: rust-daq-windows-x64
+            daemon_binary: rust-daq-daemon.exe
+            gui_binary: rust-daq-gui.exe
+            signing: windows
+          - name: macos-x64
+            runner: macos-15-intel
+            package_format: tar.gz
+            archive_basename: rust-daq-macos-x64
+            daemon_binary: rust-daq-daemon
+            gui_binary: rust-daq-gui
+            signing: macos
+          - name: macos-arm64
+            runner: macos-14
+            package_format: tar.gz
+            archive_basename: rust-daq-macos-arm64
+            daemon_binary: rust-daq-daemon
+            gui_binary: rust-daq-gui
+            signing: macos
+    env:
+      CARGO_BUILD_JOBS: "2"
+      CARGO_INCREMENTAL: "0"
+      CHECKOUT_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
+      MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+      MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+      MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+      WINDOWS_CERTIFICATE_PFX: ${{ secrets.WINDOWS_CERTIFICATE_PFX }}
+      WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CHECKOUT_REF }}
+
+      - name: Setup environment (Linux/macOS)
+        if: runner.os != 'Windows'
+        uses: ./.github/actions/setup-daq
+        with:
+          dependency-profile: full
+          toolchain: 1.92.0
+          cache-key: release-${{ matrix.name }}
+
+      - name: Setup environment (Windows)
+        if: runner.os == 'Windows'
+        uses: ./.github/actions/setup-daq
+        with:
+          dependency-profile: minimal
+          toolchain: 1.92.0
+          cache-key: release-${{ matrix.name }}
+
+      - name: Install protobuf compiler (Windows)
+        if: runner.os == 'Windows'
+        run: choco install protoc -y
+        shell: pwsh
+
+      - name: Import code signing certificate (macOS)
+        if: runner.os == 'macOS' && env.MACOS_CERTIFICATE_P12 != '' && env.MACOS_CERTIFICATE_PASSWORD != ''
+        run: |
+          set -euo pipefail
+          keychain_path="${RUNNER_TEMP}/release-signing.keychain-db"
+          keychain_password="$(openssl rand -base64 32)"
+          cert_path="${RUNNER_TEMP}/release-signing.p12"
+          mapfile -t current_keychains < <(security list-keychains -d user | tr -d '"')
+
+          echo "${MACOS_CERTIFICATE_P12}" | base64 --decode > "${cert_path}"
+
+          security create-keychain -p "${keychain_password}" "${keychain_path}"
+          security set-keychain-settings -lut 21600 "${keychain_path}"
+          security unlock-keychain -p "${keychain_password}" "${keychain_path}"
+          security import "${cert_path}" \
+            -P "${MACOS_CERTIFICATE_PASSWORD}" \
+            -A \
+            -t cert \
+            -f pkcs12 \
+            -k "${keychain_path}"
+          security list-keychains -d user -s "${keychain_path}" "${current_keychains[@]}"
+          security default-keychain -s "${keychain_path}"
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s \
+            -k "${keychain_password}" \
+            "${keychain_path}"
+          security find-identity -v -p codesigning "${keychain_path}"
+
+          {
+            echo "MACOS_KEYCHAIN_PATH=${keychain_path}"
+            echo "MACOS_KEYCHAIN_PASSWORD=${keychain_password}"
+          } >> "${GITHUB_ENV}"
+
+          rm -f "${cert_path}"
+
+      - name: Warn when macOS signing is skipped
+        if: runner.os == 'macOS' && (env.MACOS_CERTIFICATE_P12 == '' || env.MACOS_CERTIFICATE_PASSWORD == '' || env.MACOS_SIGNING_IDENTITY == '')
+        run: |
+          echo "::warning::macOS signing secrets are not fully configured; ${{ matrix.archive_basename }} will be built unsigned."
+
+      - name: Warn when Windows signing is skipped
+        if: runner.os == 'Windows' && (env.WINDOWS_CERTIFICATE_PFX == '' || env.WINDOWS_CERTIFICATE_PASSWORD == '')
+        run: |
+          Write-Host "::warning::Windows signing secrets are not fully configured; ${{ matrix.archive_basename }} will be built unsigned."
+        shell: pwsh
+
+      - name: Build daemon
+        run: cargo build --release -p bin --bin rust-daq-daemon
+
+      - name: Build desktop GUI
+        run: cargo build --release -p ui --bin rust-daq-gui
+
+      - name: Sign binaries (macOS)
+        if: runner.os == 'macOS' && env.MACOS_CERTIFICATE_P12 != '' && env.MACOS_CERTIFICATE_PASSWORD != '' && env.MACOS_SIGNING_IDENTITY != ''
+        run: |
+          set -euo pipefail
+          for binary in \
+            "target/release/${{ matrix.daemon_binary }}" \
+            "target/release/${{ matrix.gui_binary }}"; do
+            codesign \
+              --force \
+              --options runtime \
+              --timestamp \
+              --sign "${MACOS_SIGNING_IDENTITY}" \
+              "${binary}"
+            codesign --verify --verbose=2 "${binary}"
+          done
+
+      - name: Sign binaries (Windows)
+        if: runner.os == 'Windows' && env.WINDOWS_CERTIFICATE_PFX != '' && env.WINDOWS_CERTIFICATE_PASSWORD != ''
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $certPath = Join-Path $env:RUNNER_TEMP 'windows-release-signing.pfx'
+          [System.IO.File]::WriteAllBytes(
+            $certPath,
+            [System.Convert]::FromBase64String($env:WINDOWS_CERTIFICATE_PFX)
+          )
+
+          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1 -ExpandProperty FullName
+          if (-not $signtool) {
+            throw 'signtool.exe not found on runner'
+          }
+
+          & $signtool sign `
+            /fd SHA256 `
+            /tr http://timestamp.digicert.com `
+            /td SHA256 `
+            /f $certPath `
+            /p $env:WINDOWS_CERTIFICATE_PASSWORD `
+            "target/release/${{ matrix.daemon_binary }}" `
+            "target/release/${{ matrix.gui_binary }}"
+
+          & $signtool verify /pa "target/release/${{ matrix.daemon_binary }}"
+          & $signtool verify /pa "target/release/${{ matrix.gui_binary }}"
+        shell: pwsh
+
+      - name: Package release bundle (tar.gz)
+        if: matrix.package_format == 'tar.gz'
+        run: |
+          set -euo pipefail
+          bundle_dir="dist/${{ matrix.archive_basename }}"
+          mkdir -p "${bundle_dir}"
+
+          cp "target/release/${{ matrix.daemon_binary }}" "${bundle_dir}/"
+          cp "target/release/${{ matrix.gui_binary }}" "${bundle_dir}/"
+
+          for extra in README.md CHANGELOG.md LICENSE LICENSE-MIT LICENSE-APACHE; do
+            if [[ -f "${extra}" ]]; then
+              cp "${extra}" "${bundle_dir}/"
+            fi
+          done
+
+          tar -C dist -czf "dist/${{ matrix.archive_basename }}.tar.gz" "${{ matrix.archive_basename }}"
+          rm -rf "${bundle_dir}"
+
+      - name: Package release bundle (zip)
+        if: matrix.package_format == 'zip'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bundleDir = Join-Path 'dist' '${{ matrix.archive_basename }}'
+          New-Item -ItemType Directory -Force -Path $bundleDir | Out-Null
+
+          Copy-Item "target/release/${{ matrix.daemon_binary }}" $bundleDir
+          Copy-Item "target/release/${{ matrix.gui_binary }}" $bundleDir
+
+          foreach ($extra in @('README.md', 'CHANGELOG.md', 'LICENSE', 'LICENSE-MIT', 'LICENSE-APACHE')) {
+            if (Test-Path $extra) {
+              Copy-Item $extra $bundleDir
+            }
+          }
+
+          $zipPath = Join-Path 'dist' '${{ matrix.archive_basename }}.zip'
+          if (Test-Path $zipPath) {
+            Remove-Item $zipPath -Force
+          }
+          Compress-Archive -Path (Join-Path $bundleDir '*') -DestinationPath $zipPath
+          Remove-Item $bundleDir -Recurse -Force
+        shell: pwsh
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.name }}
+          path: dist/*
+          retention-days: 14
+
+      - name: Cleanup temporary keychain
+        if: always() && runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          if [[ -n "${MACOS_KEYCHAIN_PATH:-}" ]] && [[ -f "${MACOS_KEYCHAIN_PATH}" ]]; then
+            security delete-keychain "${MACOS_KEYCHAIN_PATH}" || true
+          fi
+
+  publish:
+    name: Publish GitHub release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: dist
+
+      - name: Generate checksums
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum ./* > SHA256SUMS.txt
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

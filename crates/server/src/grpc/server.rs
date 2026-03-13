@@ -300,7 +300,15 @@ impl DaqServer {
             });
 
             tokio::spawn(async move {
-                while let Some(measurement) = rb_rx.recv().await {
+                let mut last_frame_numbers = HashMap::<String, u64>::new();
+                while let Some(mut measurement) = rb_rx.recv().await {
+                    if let Some((source, fault)) = annotate_measurement_data_integrity(
+                        &mut measurement,
+                        &mut last_frame_numbers,
+                    ) {
+                        log_data_integrity_fault(&source, fault);
+                    }
+
                     match encode_measurement_frame(&measurement) {
                         Ok(frame) => {
                             if let Err(e) = rb.write(&frame) {
@@ -498,6 +506,132 @@ impl DaqServer {
     }
 }
 
+fn spectrum_payload_from_parts(
+    name: String,
+    wavelengths: Vec<f64>,
+    intensities: Vec<f64>,
+    wavelength_unit: Option<String>,
+    intensity_unit: Option<String>,
+    metadata: Option<serde_json::Value>,
+    timestamp_ns: u64,
+) -> crate::grpc::proto::SpectrumPayload {
+    let metadata_object = metadata.as_ref().and_then(serde_json::Value::as_object);
+    let metadata_json = metadata
+        .as_ref()
+        .and_then(|value| serde_json::to_string(value).ok())
+        .unwrap_or_default();
+
+    let merged = metadata_bool(metadata_object, &["merged"]).unwrap_or_else(|| {
+        metadata_string(metadata_object, &["kind"]).is_some_and(|kind| kind == "echelle_merged")
+            || name.contains("merged")
+    });
+    let order_index = metadata_i32(metadata_object, &["order_index", "relative_index"])
+        .unwrap_or(if merged { -1 } else { 0 });
+
+    crate::grpc::proto::SpectrumPayload {
+        wavelengths,
+        intensities,
+        ivar: metadata_f64_list(metadata_object, &["ivar"]).unwrap_or_default(),
+        wavelength_unit: wavelength_unit.unwrap_or_default(),
+        order_index,
+        merged,
+        calibration_profile_id: metadata_string(
+            metadata_object,
+            &["calibration_profile_id", "profile_id"],
+        )
+        .unwrap_or_default(),
+        quality_flags: metadata_string_list(metadata_object, &["quality_flags"])
+            .unwrap_or_default(),
+        snr_estimate: metadata_f64(metadata_object, &["snr_estimate"]).unwrap_or_default(),
+        name,
+        timestamp_ns,
+        intensity_unit: intensity_unit.unwrap_or_default(),
+        metadata_json,
+        device_id: metadata_string(metadata_object, &["device_id"]).unwrap_or_default(),
+    }
+}
+
+fn metadata_string(
+    metadata: Option<&serde_json::Map<String, serde_json::Value>>,
+    keys: &[&str],
+) -> Option<String> {
+    keys.iter().find_map(|key| {
+        metadata
+            .and_then(|object| object.get(*key))
+            .and_then(serde_json::Value::as_str)
+            .map(ToOwned::to_owned)
+    })
+}
+
+fn metadata_bool(
+    metadata: Option<&serde_json::Map<String, serde_json::Value>>,
+    keys: &[&str],
+) -> Option<bool> {
+    keys.iter().find_map(|key| {
+        metadata
+            .and_then(|object| object.get(*key))
+            .and_then(serde_json::Value::as_bool)
+    })
+}
+
+fn metadata_i32(
+    metadata: Option<&serde_json::Map<String, serde_json::Value>>,
+    keys: &[&str],
+) -> Option<i32> {
+    keys.iter().find_map(|key| {
+        metadata
+            .and_then(|object| object.get(*key))
+            .and_then(serde_json::Value::as_i64)
+            .and_then(|value| i32::try_from(value).ok())
+    })
+}
+
+fn metadata_f64(
+    metadata: Option<&serde_json::Map<String, serde_json::Value>>,
+    keys: &[&str],
+) -> Option<f64> {
+    keys.iter().find_map(|key| {
+        metadata
+            .and_then(|object| object.get(*key))
+            .and_then(serde_json::Value::as_f64)
+    })
+}
+
+fn metadata_string_list(
+    metadata: Option<&serde_json::Map<String, serde_json::Value>>,
+    keys: &[&str],
+) -> Option<Vec<String>> {
+    keys.iter().find_map(|key| {
+        metadata
+            .and_then(|object| object.get(*key))
+            .and_then(serde_json::Value::as_array)
+            .map(|values| {
+                values
+                    .iter()
+                    .filter_map(serde_json::Value::as_str)
+                    .map(ToOwned::to_owned)
+                    .collect::<Vec<_>>()
+            })
+    })
+}
+
+fn metadata_f64_list(
+    metadata: Option<&serde_json::Map<String, serde_json::Value>>,
+    keys: &[&str],
+) -> Option<Vec<f64>> {
+    keys.iter().find_map(|key| {
+        metadata
+            .and_then(|object| object.get(*key))
+            .and_then(serde_json::Value::as_array)
+            .map(|values| {
+                values
+                    .iter()
+                    .filter_map(serde_json::Value::as_f64)
+                    .collect()
+            })
+    })
+}
+
 fn encode_measurement_frame(measurement: &Measurement) -> Result<Vec<u8>, bincode::Error> {
     let payload = bincode::serialize(measurement)?;
     let mut frame = Vec::with_capacity(4 + payload.len());
@@ -507,6 +641,129 @@ fn encode_measurement_frame(measurement: &Measurement) -> Result<Vec<u8>, bincod
     frame.extend_from_slice(&payload_len.to_le_bytes());
     frame.extend_from_slice(&payload);
     Ok(frame)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ImageSequenceFault {
+    previous_frame_number: u64,
+    current_frame_number: u64,
+    missing_frames: u64,
+}
+
+fn build_image_measurement(device_id: &str, frame: &common::data::Frame) -> Measurement {
+    let buffer = match frame.bit_depth {
+        16 => {
+            if let Some(slice) = frame.as_u16_slice() {
+                common::core::PixelBuffer::U16(slice.to_vec())
+            } else {
+                common::core::PixelBuffer::U8(frame.data.to_vec())
+            }
+        }
+        _ => common::core::PixelBuffer::U8(frame.data.to_vec()),
+    };
+
+    let frame_metadata = frame.metadata.as_deref();
+    let roi_origin = if frame.roi_x == 0 && frame.roi_y == 0 {
+        None
+    } else {
+        Some((frame.roi_x, frame.roi_y))
+    };
+
+    Measurement::Image {
+        name: device_id.to_string(),
+        width: frame.width,
+        height: frame.height,
+        buffer,
+        unit: "counts".to_string(),
+        metadata: common::core::ImageMetadata {
+            exposure_ms: frame.exposure_ms,
+            gain: None,
+            binning: frame_metadata
+                .and_then(|meta| meta.binning)
+                .map(|(x, y)| (u32::from(x), u32::from(y))),
+            temperature_c: frame_metadata.and_then(|meta| meta.temperature_c),
+            hardware_timestamp_us: None,
+            readout_ms: None,
+            roi_origin,
+            frame_number: Some(frame.frame_number),
+            sequence_gap_from_previous: None,
+        },
+        timestamp: chrono::Utc::now(),
+    }
+}
+
+fn load_echelle_profile_for_device(
+    registry: &hardware::registry::DeviceRegistry,
+    device_id: &str,
+) -> Option<Arc<common::echelle::EchelleCalibrationProfile>> {
+    let profile_path = registry.get_driver_config_string(device_id, "echelle_profile_path")?;
+    match common::echelle::EchelleCalibrationProfile::load_from_path(std::path::Path::new(
+        &profile_path,
+    )) {
+        Ok(profile) => Some(Arc::new(profile)),
+        Err(error) => {
+            tracing::warn!(
+                device_id = %device_id,
+                profile_path = %profile_path,
+                error = %error,
+                "Failed to load echelle profile; server-side extraction disabled for device"
+            );
+            None
+        }
+    }
+}
+
+fn detect_image_sequence_fault(
+    previous_frame_number: Option<u64>,
+    current_frame_number: u64,
+) -> Option<ImageSequenceFault> {
+    let previous_frame_number = previous_frame_number?;
+    if current_frame_number > previous_frame_number.saturating_add(1) {
+        return Some(ImageSequenceFault {
+            previous_frame_number,
+            current_frame_number,
+            missing_frames: current_frame_number - previous_frame_number - 1,
+        });
+    }
+    None
+}
+
+fn annotate_measurement_data_integrity(
+    measurement: &mut Measurement,
+    last_frame_numbers: &mut HashMap<String, u64>,
+) -> Option<(String, ImageSequenceFault)> {
+    let Measurement::Image { name, metadata, .. } = measurement else {
+        return None;
+    };
+    let current_frame_number = metadata.frame_number?;
+    let previous_frame_number = last_frame_numbers.get(name).copied();
+    let fault = detect_image_sequence_fault(previous_frame_number, current_frame_number);
+
+    if let Some(fault) = fault {
+        metadata.sequence_gap_from_previous = Some(fault.missing_frames);
+    }
+
+    let next_frame_number = previous_frame_number.map_or(current_frame_number, |previous| {
+        previous.max(current_frame_number)
+    });
+    last_frame_numbers.insert(name.clone(), next_frame_number);
+
+    fault.map(|fault| (name.clone(), fault))
+}
+
+fn log_data_integrity_fault(source: &str, fault: ImageSequenceFault) {
+    tracing::warn!(
+        target: "data_integrity",
+        source,
+        previous_frame_number = fault.previous_frame_number,
+        current_frame_number = fault.current_frame_number,
+        missing_frames = fault.missing_frames,
+        "DataIntegrityFault: {} dropped {} frame(s) (prev={}, current={})",
+        source,
+        fault.missing_frames,
+        fault.previous_frame_number,
+        fault.current_frame_number
+    );
 }
 
 #[cfg(feature = "scripting")]
@@ -929,9 +1186,8 @@ impl ControlService for DaqServer {
 
     type StreamMeasurementsStream =
         tokio_stream::wrappers::ReceiverStream<Result<crate::grpc::proto::DataPoint, Status>>;
-    type StreamSpectraStream = tokio_stream::wrappers::ReceiverStream<
-        Result<crate::grpc::proto::SpectrumDataPoint, Status>,
-    >;
+    type StreamSpectraStream =
+        tokio_stream::wrappers::ReceiverStream<Result<crate::grpc::proto::SpectrumPayload, Status>>;
 
     /// Stream measurement data from specified channels
     async fn stream_measurements(
@@ -1127,7 +1383,16 @@ impl ControlService for DaqServer {
                     continue;
                 };
 
-                if !channels.is_empty() && !channels.contains(&name) {
+                let spectrum_device_id = metadata_string(
+                    metadata.as_ref().and_then(serde_json::Value::as_object),
+                    &["device_id"],
+                );
+                if !channels.is_empty()
+                    && !channels.contains(&name)
+                    && spectrum_device_id
+                        .as_ref()
+                        .map_or(true, |device_id| !channels.contains(device_id))
+                {
                     continue;
                 }
 
@@ -1138,20 +1403,15 @@ impl ControlService for DaqServer {
                 #[allow(clippy::cast_sign_loss)]
                 // SAFETY: value is non-negative at this point
                 let timestamp_ns = timestamp.timestamp_nanos_opt().unwrap_or(0) as u64;
-                let metadata_json = metadata
-                    .as_ref()
-                    .and_then(|m| serde_json::to_string(m).ok())
-                    .unwrap_or_default();
-
-                let proto_spectrum = crate::grpc::proto::SpectrumDataPoint {
+                let proto_spectrum = spectrum_payload_from_parts(
                     name,
-                    x_values: frequencies,
-                    y_values: amplitudes,
-                    x_unit: frequency_unit.unwrap_or_default(),
-                    y_unit: amplitude_unit.unwrap_or_default(),
+                    frequencies,
+                    amplitudes,
+                    frequency_unit,
+                    amplitude_unit,
+                    metadata,
                     timestamp_ns,
-                    metadata_json,
-                };
+                );
 
                 if tx.send(Ok(proto_spectrum)).await.is_err() {
                     break;
@@ -1512,7 +1772,14 @@ pub async fn start_server_with_hardware(
 
         // Spawn writer task
         tokio::spawn(async move {
-            while let Some(measurement) = rx.recv().await {
+            let mut last_frame_numbers = HashMap::<String, u64>::new();
+            while let Some(mut measurement) = rx.recv().await {
+                if let Some((source, fault)) =
+                    annotate_measurement_data_integrity(&mut measurement, &mut last_frame_numbers)
+                {
+                    log_data_integrity_fault(&source, fault);
+                }
+
                 if let Ok(frame) = encode_measurement_frame(&measurement)
                     && let Err(e) = rb_clone.write(&frame)
                 {
@@ -1567,36 +1834,73 @@ pub async fn start_server_with_hardware(
                 .and_then(|v| v.parse::<usize>().ok())
                 .unwrap_or(16);
             let (meas_tx, meas_rx) = tokio::sync::mpsc::channel(meas_chan);
+            let image_meas_tx = meas_tx.clone();
             let device_id_clone = device_id.clone();
+            let extraction_feed =
+                load_echelle_profile_for_device(&registry, &device_id).map(|profile| {
+                    let (extract_tx, mut extract_rx) =
+                        tokio::sync::watch::channel(None::<Arc<common::data::Frame>>);
+                    let spectrum_meas_tx = meas_tx.clone();
+                    let extraction_device_id = device_id.clone();
+                    let extraction_profile = profile.clone();
+                    tokio::spawn(async move {
+                        let mut u16_scratch = Vec::new();
+                        while extract_rx.changed().await.is_ok() {
+                            let Some(frame) = extract_rx.borrow_and_update().clone() else {
+                                continue;
+                            };
+
+                            match common::echelle::extract_preview_with_u16_scratch(
+                                extraction_profile.as_ref(),
+                                &frame.data,
+                                frame.width,
+                                frame.height,
+                                frame.bit_depth,
+                                frame.frame_number,
+                                &mut u16_scratch,
+                            ) {
+                                Ok(preview) => {
+                                    for measurement in preview.to_measurements_with_context(
+                                        false,
+                                        Some(&extraction_device_id),
+                                    ) {
+                                        if spectrum_meas_tx.send(measurement).await.is_err() {
+                                            return;
+                                        }
+                                    }
+                                }
+                                Err(error) => {
+                                    tracing::warn!(
+                                        device_id = %extraction_device_id,
+                                        frame_number = frame.frame_number,
+                                        error = %error,
+                                        "Echelle extraction failed; raw frame streaming continues"
+                                    );
+                                }
+                            }
+
+                            tokio::task::yield_now().await;
+                        }
+                    });
+
+                    tracing::info!(
+                        device_id = %device_id,
+                        "Enabled server-side echelle spectrum extraction for frame source"
+                    );
+
+                    extract_tx
+                });
 
             // 4. Spawn Converter Task (Frame -> Measurement)
             tokio::spawn(async move {
                 while let Some(frame) = frame_rx.recv().await {
-                    let buffer = match frame.bit_depth {
-                        16 => {
-                            if let Some(slice) = frame.as_u16_slice() {
-                                common::core::PixelBuffer::U16(slice.to_vec())
-                            } else {
-                                // Convert Bytes to Vec<u8> for PixelBuffer
-                                common::core::PixelBuffer::U8(frame.data.to_vec())
-                            }
-                        }
-                        // Convert Bytes to Vec<u8> for PixelBuffer
-                        _ => common::core::PixelBuffer::U8(frame.data.to_vec()),
-                    };
+                    let measurement = build_image_measurement(&device_id_clone, &frame);
 
-                    let measurement = common::core::Measurement::Image {
-                        name: device_id_clone.clone(),
-                        width: frame.width,
-                        height: frame.height,
-                        buffer,
-                        unit: "counts".to_string(),
-                        metadata: common::core::ImageMetadata::default(),
-                        timestamp: chrono::Utc::now(),
-                    };
-
-                    if meas_tx.send(measurement).await.is_err() {
+                    if image_meas_tx.send(measurement).await.is_err() {
                         break; // Downstream closed
+                    }
+                    if let Some(extract_tx) = &extraction_feed {
+                        extract_tx.send_replace(Some(frame.clone()));
                     }
                 }
             });
@@ -1685,6 +1989,16 @@ pub async fn start_server_with_hardware(
     // Spawn orphan-plan watchdog (bd-c9z1)
     // Detects plans stuck in Running/Paused with no client activity and aborts them.
     let _watchdog_handle = run_engine.spawn_watchdog();
+
+    // Pause the engine if disk or process RSS crosses danger thresholds (bd-102j).
+    tokio::spawn(
+        crate::health::sys_monitor::ResourceGuard::new(
+            health_monitor.clone(),
+            run_engine.clone(),
+            storage_settings.output_directory.clone(),
+        )
+        .run(),
+    );
 
     // Game loop for system state broadcasting (Phase 4)
     //
@@ -2158,6 +2472,21 @@ mod tests {
     use super::*;
     use chrono::Utc;
 
+    fn test_image_measurement(source: &str, frame_number: Option<u64>) -> Measurement {
+        Measurement::Image {
+            name: source.to_string(),
+            width: 2,
+            height: 2,
+            buffer: common::core::PixelBuffer::U16(vec![1, 2, 3, 4]),
+            unit: "counts".to_string(),
+            metadata: common::core::ImageMetadata {
+                frame_number,
+                ..Default::default()
+            },
+            timestamp: Utc::now(),
+        }
+    }
+
     /// Create a test DaqServer with a mock RunEngine (bd-si2c)
     #[cfg(feature = "scripting")]
     fn create_test_server() -> DaqServer {
@@ -2476,6 +2805,47 @@ mod tests {
         assert_eq!(client1_data, client2_data);
     }
 
+    #[tokio::test]
+    #[cfg(feature = "scripting")]
+    async fn test_stream_spectra_filters_by_device_id_metadata() {
+        use tokio_stream::StreamExt;
+
+        let server = create_test_server();
+        let data_sender = server.data_sender();
+        let request = Request::new(crate::grpc::proto::SpectrumStreamRequest {
+            channels: vec!["camera-a".to_string()],
+            max_rate_hz: 0,
+        });
+
+        let response = server.stream_spectra(request).await.unwrap();
+        let mut stream = response.into_inner();
+
+        tokio::spawn(async move {
+            let _ = data_sender.send(Measurement::Spectrum {
+                name: "echelle_order_0".to_string(),
+                frequencies: vec![500.0, 501.0],
+                amplitudes: vec![1.0, 2.0],
+                frequency_unit: Some("nm".to_string()),
+                amplitude_unit: Some("counts".to_string()),
+                metadata: Some(serde_json::json!({
+                    "device_id": "camera-a",
+                    "relative_index": 0
+                })),
+                timestamp: Utc::now(),
+            });
+        });
+
+        let payload = stream
+            .next()
+            .await
+            .expect("expected a streamed spectrum")
+            .expect("expected streamed spectrum payload");
+
+        assert_eq!(payload.name, "echelle_order_0");
+        assert_eq!(payload.device_id, "camera-a");
+        assert_eq!(payload.order_index, 0);
+    }
+
     #[test]
     fn test_auth_rejects_missing_token() {
         let settings = GrpcSettings {
@@ -2526,5 +2896,144 @@ mod tests {
         let result = validate_auth(&settings, &request);
 
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_build_image_measurement_preserves_frame_metadata() {
+        let frame = common::data::Frame::from_u16(4, 2, &[1, 2, 3, 4, 5, 6, 7, 8])
+            .with_frame_number(42)
+            .with_exposure(12.5)
+            .with_roi_offset(8, 16)
+            .with_metadata(common::data::FrameMetadata {
+                temperature_c: Some(-15.0),
+                binning: Some((2, 4)),
+                ..Default::default()
+            });
+
+        let measurement = build_image_measurement("camera-a", &frame);
+        let Measurement::Image {
+            name,
+            width,
+            height,
+            buffer,
+            metadata,
+            ..
+        } = measurement
+        else {
+            panic!("expected image measurement");
+        };
+
+        assert_eq!(name, "camera-a");
+        assert_eq!((width, height), (4, 2));
+        assert!(matches!(buffer, common::core::PixelBuffer::U16(_)));
+        assert_eq!(metadata.exposure_ms, Some(12.5));
+        assert_eq!(metadata.temperature_c, Some(-15.0));
+        assert_eq!(metadata.binning, Some((2, 4)));
+        assert_eq!(metadata.roi_origin, Some((8, 16)));
+        assert_eq!(metadata.frame_number, Some(42));
+        assert_eq!(metadata.sequence_gap_from_previous, None);
+    }
+
+    #[test]
+    fn test_spectrum_payload_from_parts_defaults_without_metadata() {
+        let payload = spectrum_payload_from_parts(
+            "spectrum-a".to_string(),
+            vec![500.0, 501.0],
+            vec![1.0, 2.0],
+            Some("nm".to_string()),
+            Some("counts".to_string()),
+            None,
+            123,
+        );
+
+        assert_eq!(payload.name, "spectrum-a");
+        assert_eq!(payload.wavelengths, vec![500.0, 501.0]);
+        assert_eq!(payload.intensities, vec![1.0, 2.0]);
+        assert_eq!(payload.wavelength_unit, "nm");
+        assert_eq!(payload.intensity_unit, "counts");
+        assert_eq!(payload.order_index, 0);
+        assert!(!payload.merged);
+        assert!(payload.ivar.is_empty());
+        assert!(payload.quality_flags.is_empty());
+        assert_eq!(payload.timestamp_ns, 123);
+        assert!(payload.metadata_json.is_empty());
+    }
+
+    #[test]
+    fn test_spectrum_payload_from_parts_parses_echelle_metadata() {
+        let payload = spectrum_payload_from_parts(
+            "echelle_merged_preview".to_string(),
+            vec![500.0, 501.0],
+            vec![1.0, 2.0],
+            Some("nm".to_string()),
+            Some("counts".to_string()),
+            Some(serde_json::json!({
+                "kind": "echelle_merged",
+                "profile_id": "profile-42",
+                "quality_flags": ["cosmic_masked", "blaze_corrected"],
+                "snr_estimate": 18.5,
+                "ivar": [0.25, 0.5]
+            })),
+            456,
+        );
+
+        assert!(payload.merged);
+        assert_eq!(payload.order_index, -1);
+        assert_eq!(payload.calibration_profile_id, "profile-42");
+        assert_eq!(
+            payload.quality_flags,
+            vec!["cosmic_masked".to_string(), "blaze_corrected".to_string()]
+        );
+        assert_eq!(payload.snr_estimate, 18.5);
+        assert_eq!(payload.ivar, vec![0.25, 0.5]);
+        assert!(
+            payload
+                .metadata_json
+                .contains("\"profile_id\":\"profile-42\"")
+        );
+    }
+
+    #[test]
+    fn test_annotate_measurement_data_integrity_marks_gap() {
+        let mut last_frame_numbers = HashMap::new();
+        let mut first = test_image_measurement("camera-a", Some(7));
+        let mut second = test_image_measurement("camera-a", Some(10));
+
+        assert!(annotate_measurement_data_integrity(&mut first, &mut last_frame_numbers).is_none());
+
+        let (source, fault) =
+            annotate_measurement_data_integrity(&mut second, &mut last_frame_numbers)
+                .expect("expected sequence gap fault");
+        let Measurement::Image { metadata, .. } = second else {
+            panic!("expected image measurement");
+        };
+
+        assert_eq!(source, "camera-a");
+        assert_eq!(
+            fault,
+            ImageSequenceFault {
+                previous_frame_number: 7,
+                current_frame_number: 10,
+                missing_frames: 2,
+            }
+        );
+        assert_eq!(metadata.sequence_gap_from_previous, Some(2));
+        assert_eq!(last_frame_numbers.get("camera-a"), Some(&10));
+    }
+
+    #[test]
+    fn test_annotate_measurement_data_integrity_ignores_regressions() {
+        let mut last_frame_numbers = HashMap::from([("camera-a".to_string(), 10)]);
+        let mut measurement = test_image_measurement("camera-a", Some(9));
+
+        assert!(
+            annotate_measurement_data_integrity(&mut measurement, &mut last_frame_numbers)
+                .is_none()
+        );
+        let Measurement::Image { metadata, .. } = measurement else {
+            panic!("expected image measurement");
+        };
+        assert_eq!(metadata.sequence_gap_from_previous, None);
+        assert_eq!(last_frame_numbers.get("camera-a"), Some(&10));
     }
 }

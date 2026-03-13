@@ -75,6 +75,69 @@ pub use factory::{AndorCameraFactory, AndorSpectrographFactory};
 pub use spectrograph::AndorSpectrograph;
 pub use types::*;
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct RuntimeCleanupReport {
+    removed: Vec<String>,
+    failed: Vec<String>,
+}
+
+impl RuntimeCleanupReport {
+    pub(crate) fn removed_count(&self) -> usize {
+        self.removed.len()
+    }
+
+    pub(crate) fn failed_count(&self) -> usize {
+        self.failed.len()
+    }
+
+    pub(crate) fn summary(&self) -> String {
+        format!(
+            "{} removed, {} failed",
+            self.removed_count(),
+            self.failed_count()
+        )
+    }
+}
+
+pub(crate) fn cleanup_runtime_artifacts(roots: &[&str], prefixes: &[&str]) -> RuntimeCleanupReport {
+    let normalized_prefixes: Vec<String> = prefixes
+        .iter()
+        .map(|prefix| prefix.to_ascii_lowercase())
+        .collect();
+    let mut report = RuntimeCleanupReport::default();
+
+    for root in roots {
+        let Ok(entries) = std::fs::read_dir(root) else {
+            continue;
+        };
+
+        for entry in entries.flatten() {
+            let file_name = entry.file_name();
+            let name = file_name.to_string_lossy().to_ascii_lowercase();
+            if !normalized_prefixes
+                .iter()
+                .any(|prefix| name.starts_with(prefix))
+            {
+                continue;
+            }
+
+            let path = entry.path();
+            let removal_result = match entry.file_type() {
+                Ok(file_type) if file_type.is_dir() => std::fs::remove_dir_all(&path),
+                Ok(_) => std::fs::remove_file(&path),
+                Err(err) => Err(err),
+            };
+
+            match removal_result {
+                Ok(()) => report.removed.push(path.display().to_string()),
+                Err(err) => report.failed.push(format!("{}: {}", path.display(), err)),
+            }
+        }
+    }
+
+    report
+}
+
 /// Linker reference function to ensure this crate is not stripped.
 ///
 /// Called by `drivers::link_drivers()` when the `andor_sdk3` feature is enabled.
@@ -82,4 +145,39 @@ pub use types::*;
 pub fn link() {
     std::hint::black_box(std::any::TypeId::of::<AndorCamera>());
     std::hint::black_box(std::any::TypeId::of::<AndorSpectrograph>());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn cleanup_runtime_artifacts_removes_prefixed_entries() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "rust-daq-andor-cleanup-{}-{}",
+            std::process::id(),
+            unique
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+
+        let removable = root.join("andor-stale.lock");
+        let keep = root.join("unrelated.lock");
+        std::fs::write(&removable, b"stale").unwrap();
+        std::fs::write(&keep, b"keep").unwrap();
+
+        let report = cleanup_runtime_artifacts(&[root.to_str().unwrap()], &["andor", "sem.atcore"]);
+
+        assert_eq!(report.removed_count(), 1);
+        assert_eq!(report.failed_count(), 0);
+        assert!(!removable.exists());
+        assert!(keep.exists());
+
+        std::fs::remove_file(keep).unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }

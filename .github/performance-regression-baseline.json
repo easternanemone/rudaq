@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "allowed_regression_pct": 20.0,
+  "notes": [
+    "Values are intentionally conservative for the shared self-hosted CI runner.",
+    "The gate compares the current result against these checked-in baselines and fails if a metric regresses by more than 20 percent.",
+    "The echelle decode+extract baseline was recalibrated from measured 2026-03-13 PR artifacts after the initial 3000 fps / 450 us seed values proved unattainable on the shared runner."
+  ],
+  "benchmarks": {
+    "ring_buffer_write_throughput": {
+      "command": "cargo test -p storage --lib bench_ring_buffer_write_throughput --release -- --nocapture",
+      "metrics": {
+        "fps": {
+          "baseline": 1250000.0,
+          "direction": "higher_is_better",
+          "unit": "fps"
+        }
+      }
+    },
+    "echelle_extraction_hg2": {
+      "command": "cargo test -p ui --lib benchmark_real_canned_hg2_extraction_latency_and_live_budget --release -- --ignored --nocapture",
+      "dataset_id": "leabs-dev/2026-02-25-hg2",
+      "metrics": {
+        "throughput_frames_per_sec_decode_plus_extract": {
+          "baseline": 1250.0,
+          "direction": "higher_is_better",
+          "unit": "fps"
+        },
+        "decode_plus_extract_p95_us": {
+          "baseline": 850.0,
+          "direction": "lower_is_better",
+          "unit": "us"
+        }
+      }
+    }
+  }
+}

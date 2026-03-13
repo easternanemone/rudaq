@@ -16,8 +16,8 @@ use crate::graph::{
     ExperimentViewer, GraphFile, GraphMetadata, GraphPlan, GRAPH_FILE_EXTENSION,
 };
 use crate::panels::{
-    data_channel, frame_channel, CodePreviewPanel, DataUpdate, DataUpdateSender, FrameUpdate,
-    FrameUpdateSender, LiveVisualizationPanel,
+    data_channel, frame_channel, spectrum_channel, CodePreviewPanel, DataUpdate, DataUpdateSender,
+    FrameUpdate, FrameUpdateSender, LiveVisualizationPanel, SpectrumUpdate, SpectrumUpdateSender,
 };
 use crate::widgets::node_palette::{NodePalette, NodeType};
 use crate::widgets::{
@@ -34,6 +34,9 @@ type CameraInfo = (String, String);
 
 /// Type alias for plot detector info: (device_id, label, title)
 type PlotInfo = (String, String, String);
+
+/// Type alias for spectrum detector info: (device_id, label, title)
+type SpectrumInfo = (String, String, String);
 
 /// Actions from async execution operations
 enum ExecutionAction {
@@ -86,10 +89,14 @@ pub struct ExperimentDesignerPanel {
     frame_tx: Option<FrameUpdateSender>,
     /// Data update sender (for plot data)
     data_tx: Option<DataUpdateSender>,
+    /// Spectrum update sender (for streamed spectrum data)
+    spectrum_tx: Option<SpectrumUpdateSender>,
     /// Camera streaming tasks (for cleanup)
     camera_stream_tasks: Vec<tokio::task::JoinHandle<()>>,
     /// Document stream task (for cleanup)
     document_stream_task: Option<tokio::task::JoinHandle<()>>,
+    /// Spectrum streaming tasks (for cleanup)
+    spectrum_stream_tasks: Vec<tokio::task::JoinHandle<()>>,
     /// Metadata editor for run metadata
     metadata_editor: crate::widgets::MetadataEditor,
     /// Whether to show eject confirmation dialog
@@ -159,8 +166,10 @@ impl Default for ExperimentDesignerPanel {
             visualization_panel: None,
             frame_tx: None,
             data_tx: None,
+            spectrum_tx: None,
             camera_stream_tasks: Vec::new(),
             document_stream_task: None,
+            spectrum_stream_tasks: Vec::new(),
             metadata_editor: crate::widgets::MetadataEditor::new(),
             show_eject_confirmation: false,
             script_editor: None,
@@ -176,6 +185,13 @@ impl Default for ExperimentDesignerPanel {
 }
 
 impl ExperimentDesignerPanel {
+    fn calibration_staleness_warning(error: &str) -> Option<String> {
+        let marker = "CalibrationStalenessGate:";
+        error
+            .find(marker)
+            .map(|idx| error[idx..].trim().to_string())
+    }
+
     pub fn new() -> Self {
         Self::default()
     }
@@ -1177,7 +1193,11 @@ impl ExperimentDesignerPanel {
 
         // Error display
         if let Some(err) = &self.last_error {
-            ui.colored_label(egui::Color32::RED, err);
+            if let Some(warning) = Self::calibration_staleness_warning(err) {
+                ui.colored_label(egui::Color32::from_rgb(255, 200, 80), warning);
+            } else {
+                ui.colored_label(egui::Color32::RED, err);
+            }
         }
     }
 
@@ -1760,10 +1780,11 @@ impl ExperimentDesignerPanel {
     // ========== Live Visualization Integration ==========
 
     /// Extract detectors from graph Acquire nodes.
-    /// Returns (cameras, plots) where:
+    /// Returns (cameras, plots, spectra) where:
     /// - cameras: Vec<CameraInfo> - (device_id, title)
     /// - plots: Vec<PlotInfo> - (device_id, label, title)
-    fn extract_detectors(&self) -> (Vec<CameraInfo>, Vec<PlotInfo>) {
+    /// - spectra: Vec<SpectrumInfo> - (device_id, label, title)
+    fn extract_detectors(&self) -> (Vec<CameraInfo>, Vec<PlotInfo>, Vec<SpectrumInfo>) {
         let mut cameras = Vec::new();
         let mut plots = Vec::new();
 
@@ -1791,16 +1812,27 @@ impl ExperimentDesignerPanel {
         plots.sort_unstable();
         plots.dedup();
 
-        (cameras, plots)
+        let spectra = cameras
+            .iter()
+            .map(|(device_id, title)| {
+                (
+                    device_id.clone(),
+                    "Spectrum".to_string(),
+                    format!("{title} Spectrum"),
+                )
+            })
+            .collect();
+
+        (cameras, plots, spectra)
     }
 
     /// Start visualization when experiment execution begins.
     fn start_visualization(&mut self, client: &DaqClient, runtime: &Runtime) {
         // Extract detectors from graph
-        let (cameras, plots) = self.extract_detectors();
+        let (cameras, plots, spectrum_plots) = self.extract_detectors();
 
         // Only create visualization if there are detectors
-        if cameras.is_empty() && plots.is_empty() {
+        if cameras.is_empty() && plots.is_empty() && spectrum_plots.is_empty() {
             return;
         }
 
@@ -1811,16 +1843,25 @@ impl ExperimentDesignerPanel {
         if let Some(handle) = self.document_stream_task.take() {
             handle.abort();
         }
+        for handle in self.spectrum_stream_tasks.drain(..) {
+            handle.abort();
+        }
 
         // Create channels (LOCAL variables)
         let (frame_tx, frame_rx) = frame_channel();
         let (data_tx, data_rx) = data_channel();
+        let (spectrum_tx, spectrum_rx) = spectrum_channel();
 
         // Create and configure panel
         let mut panel = LiveVisualizationPanel::new();
-        panel.configure_detectors(cameras.clone(), plots.clone());
+        panel.configure_detectors_with_spectra(
+            cameras.clone(),
+            plots.clone(),
+            spectrum_plots.clone(),
+        );
         panel.set_frame_receiver(frame_rx);
         panel.set_data_receiver(data_rx);
+        panel.set_spectrum_receiver(spectrum_rx);
         panel.start();
 
         // Spawn camera streaming tasks BEFORE storing senders
@@ -1910,10 +1951,81 @@ impl ExperimentDesignerPanel {
             self.document_stream_task = Some(handle);
         }
 
+        // Spawn per-camera spectrum streams for server-side extraction products.
+        for (camera_id, _, _) in &spectrum_plots {
+            let tx = spectrum_tx.clone();
+            let mut client = client.clone();
+            let camera_id = camera_id.clone();
+
+            let handle = runtime.spawn(async move {
+                match client.stream_spectra(vec![camera_id.clone()], 15).await {
+                    Ok(mut stream) => {
+                        while let Some(result) = stream.next().await {
+                            match result {
+                                Ok(payload) => {
+                                    let device_id = if payload.device_id.is_empty() {
+                                        camera_id.clone()
+                                    } else {
+                                        payload.device_id.clone()
+                                    };
+                                    let label = if payload.name.is_empty() {
+                                        if payload.merged {
+                                            "Merged".to_string()
+                                        } else {
+                                            format!("Order {}", payload.order_index)
+                                        }
+                                    } else {
+                                        payload.name.clone()
+                                    };
+
+                                    let update = SpectrumUpdate {
+                                        device_id,
+                                        label,
+                                        x_values: payload.wavelengths,
+                                        y_values: payload.intensities,
+                                        ivar: payload.ivar,
+                                        x_unit: (!payload.wavelength_unit.is_empty())
+                                            .then_some(payload.wavelength_unit),
+                                        y_unit: (!payload.intensity_unit.is_empty())
+                                            .then_some(payload.intensity_unit),
+                                        merged: payload.merged,
+                                        order_index: payload.order_index,
+                                        calibration_profile_id: (!payload.calibration_profile_id
+                                            .is_empty())
+                                        .then_some(payload.calibration_profile_id),
+                                        quality_flags: payload.quality_flags,
+                                        snr_estimate: payload.snr_estimate,
+                                        timestamp_ns: payload.timestamp_ns,
+                                    };
+
+                                    if tx.try_send(update).is_err() {
+                                        // Channel full or closed - keep receiving newer spectra.
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::warn!(device = %camera_id, error = %e, "Spectrum stream error");
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::debug!(
+                            device = %camera_id,
+                            error = %e,
+                            "No server-side spectrum stream available for camera"
+                        );
+                    }
+                }
+            });
+            self.spectrum_stream_tasks.push(handle);
+        }
+
         // THEN store panel and senders for later cleanup
         self.visualization_panel = Some(panel);
         self.frame_tx = Some(frame_tx);
         self.data_tx = Some(data_tx);
+        self.spectrum_tx = Some(spectrum_tx);
     }
 
     /// Stop visualization when experiment completes.
@@ -1923,6 +2035,9 @@ impl ExperimentDesignerPanel {
             handle.abort();
         }
         if let Some(handle) = self.document_stream_task.take() {
+            handle.abort();
+        }
+        for handle in self.spectrum_stream_tasks.drain(..) {
             handle.abort();
         }
 

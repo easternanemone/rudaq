@@ -79,7 +79,7 @@ pub use tokio::time::sleep;
 /// Async sleep for WASM — uses `setTimeout` under the hood.
 #[cfg(target_arch = "wasm32")]
 pub async fn sleep(duration: std::time::Duration) {
-    let ms = duration.as_millis() as i32;
+    let ms = i32::try_from(duration.as_millis()).unwrap_or(i32::MAX);
     let promise = js_sys::Promise::new(&mut |resolve, _| {
         web_sys::window()
             .expect("no global window")

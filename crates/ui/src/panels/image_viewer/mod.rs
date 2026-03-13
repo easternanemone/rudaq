@@ -351,6 +351,10 @@ pub struct ImageViewerPanel {
     echelle_plot_hover_link: Option<EchellePlotHoverLink>,
     /// Calibration authoring workspace state (bd-2kla.8 scaffolding).
     echelle_cal_ui: EchelleCalibrationUiState,
+    /// True when the active echelle profile snapshot should be resynced into RunEngine state.
+    echelle_run_engine_sync_dirty: bool,
+    /// True while an async echelle snapshot sync request is in flight.
+    echelle_run_engine_sync_in_flight: bool,
 }
 
 impl Default for ImageViewerPanel {
@@ -477,6 +481,8 @@ impl Default for ImageViewerPanel {
             echelle_last_extract_ms: None,
             echelle_plot_hover_link: None,
             echelle_cal_ui: EchelleCalibrationUiState::with_defaults(),
+            echelle_run_engine_sync_dirty: false,
+            echelle_run_engine_sync_in_flight: false,
         }
     }
 }
@@ -504,6 +510,7 @@ impl ImageViewerPanel {
             self.echelle_cal_ui.editor_dirty = false;
             self.echelle_cal_ui.editor_last_loaded_path = None;
             self.echelle_cal_ui.save_as_path_text.clear();
+            self.mark_echelle_run_engine_sync_dirty();
             // Do not clobber persistent statuses such as recording completion.
             if self
                 .status
@@ -587,6 +594,7 @@ impl ImageViewerPanel {
         match self.echelle_profile_cache.poll_reload_if_changed() {
             EchelleProfileCacheEvent::Unchanged => {}
             EchelleProfileCacheEvent::Loaded(path) => {
+                self.mark_echelle_run_engine_sync_dirty();
                 self.error = None;
                 self.echelle_preview_error = None;
                 self.echelle_cal_ui.save_as_path_text = path.display().to_string();
@@ -611,10 +619,82 @@ impl ImageViewerPanel {
                 self.error = Some(msg);
             }
             EchelleProfileCacheEvent::Cleared => {
+                self.mark_echelle_run_engine_sync_dirty();
                 self.echelle_cal_ui.editor_last_loaded_path = None;
                 self.status = Some("Echelle profile cleared".to_string());
             }
         }
+    }
+
+    fn mark_echelle_run_engine_sync_dirty(&mut self) {
+        self.echelle_run_engine_sync_dirty = true;
+    }
+
+    fn build_echelle_run_engine_snapshot(&self) -> Option<protocol::daq::CalibrationSnapshot> {
+        let profile = self.echelle_profile_cache.profile()?;
+        let target_device_id = self.device_id.clone()?;
+        Some(protocol::daq::CalibrationSnapshot {
+            device_type: "spectroscopy".to_string(),
+            target_device_id: Some(target_device_id),
+            calibration_timestamp_rfc3339: None,
+            grating_wavelength_coverage: Vec::new(),
+            echelle_frame_compatibility: Some(protocol::daq::EchelleFrameCompatibility {
+                sensor_width: profile.compatibility.sensor_width,
+                sensor_height: profile.compatibility.sensor_height,
+                frame_width: profile.compatibility.frame_width,
+                frame_height: profile.compatibility.frame_height,
+                roi_x: profile.compatibility.roi_x,
+                roi_y: profile.compatibility.roi_y,
+                binning_x: profile.compatibility.binning_x,
+                binning_y: profile.compatibility.binning_y,
+                bit_depth: profile.compatibility.bit_depth,
+            }),
+        })
+    }
+
+    fn sync_echelle_profile_to_run_engine(
+        &mut self,
+        client: Option<&mut DaqClient>,
+        runtime: &Runtime,
+    ) {
+        if !self.echelle_run_engine_sync_dirty || self.echelle_run_engine_sync_in_flight {
+            return;
+        }
+        let Some(client) = client else {
+            return;
+        };
+
+        let snapshot = self.build_echelle_run_engine_snapshot();
+        let action_tx = self.action_tx.clone();
+        let mut client = client.clone();
+        self.echelle_run_engine_sync_dirty = false;
+        self.echelle_run_engine_sync_in_flight = true;
+
+        runtime.spawn(async move {
+            let result = if let Some(snapshot) = snapshot {
+                client.set_calibration_snapshot(snapshot).await.map(|_| {
+                    "Synced active echelle profile into RunEngine readiness gate".to_string()
+                })
+            } else {
+                client
+                    .clear_calibration_snapshot("spectroscopy", false, true)
+                    .await
+                    .map(|_| {
+                        "Cleared echelle profile state from RunEngine readiness gate".to_string()
+                    })
+            };
+
+            match result {
+                Ok(message) => {
+                    let _ = action_tx.send(ImageViewerAction::EchelleCalibrationSynced { message });
+                }
+                Err(error) => {
+                    let _ = action_tx.send(ImageViewerAction::EchelleCalibrationSyncError(
+                        format!("Failed to sync echelle calibration gate: {error}"),
+                    ));
+                }
+            }
+        });
     }
 
     fn ensure_echelle_calibration_editor_profile(&mut self) {
@@ -2365,6 +2445,16 @@ impl ImageViewerPanel {
                         };
                     }
                 }
+                ImageViewerAction::EchelleCalibrationSynced { message } => {
+                    self.echelle_run_engine_sync_in_flight = false;
+                    self.echelle_cal_ui.status_message = Some(message);
+                    self.echelle_cal_ui.last_error = None;
+                }
+                ImageViewerAction::EchelleCalibrationSyncError(message) => {
+                    self.echelle_run_engine_sync_in_flight = false;
+                    self.echelle_run_engine_sync_dirty = true;
+                    self.echelle_cal_ui.last_error = Some(message);
+                }
             }
         }
     }
@@ -2888,6 +2978,7 @@ impl ImageViewerPanel {
         }
 
         self.device_id = Some(device_id.to_string());
+        self.mark_echelle_run_engine_sync_dirty();
         self.error = None;
         self.status = Some(format!("Connecting to {}...", device_id));
         // bd-12qt: Update connection state
@@ -3382,6 +3473,7 @@ impl ImageViewerPanel {
         self.poll_actions();
         self.poll_param_results(ui.ctx());
         self.poll_echelle_profile_cache();
+        self.sync_echelle_profile_to_run_engine(client.as_deref_mut(), runtime);
 
         // Drain pending frame updates
         self.drain_updates(ui.ctx());
@@ -3473,6 +3565,7 @@ impl ImageViewerPanel {
                                     && self.device_id.as_deref() != Some(cam_id.as_str())
                                 {
                                     self.device_id = Some(cam_id.clone());
+                                    self.mark_echelle_run_engine_sync_dirty();
                                     self.camera_params.clear();
                                 }
                             }

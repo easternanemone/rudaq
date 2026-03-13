@@ -651,6 +651,12 @@ service RunEngineService {
   // Start executing queued plans (or resume if paused)
   rpc StartEngine(StartEngineRequest) returns (StartEngineResponse);
 
+  // Register or update calibration snapshot metadata used by readiness gates
+  rpc SetCalibrationSnapshot(SetCalibrationSnapshotRequest) returns (SetCalibrationSnapshotResponse);
+
+  // Clear part or all of a calibration snapshot used by readiness gates
+  rpc ClearCalibrationSnapshot(ClearCalibrationSnapshotRequest) returns (ClearCalibrationSnapshotResponse);
+
   // Pause at next checkpoint
   rpc PauseEngine(PauseEngineRequest) returns (PauseEngineResponse);
 
@@ -772,6 +778,52 @@ message StartEngineRequest {
 }
 
 message StartEngineResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+message CalibrationWavelengthCoverage {
+  uint32 grating = 1;
+  double min_nm = 2;
+  double max_nm = 3;
+}
+
+message EchelleFrameCompatibility {
+  uint32 sensor_width = 1;
+  uint32 sensor_height = 2;
+  uint32 frame_width = 3;
+  uint32 frame_height = 4;
+  uint32 roi_x = 5;
+  uint32 roi_y = 6;
+  uint32 binning_x = 7;
+  uint32 binning_y = 8;
+  optional uint32 bit_depth = 9;
+}
+
+message CalibrationSnapshot {
+  string device_type = 1;
+  optional string target_device_id = 2;
+  optional string calibration_timestamp_rfc3339 = 3;
+  repeated CalibrationWavelengthCoverage grating_wavelength_coverage = 4;
+  optional EchelleFrameCompatibility echelle_frame_compatibility = 5;
+}
+
+message SetCalibrationSnapshotRequest {
+  CalibrationSnapshot snapshot = 1;
+}
+
+message SetCalibrationSnapshotResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+message ClearCalibrationSnapshotRequest {
+  string device_type = 1;
+  bool clear_radiance_coverage = 2;
+  bool clear_echelle_compatibility = 3;
+}
+
+message ClearCalibrationSnapshotResponse {
   bool success = 1;
   string error_message = 2;
 }

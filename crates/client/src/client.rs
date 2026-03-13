@@ -82,6 +82,9 @@ use protocol::daq::{
     AbortPlanRequest,
     AbortPlanResponse,
     AssignDeviceRequest,
+    CalibrationSnapshot,
+    ClearCalibrationSnapshotRequest,
+    ClearCalibrationSnapshotResponse,
     CreateModuleRequest,
     // Scan types
     CreateScanRequest,
@@ -122,11 +125,13 @@ use protocol::daq::{
     ResumeEngineResponse,
     ResumeScanRequest,
     ScanConfig,
+    SetCalibrationSnapshotRequest,
+    SetCalibrationSnapshotResponse,
     SetEmissionRequest,
     SetParameterRequest,
     SetShutterRequest,
     SetWavelengthRequest,
-    SpectrumDataPoint,
+    SpectrumPayload,
     SpectrumStreamRequest,
     StartEngineRequest,
     StartEngineResponse,
@@ -509,7 +514,7 @@ impl DaqClient {
         &mut self,
         channels: Vec<String>,
         max_rate_hz: u32,
-    ) -> Result<impl futures::Stream<Item = Result<SpectrumDataPoint, tonic::Status>>> {
+    ) -> Result<impl futures::Stream<Item = Result<SpectrumPayload, tonic::Status>>> {
         let request = SpectrumStreamRequest {
             channels,
             max_rate_hz,
@@ -960,6 +965,38 @@ impl DaqClient {
     /// Start the RunEngine to execute queued plans
     pub async fn start_engine(&mut self) -> Result<StartEngineResponse> {
         let response = self.run_engine.start_engine(StartEngineRequest {}).await?;
+        Ok(response.into_inner())
+    }
+
+    /// Register or update calibration snapshot metadata used by RunEngine readiness gates.
+    pub async fn set_calibration_snapshot(
+        &mut self,
+        snapshot: CalibrationSnapshot,
+    ) -> Result<SetCalibrationSnapshotResponse> {
+        let response = self
+            .run_engine
+            .set_calibration_snapshot(SetCalibrationSnapshotRequest {
+                snapshot: Some(snapshot),
+            })
+            .await?;
+        Ok(response.into_inner())
+    }
+
+    /// Clear part or all of a RunEngine calibration snapshot.
+    pub async fn clear_calibration_snapshot(
+        &mut self,
+        device_type: &str,
+        clear_radiance_coverage: bool,
+        clear_echelle_compatibility: bool,
+    ) -> Result<ClearCalibrationSnapshotResponse> {
+        let response = self
+            .run_engine
+            .clear_calibration_snapshot(ClearCalibrationSnapshotRequest {
+                device_type: device_type.to_string(),
+                clear_radiance_coverage,
+                clear_echelle_compatibility,
+            })
+            .await?;
         Ok(response.into_inner())
     }
 

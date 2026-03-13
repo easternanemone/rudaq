@@ -14,20 +14,20 @@ Beads is issue tracking that lives in your repo, making it perfect for AI coding
 
 ```bash
 # Create new issues
-bd create "Add user authentication"
+bdh create --title="Add user authentication" --type=task --priority=2
 
 # View all issues
-bd list
+bdh list
 
 # View issue details
-bd show <issue-id>
+bdh show <issue-id>
 
 # Update issue status
-bd update <issue-id> --status in_progress
-bd update <issue-id> --status done
+bdh update <issue-id> --status=in_progress
+bdh close <issue-id>
 
-# Sync with git remote
-bd sync
+# Force a full BeadHub resync if the cache looks stale
+bdh :force-sync
 ```
 
 ### Worktree Canonical DB (rust-daq)
@@ -40,10 +40,16 @@ scripts/bd-safe.sh ready --json
 scripts/beads-worktree-hygiene.sh status
 ```
 
+In `rust-daq`, bead state is pushed to BeadHub through `bdh`'s sync endpoint.
+Mutation commands auto-sync, and `bdh :force-sync` forces a full resync when needed.
+Do not rely on `bd sync` or `bdh dolt push` here: `bd sync` is removed, and
+`bdh dolt push` requires a Dolt remote that this repository does not configure.
+
 ### Working with Issues
 
 Issues in Beads are:
 - **Git-native**: Stored in `.beads/issues.jsonl` and synced like code
+- **BeadHub-synced**: `bdh` pushes issue state to BeadHub after mutations
 - **AI-friendly**: CLI-first design works perfectly with AI coding agents
 - **Branch-aware**: Issues can follow your branch workflow
 - **Always in sync**: Auto-syncs with your commits

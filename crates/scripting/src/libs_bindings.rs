@@ -38,7 +38,6 @@
 //! let corr = cal.calibrate(wl, raw, 1, false);
 //! ```
 
-use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -49,9 +48,7 @@ use rhai::{Array, Dynamic, Engine, EvalAltResult};
 
 use crate::run_blocking;
 use common::capabilities::TriggerOnPosition;
-use common::processing::radiance_calibration::{
-    load_calibration_file, RadianceCalibrator, Spectrum,
-};
+use common::processing::radiance_calibration::{RadianceCalibrator, Spectrum};
 
 // Boxed async closure type used for capability bundling
 type BoxFuture<T> = Pin<Box<dyn Future<Output = anyhow::Result<T>> + Send>>;
@@ -653,17 +650,40 @@ pub fn register_libs_hardware(engine: &mut Engine) {
          g1_file: String,
          g2_file: String|
          -> Result<CalibratorHandle, Box<EvalAltResult>> {
-            let lamp = load_calibration_file(&lamp_file)
-                .map_err(|e| crate::rhai_error("create_radiance_calibrator: lamp", e))?;
-            let g1 = load_calibration_file(&g1_file)
-                .map_err(|e| crate::rhai_error("create_radiance_calibrator: grating 1", e))?;
-            let g2 = load_calibration_file(&g2_file)
-                .map_err(|e| crate::rhai_error("create_radiance_calibrator: grating 2", e))?;
-            let mut cals = HashMap::new();
-            cals.insert(1u8, g1);
-            cals.insert(2u8, g2);
+            let calibrator = RadianceCalibrator::from_files(
+                &lamp_file,
+                &[(1u8, &g1_file), (2u8, &g2_file)],
+            )
+            .map_err(|e| crate::rhai_error("create_radiance_calibrator", e))?;
+
+            let coverage = calibrator
+                .loaded_gratings()
+                .into_iter()
+                .filter_map(|grating| {
+                    calibrator.grating_wavelength_bounds(grating).map(|(min_nm, max_nm)| {
+                        (
+                            grating,
+                            experiment::CalibrationWavelengthCoverage { min_nm, max_nm },
+                        )
+                    })
+                })
+                .collect();
+
+            let mut snapshot = experiment::CalibrationFreshness::new(calibrator.device_type())
+                .with_grating_wavelength_coverage(coverage);
+
+            if let Some(calibration_timestamp) = calibrator.calibration_timestamp() {
+                snapshot = snapshot.with_timestamp(calibration_timestamp);
+            } else {
+                tracing::warn!(
+                    target: "calibration_staleness",
+                    "Radiance calibration files were loaded without calibration_timestamp metadata; age-based staleness gate disabled but config-match gating remains active"
+                );
+            }
+            crate::update_current_script_calibration(snapshot);
+
             Ok(CalibratorHandle {
-                calibrator: Arc::new(RadianceCalibrator::new(lamp, cals)),
+                calibrator: Arc::new(calibrator),
             })
         },
     );
@@ -820,6 +840,65 @@ mod tests {
                 "unity correction should return ~500.0, got {val}"
             );
         }
+    }
+
+    #[test]
+    fn test_create_radiance_calibrator_registers_coverage_without_timestamp() {
+        use std::io::Write;
+
+        let context_id = format!(
+            "libs-calibration-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time before unix epoch")
+                .as_nanos()
+        );
+        crate::set_script_calibration_context(context_id.clone());
+
+        let write_cal = |content: &str| {
+            let mut f = tempfile::NamedTempFile::new().unwrap();
+            write!(f, "{content}").unwrap();
+            f
+        };
+        let lamp_f = write_cal("# device_type: spectroscopy\n300.0\t1000.0\n400.0\t1000.0\n");
+        let g1_f = write_cal("# device_type: spectroscopy\n295.0\t900.0\n305.0\t900.0\n");
+        let g2_f = write_cal("# device_type: spectroscopy\n450.0\t900.0\n480.0\t900.0\n");
+
+        let script = format!(
+            r#"
+            create_radiance_calibrator("{}", "{}", "{}");
+        "#,
+            lamp_f.path().display(),
+            g1_f.path().display(),
+            g2_f.path().display()
+        );
+
+        let mut engine = Engine::new();
+        register_libs_hardware(&mut engine);
+        let _ = engine
+            .eval::<Dynamic>(&script)
+            .expect("create_radiance_calibrator should succeed");
+
+        let snapshot = crate::current_script_calibration(&context_id, "spectroscopy")
+            .expect("calibration snapshot should be registered");
+        assert_eq!(snapshot.calibration_timestamp, None);
+        assert_eq!(
+            snapshot.grating_wavelength_coverage.get(&1),
+            Some(&experiment::CalibrationWavelengthCoverage {
+                min_nm: 295.0,
+                max_nm: 305.0,
+            })
+        );
+        assert_eq!(
+            snapshot.grating_wavelength_coverage.get(&2),
+            Some(&experiment::CalibrationWavelengthCoverage {
+                min_nm: 450.0,
+                max_nm: 480.0,
+            })
+        );
+
+        crate::clear_script_calibrations(&context_id);
+        crate::clear_script_calibration_context();
     }
 }
 

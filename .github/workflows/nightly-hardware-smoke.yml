@@ -1,0 +1,269 @@
+name: Nightly Hardware Smoke
+
+on:
+  schedule:
+    - cron: "15 7 * * *"
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Hardware target to validate"
+        required: true
+        default: both
+        type: choice
+        options:
+          - maitai-eos
+          - leabs-dev
+          - both
+      branch:
+        description: "Branch to deploy on the hardware hosts"
+        required: false
+        default: main
+        type: string
+      frames:
+        description: "Frames to validate per camera"
+        required: false
+        default: "5"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-hardware-smoke-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  plan-targets:
+    name: Resolve nightly smoke targets
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - name: Build target matrix
+        id: plan
+        run: |
+          set -euo pipefail
+
+          if [[ "${GITHUB_EVENT_NAME}" == "schedule" ]]; then
+            target="both"
+          else
+            target="${{ inputs.target }}"
+          fi
+
+          case "${target}" in
+            maitai-eos)
+              matrix='{"include":[{"target":"maitai-eos","deploy_script":"scripts/deploy-maitai.sh","camera_id":"prime_bsi","expected_devices":"prime_bsi,maitai,power_meter"}]}'
+              ;;
+            leabs-dev)
+              matrix='{"include":[{"target":"leabs-dev","deploy_script":"scripts/deploy-leabs.sh","camera_id":"istar_camera","expected_devices":"istar_camera,ipg_laser,power_meter"}]}'
+              ;;
+            both)
+              matrix='{"include":[{"target":"maitai-eos","deploy_script":"scripts/deploy-maitai.sh","camera_id":"prime_bsi","expected_devices":"prime_bsi,maitai,power_meter"},{"target":"leabs-dev","deploy_script":"scripts/deploy-leabs.sh","camera_id":"istar_camera","expected_devices":"istar_camera,ipg_laser,power_meter"}]}'
+              ;;
+            *)
+              echo "::error::Unsupported target '${target}'"
+              exit 1
+              ;;
+          esac
+
+          echo "matrix=${matrix}" >> "${GITHUB_OUTPUT}"
+
+  nightly-hardware-smoke:
+    name: Nightly hardware smoke (${{ matrix.target }})
+    needs: plan-targets
+    runs-on: [self-hosted, Linux, X64, leabs]
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.plan-targets.outputs.matrix) }}
+    env:
+      MAITAI_HOST: ${{ vars.MAITAI_TAILSCALE_HOST }}
+      MAITAI_USER: ${{ vars.MAITAI_SSH_USER }}
+      MAITAI_KNOWN_HOSTS: ${{ vars.MAITAI_SSH_KNOWN_HOSTS }}
+      LEABS_HOST: ${{ vars.LEABS_TAILSCALE_HOST }}
+      LEABS_USER: ${{ vars.LEABS_SSH_USER }}
+      LEABS_KNOWN_HOSTS: ${{ vars.LEABS_SSH_KNOWN_HOSTS }}
+      LAB_SSH_PRIVATE_KEY: ${{ secrets.LAB_SSH_PRIVATE_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup environment
+        uses: ./.github/actions/setup-daq
+        with:
+          dependency-profile: minimal
+          toolchain: 1.92.0
+          cache-key: nightly-hardware-smoke
+
+      - name: Resolve run parameters
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_EVENT_NAME}" == "schedule" ]]; then
+            branch="${GITHUB_REF_NAME}"
+            frames="5"
+          else
+            branch="${{ inputs.branch }}"
+            frames="${{ inputs.frames }}"
+          fi
+
+          if [[ ! "${branch}" =~ ^[a-zA-Z0-9._/-]+$ ]]; then
+            echo "::error::Invalid branch '${branch}'"
+            exit 1
+          fi
+
+          if [[ ! "${frames}" =~ ^[0-9]+$ ]] || [[ "${frames}" -lt 1 ]]; then
+            echo "::error::Frames must be a positive integer"
+            exit 1
+          fi
+
+          {
+            echo "BRANCH=${branch}"
+            echo "FRAMES=${frames}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Apply lab host defaults
+        run: |
+          set -euo pipefail
+          : "${MAITAI_HOST:=maitai-eos}"
+          : "${MAITAI_USER:=maitai}"
+          : "${LEABS_HOST:=leabs-dev}"
+          : "${LEABS_USER:=brian}"
+          {
+            echo "MAITAI_HOST=${MAITAI_HOST}"
+            echo "MAITAI_USER=${MAITAI_USER}"
+            echo "LEABS_HOST=${LEABS_HOST}"
+            echo "LEABS_USER=${LEABS_USER}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Validate SSH key
+        run: |
+          set -euo pipefail
+          if [[ -z "${LAB_SSH_PRIVATE_KEY}" ]]; then
+            echo "::error::Missing repository secret LAB_SSH_PRIVATE_KEY"
+            exit 1
+          fi
+
+      - name: Start ssh-agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ env.LAB_SSH_PRIVATE_KEY }}
+
+      - name: Prepare known_hosts
+        run: |
+          set -euo pipefail
+          mkdir -p "${HOME}/.ssh"
+          chmod 700 "${HOME}/.ssh"
+          : > "${HOME}/.ssh/known_hosts"
+          chmod 600 "${HOME}/.ssh/known_hosts"
+
+          case "${{ matrix.target }}" in
+            maitai-eos)
+              entries="${MAITAI_KNOWN_HOSTS}"
+              ;;
+            leabs-dev)
+              entries="${LEABS_KNOWN_HOSTS}"
+              ;;
+            *)
+              echo "::error::Unsupported target '${{ matrix.target }}'"
+              exit 1
+              ;;
+          esac
+
+          if [[ -z "${entries}" ]]; then
+            echo "::error::Missing pinned SSH host key data for ${{ matrix.target }}"
+            exit 1
+          fi
+
+          printf '%s\n' "${entries}" >> "${HOME}/.ssh/known_hosts"
+
+      - name: Configure target
+        run: |
+          set -euo pipefail
+          case "${{ matrix.target }}" in
+            maitai-eos)
+              host="${MAITAI_HOST}"
+              user="${MAITAI_USER}"
+              ;;
+            leabs-dev)
+              host="${LEABS_HOST}"
+              user="${LEABS_USER}"
+              ;;
+            *)
+              echo "::error::Unsupported target '${{ matrix.target }}'"
+              exit 1
+              ;;
+          esac
+
+          {
+            echo "TARGET_HOST=${host}"
+            echo "TARGET_USER=${user}"
+            echo "TARGET_SSH=${user}@${host}"
+            echo "DAEMON_URL=http://${host}:50051"
+          } >> "${GITHUB_ENV}"
+
+      - name: Build hardware smoke binary
+        run: cargo build --release -p bin --bin hardware_smoke
+
+      - name: Deploy daemon to ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          case "${{ matrix.target }}" in
+            maitai-eos)
+              MAITAI_HOST="${TARGET_HOST}" MAITAI_USER="${TARGET_USER}" \
+                bash "${{ matrix.deploy_script }}" --branch "${BRANCH}" --daemon-only \
+                | tee "artifacts/${{ matrix.target }}-deploy.log"
+              ;;
+            leabs-dev)
+              LEABS_HOST="${TARGET_HOST}" LEABS_USER="${TARGET_USER}" \
+                bash "${{ matrix.deploy_script }}" --branch "${BRANCH}" --daemon-only \
+                | tee "artifacts/${{ matrix.target }}-deploy.log"
+              ;;
+          esac
+
+      - name: Run hardware smoke
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+
+          smoke_args=()
+          IFS=',' read -r -a expected <<< "${{ matrix.expected_devices }}"
+          for device in "${expected[@]}"; do
+            smoke_args+=(--expected-device "${device}")
+          done
+
+          ./target/release/hardware_smoke \
+            --addr "${DAEMON_URL}" \
+            --camera-id "${{ matrix.camera_id }}" \
+            --frames "${FRAMES}" \
+            --output "artifacts/${{ matrix.target }}-smoke.json" \
+            "${smoke_args[@]}" \
+            | tee "artifacts/${{ matrix.target }}-smoke.log"
+
+      - name: Append smoke summary
+        if: always()
+        run: |
+          set -euo pipefail
+          summary_path="artifacts/${{ matrix.target }}-smoke.json"
+          {
+            echo "## ${{ matrix.target }}"
+            if [[ -f "${summary_path}" ]]; then
+              echo '```json'
+              cat "${summary_path}"
+              echo '```'
+            else
+              echo "Smoke summary was not produced."
+            fi
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-hardware-smoke-${{ matrix.target }}
+          path: artifacts/
+          retention-days: 14

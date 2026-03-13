@@ -158,10 +158,122 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Report build artifact sizes
+        if: always()
+        run: |
+          {
+            echo "## Build Artifact Report"
+            echo ""
+
+            # Target directory total
+            if [ -d target ]; then
+              total=$(du -sh target | awk '{print $1}')
+              echo "- **target/ total:** $total"
+            fi
+
+            # Key binary sizes (if built)
+            for bin in target/debug/daq-daemon target/debug/daq-cli; do
+              if [ -f "$bin" ]; then
+                size=$(du -sh "$bin" | awk '{print $1}')
+                echo "- **$(basename "$bin"):** $size"
+              fi
+            done
+
+            # Disk usage summary
+            echo ""
+            echo "### Disk Usage"
+            echo '```'
+            df -h .
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  performance-regression:
+    name: Performance regression gate
+    runs-on: [self-hosted, Linux, X64, leabs]
+    timeout-minutes: 35
+    env:
+      CARGO_BUILD_JOBS: "2"
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      RUSTFLAGS: "-C link-arg=-fuse-ld=lld"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup environment
+        uses: ./.github/actions/setup-daq
+        with:
+          dependency-profile: minimal
+          toolchain: 1.92.0
+          cache-key: ci-performance-gate
+
+      - name: Run performance regression gate
+        run: |
+          python3 scripts/check-benchmark-regressions.py \
+            --output-dir target/performance-gate
+
+      - name: Generate criterion HTML report for ring buffer writes
+        run: |
+          cargo bench -p storage --bench ring_buffer_write \
+            | tee target/performance-gate/ring-buffer-write-criterion.log
+
+      - name: Upload performance artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-gate-${{ github.sha }}
+          path: |
+            target/performance-gate
+            target/criterion
+          retention-days: 14
+
+  dependency-hygiene:
+    name: Dependency hygiene and SBOM
+    runs-on: [self-hosted, Linux, X64, leabs]
+    timeout-minutes: 30
+    env:
+      CARGO_BUILD_JOBS: "2"
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      RUSTFLAGS: "-C link-arg=-fuse-ld=lld"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup environment
+        uses: ./.github/actions/setup-daq
+        with:
+          dependency-profile: minimal
+          toolchain: 1.92.0
+          cache-key: ci-dependency-hygiene
+
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+
+      - name: Install cargo-machete
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-machete
+
+      - name: Run dependency hygiene gate
+        run: bash scripts/check-dependency-hygiene.sh
+
+      - name: Install cargo-sbom
+        if: github.event_name == 'push'
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-sbom
+
       - name: Generate SBOM (CycloneDX)
         if: github.event_name == 'push'
         run: |
-          cargo install cargo-sbom --locked
           cargo sbom --output-format=cdx-json > sbom.cdx.json
           echo "SBOM generated: $(wc -c < sbom.cdx.json) bytes"
 
@@ -172,30 +284,3 @@ jobs:
           name: sbom-cyclonedx
           path: sbom.cdx.json
           retention-days: 90
-
-      - name: Report build artifact sizes
-        if: always()
-        run: |
-          echo "## Build Artifact Report" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-
-          # Target directory total
-          if [ -d target ]; then
-            total=$(du -sh target | awk '{print $1}')
-            echo "- **target/ total:** $total" >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-          # Key binary sizes (if built)
-          for bin in target/debug/daq-daemon target/debug/daq-cli; do
-            if [ -f "$bin" ]; then
-              size=$(du -sh "$bin" | awk '{print $1}')
-              echo "- **$(basename "$bin"):** $size" >> "$GITHUB_STEP_SUMMARY"
-            fi
-          done
-
-          # Disk usage summary
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "### Disk Usage" >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          df -h . >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"

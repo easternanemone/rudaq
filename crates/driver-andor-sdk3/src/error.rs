@@ -92,6 +92,11 @@ impl AndorError {
     pub fn is_not_available(&self) -> bool {
         matches!(self, Self::FeatureNotAvailable(_))
     }
+
+    /// Check if the SDK reported a stale "device already in use" style init conflict.
+    pub fn is_recoverable_init_conflict(&self) -> bool {
+        matches!(self, Self::SdkError { code, .. } if *code == 38)
+    }
 }
 
 /// Convert Andor SDK3 error code to human-readable string
@@ -123,7 +128,26 @@ fn error_code_to_string(code: i32) -> String {
         21 => "Null handle".to_string(),
         22 => "Null implemented".to_string(),
         23 => "Null read only".to_string(),
+        24 => "Null read only".to_string(),
+        25 => "Null writable".to_string(),
+        26 => "Null min value".to_string(),
+        27 => "Null max value".to_string(),
+        28 => "Null value".to_string(),
+        29 => "Null string".to_string(),
+        30 => "Null count".to_string(),
+        31 => "Null availability".to_string(),
+        32 => "Null max string length".to_string(),
+        33 => "Null event callback".to_string(),
+        34 => "Null queue pointer".to_string(),
+        35 => "Null wait pointer".to_string(),
+        36 => "Null pointer size".to_string(),
+        37 => "Out of memory".to_string(),
+        38 => "Device in use".to_string(),
+        39 => "Device not found".to_string(),
         100 => "Hardware overflow".to_string(),
+        20201 => "Shamrock communication error".to_string(),
+        20275 => "Shamrock not initialized".to_string(),
+        20292 => "Shamrock not available".to_string(),
         _ => format!("Unknown error code: {}", code),
     }
 }
@@ -134,5 +158,23 @@ pub fn sdk_result(code: i32) -> anyhow::Result<()> {
         Ok(())
     } else {
         Err(AndorError::from_code(code).into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn device_in_use_is_classified_as_recoverable() {
+        let error = AndorError::from_code(38);
+        assert!(error.is_recoverable_init_conflict());
+        assert_eq!(error.to_string(), "Andor SDK error 38: Device in use");
+    }
+
+    #[test]
+    fn unrelated_errors_are_not_classified_as_recoverable() {
+        let error = AndorError::from_code(13);
+        assert!(!error.is_recoverable_init_conflict());
     }
 }

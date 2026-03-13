@@ -183,6 +183,28 @@ fn check_crashed_session() -> Option<String> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+fn data_integrity_status_message(
+    event: &crate::gui_log_layer::GuiLogEvent,
+) -> Option<(crate::widgets::StatusLevel, String)> {
+    let is_statusworthy_event = matches!(
+        event.target.as_str(),
+        "data_integrity" | "resource_pressure"
+    ) || event.message.contains("DataIntegrityFault")
+        || event.message.contains("ResourcePressureEvent");
+    if !is_statusworthy_event {
+        return None;
+    }
+
+    let level = match event.level {
+        crate::panels::LogLevel::Error => crate::widgets::StatusLevel::Error,
+        crate::panels::LogLevel::Warn => crate::widgets::StatusLevel::Warning,
+        _ => return None,
+    };
+
+    Some((level, event.message.clone()))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 /// Remove only our own session file (marks clean shutdown)
 fn clear_session_file() {
     let path = session_file_path();
@@ -194,6 +216,7 @@ fn clear_session_file() {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// Result of a health check sent through the channel (bd-j3xz.3.3: includes RTT).
 enum HealthCheckResult {
     /// Health check succeeded with round-trip time in milliseconds.
@@ -778,15 +801,18 @@ pub struct DaqApp {
     daemon_address: DaemonAddress,
 
     /// Text input field for address (may be invalid during editing)
+    #[cfg(not(target_arch = "wasm32"))]
     address_input: String,
 
     /// Address validation error (shown in UI)
+    #[cfg(not(target_arch = "wasm32"))]
     address_error: Option<String>,
 
     /// Daemon version (retrieved via GetDaemonInfo)
     daemon_version: Option<String>,
 
     /// GUI version (from CARGO_PKG_VERSION)
+    #[cfg(not(target_arch = "wasm32"))]
     gui_version: String,
 
     /// Dock state for panel management
@@ -814,7 +840,9 @@ pub struct DaqApp {
     runtime: crate::runtime::Runtime,
 
     /// Channel for health check results
+    #[cfg(not(target_arch = "wasm32"))]
     health_tx: mpsc::Sender<HealthCheckResult>,
+    #[cfg(not(target_arch = "wasm32"))]
     health_rx: mpsc::Receiver<HealthCheckResult>,
 
     /// Device reconciliation epoch (incremented on each reconcile request)
@@ -947,6 +975,7 @@ pub enum ControlPanelLayoutMode {
 }
 
 impl ControlPanelLayoutMode {
+    #[cfg(not(target_arch = "wasm32"))]
     fn label(self) -> &'static str {
         match self {
             Self::Simple => "Simple",
@@ -1488,8 +1517,6 @@ impl DaqApp {
             .and_then(|s| eframe::get_value(s, "control_panel_layout_mode"))
             .unwrap_or(ControlPanelLayoutMode::Simple);
 
-        // Health check channel
-        let (health_tx, health_rx) = mpsc::channel(4);
         // Device reconciliation channel
         let (device_reconcile_tx, device_reconcile_rx) = mpsc::channel(4);
 
@@ -1551,10 +1578,7 @@ impl DaqApp {
 
         Self {
             client: None,
-            address_input: String::new(),
-            address_error: None,
             daemon_version: None,
-            gui_version: env!("CARGO_PKG_VERSION").to_string(),
             dock_state: Some(dock_state),
             ui_actions: Vec::new(),
             getting_started_panel: GettingStartedPanel::default(),
@@ -1571,8 +1595,6 @@ impl DaqApp {
             image_viewer_panel: ImageViewerPanel::new(),
             logging_panel: LoggingPanel::new(),
             runtime,
-            health_tx,
-            health_rx,
             device_reconcile_epoch: 0,
             device_reconcile_tx,
             device_reconcile_rx,
@@ -2229,6 +2251,9 @@ impl DaqApp {
     fn poll_logs(&mut self) {
         // Drain all pending log events from the channel
         while let Ok(event) = self.log_receiver.try_recv() {
+            if let Some((level, message)) = data_integrity_status_message(&event) {
+                self.status_bar.set_status(message, level);
+            }
             self.logging_panel
                 .log(event.level, &event.target, &event.message);
         }
@@ -2237,6 +2262,7 @@ impl DaqApp {
 
 /// Additional DaqApp methods in a separate impl block (split for helper functions)
 impl DaqApp {
+    #[cfg(not(target_arch = "wasm32"))]
     fn set_control_panel_layout_mode(&mut self, mode: ControlPanelLayoutMode) {
         if self.control_panel_layout_mode == mode {
             return;
@@ -2486,6 +2512,7 @@ impl DaqApp {
     }
 
     /// Called when connection is established - trigger panel refreshes
+    #[cfg(not(target_arch = "wasm32"))]
     fn on_connection_established(&mut self) {
         tracing::info!("Connection established - triggering panel refreshes");
 
@@ -3752,5 +3779,47 @@ mod tests {
     fn test_device_panel_kind_equality() {
         assert_eq!(DevicePanelKind::MaiTai, DevicePanelKind::MaiTai);
         assert_ne!(DevicePanelKind::MaiTai, DevicePanelKind::PowerMeter);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn test_data_integrity_status_message_matches_warn_events() {
+        let event = crate::gui_log_layer::GuiLogEvent {
+            level: crate::panels::LogLevel::Warn,
+            target: "data_integrity".to_string(),
+            message: "DataIntegrityFault: camera-a dropped 2 frame(s)".to_string(),
+        };
+
+        let (level, message) =
+            data_integrity_status_message(&event).expect("expected status bar warning");
+        assert!(matches!(level, crate::widgets::StatusLevel::Warning));
+        assert_eq!(message, event.message);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn test_data_integrity_status_message_ignores_non_fault_logs() {
+        let event = crate::gui_log_layer::GuiLogEvent {
+            level: crate::panels::LogLevel::Info,
+            target: "server".to_string(),
+            message: "Acquisition started".to_string(),
+        };
+
+        assert!(data_integrity_status_message(&event).is_none());
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn test_data_integrity_status_message_matches_resource_pressure_events() {
+        let event = crate::gui_log_layer::GuiLogEvent {
+            level: crate::panels::LogLevel::Error,
+            target: "resource_pressure".to_string(),
+            message: "ResourcePressureEvent: free disk on /data is 8.5 GiB".to_string(),
+        };
+
+        let (level, message) =
+            data_integrity_status_message(&event).expect("expected status bar resource alert");
+        assert!(matches!(level, crate::widgets::StatusLevel::Error));
+        assert_eq!(message, event.message);
     }
 }

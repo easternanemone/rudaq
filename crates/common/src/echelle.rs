@@ -3,8 +3,10 @@
 //! This module defines the canonical, versioned calibration profile format used
 //! by rust-daq for echellegram-to-spectrum extraction workflows.
 
+use crate::core::Measurement;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
@@ -696,6 +698,701 @@ const fn default_baseline_window_px() -> u32 {
     11
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct EchelleOrderPreview {
+    pub relative_index: u32,
+    pub physical_order_number: Option<i32>,
+    pub wavelength_unit: String,
+    pub wavelengths: Vec<f64>,
+    pub flux: Vec<f64>,
+    pub valid_fraction: Vec<f32>,
+    pub saturated: Vec<bool>,
+    pub total_samples: u32,
+    pub covered_samples: u32,
+    pub saturated_samples: u32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct EchelleMergedPreview {
+    pub wavelength_unit: String,
+    pub wavelengths: Vec<f64>,
+    pub flux: Vec<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct EchelleExtractionPreview {
+    pub frame_number: u64,
+    pub profile_display_name: String,
+    pub profile_id: Option<String>,
+    pub orders: Vec<EchelleOrderPreview>,
+    pub merged: Option<EchelleMergedPreview>,
+}
+
+impl EchelleExtractionPreview {
+    pub fn to_measurements(&self) -> Vec<Measurement> {
+        self.to_measurements_with_context(true, None)
+    }
+
+    pub fn to_measurements_with_context(
+        &self,
+        preview: bool,
+        device_id: Option<&str>,
+    ) -> Vec<Measurement> {
+        let mut measurements =
+            Vec::with_capacity(self.orders.len() + usize::from(self.merged.is_some()));
+        let timestamp = Utc::now();
+
+        for order in &self.orders {
+            #[allow(clippy::cast_precision_loss)]
+            // Diagnostic metadata is stored as f64 for downstream JSON consumers.
+            let mean_valid_fraction = if order.valid_fraction.is_empty() {
+                0.0
+            } else {
+                order
+                    .valid_fraction
+                    .iter()
+                    .map(|&v| f64::from(v))
+                    .sum::<f64>()
+                    / order.valid_fraction.len() as f64
+            };
+
+            let mut metadata = json!({
+                "kind": "echelle_order",
+                "relative_index": order.relative_index,
+                "physical_order_number": order.physical_order_number,
+                "covered_samples": order.covered_samples,
+                "total_samples": order.total_samples,
+                "saturated_samples": order.saturated_samples,
+                "mean_valid_fraction": mean_valid_fraction,
+                "profile_id": self.profile_id,
+                "profile_display_name": self.profile_display_name,
+                "frame_number": self.frame_number,
+                "preview": preview
+            });
+            if let Some(device_id) = device_id {
+                insert_device_id_metadata(&mut metadata, device_id);
+            }
+
+            measurements.push(Measurement::Spectrum {
+                name: format!("echelle_order_{}", order.relative_index),
+                frequencies: order.wavelengths.clone(),
+                amplitudes: order.flux.clone(),
+                frequency_unit: Some(order.wavelength_unit.clone()),
+                amplitude_unit: Some("counts".to_string()),
+                metadata: Some(metadata),
+                timestamp,
+            });
+        }
+
+        if let Some(merged) = &self.merged {
+            let mut metadata = json!({
+                "kind": "echelle_merged",
+                "profile_id": self.profile_id,
+                "profile_display_name": self.profile_display_name,
+                "frame_number": self.frame_number,
+                "preview": preview
+            });
+            if let Some(device_id) = device_id {
+                insert_device_id_metadata(&mut metadata, device_id);
+            }
+
+            measurements.push(Measurement::Spectrum {
+                name: if preview {
+                    "echelle_merged_preview".to_string()
+                } else {
+                    "echelle_merged".to_string()
+                },
+                frequencies: merged.wavelengths.clone(),
+                amplitudes: merged.flux.clone(),
+                frequency_unit: Some(merged.wavelength_unit.clone()),
+                amplitude_unit: Some("counts".to_string()),
+                metadata: Some(metadata),
+                timestamp,
+            });
+        }
+
+        measurements
+    }
+}
+
+fn insert_device_id_metadata(metadata: &mut serde_json::Value, device_id: &str) {
+    if let Some(object) = metadata.as_object_mut() {
+        object.insert("device_id".to_string(), device_id.into());
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct DecodedIntensityFrame<'a> {
+    width: u32,
+    height: u32,
+    pixels: DecodedPixels<'a>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum DecodedPixels<'a> {
+    U8(&'a [u8]),
+    U16Borrowed(&'a [u16]),
+    U16Owned(Vec<u16>),
+}
+
+impl<'a> DecodedIntensityFrame<'a> {
+    pub fn decode(
+        frame_data: &'a [u8],
+        width: u32,
+        height: u32,
+        bit_depth: u32,
+        u16_scratch: Option<&'a mut Vec<u16>>,
+    ) -> Result<Self, String> {
+        let pixel_count = (width as usize).saturating_mul(height as usize);
+        let pixels = match bit_depth {
+            8 => {
+                if frame_data.len() < pixel_count {
+                    return Err(format!(
+                        "8-bit frame buffer too small: expected at least {} bytes, got {}",
+                        pixel_count,
+                        frame_data.len()
+                    ));
+                }
+                DecodedPixels::U8(&frame_data[..pixel_count])
+            }
+            12 | 16 => {
+                let expected_bytes = pixel_count.saturating_mul(2);
+                if frame_data.len() < expected_bytes {
+                    return Err(format!(
+                        "{}-bit frame buffer too small: expected at least {} bytes, got {}",
+                        bit_depth,
+                        expected_bytes,
+                        frame_data.len()
+                    ));
+                }
+                #[allow(unsafe_code)]
+                // The zero-copy fast path is intentional; misaligned buffers fall back to owned decoding below.
+                // SAFETY: `align_to::<u16>()` only creates a borrowed view when the byte slice is
+                // properly aligned and complete; otherwise we detect the misalignment/trailing bytes
+                // via `prefix`/`suffix` and fall back to an owned little-endian decode below.
+                let (prefix, u16s, suffix) = unsafe { frame_data.align_to::<u16>() };
+                if prefix.is_empty() && suffix.is_empty() && u16s.len() >= pixel_count {
+                    DecodedPixels::U16Borrowed(&u16s[..pixel_count])
+                } else if let Some(scratch) = u16_scratch {
+                    scratch.clear();
+                    scratch.reserve(pixel_count);
+                    for chunk in frame_data[..expected_bytes].chunks_exact(2) {
+                        scratch.push(u16::from_le_bytes([chunk[0], chunk[1]]));
+                    }
+                    DecodedPixels::U16Borrowed(&scratch[..pixel_count])
+                } else {
+                    let mut decoded = Vec::with_capacity(pixel_count);
+                    for chunk in frame_data[..expected_bytes].chunks_exact(2) {
+                        decoded.push(u16::from_le_bytes([chunk[0], chunk[1]]));
+                    }
+                    DecodedPixels::U16Owned(decoded)
+                }
+            }
+            _ => {
+                return Err(format!(
+                    "unsupported bit depth {} for echelle extraction (expected 8/12/16)",
+                    bit_depth
+                ));
+            }
+        };
+
+        Ok(Self {
+            width,
+            height,
+            pixels,
+        })
+    }
+
+    #[inline]
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    #[inline]
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+
+    #[inline]
+    pub fn get(&self, x: u32, y: u32) -> Option<u32> {
+        if x >= self.width || y >= self.height {
+            return None;
+        }
+        let idx = (y * self.width + x) as usize;
+        match &self.pixels {
+            DecodedPixels::U8(pixels) => pixels.get(idx).copied().map(u32::from),
+            DecodedPixels::U16Borrowed(pixels) => pixels.get(idx).copied().map(u32::from),
+            DecodedPixels::U16Owned(pixels) => pixels.get(idx).copied().map(u32::from),
+        }
+    }
+}
+
+pub fn extract_preview(
+    profile: &EchelleCalibrationProfile,
+    frame_data: &[u8],
+    width: u32,
+    height: u32,
+    bit_depth: u32,
+    frame_number: u64,
+) -> Result<EchelleExtractionPreview, String> {
+    profile
+        .validate_for_frame(EchelleFrameContext {
+            width,
+            height,
+            bit_depth: Some(bit_depth),
+            ..Default::default()
+        })
+        .map_err(|error| error.to_string())?;
+
+    let decoded = DecodedIntensityFrame::decode(frame_data, width, height, bit_depth, None)?;
+    extract_preview_with_scratch_inner(profile, &decoded, bit_depth, frame_number)
+}
+
+pub fn extract_preview_with_u16_scratch(
+    profile: &EchelleCalibrationProfile,
+    frame_data: &[u8],
+    width: u32,
+    height: u32,
+    bit_depth: u32,
+    frame_number: u64,
+    u16_scratch: &mut Vec<u16>,
+) -> Result<EchelleExtractionPreview, String> {
+    profile
+        .validate_for_frame(EchelleFrameContext {
+            width,
+            height,
+            bit_depth: Some(bit_depth),
+            ..Default::default()
+        })
+        .map_err(|error| error.to_string())?;
+
+    let decoded =
+        DecodedIntensityFrame::decode(frame_data, width, height, bit_depth, Some(u16_scratch))?;
+    extract_preview_with_scratch_inner(profile, &decoded, bit_depth, frame_number)
+}
+
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // Overlay coordinates intentionally quantize calibrated f64 positions into UI-friendly f32 pixels.
+pub fn order_sample_image_position(
+    profile: &EchelleCalibrationProfile,
+    order: &EchelleOrderCalibration,
+    sample_index: usize,
+) -> Option<(f32, f32)> {
+    #[allow(clippy::cast_possible_truncation)]
+    // Sample indices are bounded by the validated order range.
+    let sample_local = order.sample_start.checked_add(sample_index as u32)?;
+    if sample_local > order.sample_end {
+        return None;
+    }
+
+    let roi_disp_offset = match profile.orientation.dispersion_axis {
+        DetectorAxis::X => f64::from(profile.compatibility.roi_x),
+        DetectorAxis::Y => f64::from(profile.compatibility.roi_y),
+    };
+    let roi_cross_offset = match profile.orientation.cross_dispersion_axis {
+        DetectorAxis::X => f64::from(profile.compatibility.roi_x),
+        DetectorAxis::Y => f64::from(profile.compatibility.roi_y),
+    };
+    let sample_sensor = f64::from(sample_local) + roi_disp_offset;
+    let center_sensor = eval_trace(&order.trace, sample_sensor).ok()?;
+    let center_local = center_sensor - roi_cross_offset;
+
+    Some(match profile.orientation.dispersion_axis {
+        DetectorAxis::X => (sample_local as f32 + 0.5, center_local as f32 + 0.5),
+        DetectorAxis::Y => (center_local as f32 + 0.5, sample_local as f32 + 0.5),
+    })
+}
+
+fn extract_preview_with_scratch_inner(
+    profile: &EchelleCalibrationProfile,
+    decoded: &DecodedIntensityFrame<'_>,
+    bit_depth: u32,
+    frame_number: u64,
+) -> Result<EchelleExtractionPreview, String> {
+    let saturation_threshold = bit_depth_max(bit_depth);
+    let mut orders = Vec::new();
+    for order in profile.orders.iter().filter(|order| order.enabled) {
+        orders.push(extract_order(
+            profile,
+            order,
+            decoded,
+            saturation_threshold,
+        )?);
+    }
+
+    Ok(EchelleExtractionPreview {
+        frame_number,
+        profile_display_name: profile.display_name.clone(),
+        profile_id: profile.profile_id.clone(),
+        merged: build_merged_preview(&orders),
+        orders,
+    })
+}
+
+#[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)] // Extraction windows intentionally use signed pixel offsets around a local centerline.
+fn extract_order(
+    profile: &EchelleCalibrationProfile,
+    order: &EchelleOrderCalibration,
+    frame: &DecodedIntensityFrame<'_>,
+    saturation_threshold: u32,
+) -> Result<EchelleOrderPreview, String> {
+    let half_width = order
+        .aperture_half_width_px
+        .unwrap_or(profile.extraction.default_aperture_half_width_px);
+    #[allow(clippy::cast_possible_truncation)]
+    // The configured aperture radius is rounded to an integer pixel span.
+    let radius = half_width.max(0.0).floor() as i32;
+    #[allow(clippy::cast_sign_loss)] // `planned_span` is derived from a non-negative radius.
+    let planned_span = (radius * 2 + 1).max(1) as u32;
+
+    let mut wavelengths = Vec::new();
+    let mut flux = Vec::new();
+    let mut valid_fraction = Vec::new();
+    let mut saturated = Vec::new();
+    let mut covered_samples = 0u32;
+    let mut saturated_samples = 0u32;
+
+    let roi_disp_offset = match profile.orientation.dispersion_axis {
+        DetectorAxis::X => f64::from(profile.compatibility.roi_x),
+        DetectorAxis::Y => f64::from(profile.compatibility.roi_y),
+    };
+    let roi_cross_offset = match profile.orientation.cross_dispersion_axis {
+        DetectorAxis::X => f64::from(profile.compatibility.roi_x),
+        DetectorAxis::Y => f64::from(profile.compatibility.roi_y),
+    };
+
+    for sample_local in order.sample_start..=order.sample_end {
+        let sample_sensor = f64::from(sample_local) + roi_disp_offset;
+        let center_sensor = eval_trace(&order.trace, sample_sensor).map_err(|error| {
+            format!(
+                "order {} trace evaluation failed at sample {}: {}",
+                order.relative_index, sample_local, error
+            )
+        })?;
+        let center_local = center_sensor - roi_cross_offset;
+
+        let wavelength = eval_wavelength(
+            &order.wavelength,
+            sample_sensor,
+            (sample_local - order.sample_start) as usize,
+        )
+        .map_err(|error| {
+            format!(
+                "order {} wavelength evaluation failed at sample {}: {}",
+                order.relative_index, sample_local, error
+            )
+        })?;
+        wavelengths.push(wavelength.0);
+
+        #[allow(clippy::cast_possible_truncation)]
+        // Trace evaluation is converted back onto the detector's integer pixel grid.
+        let center_px = center_local.round() as i32;
+        let mut sample_sum = 0.0f64;
+        let mut valid = 0u32;
+        let mut saturated_sample = false;
+
+        match profile.extraction.summation_mode {
+            EchelleSummationMode::OrderCenterPixel => {
+                if let Some((x, y)) = map_disp_cross_to_local_xy(
+                    profile.orientation.dispersion_axis,
+                    sample_local as i32,
+                    center_px,
+                ) {
+                    if x >= 0
+                        && y >= 0
+                        && (x as u32) < frame.width()
+                        && (y as u32) < frame.height()
+                        && !is_excluded(profile, x as u32, y as u32)
+                    {
+                        if let Some(pixel) = frame.get(x as u32, y as u32) {
+                            sample_sum = f64::from(pixel);
+                            valid = 1;
+                            saturated_sample = pixel >= saturation_threshold;
+                        }
+                    }
+                }
+            }
+            EchelleSummationMode::SimpleSum
+            | EchelleSummationMode::SqrtWeightedSum
+            | EchelleSummationMode::Optimal => {
+                for offset in -radius..=radius {
+                    let cross_px = center_px + offset;
+                    if let Some((x, y)) = map_disp_cross_to_local_xy(
+                        profile.orientation.dispersion_axis,
+                        sample_local as i32,
+                        cross_px,
+                    ) {
+                        if x < 0
+                            || y < 0
+                            || (x as u32) >= frame.width()
+                            || (y as u32) >= frame.height()
+                            || is_excluded(profile, x as u32, y as u32)
+                        {
+                            continue;
+                        }
+                        if let Some(pixel) = frame.get(x as u32, y as u32) {
+                            sample_sum += f64::from(pixel);
+                            valid += 1;
+                            saturated_sample |= pixel >= saturation_threshold;
+                        }
+                    }
+                }
+
+                if valid > 0 {
+                    if let Some(background) = &profile.extraction.background {
+                        if background.enabled {
+                            #[allow(clippy::cast_possible_wrap)]
+                            // Background sidebands operate in signed detector coordinates around the order center.
+                            let (background_sum, background_count) = sample_background_sidebands(
+                                profile,
+                                frame,
+                                sample_local as i32,
+                                center_px,
+                                radius,
+                                background.inter_order_gap_min_px as i32,
+                                background.baseline_window_px as i32,
+                            );
+                            if background_count > 0 {
+                                let background_mean = background_sum / f64::from(background_count);
+                                sample_sum -= background_mean * f64::from(valid);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if valid > 0 {
+            covered_samples += 1;
+        }
+        if saturated_sample {
+            saturated_samples += 1;
+        }
+        flux.push(sample_sum);
+        #[allow(clippy::cast_precision_loss)]
+        // Valid fraction is display-oriented quality metadata, not a numerically sensitive science output.
+        valid_fraction.push(valid as f32 / planned_span as f32);
+        saturated.push(saturated_sample);
+    }
+
+    Ok(EchelleOrderPreview {
+        relative_index: order.relative_index,
+        physical_order_number: order.physical_order_number,
+        wavelength_unit: wavelength_unit(&order.wavelength).to_string(),
+        wavelengths,
+        flux,
+        valid_fraction,
+        saturated,
+        total_samples: order.sample_end - order.sample_start + 1,
+        covered_samples,
+        saturated_samples,
+    })
+}
+
+#[allow(clippy::cast_sign_loss)] // Sideband window math walks signed detector offsets but only returns non-negative coverage counts.
+fn sample_background_sidebands(
+    profile: &EchelleCalibrationProfile,
+    frame: &DecodedIntensityFrame<'_>,
+    sample_local: i32,
+    center_px: i32,
+    radius: i32,
+    inter_order_gap: i32,
+    baseline_window: i32,
+) -> (f64, u32) {
+    if baseline_window <= 0 {
+        return (0.0, 0);
+    }
+
+    let mut background_sum = 0.0f64;
+    let mut background_count = 0u32;
+    let start = radius + inter_order_gap.max(0);
+    let end = start + baseline_window - 1;
+
+    for sign in [-1, 1] {
+        for offset in start..=end {
+            let cross_px = center_px + sign * offset;
+            if let Some((x, y)) = map_disp_cross_to_local_xy(
+                profile.orientation.dispersion_axis,
+                sample_local,
+                cross_px,
+            ) {
+                if x < 0
+                    || y < 0
+                    || (x as u32) >= frame.width()
+                    || (y as u32) >= frame.height()
+                    || is_excluded(profile, x as u32, y as u32)
+                {
+                    continue;
+                }
+                if let Some(pixel) = frame.get(x as u32, y as u32) {
+                    background_sum += f64::from(pixel);
+                    background_count += 1;
+                }
+            }
+        }
+    }
+
+    (background_sum, background_count)
+}
+
+fn build_merged_preview(orders: &[EchelleOrderPreview]) -> Option<EchelleMergedPreview> {
+    let first_unit = orders.first()?.wavelength_unit.clone();
+    if orders
+        .iter()
+        .any(|order| order.wavelength_unit != first_unit)
+    {
+        return None;
+    }
+
+    let mut samples = Vec::new();
+    for order in orders {
+        samples.extend(
+            order
+                .wavelengths
+                .iter()
+                .copied()
+                .zip(order.flux.iter().copied())
+                .filter(|(wavelength, _)| wavelength.is_finite()),
+        );
+    }
+    samples.sort_by(|left, right| {
+        left.0
+            .partial_cmp(&right.0)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    let (wavelengths, flux): (Vec<_>, Vec<_>) = samples.into_iter().unzip();
+
+    Some(EchelleMergedPreview {
+        wavelength_unit: first_unit,
+        wavelengths,
+        flux,
+    })
+}
+
+#[inline]
+fn bit_depth_max(bit_depth: u32) -> u32 {
+    match bit_depth {
+        8 => 255,
+        12 => 4095,
+        16 => 65535,
+        _ => u32::MAX,
+    }
+}
+
+#[inline]
+fn map_disp_cross_to_local_xy(
+    dispersion_axis: DetectorAxis,
+    dispersion_px: i32,
+    cross_px: i32,
+) -> Option<(i32, i32)> {
+    match dispersion_axis {
+        DetectorAxis::X => Some((dispersion_px, cross_px)),
+        DetectorAxis::Y => Some((cross_px, dispersion_px)),
+    }
+}
+
+fn is_excluded(profile: &EchelleCalibrationProfile, x: u32, y: u32) -> bool {
+    profile
+        .corrections
+        .excluded_regions
+        .iter()
+        .any(|region| point_in_region(x, y, region))
+}
+
+#[inline]
+fn point_in_region(x: u32, y: u32, region: &PixelRegion) -> bool {
+    x >= region.x
+        && x < region.x.saturating_add(region.width)
+        && y >= region.y
+        && y < region.y.saturating_add(region.height)
+}
+
+fn wavelength_unit(wavelength: &EchelleWavelengthModel) -> &str {
+    match wavelength {
+        EchelleWavelengthModel::Polynomial { unit, .. } => unit,
+        EchelleWavelengthModel::Sampled { unit, .. } => unit,
+    }
+}
+
+fn eval_trace(trace: &EchelleTraceModel, x: f64) -> Result<f64, &'static str> {
+    match trace {
+        EchelleTraceModel::Polynomial {
+            basis,
+            coefficients,
+            domain_start,
+            domain_end,
+        } => eval_polynomial(*basis, coefficients, *domain_start, *domain_end, x),
+    }
+}
+
+fn eval_wavelength(
+    wavelength: &EchelleWavelengthModel,
+    x: f64,
+    sampled_index: usize,
+) -> Result<(f64, &str), &'static str> {
+    match wavelength {
+        EchelleWavelengthModel::Polynomial {
+            basis,
+            coefficients,
+            domain_start,
+            domain_end,
+            unit,
+        } => Ok((
+            eval_polynomial(*basis, coefficients, *domain_start, *domain_end, x)?,
+            unit.as_str(),
+        )),
+        EchelleWavelengthModel::Sampled { wavelengths, unit } => wavelengths
+            .get(sampled_index)
+            .copied()
+            .map(|wavelength| (wavelength, unit.as_str()))
+            .ok_or("sampled wavelength index out of bounds"),
+    }
+}
+
+fn eval_polynomial(
+    basis: PolynomialBasis,
+    coefficients: &[f64],
+    domain_start: f64,
+    domain_end: f64,
+    x: f64,
+) -> Result<f64, &'static str> {
+    if coefficients.is_empty() {
+        return Err("empty coefficient list");
+    }
+    if !x.is_finite()
+        || !domain_start.is_finite()
+        || !domain_end.is_finite()
+        || domain_start >= domain_end
+    {
+        return Err("invalid polynomial domain/input");
+    }
+
+    Ok(match basis {
+        PolynomialBasis::Monomial => {
+            let mut accumulator = 0.0f64;
+            for &coefficient in coefficients.iter().rev() {
+                accumulator = accumulator * x + coefficient;
+            }
+            accumulator
+        }
+        PolynomialBasis::Chebyshev => {
+            let t = ((2.0 * (x - domain_start)) / (domain_end - domain_start)) - 1.0;
+            if coefficients.len() == 1 {
+                return Ok(coefficients[0]);
+            }
+            let mut t0 = 1.0f64;
+            let mut t1 = t;
+            let mut accumulator = coefficients[0] * t0 + coefficients[1] * t1;
+            for &coefficient in coefficients.iter().skip(2) {
+                let tn = 2.0 * t * t1 - t0;
+                accumulator += coefficient * tn;
+                t0 = t1;
+                t1 = tn;
+            }
+            accumulator
+        }
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -896,5 +1593,52 @@ mod tests {
         assert!(err
             .to_string()
             .contains("unsupported echelle profile extension"));
+    }
+
+    #[test]
+    fn test_extract_preview_emits_device_scoped_measurements() {
+        let profile = minimal_profile();
+        let bytes_per_pixel = 2usize;
+        let frame_bytes = (profile.compatibility.frame_width as usize)
+            * (profile.compatibility.frame_height as usize)
+            * bytes_per_pixel;
+        let frame = vec![0u8; frame_bytes];
+
+        let preview = extract_preview(
+            &profile,
+            &frame,
+            profile.compatibility.frame_width,
+            profile.compatibility.frame_height,
+            profile.compatibility.bit_depth.unwrap(),
+            7,
+        )
+        .expect("minimal profile should extract on a matching blank frame");
+        let measurements = preview.to_measurements_with_context(false, Some("istar_camera"));
+
+        assert_eq!(measurements.len(), 3);
+        let Measurement::Spectrum { name, metadata, .. } = &measurements[0] else {
+            panic!("expected first extracted measurement to be a spectrum");
+        };
+        assert_eq!(name, "echelle_order_0");
+
+        let metadata = metadata
+            .as_ref()
+            .and_then(serde_json::Value::as_object)
+            .expect("spectrum metadata object");
+        assert_eq!(
+            metadata
+                .get("device_id")
+                .and_then(serde_json::Value::as_str),
+            Some("istar_camera")
+        );
+        assert_eq!(
+            metadata.get("preview").and_then(serde_json::Value::as_bool),
+            Some(false)
+        );
+
+        let Measurement::Spectrum { name, .. } = &measurements[2] else {
+            panic!("expected merged extracted measurement to be a spectrum");
+        };
+        assert_eq!(name, "echelle_merged");
     }
 }

@@ -9,6 +9,7 @@ hardware = { path = "../hardware" }
 bytes = "1"
 anyhow.workspace = true
 async-trait.workspace = true
+chrono = { workspace = true, features = ["serde"] }
 tokio = { workspace = true, features = ["sync", "time", "macros", "rt"] }
 tracing.workspace = true
 serde = { workspace = true, features = ["derive"] }

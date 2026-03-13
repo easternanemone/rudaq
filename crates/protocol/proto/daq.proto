@@ -31,8 +31,8 @@ service ControlService {
 
   // Stream measurement data
   rpc StreamMeasurements(MeasurementRequest) returns (stream DataPoint);
-  // Stream full spectrum measurements (vector payloads, additive path)
-  rpc StreamSpectra(SpectrumStreamRequest) returns (stream SpectrumDataPoint);
+  // Stream full spectrum measurements with rich echelle metadata.
+  rpc StreamSpectra(SpectrumStreamRequest) returns (stream SpectrumPayload);
 
   // List all uploaded scripts
   rpc ListScripts(ListScriptsRequest) returns (ListScriptsResponse);
@@ -128,15 +128,22 @@ message SpectrumStreamRequest {
   uint32 max_rate_hz = 2;
 }
 
-// Full spectrum payload (x/y arrays preserved)
-message SpectrumDataPoint {
-  string name = 1;
-  repeated double x_values = 2;
-  repeated double y_values = 3;
-  string x_unit = 4;
-  string y_unit = 5;
-  uint64 timestamp_ns = 6;
-  string metadata_json = 7; // serialized metadata object for forward-compatible transport
+// Full spectrum payload with x/y arrays plus echelle extraction context.
+message SpectrumPayload {
+  repeated double wavelengths = 1;
+  repeated double intensities = 2;
+  repeated double ivar = 3;
+  string wavelength_unit = 4;
+  int32 order_index = 5;             // -1 for merged spectrum
+  bool merged = 6;                   // true if orders have been stitched
+  string calibration_profile_id = 7; // which echelle profile was used
+  repeated string quality_flags = 8; // e.g. cosmic_masked, blaze_corrected
+  double snr_estimate = 9;           // median SNR across the order
+  string name = 10;                  // logical spectrum channel/source name
+  uint64 timestamp_ns = 11;
+  string intensity_unit = 12;
+  string metadata_json = 13; // serialized metadata object for forward-compatible transport
+  string device_id = 14; // originating frame producer when spectrum came from image extraction
 }
 
 // Request to list all scripts
