@@ -72,7 +72,7 @@ For distributing the GUI binary, you may need to sign and notarize:
 codesign --sign "Developer ID Application: ..." target/release/rust-daq-gui
 ```
 
-Tagged releases are built by [`.github/workflows/release.yml`](/Users/briansquires/code/rust-daq/.github/workflows/release.yml).
+Tagged releases are built by [`.github/workflows/release.yml`](../../.github/workflows/release.yml).
 macOS signing in that workflow activates when these repository secrets are set:
 `MACOS_CERTIFICATE_P12`, `MACOS_CERTIFICATE_PASSWORD`, and `MACOS_SIGNING_IDENTITY`.
 

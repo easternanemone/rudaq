@@ -210,6 +210,8 @@ impl AndorSpectrograph {
             }
         };
 
+        // SAFETY: `init_hardware_once` encapsulates the raw Shamrock startup sequence; access is
+        // serialized by `SHAMROCK_INIT_MUTEX`, and this caller handles cleanup/error propagation.
         match unsafe { Self::init_hardware_once(device_index) } {
             Ok(info) => Ok(info),
             Err(err) => {
@@ -237,6 +239,8 @@ impl AndorSpectrograph {
                     "Shamrock init reported a stale runtime conflict; cleaning artifacts and retrying once"
                 );
 
+                // SAFETY: This is the same serialized startup path as above, retried once after
+                // cleaning stale runtime artifacts reported by the SDK.
                 unsafe { Self::init_hardware_once(device_index) }.map_err(|retry_err| {
                     retry_err.context(format!(
                         "Shamrock recovery retry failed after cleanup ({})",

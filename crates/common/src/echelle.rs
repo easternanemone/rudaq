@@ -744,6 +744,7 @@ impl EchelleExtractionPreview {
 
         for order in &self.orders {
             #[allow(clippy::cast_precision_loss)]
+            // Diagnostic metadata is stored as f64 for downstream JSON consumers.
             let mean_valid_fraction = if order.valid_fraction.is_empty() {
                 0.0
             } else {
@@ -769,10 +770,7 @@ impl EchelleExtractionPreview {
                 "preview": preview
             });
             if let Some(device_id) = device_id {
-                metadata
-                    .as_object_mut()
-                    .expect("echelle order metadata object")
-                    .insert("device_id".to_string(), device_id.into());
+                insert_device_id_metadata(&mut metadata, device_id);
             }
 
             measurements.push(Measurement::Spectrum {
@@ -795,10 +793,7 @@ impl EchelleExtractionPreview {
                 "preview": preview
             });
             if let Some(device_id) = device_id {
-                metadata
-                    .as_object_mut()
-                    .expect("echelle merged metadata object")
-                    .insert("device_id".to_string(), device_id.into());
+                insert_device_id_metadata(&mut metadata, device_id);
             }
 
             measurements.push(Measurement::Spectrum {
@@ -817,6 +812,12 @@ impl EchelleExtractionPreview {
         }
 
         measurements
+    }
+}
+
+fn insert_device_id_metadata(metadata: &mut serde_json::Value, device_id: &str) {
+    if let Some(object) = metadata.as_object_mut() {
+        object.insert("device_id".to_string(), device_id.into());
     }
 }
 
@@ -865,6 +866,10 @@ impl<'a> DecodedIntensityFrame<'a> {
                     ));
                 }
                 #[allow(unsafe_code)]
+                // The zero-copy fast path is intentional; misaligned buffers fall back to owned decoding below.
+                // SAFETY: `align_to::<u16>()` only creates a borrowed view when the byte slice is
+                // properly aligned and complete; otherwise we detect the misalignment/trailing bytes
+                // via `prefix`/`suffix` and fall back to an owned little-endian decode below.
                 let (prefix, u16s, suffix) = unsafe { frame_data.align_to::<u16>() };
                 if prefix.is_empty() && suffix.is_empty() && u16s.len() >= pixel_count {
                     DecodedPixels::U16Borrowed(&u16s[..pixel_count])
@@ -966,13 +971,14 @@ pub fn extract_preview_with_u16_scratch(
     extract_preview_with_scratch_inner(profile, &decoded, bit_depth, frame_number)
 }
 
-#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // Overlay coordinates intentionally quantize calibrated f64 positions into UI-friendly f32 pixels.
 pub fn order_sample_image_position(
     profile: &EchelleCalibrationProfile,
     order: &EchelleOrderCalibration,
     sample_index: usize,
 ) -> Option<(f32, f32)> {
     #[allow(clippy::cast_possible_truncation)]
+    // Sample indices are bounded by the validated order range.
     let sample_local = order.sample_start.checked_add(sample_index as u32)?;
     if sample_local > order.sample_end {
         return None;
@@ -1022,7 +1028,7 @@ fn extract_preview_with_scratch_inner(
     })
 }
 
-#[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
+#[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)] // Extraction windows intentionally use signed pixel offsets around a local centerline.
 fn extract_order(
     profile: &EchelleCalibrationProfile,
     order: &EchelleOrderCalibration,
@@ -1033,8 +1039,9 @@ fn extract_order(
         .aperture_half_width_px
         .unwrap_or(profile.extraction.default_aperture_half_width_px);
     #[allow(clippy::cast_possible_truncation)]
+    // The configured aperture radius is rounded to an integer pixel span.
     let radius = half_width.max(0.0).floor() as i32;
-    #[allow(clippy::cast_sign_loss)]
+    #[allow(clippy::cast_sign_loss)] // `planned_span` is derived from a non-negative radius.
     let planned_span = (radius * 2 + 1).max(1) as u32;
 
     let mut wavelengths = Vec::new();
@@ -1077,6 +1084,7 @@ fn extract_order(
         wavelengths.push(wavelength.0);
 
         #[allow(clippy::cast_possible_truncation)]
+        // Trace evaluation is converted back onto the detector's integer pixel grid.
         let center_px = center_local.round() as i32;
         let mut sample_sum = 0.0f64;
         let mut valid = 0u32;
@@ -1133,6 +1141,7 @@ fn extract_order(
                     if let Some(background) = &profile.extraction.background {
                         if background.enabled {
                             #[allow(clippy::cast_possible_wrap)]
+                            // Background sidebands operate in signed detector coordinates around the order center.
                             let (background_sum, background_count) = sample_background_sidebands(
                                 profile,
                                 frame,
@@ -1160,6 +1169,7 @@ fn extract_order(
         }
         flux.push(sample_sum);
         #[allow(clippy::cast_precision_loss)]
+        // Valid fraction is display-oriented quality metadata, not a numerically sensitive science output.
         valid_fraction.push(valid as f32 / planned_span as f32);
         saturated.push(saturated_sample);
     }
@@ -1178,7 +1188,7 @@ fn extract_order(
     })
 }
 
-#[allow(clippy::cast_sign_loss)]
+#[allow(clippy::cast_sign_loss)] // Sideband window math walks signed detector offsets but only returns non-negative coverage counts.
 fn sample_background_sidebands(
     profile: &EchelleCalibrationProfile,
     frame: &DecodedIntensityFrame<'_>,

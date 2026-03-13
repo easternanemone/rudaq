@@ -1588,7 +1588,7 @@ impl DaqApp {
             modules_panel: ModulesPanel::default(),
             plan_runner_panel: PlanRunnerPanel::default(),
             scan_builder_panel: ScanBuilderPanel::default(),
-            experiment_designer_panel: ExperimentDesignerPanel,
+            experiment_designer_panel: ExperimentDesignerPanel::default(),
             document_viewer_panel: DocumentViewerPanel::default(),
             instrument_manager_panel: InstrumentManagerPanel::default(),
             signal_plotter_panel: SignalPlotterPanel::new(),

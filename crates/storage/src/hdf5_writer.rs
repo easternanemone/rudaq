@@ -573,6 +573,7 @@ impl HDF5Writer {
             .map_err(map_hdf5_err)?;
 
         #[allow(clippy::cast_possible_truncation)]
+        // Fault lists are bounded by the flushed batch size, well below u64::MAX.
         let fault_count = faults.len() as u64;
         group
             .new_attr::<u64>()
@@ -1174,6 +1175,7 @@ mod tests {
         let payload = bincode::serialize(measurement).unwrap();
         let mut frame = Vec::with_capacity(4 + payload.len());
         #[allow(clippy::cast_possible_truncation)]
+        // Test frames are length-prefixed with a u32, matching the production ring-buffer format.
         let len = payload.len() as u32;
         frame.extend_from_slice(&len.to_le_bytes());
         frame.extend_from_slice(&payload);
@@ -1185,6 +1187,7 @@ mod tests {
         let payload = progress.encode_to_vec();
         let mut frame = Vec::with_capacity(4 + payload.len());
         #[allow(clippy::cast_possible_truncation)]
+        // Test frames are length-prefixed with a u32, matching the production ring-buffer format.
         let len = payload.len() as u32;
         frame.extend_from_slice(&len.to_le_bytes());
         frame.extend_from_slice(&payload);

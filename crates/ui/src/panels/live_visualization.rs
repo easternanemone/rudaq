@@ -54,7 +54,7 @@ pub struct FrameUpdate {
     pub height: u32,
     pub data: Vec<u8>, // RGBA data
     pub frame_number: u64,
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Reserved for future per-frame latency diagnostics in the status bar.
     pub timestamp_ns: u64,
 }
 
@@ -63,7 +63,7 @@ pub struct FrameUpdate {
 pub struct DataUpdate {
     pub device_id: String,
     pub value: f64,
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Reserved for future x-axis synchronization / hover readouts.
     pub timestamp_secs: f64,
 }
 
@@ -87,7 +87,7 @@ pub struct SpectrumUpdate {
     pub calibration_profile_id: Option<String>,
     pub quality_flags: Vec<String>,
     pub snr_estimate: f64,
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Reserved for future stream-age and latency diagnostics.
     pub timestamp_ns: u64,
 }
 
@@ -134,7 +134,7 @@ impl FpsTracker {
     }
 
     /// Record a new frame and return current FPS
-    #[allow(clippy::cast_precision_loss)]
+    #[allow(clippy::cast_precision_loss)] // FPS is display-only, so usize->f64 conversion is acceptable here.
     fn record_frame(&mut self, frame_number: u64) -> f64 {
         let now = Instant::now();
         self.frame_times.push_back(now);
@@ -164,7 +164,7 @@ impl FpsTracker {
         }
     }
 
-    #[allow(clippy::cast_precision_loss)]
+    #[allow(clippy::cast_precision_loss)] // FPS is display-only, so usize->f64 conversion is acceptable here.
     fn current_fps(&self) -> f64 {
         if self.frame_times.len() < 2 {
             return 0.0;
@@ -243,9 +243,9 @@ impl CameraState {
 
 /// Plot state for live visualization
 struct PlotState {
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Kept for future panel titles/tooltips keyed by plot source.
     device_id: String,
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Kept for future panel titles/tooltips keyed by plot label.
     label: String,
     data: VecDeque<[f64; 2]>, // [time, value] pairs
     plot: AutoScalePlot,
@@ -279,7 +279,7 @@ impl PlotState {
         self.plot.update_bounds(&points);
     }
 
-    #[allow(clippy::cast_precision_loss)]
+    #[allow(clippy::cast_precision_loss)] // Hz is display-only, so usize->f64 conversion is acceptable here.
     fn current_fps(&self) -> f64 {
         // Simple FPS estimate from data rate
         if self.data.len() < 2 {
@@ -366,7 +366,7 @@ struct SpectrumRenderState {
 
 /// Spectrum plot state for live visualization of streamed vector payloads.
 struct SpectrumPlotState {
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Kept for future panel titles/tooltips keyed by spectrum source.
     device_id: String,
     series: HashMap<SpectrumSeriesKey, VecDeque<SpectrumSnapshot>>,
     show_merged: bool,
@@ -501,6 +501,7 @@ impl SpectrumPlotState {
         }
 
         #[allow(clippy::cast_precision_loss)]
+        // Running averages are display-only, so snapshot counts can be widened to f64.
         let divisor = snapshots_used as f64;
         for value in &mut averaged_y {
             *value /= divisor;
@@ -571,7 +572,7 @@ fn trim_recent_times(times: &mut VecDeque<Instant>) {
     }
 }
 
-#[allow(clippy::cast_precision_loss)]
+#[allow(clippy::cast_precision_loss)] // Hz is display-only, so usize->f64 conversion is acceptable here.
 fn rate_from_instants(times: &VecDeque<Instant>) -> f64 {
     if times.len() < 2 {
         return 0.0;
@@ -608,6 +609,7 @@ fn decimation_sample_indices(point_count: usize, max_points: usize) -> Vec<usize
         clippy::cast_precision_loss,
         clippy::cast_sign_loss
     )]
+    // Decimation computes an integer stride from display-oriented floating-point sampling ratios.
     let step = ((point_count - 2) as f64 / interior_target.max(1) as f64).ceil() as usize;
 
     let mut indices = Vec::with_capacity(max_points);
@@ -884,18 +886,21 @@ impl LiveVisualizationPanel {
             let total_plots = self.plots.len();
             let total_spectra = self.spectrum_plots.len();
             #[allow(clippy::cast_precision_loss)]
+            // Aggregate FPS is display-only, so counts can be widened to f64.
             let avg_camera_fps = if total_cameras > 0 {
                 self.cameras.values().map(|c| c.current_fps()).sum::<f64>() / total_cameras as f64
             } else {
                 0.0
             };
             #[allow(clippy::cast_precision_loss)]
+            // Aggregate Hz is display-only, so counts can be widened to f64.
             let avg_plot_fps = if total_plots > 0 {
                 self.plots.values().map(|p| p.current_fps()).sum::<f64>() / total_plots as f64
             } else {
                 0.0
             };
             #[allow(clippy::cast_precision_loss)]
+            // Aggregate Hz is display-only, so counts can be widened to f64.
             let avg_spectrum_hz = if total_spectra > 0 {
                 self.spectrum_plots
                     .values()
@@ -1017,6 +1022,7 @@ impl LiveVisualizationPanel {
                 // Calculate fit size
                 let available = ui.available_size();
                 #[allow(clippy::cast_precision_loss)]
+                // Aspect ratio is for layout only, so integer->f32 conversion is acceptable.
                 let aspect = camera.width as f32 / camera.height.max(1) as f32;
                 let fit_size = if available.x / aspect <= available.y {
                     egui::vec2(available.x, available.x / aspect)

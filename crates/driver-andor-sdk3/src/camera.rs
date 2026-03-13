@@ -555,6 +555,8 @@ impl AndorCamera {
             }
         };
 
+        // SAFETY: `init_hardware_once` encapsulates the raw SDK startup sequence; access is
+        // serialized by `LIBRARY_INIT_MUTEX`, and this caller handles cleanup/error propagation.
         match unsafe { Self::init_hardware_once(camera_index) } {
             Ok(result) => Ok(result),
             Err(err) => {
@@ -575,6 +577,8 @@ impl AndorCamera {
                     "Andor SDK init reported a stale runtime conflict; cleaning artifacts and retrying once"
                 );
 
+                // SAFETY: This is the same serialized startup path as above, retried once after
+                // cleaning stale runtime artifacts reported by the SDK.
                 unsafe { Self::init_hardware_once(camera_index) }.map_err(|retry_err| {
                     retry_err.context(format!(
                         "Andor SDK recovery retry failed after cleanup ({})",

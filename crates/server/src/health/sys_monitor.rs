@@ -53,6 +53,7 @@ impl SystemMetricsCollector {
             let total_memory = self.system.total_memory();
             let used_memory = self.system.used_memory();
             #[allow(clippy::cast_precision_loss)]
+            // Resource-pressure percentages are display-only telemetry.
             let memory_percent = if total_memory > 0 {
                 (used_memory as f64 / total_memory as f64) * 100.0
             } else {
@@ -352,6 +353,7 @@ fn format_resource_pressure_event(event: &ResourcePressureEvent) -> String {
 
 fn format_bytes_gib(bytes: u64) -> String {
     #[allow(clippy::cast_precision_loss)]
+    // Human-readable GiB formatting is display-only telemetry.
     let gib = bytes as f64 / BYTES_PER_GIB as f64;
     format!("{gib:.1} GiB")
 }
