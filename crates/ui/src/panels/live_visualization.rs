@@ -17,7 +17,7 @@
 
 use crate::time::{Duration, Instant};
 use eframe::egui::{self, TextureHandle};
-use egui_plot::{Line, PlotPoints};
+use egui_plot::{Line, PlotPoints, Polygon};
 use std::collections::{HashMap, VecDeque};
 use std::sync::mpsc;
 
@@ -37,8 +37,8 @@ const MAX_QUEUED_SPECTRA: usize = 16;
 /// Maximum plot history (data points)
 const MAX_PLOT_HISTORY: usize = 500;
 
-/// Maximum retained spectrum snapshots per plot (ring buffer)
-const MAX_SPECTRUM_HISTORY: usize = 32;
+/// Maximum retained spectrum snapshots per series (ring buffer / running average window)
+const MAX_SPECTRUM_HISTORY: usize = 10;
 
 /// Maximum rendered points per spectrum line (UI decimation)
 const MAX_SPECTRUM_POINTS_DISPLAY: usize = 2048;
@@ -78,8 +78,15 @@ pub struct SpectrumUpdate {
     pub x_values: Vec<f64>,
     /// Y-axis values (flux/intensity).
     pub y_values: Vec<f64>,
+    /// Inverse-variance values aligned with the intensity vector.
+    pub ivar: Vec<f64>,
     pub x_unit: Option<String>,
     pub y_unit: Option<String>,
+    pub merged: bool,
+    pub order_index: i32,
+    pub calibration_profile_id: Option<String>,
+    pub quality_flags: Vec<String>,
+    pub snr_estimate: f64,
     #[allow(dead_code)]
     pub timestamp_ns: u64,
 }
@@ -288,38 +295,94 @@ impl PlotState {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+enum SpectrumSeriesKey {
+    Merged,
+    Order(i32),
+}
+
+impl SpectrumSeriesKey {
+    fn from_update(update: &SpectrumUpdate) -> Self {
+        if update.merged || update.order_index < 0 {
+            Self::Merged
+        } else {
+            Self::Order(update.order_index)
+        }
+    }
+
+    fn label(self) -> String {
+        match self {
+            Self::Merged => "Merged".to_string(),
+            Self::Order(order) => format!("Order {}", order),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
-struct SpectrumSnapshotMeta {
+struct SpectrumSnapshot {
+    label: String,
+    x_values: Vec<f64>,
+    y_values: Vec<f64>,
+    ivar: Vec<f64>,
+    x_unit: Option<String>,
+    y_unit: Option<String>,
+    calibration_profile_id: Option<String>,
+    quality_flags: Vec<String>,
+    snr_estimate: f64,
     timestamp_ns: u64,
-    raw_points: usize,
-    displayed_points: usize,
+}
+
+impl From<SpectrumUpdate> for SpectrumSnapshot {
+    fn from(update: SpectrumUpdate) -> Self {
+        Self {
+            label: update.label,
+            x_values: update.x_values,
+            y_values: update.y_values,
+            ivar: update.ivar,
+            x_unit: update.x_unit,
+            y_unit: update.y_unit,
+            calibration_profile_id: update.calibration_profile_id,
+            quality_flags: update.quality_flags,
+            snr_estimate: update.snr_estimate,
+            timestamp_ns: update.timestamp_ns,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct SpectrumRenderState {
+    label: String,
+    x_values: Vec<f64>,
+    y_values: Vec<f64>,
+    sigma: Option<Vec<f64>>,
+    x_unit: Option<String>,
+    y_unit: Option<String>,
+    calibration_profile_id: Option<String>,
+    quality_flags: Vec<String>,
+    snr_estimate: f64,
+    timestamp_ns: u64,
+    snapshots_used: usize,
 }
 
 /// Spectrum plot state for live visualization of streamed vector payloads.
 struct SpectrumPlotState {
     #[allow(dead_code)]
     device_id: String,
-    label: String,
-    x_unit: Option<String>,
-    y_unit: Option<String>,
-    latest_points: Vec<[f64; 2]>,
-    latest_raw_point_count: usize,
-    history: VecDeque<SpectrumSnapshotMeta>,
+    series: HashMap<SpectrumSeriesKey, VecDeque<SpectrumSnapshot>>,
+    show_merged: bool,
+    selected_order: Option<i32>,
     update_times: VecDeque<Instant>,
     plot: AutoScalePlot,
     max_display_points: usize,
 }
 
 impl SpectrumPlotState {
-    fn new(device_id: String, label: String) -> Self {
+    fn new(device_id: String, _label: String) -> Self {
         Self {
             device_id,
-            label,
-            x_unit: None,
-            y_unit: None,
-            latest_points: Vec::new(),
-            latest_raw_point_count: 0,
-            history: VecDeque::new(),
+            series: HashMap::new(),
+            show_merged: true,
+            selected_order: None,
             update_times: VecDeque::new(),
             plot: AutoScalePlot::new(Default::default()),
             max_display_points: MAX_SPECTRUM_POINTS_DISPLAY,
@@ -327,51 +390,171 @@ impl SpectrumPlotState {
     }
 
     fn add_spectrum(&mut self, update: SpectrumUpdate) {
-        self.label = update.label;
-        self.x_unit = update.x_unit;
-        self.y_unit = update.y_unit;
-        self.latest_raw_point_count = update.x_values.len().min(update.y_values.len());
+        let series_key = SpectrumSeriesKey::from_update(&update);
+        if let SpectrumSeriesKey::Order(order) = series_key {
+            self.selected_order.get_or_insert(order);
+        }
 
-        self.latest_points =
-            decimate_spectrum_points(&update.x_values, &update.y_values, self.max_display_points);
-
-        self.plot.update_bounds(&self.latest_points);
-
-        self.history.push_back(SpectrumSnapshotMeta {
-            timestamp_ns: update.timestamp_ns,
-            raw_points: self.latest_raw_point_count,
-            displayed_points: self.latest_points.len(),
-        });
-        if self.history.len() > MAX_SPECTRUM_HISTORY {
-            self.history.pop_front();
+        let snapshot = SpectrumSnapshot::from(update);
+        let history = self.series.entry(series_key).or_default();
+        history.push_back(snapshot);
+        while history.len() > MAX_SPECTRUM_HISTORY {
+            history.pop_front();
         }
 
         self.update_times.push_back(Instant::now());
         trim_recent_times(&mut self.update_times);
+        self.refresh_bounds();
+    }
+
+    fn refresh_bounds(&mut self) {
+        let Some(render_state) = self.selected_render_state() else {
+            return;
+        };
+
+        let mut bounds_points = build_display_points(
+            &render_state.x_values,
+            &render_state.y_values,
+            self.max_display_points,
+        );
+        if let Some(sigma) = &render_state.sigma {
+            bounds_points.extend(build_error_bounds_points(
+                &render_state.x_values,
+                &render_state.y_values,
+                sigma,
+                self.max_display_points,
+            ));
+        }
+        self.plot.update_bounds(&bounds_points);
     }
 
     fn current_hz(&self) -> f64 {
         rate_from_instants(&self.update_times)
     }
 
-    fn latest_display_points(&self) -> usize {
-        self.latest_points.len()
+    fn has_merged(&self) -> bool {
+        self.series.contains_key(&SpectrumSeriesKey::Merged)
     }
 
-    fn history_len(&self) -> usize {
-        self.history.len()
+    fn available_orders(&self) -> Vec<i32> {
+        let mut orders = self
+            .series
+            .keys()
+            .filter_map(|key| match key {
+                SpectrumSeriesKey::Merged => None,
+                SpectrumSeriesKey::Order(order) => Some(*order),
+            })
+            .collect::<Vec<_>>();
+        orders.sort_unstable();
+        orders
     }
 
-    fn latest_timestamp_ns(&self) -> Option<u64> {
-        self.history.back().map(|h| h.timestamp_ns)
+    fn selected_series_key(&self) -> Option<SpectrumSeriesKey> {
+        if self.show_merged && self.has_merged() {
+            return Some(SpectrumSeriesKey::Merged);
+        }
+
+        if let Some(order) = self
+            .selected_order
+            .filter(|order| self.series.contains_key(&SpectrumSeriesKey::Order(*order)))
+        {
+            return Some(SpectrumSeriesKey::Order(order));
+        }
+
+        self.available_orders()
+            .into_iter()
+            .next()
+            .map(SpectrumSeriesKey::Order)
+            .or_else(|| self.has_merged().then_some(SpectrumSeriesKey::Merged))
     }
 
-    fn last_snapshot_displayed_points(&self) -> Option<usize> {
-        self.history.back().map(|h| h.displayed_points)
+    fn selected_render_state(&self) -> Option<SpectrumRenderState> {
+        let series_key = self.selected_series_key()?;
+        let history = self.series.get(&series_key)?;
+        let latest = history.back()?;
+        let expected_len = latest.x_values.len().min(latest.y_values.len());
+        if expected_len == 0 {
+            return None;
+        }
+
+        let mut averaged_y = vec![0.0; expected_len];
+        let mut snapshots_used = 0usize;
+        for snapshot in history.iter().rev() {
+            let sample_len = snapshot.x_values.len().min(snapshot.y_values.len());
+            if sample_len != expected_len
+                || snapshot.x_values[..expected_len] != latest.x_values[..expected_len]
+            {
+                continue;
+            }
+
+            for (acc, value) in averaged_y
+                .iter_mut()
+                .zip(snapshot.y_values.iter().take(expected_len))
+            {
+                *acc += *value;
+            }
+            snapshots_used += 1;
+        }
+
+        if snapshots_used == 0 {
+            return None;
+        }
+
+        #[allow(clippy::cast_precision_loss)]
+        let divisor = snapshots_used as f64;
+        for value in &mut averaged_y {
+            *value /= divisor;
+        }
+
+        let sigma = if latest.ivar.len() >= expected_len {
+            Some(
+                latest
+                    .ivar
+                    .iter()
+                    .take(expected_len)
+                    .map(|ivar| {
+                        if *ivar > 0.0 {
+                            ivar.sqrt().recip()
+                        } else {
+                            0.0
+                        }
+                    })
+                    .collect(),
+            )
+        } else {
+            None
+        };
+
+        Some(SpectrumRenderState {
+            label: if latest.label.is_empty() {
+                series_key.label()
+            } else {
+                latest.label.clone()
+            },
+            x_values: latest.x_values.iter().take(expected_len).copied().collect(),
+            y_values: averaged_y,
+            sigma,
+            x_unit: latest.x_unit.clone(),
+            y_unit: latest.y_unit.clone(),
+            calibration_profile_id: latest.calibration_profile_id.clone(),
+            quality_flags: latest.quality_flags.clone(),
+            snr_estimate: latest.snr_estimate,
+            timestamp_ns: latest.timestamp_ns,
+            snapshots_used,
+        })
     }
 
-    fn last_snapshot_raw_points(&self) -> Option<usize> {
-        self.history.back().map(|h| h.raw_points)
+    fn selected_history_len(&self) -> usize {
+        self.selected_series_key()
+            .and_then(|key| self.series.get(&key))
+            .map_or(0, VecDeque::len)
+    }
+
+    fn selected_raw_points(&self) -> Option<usize> {
+        self.selected_series_key()
+            .and_then(|key| self.series.get(&key))
+            .and_then(|history| history.back())
+            .map(|snapshot| snapshot.x_values.len().min(snapshot.y_values.len()))
     }
 }
 
@@ -408,43 +591,100 @@ fn rate_from_instants(times: &VecDeque<Instant>) -> f64 {
     }
 }
 
-fn decimate_spectrum_points(
-    x_values: &[f64],
-    y_values: &[f64],
-    max_points: usize,
-) -> Vec<[f64; 2]> {
-    let n = x_values.len().min(y_values.len());
-    if n == 0 {
+fn decimation_sample_indices(point_count: usize, max_points: usize) -> Vec<usize> {
+    if point_count == 0 {
         return Vec::new();
     }
+
     let max_points = max_points.max(2);
-    if n <= max_points {
-        return x_values
-            .iter()
-            .zip(y_values.iter())
-            .take(n)
-            .map(|(&x, &y)| [x, y])
-            .collect();
+    if point_count <= max_points {
+        return (0..point_count).collect();
     }
 
-    let last_index = n - 1;
+    let last_index = point_count - 1;
     let interior_target = max_points.saturating_sub(2);
     #[allow(
         clippy::cast_possible_truncation,
         clippy::cast_precision_loss,
         clippy::cast_sign_loss
     )]
-    let step = ((n - 2) as f64 / interior_target.max(1) as f64).ceil() as usize;
+    let step = ((point_count - 2) as f64 / interior_target.max(1) as f64).ceil() as usize;
 
-    let mut out = Vec::with_capacity(max_points);
-    out.push([x_values[0], y_values[0]]);
+    let mut indices = Vec::with_capacity(max_points);
+    indices.push(0);
     let mut idx = 1usize;
-    while idx < last_index && out.len() < max_points - 1 {
-        out.push([x_values[idx], y_values[idx]]);
+    while idx < last_index && indices.len() < max_points - 1 {
+        indices.push(idx);
         idx = idx.saturating_add(step.max(1));
     }
-    out.push([x_values[last_index], y_values[last_index]]);
-    out
+    indices.push(last_index);
+    indices
+}
+
+fn build_display_points(x_values: &[f64], y_values: &[f64], max_points: usize) -> Vec<[f64; 2]> {
+    let point_count = x_values.len().min(y_values.len());
+    decimation_sample_indices(point_count, max_points)
+        .into_iter()
+        .map(|idx| [x_values[idx], y_values[idx]])
+        .collect()
+}
+
+fn build_error_bounds_points(
+    x_values: &[f64],
+    y_values: &[f64],
+    sigma_values: &[f64],
+    max_points: usize,
+) -> Vec<[f64; 2]> {
+    let point_count = x_values.len().min(y_values.len()).min(sigma_values.len());
+    decimation_sample_indices(point_count, max_points)
+        .into_iter()
+        .flat_map(|idx| {
+            let sigma = sigma_values[idx];
+            [
+                [x_values[idx], y_values[idx] - sigma],
+                [x_values[idx], y_values[idx] + sigma],
+            ]
+        })
+        .collect()
+}
+
+fn build_error_band_polygon(
+    x_values: &[f64],
+    y_values: &[f64],
+    sigma_values: &[f64],
+    max_points: usize,
+) -> Option<Vec<[f64; 2]>> {
+    let point_count = x_values.len().min(y_values.len()).min(sigma_values.len());
+    if point_count == 0 {
+        return None;
+    }
+
+    let indices = decimation_sample_indices(point_count, max_points);
+    let has_nonzero_sigma = indices
+        .iter()
+        .any(|&idx| sigma_values.get(idx).copied().unwrap_or_default() > 0.0);
+    if !has_nonzero_sigma {
+        return None;
+    }
+
+    let mut polygon = Vec::with_capacity(indices.len() * 2);
+    for &idx in &indices {
+        polygon.push([x_values[idx], y_values[idx] + sigma_values[idx]]);
+    }
+    for &idx in indices.iter().rev() {
+        polygon.push([x_values[idx], y_values[idx] - sigma_values[idx]]);
+    }
+    Some(polygon)
+}
+
+fn snr_color(snr_estimate: f64) -> egui::Color32 {
+    if snr_estimate > 50.0 {
+        egui::Color32::from_rgb(70, 180, 70)
+    } else if snr_estimate >= 10.0 {
+        egui::Color32::from_rgb(220, 185, 60)
+    } else {
+        egui::Color32::from_rgb(210, 90, 90)
+    }
 }
 
 /// Live visualization panel
@@ -562,9 +802,8 @@ impl LiveVisualizationPanel {
             plot.data.clear();
         }
         for spectrum in self.spectrum_plots.values_mut() {
-            spectrum.latest_points.clear();
-            spectrum.latest_raw_point_count = 0;
-            spectrum.history.clear();
+            spectrum.series.clear();
+            spectrum.selected_order = None;
             spectrum.update_times.clear();
             spectrum.plot.reset_bounds();
         }
@@ -829,49 +1068,127 @@ impl LiveVisualizationPanel {
     /// Render streamed spectrum plot display
     fn render_spectrum_panel(&mut self, ui: &mut egui::Ui, device_id: &str, label: &str) {
         if let Some(plot_state) = self.spectrum_plots.get_mut(device_id) {
-            if plot_state.latest_points.is_empty() {
+            if plot_state.series.is_empty() {
                 ui.centered_and_justified(|ui| {
                     ui.label("Waiting for spectrum data...");
                 });
                 return;
             }
 
-            let points = plot_state.latest_points.clone();
+            let available_orders = plot_state.available_orders();
+            let has_merged = plot_state.has_merged();
+
+            ui.horizontal_wrapped(|ui| {
+                ui.add_enabled(
+                    has_merged,
+                    egui::Checkbox::new(&mut plot_state.show_merged, "Merged"),
+                );
+                if !has_merged {
+                    ui.weak("Merged stream unavailable");
+                }
+
+                if !available_orders.is_empty() {
+                    let selected_order = plot_state
+                        .selected_order
+                        .filter(|order| available_orders.contains(order))
+                        .unwrap_or(available_orders[0]);
+                    plot_state.selected_order = Some(selected_order);
+
+                    egui::ComboBox::from_id_salt(format!("spectrum_order_selector_{device_id}"))
+                        .selected_text(format!("Order {}", selected_order))
+                        .show_ui(ui, |ui| {
+                            for order in &available_orders {
+                                ui.selectable_value(
+                                    &mut plot_state.selected_order,
+                                    Some(*order),
+                                    format!("Order {}", order),
+                                );
+                            }
+                        });
+                }
+            });
+
+            plot_state.refresh_bounds();
+            let Some(render_state) = plot_state.selected_render_state() else {
+                ui.centered_and_justified(|ui| {
+                    ui.label("Waiting for compatible spectrum snapshots...");
+                });
+                return;
+            };
+
+            let line_points = build_display_points(
+                &render_state.x_values,
+                &render_state.y_values,
+                plot_state.max_display_points,
+            );
+            let band_points = render_state.sigma.as_ref().and_then(|sigma| {
+                build_error_band_polygon(
+                    &render_state.x_values,
+                    &render_state.y_values,
+                    sigma,
+                    plot_state.max_display_points,
+                )
+            });
+
             let label_owned = if label.is_empty() {
-                plot_state.label.clone()
+                render_state.label.clone()
             } else {
-                label.to_string()
+                format!("{label} · {}", render_state.label)
             };
 
             ui.horizontal_wrapped(|ui| {
                 let raw = plot_state
-                    .last_snapshot_raw_points()
-                    .unwrap_or(plot_state.latest_raw_point_count);
-                let shown = plot_state
-                    .last_snapshot_displayed_points()
-                    .unwrap_or(plot_state.latest_display_points());
-                ui.label(format!("pts: {} -> {}", raw, shown));
-                ui.label(format!("buf: {}", plot_state.history_len()));
-                if let Some(xu) = &plot_state.x_unit {
+                    .selected_raw_points()
+                    .unwrap_or(render_state.x_values.len().min(render_state.y_values.len()));
+                ui.label(format!("pts: {} -> {}", raw, line_points.len()));
+                ui.label(format!("avg: {}", render_state.snapshots_used));
+                ui.label(format!("buf: {}", plot_state.selected_history_len()));
+                if let Some(xu) = &render_state.x_unit {
                     if !xu.is_empty() {
                         ui.label(format!("x: {}", xu));
                     }
                 }
-                if let Some(yu) = &plot_state.y_unit {
+                if let Some(yu) = &render_state.y_unit {
                     if !yu.is_empty() {
                         ui.label(format!("y: {}", yu));
                     }
                 }
-                if let Some(ts) = plot_state.latest_timestamp_ns() {
-                    ui.label(format!("ts: {}", ts));
+                if let Some(profile_id) = &render_state.calibration_profile_id {
+                    if !profile_id.is_empty() {
+                        ui.label(format!("profile: {}", profile_id));
+                    }
                 }
+                ui.label(format!("ts: {}", render_state.timestamp_ns));
+                ui.colored_label(
+                    snr_color(render_state.snr_estimate),
+                    format!("SNR {:.1}", render_state.snr_estimate),
+                );
             });
+
+            if !render_state.quality_flags.is_empty() {
+                ui.horizontal_wrapped(|ui| {
+                    for flag in &render_state.quality_flags {
+                        ui.colored_label(
+                            egui::Color32::from_rgb(120, 170, 235),
+                            format!("[{}]", flag),
+                        );
+                    }
+                });
+            }
 
             plot_state.plot.show_with_controls(
                 ui,
                 format!("spectrum_plot_{}", device_id),
                 |plot_ui| {
-                    let line = Line::new(label_owned, PlotPoints::from(points));
+                    if let Some(points) = band_points {
+                        let band =
+                            Polygon::new(format!("{label_owned} ±1σ"), PlotPoints::from(points))
+                                .fill_color(egui::Color32::from_rgba_unmultiplied(
+                                    90, 140, 220, 36,
+                                ));
+                        plot_ui.polygon(band);
+                    }
+                    let line = Line::new(label_owned, PlotPoints::from(line_points));
                     plot_ui.line(line);
                 },
             );
@@ -894,47 +1211,113 @@ mod tests {
     use super::*;
 
     #[test]
-    fn decimate_spectrum_points_preserves_endpoints_and_caps_length() {
+    fn decimation_sample_indices_preserve_endpoints_and_cap_length() {
         let x = (0..5000).map(f64::from).collect::<Vec<_>>();
         let y = (0..5000).map(|i| f64::from(i) * 2.0).collect::<Vec<_>>();
 
-        let out = decimate_spectrum_points(&x, &y, 256);
+        let out = build_display_points(&x, &y, 256);
         assert!(out.len() <= 256);
         assert_eq!(out.first().copied(), Some([0.0, 0.0]));
         assert_eq!(out.last().copied(), Some([4999.0, 9998.0]));
     }
 
     #[test]
-    fn spectrum_plot_state_uses_ring_buffer_and_decimation() {
+    fn spectrum_plot_state_tracks_orders_and_running_average() {
         let mut state = SpectrumPlotState::new("spec".to_string(), "merged".to_string());
         state.max_display_points = 64;
 
+        let x = vec![500.0, 501.0, 502.0, 503.0];
+        state.add_spectrum(SpectrumUpdate {
+            device_id: "spec".to_string(),
+            label: "order_0".to_string(),
+            x_values: x.clone(),
+            y_values: vec![10.0, 12.0, 14.0, 16.0],
+            ivar: vec![4.0; 4],
+            x_unit: Some("nm".to_string()),
+            y_unit: Some("counts".to_string()),
+            merged: false,
+            order_index: 0,
+            calibration_profile_id: Some("profile-a".to_string()),
+            quality_flags: vec!["cosmic_masked".to_string()],
+            snr_estimate: 8.0,
+            timestamp_ns: 1,
+        });
+        state.add_spectrum(SpectrumUpdate {
+            device_id: "spec".to_string(),
+            label: "merged".to_string(),
+            x_values: x.clone(),
+            y_values: vec![20.0, 22.0, 24.0, 26.0],
+            ivar: vec![9.0; 4],
+            x_unit: Some("nm".to_string()),
+            y_unit: Some("counts".to_string()),
+            merged: true,
+            order_index: -1,
+            calibration_profile_id: Some("profile-a".to_string()),
+            quality_flags: vec!["blaze_corrected".to_string()],
+            snr_estimate: 55.0,
+            timestamp_ns: 2,
+        });
+        state.add_spectrum(SpectrumUpdate {
+            device_id: "spec".to_string(),
+            label: "merged".to_string(),
+            x_values: x.clone(),
+            y_values: vec![30.0, 32.0, 34.0, 36.0],
+            ivar: vec![16.0; 4],
+            x_unit: Some("nm".to_string()),
+            y_unit: Some("counts".to_string()),
+            merged: true,
+            order_index: -1,
+            calibration_profile_id: Some("profile-a".to_string()),
+            quality_flags: vec!["blaze_corrected".to_string()],
+            snr_estimate: 60.0,
+            timestamp_ns: 3,
+        });
+
+        assert!(state.has_merged());
+        assert_eq!(state.available_orders(), vec![0]);
+
+        let merged = state.selected_render_state().unwrap();
+        assert_eq!(merged.snapshots_used, 2);
+        assert_eq!(merged.x_values, x);
+        assert_eq!(merged.y_values, vec![25.0, 27.0, 29.0, 31.0]);
+        assert_eq!(merged.calibration_profile_id.as_deref(), Some("profile-a"));
+        assert_eq!(merged.quality_flags, vec!["blaze_corrected".to_string()]);
+        assert_eq!(merged.timestamp_ns, 3);
+        assert_eq!(merged.sigma.unwrap(), vec![0.25, 0.25, 0.25, 0.25]);
+
+        state.show_merged = false;
+        let order = state.selected_render_state().unwrap();
+        assert_eq!(order.label, "order_0");
+        assert_eq!(order.snapshots_used, 1);
+        assert_eq!(order.y_values, vec![10.0, 12.0, 14.0, 16.0]);
+    }
+
+    #[test]
+    fn spectrum_plot_state_caps_history_per_series() {
+        let mut state = SpectrumPlotState::new("spec".to_string(), "merged".to_string());
+        let x = vec![1.0, 2.0, 3.0];
+
         for i in 0..(MAX_SPECTRUM_HISTORY + 5) {
-            let n = 512usize;
-            #[allow(clippy::cast_precision_loss)]
-            let x = (0..n).map(|j| j as f64).collect::<Vec<_>>();
-            #[allow(clippy::cast_precision_loss)]
-            let y = (0..n).map(|j| j as f64 + i as f64).collect::<Vec<_>>();
             state.add_spectrum(SpectrumUpdate {
                 device_id: "spec".to_string(),
                 label: "merged".to_string(),
-                x_values: x,
-                y_values: y,
+                x_values: x.clone(),
+                y_values: vec![i as f64, i as f64 + 1.0, i as f64 + 2.0],
+                ivar: vec![1.0; 3],
                 x_unit: Some("nm".to_string()),
                 y_unit: Some("counts".to_string()),
+                merged: true,
+                order_index: -1,
+                calibration_profile_id: None,
+                quality_flags: Vec::new(),
+                snr_estimate: i as f64,
                 timestamp_ns: i as u64,
             });
         }
 
-        assert_eq!(state.history_len(), MAX_SPECTRUM_HISTORY);
-        assert_eq!(state.latest_raw_point_count, 512);
-        assert!(state.latest_display_points() <= 64);
-        assert_eq!(
-            state.latest_timestamp_ns(),
-            Some((MAX_SPECTRUM_HISTORY + 4) as u64)
-        );
-        assert_eq!(state.last_snapshot_raw_points(), Some(512));
-        assert_eq!(state.x_unit.as_deref(), Some("nm"));
-        assert_eq!(state.y_unit.as_deref(), Some("counts"));
+        assert_eq!(state.selected_history_len(), MAX_SPECTRUM_HISTORY);
+        let render = state.selected_render_state().unwrap();
+        assert_eq!(render.snapshots_used, MAX_SPECTRUM_HISTORY);
+        assert_eq!(render.timestamp_ns, (MAX_SPECTRUM_HISTORY + 4) as u64);
     }
 }
