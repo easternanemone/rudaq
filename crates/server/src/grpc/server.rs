@@ -300,7 +300,15 @@ impl DaqServer {
             });
 
             tokio::spawn(async move {
-                while let Some(measurement) = rb_rx.recv().await {
+                let mut last_frame_numbers = HashMap::<String, u64>::new();
+                while let Some(mut measurement) = rb_rx.recv().await {
+                    if let Some((source, fault)) = annotate_measurement_data_integrity(
+                        &mut measurement,
+                        &mut last_frame_numbers,
+                    ) {
+                        log_data_integrity_fault(&source, fault);
+                    }
+
                     match encode_measurement_frame(&measurement) {
                         Ok(frame) => {
                             if let Err(e) = rb.write(&frame) {
@@ -507,6 +515,108 @@ fn encode_measurement_frame(measurement: &Measurement) -> Result<Vec<u8>, bincod
     frame.extend_from_slice(&payload_len.to_le_bytes());
     frame.extend_from_slice(&payload);
     Ok(frame)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ImageSequenceFault {
+    previous_frame_number: u64,
+    current_frame_number: u64,
+    missing_frames: u64,
+}
+
+fn build_image_measurement(device_id: &str, frame: &common::data::Frame) -> Measurement {
+    let buffer = match frame.bit_depth {
+        16 => {
+            if let Some(slice) = frame.as_u16_slice() {
+                common::core::PixelBuffer::U16(slice.to_vec())
+            } else {
+                common::core::PixelBuffer::U8(frame.data.to_vec())
+            }
+        }
+        _ => common::core::PixelBuffer::U8(frame.data.to_vec()),
+    };
+
+    let frame_metadata = frame.metadata.as_deref();
+    let roi_origin = if frame.roi_x == 0 && frame.roi_y == 0 {
+        None
+    } else {
+        Some((frame.roi_x, frame.roi_y))
+    };
+
+    Measurement::Image {
+        name: device_id.to_string(),
+        width: frame.width,
+        height: frame.height,
+        buffer,
+        unit: "counts".to_string(),
+        metadata: common::core::ImageMetadata {
+            exposure_ms: frame.exposure_ms,
+            gain: None,
+            binning: frame_metadata
+                .and_then(|meta| meta.binning)
+                .map(|(x, y)| (u32::from(x), u32::from(y))),
+            temperature_c: frame_metadata.and_then(|meta| meta.temperature_c),
+            hardware_timestamp_us: None,
+            readout_ms: None,
+            roi_origin,
+            frame_number: Some(frame.frame_number),
+            sequence_gap_from_previous: None,
+        },
+        timestamp: chrono::Utc::now(),
+    }
+}
+
+fn detect_image_sequence_fault(
+    previous_frame_number: Option<u64>,
+    current_frame_number: u64,
+) -> Option<ImageSequenceFault> {
+    let previous_frame_number = previous_frame_number?;
+    if current_frame_number > previous_frame_number.saturating_add(1) {
+        return Some(ImageSequenceFault {
+            previous_frame_number,
+            current_frame_number,
+            missing_frames: current_frame_number - previous_frame_number - 1,
+        });
+    }
+    None
+}
+
+fn annotate_measurement_data_integrity(
+    measurement: &mut Measurement,
+    last_frame_numbers: &mut HashMap<String, u64>,
+) -> Option<(String, ImageSequenceFault)> {
+    let Measurement::Image { name, metadata, .. } = measurement else {
+        return None;
+    };
+    let current_frame_number = metadata.frame_number?;
+    let previous_frame_number = last_frame_numbers.get(name).copied();
+    let fault = detect_image_sequence_fault(previous_frame_number, current_frame_number);
+
+    if let Some(fault) = fault {
+        metadata.sequence_gap_from_previous = Some(fault.missing_frames);
+    }
+
+    let next_frame_number = previous_frame_number.map_or(current_frame_number, |previous| {
+        previous.max(current_frame_number)
+    });
+    last_frame_numbers.insert(name.clone(), next_frame_number);
+
+    fault.map(|fault| (name.clone(), fault))
+}
+
+fn log_data_integrity_fault(source: &str, fault: ImageSequenceFault) {
+    tracing::warn!(
+        target: "data_integrity",
+        source,
+        previous_frame_number = fault.previous_frame_number,
+        current_frame_number = fault.current_frame_number,
+        missing_frames = fault.missing_frames,
+        "DataIntegrityFault: {} dropped {} frame(s) (prev={}, current={})",
+        source,
+        fault.missing_frames,
+        fault.previous_frame_number,
+        fault.current_frame_number
+    );
 }
 
 #[cfg(feature = "scripting")]
@@ -1512,7 +1622,14 @@ pub async fn start_server_with_hardware(
 
         // Spawn writer task
         tokio::spawn(async move {
-            while let Some(measurement) = rx.recv().await {
+            let mut last_frame_numbers = HashMap::<String, u64>::new();
+            while let Some(mut measurement) = rx.recv().await {
+                if let Some((source, fault)) =
+                    annotate_measurement_data_integrity(&mut measurement, &mut last_frame_numbers)
+                {
+                    log_data_integrity_fault(&source, fault);
+                }
+
                 if let Ok(frame) = encode_measurement_frame(&measurement)
                     && let Err(e) = rb_clone.write(&frame)
                 {
@@ -1572,28 +1689,7 @@ pub async fn start_server_with_hardware(
             // 4. Spawn Converter Task (Frame -> Measurement)
             tokio::spawn(async move {
                 while let Some(frame) = frame_rx.recv().await {
-                    let buffer = match frame.bit_depth {
-                        16 => {
-                            if let Some(slice) = frame.as_u16_slice() {
-                                common::core::PixelBuffer::U16(slice.to_vec())
-                            } else {
-                                // Convert Bytes to Vec<u8> for PixelBuffer
-                                common::core::PixelBuffer::U8(frame.data.to_vec())
-                            }
-                        }
-                        // Convert Bytes to Vec<u8> for PixelBuffer
-                        _ => common::core::PixelBuffer::U8(frame.data.to_vec()),
-                    };
-
-                    let measurement = common::core::Measurement::Image {
-                        name: device_id_clone.clone(),
-                        width: frame.width,
-                        height: frame.height,
-                        buffer,
-                        unit: "counts".to_string(),
-                        metadata: common::core::ImageMetadata::default(),
-                        timestamp: chrono::Utc::now(),
-                    };
+                    let measurement = build_image_measurement(&device_id_clone, &frame);
 
                     if meas_tx.send(measurement).await.is_err() {
                         break; // Downstream closed
@@ -2158,6 +2254,21 @@ mod tests {
     use super::*;
     use chrono::Utc;
 
+    fn test_image_measurement(source: &str, frame_number: Option<u64>) -> Measurement {
+        Measurement::Image {
+            name: source.to_string(),
+            width: 2,
+            height: 2,
+            buffer: common::core::PixelBuffer::U16(vec![1, 2, 3, 4]),
+            unit: "counts".to_string(),
+            metadata: common::core::ImageMetadata {
+                frame_number,
+                ..Default::default()
+            },
+            timestamp: Utc::now(),
+        }
+    }
+
     /// Create a test DaqServer with a mock RunEngine (bd-si2c)
     #[cfg(feature = "scripting")]
     fn create_test_server() -> DaqServer {
@@ -2526,5 +2637,85 @@ mod tests {
         let result = validate_auth(&settings, &request);
 
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_build_image_measurement_preserves_frame_metadata() {
+        let frame = common::data::Frame::from_u16(4, 2, &[1, 2, 3, 4, 5, 6, 7, 8])
+            .with_frame_number(42)
+            .with_exposure(12.5)
+            .with_roi_offset(8, 16)
+            .with_metadata(common::data::FrameMetadata {
+                temperature_c: Some(-15.0),
+                binning: Some((2, 4)),
+                ..Default::default()
+            });
+
+        let measurement = build_image_measurement("camera-a", &frame);
+        let Measurement::Image {
+            name,
+            width,
+            height,
+            buffer,
+            metadata,
+            ..
+        } = measurement
+        else {
+            panic!("expected image measurement");
+        };
+
+        assert_eq!(name, "camera-a");
+        assert_eq!((width, height), (4, 2));
+        assert!(matches!(buffer, common::core::PixelBuffer::U16(_)));
+        assert_eq!(metadata.exposure_ms, Some(12.5));
+        assert_eq!(metadata.temperature_c, Some(-15.0));
+        assert_eq!(metadata.binning, Some((2, 4)));
+        assert_eq!(metadata.roi_origin, Some((8, 16)));
+        assert_eq!(metadata.frame_number, Some(42));
+        assert_eq!(metadata.sequence_gap_from_previous, None);
+    }
+
+    #[test]
+    fn test_annotate_measurement_data_integrity_marks_gap() {
+        let mut last_frame_numbers = HashMap::new();
+        let mut first = test_image_measurement("camera-a", Some(7));
+        let mut second = test_image_measurement("camera-a", Some(10));
+
+        assert!(annotate_measurement_data_integrity(&mut first, &mut last_frame_numbers).is_none());
+
+        let (source, fault) =
+            annotate_measurement_data_integrity(&mut second, &mut last_frame_numbers)
+                .expect("expected sequence gap fault");
+        let Measurement::Image { metadata, .. } = second else {
+            panic!("expected image measurement");
+        };
+
+        assert_eq!(source, "camera-a");
+        assert_eq!(
+            fault,
+            ImageSequenceFault {
+                previous_frame_number: 7,
+                current_frame_number: 10,
+                missing_frames: 2,
+            }
+        );
+        assert_eq!(metadata.sequence_gap_from_previous, Some(2));
+        assert_eq!(last_frame_numbers.get("camera-a"), Some(&10));
+    }
+
+    #[test]
+    fn test_annotate_measurement_data_integrity_ignores_regressions() {
+        let mut last_frame_numbers = HashMap::from([("camera-a".to_string(), 10)]);
+        let mut measurement = test_image_measurement("camera-a", Some(9));
+
+        assert!(
+            annotate_measurement_data_integrity(&mut measurement, &mut last_frame_numbers)
+                .is_none()
+        );
+        let Measurement::Image { metadata, .. } = measurement else {
+            panic!("expected image measurement");
+        };
+        assert_eq!(metadata.sequence_gap_from_previous, None);
+        assert_eq!(last_frame_numbers.get("camera-a"), Some(&10));
     }
 }

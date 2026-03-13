@@ -15,7 +15,7 @@
 //! ```
 
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fmt;
@@ -155,43 +155,169 @@ impl Roi {
 }
 
 /// Image metadata (exposure, gain, etc.)
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct ImageMetadata {
     /// Exposure time in milliseconds.
     ///
     /// `None` if exposure is unknown or not applicable (e.g., pre-captured images).
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub exposure_ms: Option<f64>,
     /// Camera gain multiplier (unitless).
     ///
     /// `None` if gain is not applicable or not set. Common range: 1.0-16.0.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub gain: Option<f64>,
     /// Binning factors (horizontal, vertical).
     ///
     /// `None` if no binning is applied. (1, 1) represents no binning, (2, 2) bins 2x2 pixels.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub binning: Option<(u32, u32)>,
     /// Sensor temperature in degrees Celsius.
     ///
     /// `None` if temperature reading is unavailable. Negative values indicate cooling below ambient.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature_c: Option<f64>,
     /// Hardware timestamp from camera in microseconds.
     ///
     /// `None` if camera does not provide hardware timestamps. Used for precise inter-frame timing.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub hardware_timestamp_us: Option<i64>,
     /// Frame readout duration in milliseconds.
     ///
     /// `None` if readout time is unknown. Represents time from exposure end to data availability.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub readout_ms: Option<f64>,
     /// ROI origin (x, y) in full sensor coordinates.
     ///
     /// `None` if ROI matches full sensor area. Useful for reconstructing position in full frame.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub roi_origin: Option<(u32, u32)>,
+    /// Driver-provided frame sequence number.
+    ///
+    /// `None` if the source does not expose a stable frame counter.
+    pub frame_number: Option<u64>,
+    /// Number of dropped frames detected since the previous image from the same source.
+    ///
+    /// `None` if no gap was observed or the source does not provide frame numbers.
+    pub sequence_gap_from_previous: Option<u64>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct HumanReadableImageMetadata {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    exposure_ms: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    gain: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    binning: Option<(u32, u32)>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    temperature_c: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hardware_timestamp_us: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    readout_ms: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    roi_origin: Option<(u32, u32)>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    frame_number: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sequence_gap_from_previous: Option<u64>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct BinaryImageMetadata {
+    exposure_ms: Option<f64>,
+    gain: Option<f64>,
+    binning: Option<(u32, u32)>,
+    temperature_c: Option<f64>,
+    hardware_timestamp_us: Option<i64>,
+    readout_ms: Option<f64>,
+    roi_origin: Option<(u32, u32)>,
+    frame_number: Option<u64>,
+    sequence_gap_from_previous: Option<u64>,
+}
+
+impl From<&ImageMetadata> for HumanReadableImageMetadata {
+    fn from(value: &ImageMetadata) -> Self {
+        Self {
+            exposure_ms: value.exposure_ms,
+            gain: value.gain,
+            binning: value.binning,
+            temperature_c: value.temperature_c,
+            hardware_timestamp_us: value.hardware_timestamp_us,
+            readout_ms: value.readout_ms,
+            roi_origin: value.roi_origin,
+            frame_number: value.frame_number,
+            sequence_gap_from_previous: value.sequence_gap_from_previous,
+        }
+    }
+}
+
+impl From<&ImageMetadata> for BinaryImageMetadata {
+    fn from(value: &ImageMetadata) -> Self {
+        Self {
+            exposure_ms: value.exposure_ms,
+            gain: value.gain,
+            binning: value.binning,
+            temperature_c: value.temperature_c,
+            hardware_timestamp_us: value.hardware_timestamp_us,
+            readout_ms: value.readout_ms,
+            roi_origin: value.roi_origin,
+            frame_number: value.frame_number,
+            sequence_gap_from_previous: value.sequence_gap_from_previous,
+        }
+    }
+}
+
+impl From<HumanReadableImageMetadata> for ImageMetadata {
+    fn from(value: HumanReadableImageMetadata) -> Self {
+        Self {
+            exposure_ms: value.exposure_ms,
+            gain: value.gain,
+            binning: value.binning,
+            temperature_c: value.temperature_c,
+            hardware_timestamp_us: value.hardware_timestamp_us,
+            readout_ms: value.readout_ms,
+            roi_origin: value.roi_origin,
+            frame_number: value.frame_number,
+            sequence_gap_from_previous: value.sequence_gap_from_previous,
+        }
+    }
+}
+
+impl From<BinaryImageMetadata> for ImageMetadata {
+    fn from(value: BinaryImageMetadata) -> Self {
+        Self {
+            exposure_ms: value.exposure_ms,
+            gain: value.gain,
+            binning: value.binning,
+            temperature_c: value.temperature_c,
+            hardware_timestamp_us: value.hardware_timestamp_us,
+            readout_ms: value.readout_ms,
+            roi_origin: value.roi_origin,
+            frame_number: value.frame_number,
+            sequence_gap_from_previous: value.sequence_gap_from_previous,
+        }
+    }
+}
+
+impl Serialize for ImageMetadata {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        if serializer.is_human_readable() {
+            HumanReadableImageMetadata::from(self).serialize(serializer)
+        } else {
+            BinaryImageMetadata::from(self).serialize(serializer)
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for ImageMetadata {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        if deserializer.is_human_readable() {
+            HumanReadableImageMetadata::deserialize(deserializer).map(Into::into)
+        } else {
+            BinaryImageMetadata::deserialize(deserializer).map(Into::into)
+        }
+    }
 }
 
 /// Unified measurement representation.
@@ -917,6 +1043,8 @@ mod tests {
                 hardware_timestamp_us: None,
                 readout_ms: None,
                 roi_origin: None,
+                frame_number: None,
+                sequence_gap_from_previous: None,
             },
             timestamp: Utc::now(),
         };
@@ -936,6 +1064,8 @@ mod tests {
                 hardware_timestamp_us: None,
                 readout_ms: None,
                 roi_origin: None,
+                frame_number: None,
+                sequence_gap_from_previous: None,
             },
             timestamp: Utc::now(),
         };
@@ -955,6 +1085,8 @@ mod tests {
                 hardware_timestamp_us: None,
                 readout_ms: None,
                 roi_origin: None,
+                frame_number: None,
+                sequence_gap_from_previous: None,
             },
             timestamp: Utc::now(),
         };
@@ -1006,6 +1138,8 @@ mod tests {
                     hardware_timestamp_us: None,
                     readout_ms: None,
                     roi_origin: None,
+                    frame_number: None,
+                    sequence_gap_from_previous: None,
                 },
                 timestamp: Utc::now(),
             },

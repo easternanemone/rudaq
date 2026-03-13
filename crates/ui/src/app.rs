@@ -183,6 +183,25 @@ fn check_crashed_session() -> Option<String> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+fn data_integrity_status_message(
+    event: &crate::gui_log_layer::GuiLogEvent,
+) -> Option<(crate::widgets::StatusLevel, String)> {
+    let is_fault_event =
+        event.target == "data_integrity" || event.message.contains("DataIntegrityFault");
+    if !is_fault_event {
+        return None;
+    }
+
+    let level = match event.level {
+        crate::panels::LogLevel::Error => crate::widgets::StatusLevel::Error,
+        crate::panels::LogLevel::Warn => crate::widgets::StatusLevel::Warning,
+        _ => return None,
+    };
+
+    Some((level, event.message.clone()))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 /// Remove only our own session file (marks clean shutdown)
 fn clear_session_file() {
     let path = session_file_path();
@@ -2229,6 +2248,9 @@ impl DaqApp {
     fn poll_logs(&mut self) {
         // Drain all pending log events from the channel
         while let Ok(event) = self.log_receiver.try_recv() {
+            if let Some((level, message)) = data_integrity_status_message(&event) {
+                self.status_bar.set_status(message, level);
+            }
             self.logging_panel
                 .log(event.level, &event.target, &event.message);
         }
@@ -3754,5 +3776,32 @@ mod tests {
     fn test_device_panel_kind_equality() {
         assert_eq!(DevicePanelKind::MaiTai, DevicePanelKind::MaiTai);
         assert_ne!(DevicePanelKind::MaiTai, DevicePanelKind::PowerMeter);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn test_data_integrity_status_message_matches_warn_events() {
+        let event = crate::gui_log_layer::GuiLogEvent {
+            level: crate::panels::LogLevel::Warn,
+            target: "data_integrity".to_string(),
+            message: "DataIntegrityFault: camera-a dropped 2 frame(s)".to_string(),
+        };
+
+        let (level, message) =
+            data_integrity_status_message(&event).expect("expected status bar warning");
+        assert!(matches!(level, crate::widgets::StatusLevel::Warning));
+        assert_eq!(message, event.message);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn test_data_integrity_status_message_ignores_non_fault_logs() {
+        let event = crate::gui_log_layer::GuiLogEvent {
+            level: crate::panels::LogLevel::Info,
+            target: "server".to_string(),
+            message: "Acquisition started".to_string(),
+        };
+
+        assert!(data_integrity_status_message(&event).is_none());
     }
 }

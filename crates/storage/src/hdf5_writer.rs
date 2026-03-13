@@ -8,6 +8,8 @@
 //! The background writer translates Protobuf → HDF5 at 1 Hz without blocking
 //! the hardware loop.
 
+#[cfg(all(feature = "storage_hdf5", feature = "networking"))]
+use common::core::Measurement;
 use common::error::DaqError;
 #[cfg(feature = "storage_hdf5")]
 use common::error::{StorageError, StorageErrorKind};
@@ -415,11 +417,18 @@ impl HDF5Writer {
                 .create_group(&batch_name)
                 .map_err(map_hdf5_err)?;
 
-            // Decode and write Protobuf ScanProgress messages
-            // Returns bytes successfully processed to handle partial messages
+            // Decode measurement frames first, then fall back to legacy protobuf ScanProgress.
+            // Returns bytes successfully processed to handle partial messages.
             #[cfg(feature = "networking")]
-            let bytes_processed =
-                { Self::write_protobuf_to_hdf5_blocking(&batch_group, &snapshot)? };
+            let bytes_processed = {
+                if let Some(bytes_processed) =
+                    Self::write_measurements_to_hdf5_blocking(&batch_group, &snapshot)?
+                {
+                    bytes_processed
+                } else {
+                    Self::write_protobuf_to_hdf5_blocking(&batch_group, &snapshot)?
+                }
+            };
 
             #[cfg(not(feature = "networking"))]
             let bytes_processed = {
@@ -467,7 +476,7 @@ impl HDF5Writer {
         Ok(bytes_processed)
     }
 
-    /// Decode Protobuf ScanProgress messages and write to HDF5
+    /// Decode measurement snapshots and write integrity metadata to HDF5.
     ///
     /// Returns the number of bytes successfully processed so partial messages
     /// are preserved in the ring buffer for the next flush.
@@ -480,6 +489,127 @@ impl HDF5Writer {
     /// - /data/<device_id> (f64 arrays)
     ///
     /// NOTE: This is a blocking synchronous method called from within spawn_blocking
+    #[cfg(all(feature = "storage_hdf5", feature = "networking"))]
+    fn write_measurements_to_hdf5_blocking(
+        group: &hdf5::Group,
+        data: &[u8],
+    ) -> Result<Option<usize>> {
+        let mut offset = 0usize;
+        let mut last_complete_offset = 0usize;
+        let mut measurement_count = 0u64;
+        let mut faults = Vec::new();
+
+        while offset + 4 <= data.len() {
+            let len_bytes = [
+                data[offset],
+                data[offset + 1],
+                data[offset + 2],
+                data[offset + 3],
+            ];
+            let msg_len = u32::from_le_bytes(len_bytes) as usize;
+
+            if offset + 4 + msg_len > data.len() {
+                break;
+            }
+
+            offset += 4;
+
+            match bincode::deserialize::<Measurement>(&data[offset..offset + msg_len]) {
+                Ok(Measurement::Image { name, metadata, .. }) => {
+                    measurement_count += 1;
+                    if let (Some(frame_number), Some(missing_frames)) =
+                        (metadata.frame_number, metadata.sequence_gap_from_previous)
+                    {
+                        faults.push(serde_json::json!({
+                            "source": name,
+                            "frame_number": frame_number,
+                            "missing_frames": missing_frames,
+                        }));
+                    }
+                }
+                Ok(_) => {
+                    measurement_count += 1;
+                }
+                Err(err) if measurement_count == 0 => {
+                    tracing::debug!(
+                        error = %err,
+                        "HDF5 snapshot is not measurement-bincode encoded; trying legacy protobuf decoder"
+                    );
+                    return Ok(None);
+                }
+                Err(err) => {
+                    tracing::warn!(
+                        error = %err,
+                        processed_measurements = measurement_count,
+                        "Failed to decode measurement snapshot while flushing HDF5"
+                    );
+                    break;
+                }
+            }
+
+            offset += msg_len;
+            last_complete_offset = offset;
+        }
+
+        if measurement_count == 0 {
+            return Ok(None);
+        }
+
+        let processed = &data[..last_complete_offset];
+        group
+            .new_dataset::<u8>()
+            .shape(processed.len())
+            .create("raw_data")
+            .map_err(map_hdf5_err)?
+            .write(processed)
+            .map_err(map_hdf5_err)?;
+
+        Self::write_group_string_attr(group, "encoding", "measurement_bincode")?;
+        group
+            .new_attr::<u64>()
+            .create("measurement_count")
+            .map_err(map_hdf5_err)?
+            .write_scalar(&measurement_count)
+            .map_err(map_hdf5_err)?;
+
+        #[allow(clippy::cast_possible_truncation)]
+        let fault_count = faults.len() as u64;
+        group
+            .new_attr::<u64>()
+            .create("data_integrity_fault_count")
+            .map_err(map_hdf5_err)?
+            .write_scalar(&fault_count)
+            .map_err(map_hdf5_err)?;
+
+        if !faults.is_empty() {
+            let faults_json = serde_json::to_string(&faults)?;
+            Self::write_group_string_attr(group, "data_integrity_faults_json", &faults_json)?;
+        }
+
+        Ok(Some(last_complete_offset))
+    }
+
+    #[cfg(feature = "storage_hdf5")]
+    #[allow(dead_code)] // used by measurement-bincode flush path when networking is enabled
+    fn write_group_string_attr(group: &hdf5::Group, name: &str, value: &str) -> Result<()> {
+        use hdf5::types::VarLenUnicode;
+
+        let value = value.parse::<VarLenUnicode>().map_err(|e| {
+            DaqError::Storage(StorageError::new(
+                StorageErrorKind::Hdf5,
+                format!("VarLenUnicode parse: {}", e),
+            ))
+        })?;
+
+        group
+            .new_attr::<VarLenUnicode>()
+            .create(name)
+            .map_err(map_hdf5_err)?
+            .write_scalar(&value)
+            .map_err(map_hdf5_err)?;
+        Ok(())
+    }
+
     #[cfg(all(feature = "storage_hdf5", feature = "networking"))]
     fn write_protobuf_to_hdf5_blocking(group: &hdf5::Group, data: &[u8]) -> Result<usize> {
         use prost::Message;
@@ -497,7 +627,12 @@ impl HDF5Writer {
 
         while offset + 4 <= data.len() {
             // Read message length (4 bytes, little-endian)
-            let len_bytes: [u8; 4] = data[offset..offset + 4].try_into()?;
+            let len_bytes = [
+                data[offset],
+                data[offset + 1],
+                data[offset + 2],
+                data[offset + 3],
+            ];
             let msg_len = u32::from_le_bytes(len_bytes) as usize;
 
             if offset + 4 + msg_len > data.len() {
@@ -565,6 +700,7 @@ impl HDF5Writer {
         if !timestamps.is_empty() {
             group
                 .new_dataset::<u64>()
+                .shape(timestamps.len())
                 .create("timestamps")
                 .map_err(map_hdf5_err)?
                 .write(&timestamps)
@@ -575,6 +711,7 @@ impl HDF5Writer {
         if !point_indices.is_empty() {
             group
                 .new_dataset::<u32>()
+                .shape(point_indices.len())
                 .create("point_indices")
                 .map_err(map_hdf5_err)?
                 .write(&point_indices)
@@ -587,6 +724,7 @@ impl HDF5Writer {
             for (device_id, positions) in &axis_positions {
                 axes_group
                     .new_dataset::<f64>()
+                    .shape(positions.len())
                     .create(device_id.as_str())
                     .map_err(map_hdf5_err)?
                     .write(positions)
@@ -600,6 +738,7 @@ impl HDF5Writer {
             for (device_id, values) in &data_values {
                 data_group
                     .new_dataset::<f64>()
+                    .shape(values.len())
                     .create(device_id.as_str())
                     .map_err(map_hdf5_err)?
                     .write(values)
@@ -1023,6 +1162,34 @@ mod tests {
     use tempfile::NamedTempFile;
     #[cfg(feature = "storage_hdf5")]
     use tempfile::TempDir;
+    #[cfg(all(feature = "networking", feature = "storage_hdf5"))]
+    use {
+        chrono::Utc,
+        common::core::{ImageMetadata, Measurement, PixelBuffer},
+        prost::Message as _,
+    };
+
+    #[cfg(all(feature = "networking", feature = "storage_hdf5"))]
+    fn encode_measurement_snapshot(measurement: &Measurement) -> Vec<u8> {
+        let payload = bincode::serialize(measurement).unwrap();
+        let mut frame = Vec::with_capacity(4 + payload.len());
+        #[allow(clippy::cast_possible_truncation)]
+        let len = payload.len() as u32;
+        frame.extend_from_slice(&len.to_le_bytes());
+        frame.extend_from_slice(&payload);
+        frame
+    }
+
+    #[cfg(all(feature = "networking", feature = "storage_hdf5"))]
+    fn encode_scan_progress_snapshot(progress: &protocol::daq::ScanProgress) -> Vec<u8> {
+        let payload = progress.encode_to_vec();
+        let mut frame = Vec::with_capacity(4 + payload.len());
+        #[allow(clippy::cast_possible_truncation)]
+        let len = payload.len() as u32;
+        frame.extend_from_slice(&len.to_le_bytes());
+        frame.extend_from_slice(&payload);
+        frame
+    }
 
     #[tokio::test]
     async fn test_hdf5_writer_create() {
@@ -1095,6 +1262,114 @@ mod tests {
 
         // Verify file was created
         assert!(hdf5_path.exists(), "HDF5 file should be created");
+    }
+
+    #[cfg(all(feature = "storage_hdf5", feature = "networking"))]
+    #[tokio::test]
+    async fn test_hdf5_writer_records_measurement_integrity_faults() {
+        let ring_temp = NamedTempFile::new().unwrap();
+        let temp_dir = TempDir::new().unwrap();
+        let hdf5_path = temp_dir.path().join("measurement_faults.h5");
+
+        let ring = Arc::new(RingBuffer::create(ring_temp.path(), 1).unwrap());
+        let writer = HDF5Writer::new(&hdf5_path, ring.clone()).unwrap();
+
+        let measurement = Measurement::Image {
+            name: "camera-a".to_string(),
+            width: 2,
+            height: 2,
+            buffer: PixelBuffer::U16(vec![10, 20, 30, 40]),
+            unit: "counts".to_string(),
+            metadata: ImageMetadata {
+                frame_number: Some(12),
+                sequence_gap_from_previous: Some(3),
+                ..Default::default()
+            },
+            timestamp: Utc::now(),
+        };
+        let encoded = encode_measurement_snapshot(&measurement);
+        let decoded: Measurement = bincode::deserialize(&encoded[4..]).unwrap();
+        assert!(matches!(decoded, Measurement::Image { .. }));
+        ring.write(&encoded).unwrap();
+        assert_eq!(ring.read_snapshot(), encoded);
+
+        writer.flush_to_disk().await.unwrap();
+
+        let file = hdf5::File::open(&hdf5_path).unwrap();
+        let batch = file
+            .group("measurements")
+            .unwrap()
+            .group("batch_000000")
+            .unwrap();
+
+        let encoding: hdf5::types::VarLenUnicode =
+            batch.attr("encoding").unwrap().read_scalar().unwrap();
+        let measurement_count: u64 = batch
+            .attr("measurement_count")
+            .unwrap()
+            .read_scalar()
+            .unwrap();
+        let fault_count: u64 = batch
+            .attr("data_integrity_fault_count")
+            .unwrap()
+            .read_scalar()
+            .unwrap();
+        let faults_json: hdf5::types::VarLenUnicode = batch
+            .attr("data_integrity_faults_json")
+            .unwrap()
+            .read_scalar()
+            .unwrap();
+        let raw_data: Vec<u8> = batch.dataset("raw_data").unwrap().read_raw().unwrap();
+
+        assert_eq!(encoding.as_str(), "measurement_bincode");
+        assert_eq!(measurement_count, 1);
+        assert_eq!(fault_count, 1);
+        assert_eq!(raw_data, encoded);
+        assert!(faults_json.as_str().contains("\"source\":\"camera-a\""));
+        assert!(faults_json.as_str().contains("\"missing_frames\":3"));
+    }
+
+    #[cfg(all(feature = "storage_hdf5", feature = "networking"))]
+    #[tokio::test]
+    async fn test_hdf5_writer_falls_back_to_legacy_scan_progress() {
+        let ring_temp = NamedTempFile::new().unwrap();
+        let temp_dir = TempDir::new().unwrap();
+        let hdf5_path = temp_dir.path().join("legacy_scan_progress.h5");
+
+        let ring = Arc::new(RingBuffer::create(ring_temp.path(), 1).unwrap());
+        let writer = HDF5Writer::new(&hdf5_path, ring.clone()).unwrap();
+
+        let progress = protocol::daq::ScanProgress {
+            scan_id: "scan-1".to_string(),
+            point_index: 4,
+            total_points: 8,
+            timestamp_ns: 1234,
+            axis_positions: std::collections::HashMap::from([("stage".to_string(), 1.25)]),
+            data_points: vec![protocol::daq::ScanDataPoint {
+                device_id: "detector".to_string(),
+                value: 9.5,
+                timestamp_ns: 1234,
+                trigger_index: 0,
+            }],
+            ..Default::default()
+        };
+
+        ring.write(&encode_scan_progress_snapshot(&progress))
+            .unwrap();
+        writer.flush_to_disk().await.unwrap();
+
+        let file = hdf5::File::open(&hdf5_path).unwrap();
+        let batch = file
+            .group("measurements")
+            .unwrap()
+            .group("batch_000000")
+            .unwrap();
+        let timestamps: Vec<u64> = batch.dataset("timestamps").unwrap().read_raw().unwrap();
+        let point_indices: Vec<u32> = batch.dataset("point_indices").unwrap().read_raw().unwrap();
+
+        assert_eq!(timestamps, vec![1234]);
+        assert_eq!(point_indices, vec![4]);
+        assert!(batch.dataset("raw_data").is_err());
     }
 
     #[cfg(all(feature = "storage_hdf5", feature = "storage_arrow"))]
