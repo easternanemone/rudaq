@@ -55,6 +55,7 @@ pub mod data;
 // Document model (Bluesky-style)
 pub mod capabilities;
 pub mod echelle;
+pub mod echelle_optimal_extraction;
 pub mod echelle_rectification;
 pub mod echelle_scattered_light;
 pub mod echelle_trace_fitting;
