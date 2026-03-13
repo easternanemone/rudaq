@@ -72,6 +72,10 @@ For distributing the GUI binary, you may need to sign and notarize:
 codesign --sign "Developer ID Application: ..." target/release/rust-daq-gui
 ```
 
+Tagged releases are built by [`.github/workflows/release.yml`](/Users/briansquires/code/rust-daq/.github/workflows/release.yml).
+macOS signing in that workflow activates when these repository secrets are set:
+`MACOS_CERTIFICATE_P12`, `MACOS_CERTIFICATE_PASSWORD`, and `MACOS_SIGNING_IDENTITY`.
+
 ## Windows
 
 ### Building
@@ -81,6 +85,10 @@ Requires Visual Studio Build Tools with C++ workload for native dependencies.
 ### Serial Ports
 
 Serial port access requires appropriate drivers for USB-serial adapters (FTDI, CH340, etc.).
+
+The release workflow signs Windows artifacts when the repository secrets
+`WINDOWS_CERTIFICATE_PFX` and `WINDOWS_CERTIFICATE_PASSWORD` are configured.
+If the signing secrets are absent, the workflow still builds the archives but marks them unsigned.
 
 ## Cross-Platform
 
