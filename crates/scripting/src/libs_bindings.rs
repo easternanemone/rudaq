@@ -38,7 +38,6 @@
 //! let corr = cal.calibrate(wl, raw, 1, false);
 //! ```
 
-use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -49,9 +48,7 @@ use rhai::{Array, Dynamic, Engine, EvalAltResult};
 
 use crate::run_blocking;
 use common::capabilities::TriggerOnPosition;
-use common::processing::radiance_calibration::{
-    load_calibration_file, RadianceCalibrator, Spectrum,
-};
+use common::processing::radiance_calibration::{RadianceCalibrator, Spectrum};
 
 // Boxed async closure type used for capability bundling
 type BoxFuture<T> = Pin<Box<dyn Future<Output = anyhow::Result<T>> + Send>>;
@@ -653,17 +650,26 @@ pub fn register_libs_hardware(engine: &mut Engine) {
          g1_file: String,
          g2_file: String|
          -> Result<CalibratorHandle, Box<EvalAltResult>> {
-            let lamp = load_calibration_file(&lamp_file)
-                .map_err(|e| crate::rhai_error("create_radiance_calibrator: lamp", e))?;
-            let g1 = load_calibration_file(&g1_file)
-                .map_err(|e| crate::rhai_error("create_radiance_calibrator: grating 1", e))?;
-            let g2 = load_calibration_file(&g2_file)
-                .map_err(|e| crate::rhai_error("create_radiance_calibrator: grating 2", e))?;
-            let mut cals = HashMap::new();
-            cals.insert(1u8, g1);
-            cals.insert(2u8, g2);
+            let calibrator = RadianceCalibrator::from_files(
+                &lamp_file,
+                &[(1u8, &g1_file), (2u8, &g2_file)],
+            )
+            .map_err(|e| crate::rhai_error("create_radiance_calibrator", e))?;
+
+            if let Some(calibration_timestamp) = calibrator.calibration_timestamp() {
+                crate::update_current_script_calibration(experiment::CalibrationFreshness {
+                    device_type: calibrator.device_type().to_string(),
+                    calibration_timestamp,
+                });
+            } else {
+                tracing::warn!(
+                    target: "calibration_staleness",
+                    "Radiance calibration files were loaded without calibration_timestamp metadata; freshness gate disabled"
+                );
+            }
+
             Ok(CalibratorHandle {
-                calibrator: Arc::new(RadianceCalibrator::new(lamp, cals)),
+                calibrator: Arc::new(calibrator),
             })
         },
     );

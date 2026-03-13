@@ -47,7 +47,7 @@
 //! ```
 
 use bytes::Bytes;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, Mutex, RwLock};
 use tokio::time::{sleep, Duration, Instant};
@@ -55,8 +55,10 @@ use tracing::{debug, error, info, instrument, warn};
 
 use super::lifecycle::RunLifecycleHook;
 use super::plans::{Plan, PlanCommand};
+use chrono::{DateTime, Utc};
 use common::capabilities::{FrameObserver, ObserverHandle};
 use common::data::FrameView;
+use common::driver::Capability;
 use common::experiment::document::{
     new_uid, DataKey, DescriptorDoc, Document, EventDoc, ExperimentManifest, StartDoc, StopDoc,
 };
@@ -140,6 +142,32 @@ struct RunContext {
     run_start_ns: u64,
 }
 
+/// Active calibration freshness data for a device family.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CalibrationFreshness {
+    /// Logical device type (for example `spectroscopy`).
+    pub device_type: String,
+    /// RFC 3339 timestamp of the loaded calibration set.
+    pub calibration_timestamp: DateTime<Utc>,
+}
+
+/// Readiness issue detected before a run starts.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RunReadinessIssue {
+    /// Logical code for clients/tests.
+    pub code: String,
+    /// User-facing explanation.
+    pub message: String,
+    /// Whether this issue blocks `start()`.
+    pub blocking: bool,
+    /// Affected device type, if known.
+    pub device_type: Option<String>,
+    /// Current calibration age in hours, if known.
+    pub age_hours: Option<f64>,
+    /// Maximum allowed age in hours, if known.
+    pub max_age_hours: Option<f64>,
+}
+
 /// The RunEngine orchestrates experiment execution
 pub struct RunEngine {
     /// Current engine state
@@ -182,6 +210,12 @@ pub struct RunEngine {
     /// How long a plan may remain Running or Paused with no activity before
     /// the watchdog aborts it. Default: 5 minutes.
     watchdog_timeout: Duration,
+
+    /// Freshness metadata for calibrations that should gate run starts.
+    active_calibrations: RwLock<HashMap<String, CalibrationFreshness>>,
+
+    /// Maximum allowed calibration age by logical device type.
+    calibration_max_ages: RwLock<HashMap<String, Duration>>,
 }
 
 /// Default watchdog timeout for orphaned plan detection (5 minutes).
@@ -204,6 +238,11 @@ impl RunEngine {
             lifecycle_hook: None,
             last_activity: Arc::new(RwLock::new(Instant::now())),
             watchdog_timeout: DEFAULT_WATCHDOG_TIMEOUT,
+            active_calibrations: RwLock::new(HashMap::new()),
+            calibration_max_ages: RwLock::new(HashMap::from([(
+                "spectroscopy".to_string(),
+                Duration::from_secs(24 * 60 * 60),
+            )])),
         }
     }
 
@@ -232,6 +271,133 @@ impl RunEngine {
     /// (e.g. `get_engine_status`) can prove liveness.
     pub async fn touch_activity(&self) {
         *self.last_activity.write().await = Instant::now();
+    }
+
+    /// Register the freshest known calibration for a logical device type.
+    pub async fn register_calibration_snapshot(&self, snapshot: CalibrationFreshness) {
+        let mut snapshot = snapshot;
+        snapshot.device_type = snapshot.device_type.to_ascii_lowercase();
+        self.active_calibrations
+            .write()
+            .await
+            .insert(snapshot.device_type.clone(), snapshot);
+    }
+
+    /// Clear the active calibration snapshot for a device type.
+    pub async fn clear_calibration_snapshot(&self, device_type: &str) {
+        self.active_calibrations
+            .write()
+            .await
+            .remove(&device_type.to_ascii_lowercase());
+    }
+
+    /// Override the maximum allowed calibration age for a device type.
+    pub async fn set_calibration_max_age(&self, device_type: &str, max_age: Duration) {
+        self.calibration_max_ages
+            .write()
+            .await
+            .insert(device_type.to_ascii_lowercase(), max_age);
+    }
+
+    /// Inspect readiness issues for the next queued plan without starting it.
+    pub async fn next_plan_readiness_issues(&self) -> Vec<RunReadinessIssue> {
+        let device_ids = {
+            let queue = self.plan_queue.lock().await;
+            queue.first().map_or_else(Vec::new, |queued| {
+                Self::collect_plan_devices(queued.plan.as_ref())
+            })
+        };
+        self.readiness_issues_for_devices(&device_ids).await
+    }
+
+    fn collect_plan_devices(plan: &dyn Plan) -> Vec<String> {
+        let mut seen = HashSet::new();
+        plan.movers()
+            .into_iter()
+            .chain(plan.detectors())
+            .filter(|device_id| seen.insert(device_id.clone()))
+            .collect()
+    }
+
+    fn device_types_for_devices(&self, device_ids: &[String]) -> Vec<String> {
+        let mut device_types = Vec::new();
+
+        for device_id in device_ids {
+            let Some(info) = self.device_registry.get_device_info(device_id) else {
+                continue;
+            };
+
+            if info.capabilities.contains(&Capability::SpectrometerControl)
+                || info.capabilities.contains(&Capability::GatedCamera)
+            {
+                let spectroscopy = "spectroscopy".to_string();
+                if !device_types.contains(&spectroscopy) {
+                    device_types.push(spectroscopy);
+                }
+            }
+        }
+
+        device_types
+    }
+
+    async fn readiness_issues_for_devices(&self, device_ids: &[String]) -> Vec<RunReadinessIssue> {
+        let device_types = self.device_types_for_devices(device_ids);
+        if device_types.is_empty() {
+            return Vec::new();
+        }
+
+        let active_calibrations = self.active_calibrations.read().await;
+        let max_ages = self.calibration_max_ages.read().await;
+        let now = Utc::now();
+        let mut issues = Vec::new();
+
+        for device_type in device_types {
+            let Some(snapshot) = active_calibrations.get(&device_type) else {
+                continue;
+            };
+            let Some(max_age) = max_ages.get(&device_type).copied() else {
+                continue;
+            };
+
+            let age = now
+                .signed_duration_since(snapshot.calibration_timestamp)
+                .to_std()
+                .unwrap_or_default();
+
+            if age > max_age {
+                issues.push(Self::stale_calibration_issue(
+                    &device_type,
+                    snapshot,
+                    age,
+                    max_age,
+                ));
+            }
+        }
+
+        issues
+    }
+
+    fn stale_calibration_issue(
+        device_type: &str,
+        snapshot: &CalibrationFreshness,
+        age: Duration,
+        max_age: Duration,
+    ) -> RunReadinessIssue {
+        let age_hours = age.as_secs_f64() / 3600.0;
+        let max_age_hours = max_age.as_secs_f64() / 3600.0;
+        RunReadinessIssue {
+            code: "calibration_stale".to_string(),
+            message: format!(
+                "CalibrationStalenessGate: {device_type} calibration is {:.1}h old (threshold {:.1}h, timestamp {})",
+                age_hours,
+                max_age_hours,
+                snapshot.calibration_timestamp.to_rfc3339()
+            ),
+            blocking: true,
+            device_type: Some(device_type.to_string()),
+            age_hours: Some(age_hours),
+            max_age_hours: Some(max_age_hours),
+        }
     }
 
     /// Spawn a background watchdog task that periodically checks for orphaned plans.
@@ -350,6 +516,19 @@ impl RunEngine {
         let current_state = *self.state.read().await;
         if current_state != EngineState::Idle {
             anyhow::bail!("Cannot start: engine is {}", current_state);
+        }
+
+        let readiness_issues = self.next_plan_readiness_issues().await;
+        if let Some(issue) = readiness_issues.iter().find(|issue| issue.blocking) {
+            warn!(
+                target: "calibration_staleness",
+                device_type = issue.device_type.as_deref().unwrap_or("unknown"),
+                age_hours = issue.age_hours.unwrap_or_default(),
+                max_age_hours = issue.max_age_hours.unwrap_or_default(),
+                "{}",
+                issue.message
+            );
+            anyhow::bail!("{}", issue.message);
         }
 
         // Reset flags
@@ -1147,6 +1326,94 @@ mod tests {
     use super::*;
     use crate::plans::Count;
     use crate::plans_imperative::ImperativePlan;
+    use async_trait::async_trait;
+    use common::capabilities::{DeviceCategory, SpectrometerControl};
+    use common::driver::{Capability as DeviceCapability, DeviceComponents, DriverFactory};
+    use std::future::Future;
+    use std::pin::Pin;
+
+    struct MockSpectrometer;
+
+    #[async_trait]
+    impl SpectrometerControl for MockSpectrometer {
+        async fn set_grating(&self, _grating_num: u8) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        async fn get_grating(&self) -> anyhow::Result<u8> {
+            Ok(1)
+        }
+
+        async fn set_wavelength(&self, _nm: f64) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        async fn get_wavelength(&self) -> anyhow::Result<f64> {
+            Ok(300.0)
+        }
+
+        async fn set_slit_width(&self, _slit_id: u8, _width_um: u16) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        async fn get_calibration(&self, num_pixels: usize) -> anyhow::Result<Vec<f64>> {
+            Ok((0..num_pixels).map(|idx| 300.0 + idx as f64).collect())
+        }
+
+        async fn is_at_zero_order(&self) -> anyhow::Result<bool> {
+            Ok(false)
+        }
+
+        async fn set_shutter(&self, _open: bool) -> anyhow::Result<()> {
+            Ok(())
+        }
+    }
+
+    struct MockSpectrometerFactory;
+
+    impl DriverFactory for MockSpectrometerFactory {
+        fn driver_type(&self) -> &'static str {
+            "mock_spectrometer"
+        }
+
+        fn name(&self) -> &'static str {
+            "Mock Spectrometer"
+        }
+
+        fn capabilities(&self) -> &'static [DeviceCapability] {
+            &[DeviceCapability::SpectrometerControl]
+        }
+
+        fn validate(&self, _config: &toml::Value) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        fn build(
+            &self,
+            _config: toml::Value,
+        ) -> Pin<Box<dyn Future<Output = anyhow::Result<DeviceComponents>> + Send>> {
+            Box::pin(async move {
+                Ok(DeviceComponents::new()
+                    .with_category(DeviceCategory::Detector)
+                    .with_spectrometer_control(Arc::new(MockSpectrometer)))
+            })
+        }
+    }
+
+    async fn make_spectroscopy_registry() -> Arc<DeviceRegistry> {
+        let registry = Arc::new(DeviceRegistry::new());
+        registry.register_factory(Box::new(MockSpectrometerFactory));
+        registry
+            .register_from_toml(
+                "spectrometer",
+                "Mock Spectrometer",
+                "mock_spectrometer",
+                toml::Value::Table(Default::default()),
+            )
+            .await
+            .expect("register mock spectrometer");
+        registry
+    }
 
     #[tokio::test]
     async fn test_engine_state_transitions() {
@@ -1171,6 +1438,88 @@ mod tests {
         let _run_uid = engine.queue(plan).await;
 
         assert_eq!(engine.queue_len().await, 1);
+    }
+
+    #[tokio::test]
+    async fn test_start_blocks_on_stale_spectroscopy_calibration() {
+        let registry = make_spectroscopy_registry().await;
+        let engine = RunEngine::new(registry);
+
+        engine
+            .register_calibration_snapshot(CalibrationFreshness {
+                device_type: "spectroscopy".to_string(),
+                calibration_timestamp: Utc::now() - chrono::Duration::hours(30),
+            })
+            .await;
+        let plan = Box::new(Count::new(1).with_detector("spectrometer"));
+        engine.queue(plan).await;
+
+        let err = engine
+            .start()
+            .await
+            .expect_err("stale calibration should block");
+        assert!(
+            err.to_string().contains("CalibrationStalenessGate"),
+            "unexpected error: {err}"
+        );
+        assert_eq!(engine.state().await, EngineState::Idle);
+        assert_eq!(
+            engine.queue_len().await,
+            1,
+            "blocked run should stay queued"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_next_plan_readiness_issues_reports_calibration_age() {
+        let registry = make_spectroscopy_registry().await;
+        let engine = RunEngine::new(registry);
+
+        engine
+            .register_calibration_snapshot(CalibrationFreshness {
+                device_type: "spectroscopy".to_string(),
+                calibration_timestamp: Utc::now() - chrono::Duration::hours(30),
+            })
+            .await;
+        engine
+            .queue(Box::new(Count::new(1).with_detector("spectrometer")))
+            .await;
+
+        let issues = engine.next_plan_readiness_issues().await;
+        assert_eq!(issues.len(), 1);
+        assert_eq!(issues[0].code, "calibration_stale");
+        assert!(issues[0].blocking);
+        assert!(
+            issues[0].age_hours.unwrap_or_default() >= 29.9,
+            "age_hours should reflect stale calibration"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_custom_calibration_threshold_allows_newer_snapshot() {
+        let registry = make_spectroscopy_registry().await;
+        let engine = Arc::new(RunEngine::new(registry));
+
+        engine
+            .set_calibration_max_age("spectroscopy", Duration::from_secs(36 * 60 * 60))
+            .await;
+        engine
+            .register_calibration_snapshot(CalibrationFreshness {
+                device_type: "spectroscopy".to_string(),
+                calibration_timestamp: Utc::now() - chrono::Duration::hours(30),
+            })
+            .await;
+        engine
+            .queue(Box::new(Count::new(1).with_detector("spectrometer")))
+            .await;
+
+        let engine_for_task = engine.clone();
+        let task = tokio::spawn(async move { engine_for_task.start().await });
+        task.await
+            .expect("join start task")
+            .expect("fresh enough run");
+
+        assert_eq!(engine.state().await, EngineState::Idle);
     }
 
     #[tokio::test]

@@ -25,6 +25,16 @@
 use std::{collections::HashMap, fs, path::Path};
 
 use anyhow::{anyhow, Context, Result};
+use chrono::{DateTime, Utc};
+
+/// Optional metadata parsed from a calibration text file header.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CalibrationFileMetadata {
+    /// RFC 3339 timestamp indicating when the calibration data was recorded.
+    pub calibration_timestamp: Option<DateTime<Utc>>,
+    /// Logical calibration family, used for freshness policies.
+    pub device_type: Option<String>,
+}
 
 /// A 1-D spectrum: parallel arrays of wavelengths (nm) and intensities.
 ///
@@ -129,19 +139,48 @@ pub fn linear_interp(src_x: &[f64], src_y: &[f64], target_x: &[f64]) -> Vec<f64>
         .collect()
 }
 
-/// Loads a two-column calibration file and returns a [`Spectrum`].
+fn parse_calibration_metadata_line(line: &str, metadata: &mut CalibrationFileMetadata) {
+    let line = line.trim_start_matches(['#', '%', ';']).trim();
+    let Some((raw_key, raw_value)) = line
+        .split_once(':')
+        .or_else(|| line.split_once('='))
+        .map(|(key, value)| (key.trim(), value.trim()))
+    else {
+        return;
+    };
+
+    let key = raw_key.to_ascii_lowercase();
+    match key.as_str() {
+        "calibration_timestamp" | "timestamp" | "created_at" => {
+            if let Ok(parsed) = DateTime::parse_from_rfc3339(raw_value) {
+                metadata.calibration_timestamp = Some(parsed.with_timezone(&Utc));
+            }
+        }
+        "device_type" => {
+            if !raw_value.is_empty() {
+                metadata.device_type = Some(raw_value.to_ascii_lowercase());
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Loads a two-column calibration file and returns a [`Spectrum`] plus parsed metadata.
 ///
 /// Accepts `.lmp`, `.ICD`, `.asc`, `.csv`, `.txt` and similar formats.
 /// Rows whose first token cannot be parsed as `f64` are silently skipped
 /// (handles comment and header lines).  Columns may be whitespace- or
 /// comma-separated.
-pub fn load_calibration_file(path: impl AsRef<Path>) -> Result<Spectrum> {
+pub fn load_calibration_file_with_metadata(
+    path: impl AsRef<Path>,
+) -> Result<(Spectrum, CalibrationFileMetadata)> {
     let path = path.as_ref();
     let text = fs::read_to_string(path)
         .with_context(|| format!("reading calibration file {}", path.display()))?;
 
     let mut wavelengths = Vec::new();
     let mut values = Vec::new();
+    let mut metadata = CalibrationFileMetadata::default();
 
     for line in text.lines() {
         let line = line.trim();
@@ -151,6 +190,7 @@ pub fn load_calibration_file(path: impl AsRef<Path>) -> Result<Spectrum> {
             || line.starts_with('%')
             || line.starts_with(';')
         {
+            parse_calibration_metadata_line(line, &mut metadata);
             continue;
         }
         // Split on whitespace or comma
@@ -182,7 +222,40 @@ pub fn load_calibration_file(path: impl AsRef<Path>) -> Result<Spectrum> {
     pairs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
     let (wavelengths, values): (Vec<_>, Vec<_>) = pairs.into_iter().unzip();
 
-    Spectrum::new(wavelengths, values)
+    let spectrum = Spectrum::new(wavelengths, values)?;
+    Ok((spectrum, metadata))
+}
+
+/// Loads a two-column calibration file and returns a [`Spectrum`].
+pub fn load_calibration_file(path: impl AsRef<Path>) -> Result<Spectrum> {
+    load_calibration_file_with_metadata(path).map(|(spectrum, _)| spectrum)
+}
+
+fn resolve_calibration_device_type(
+    device_types: impl IntoIterator<Item = Option<String>>,
+) -> Result<String> {
+    let mut resolved: Option<String> = None;
+
+    for device_type in device_types.into_iter().flatten() {
+        let candidate = device_type.trim().to_ascii_lowercase();
+        if candidate.is_empty() {
+            continue;
+        }
+
+        match &resolved {
+            Some(existing) if existing != &candidate => {
+                return Err(anyhow!(
+                    "calibration file device_type mismatch: '{}' vs '{}'",
+                    existing,
+                    candidate
+                ));
+            }
+            Some(_) => {}
+            None => resolved = Some(candidate),
+        }
+    }
+
+    Ok(resolved.unwrap_or_else(|| "spectroscopy".to_string()))
 }
 
 /// Radiometric correction engine for LIBS spectra.
@@ -204,18 +277,38 @@ pub fn load_calibration_file(path: impl AsRef<Path>) -> Result<Spectrum> {
 /// let spectrum = Spectrum::new(vec![300.0, 400.0, 500.0], vec![100.0, 200.0, 150.0]).unwrap();
 /// let corrected = cal.calibrate(&spectrum, 1, true).unwrap();
 /// ```
+#[derive(Debug, Clone)]
 pub struct RadianceCalibrator {
     lamp_spectrum: Spectrum,
     /// Map from 1-based grating index → system-response calibration spectrum.
     grating_calibrations: HashMap<u8, Spectrum>,
+    calibration_timestamp: Option<DateTime<Utc>>,
+    device_type: String,
 }
 
 impl RadianceCalibrator {
     /// Construct from pre-loaded [`Spectrum`] objects.
     pub fn new(lamp_spectrum: Spectrum, grating_calibrations: HashMap<u8, Spectrum>) -> Self {
+        Self::with_metadata(
+            lamp_spectrum,
+            grating_calibrations,
+            None,
+            "spectroscopy".to_string(),
+        )
+    }
+
+    /// Construct from pre-loaded [`Spectrum`] objects plus freshness metadata.
+    pub fn with_metadata(
+        lamp_spectrum: Spectrum,
+        grating_calibrations: HashMap<u8, Spectrum>,
+        calibration_timestamp: Option<DateTime<Utc>>,
+        device_type: impl Into<String>,
+    ) -> Self {
         Self {
             lamp_spectrum,
             grating_calibrations,
+            calibration_timestamp,
+            device_type: device_type.into(),
         }
     }
 
@@ -229,16 +322,31 @@ impl RadianceCalibrator {
         L: AsRef<Path>,
         P: AsRef<Path>,
     {
-        let lamp_spectrum = load_calibration_file(lamp_file.as_ref())?;
+        let (lamp_spectrum, lamp_metadata) = load_calibration_file_with_metadata(lamp_file)?;
         let mut grating_calibrations = HashMap::new();
+        let mut timestamps = Vec::new();
+        let mut device_types = vec![lamp_metadata.device_type.clone()];
+        if let Some(timestamp) = lamp_metadata.calibration_timestamp {
+            timestamps.push(timestamp);
+        }
         for (grating, path) in cal_files {
-            let spec = load_calibration_file(path.as_ref())
+            let (spec, metadata) = load_calibration_file_with_metadata(path.as_ref())
                 .with_context(|| format!("loading grating {grating} calibration"))?;
             grating_calibrations.insert(*grating, spec);
+            device_types.push(metadata.device_type);
+            if let Some(timestamp) = metadata.calibration_timestamp {
+                timestamps.push(timestamp);
+            }
         }
+
+        let calibration_timestamp = timestamps.into_iter().min();
+        let device_type = resolve_calibration_device_type(device_types)?;
+
         Ok(Self {
             lamp_spectrum,
             grating_calibrations,
+            calibration_timestamp,
+            device_type,
         })
     }
 
@@ -304,6 +412,23 @@ impl RadianceCalibrator {
     /// Returns the calibration spectrum for `grating`, if loaded.
     pub fn grating_calibration(&self, grating: u8) -> Option<&Spectrum> {
         self.grating_calibrations.get(&grating)
+    }
+
+    /// Returns the calibration timestamp, if present in the source files.
+    pub fn calibration_timestamp(&self) -> Option<DateTime<Utc>> {
+        self.calibration_timestamp.as_ref().cloned()
+    }
+
+    /// Returns the logical device type for freshness gating.
+    pub fn device_type(&self) -> &str {
+        &self.device_type
+    }
+
+    /// Returns the elapsed time since calibration, if timestamp metadata exists.
+    pub fn calibration_age(&self, now: DateTime<Utc>) -> Option<chrono::Duration> {
+        self.calibration_timestamp
+            .as_ref()
+            .map(|timestamp| now.signed_duration_since(timestamp.to_owned()))
     }
 }
 
@@ -446,5 +571,77 @@ mod tests {
         assert!((spec.wavelengths[1] - 400.0).abs() < 1e-10);
         assert!((spec.values[1] - 200.0).abs() < 1e-10);
         Ok(())
+    }
+
+    #[test]
+    fn test_load_calibration_file_parses_metadata(
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        use std::io::Write;
+
+        let mut tmp = tempfile::NamedTempFile::new()?;
+        writeln!(tmp, "# calibration_timestamp: 2026-03-10T12:30:00Z")?;
+        writeln!(tmp, "# device_type: spectroscopy")?;
+        writeln!(tmp, "300.0\t100.0")?;
+        writeln!(tmp, "400.0\t200.0")?;
+
+        let (_spec, metadata) = load_calibration_file_with_metadata(tmp.path())?;
+        assert_eq!(
+            metadata.calibration_timestamp,
+            Some(DateTime::parse_from_rfc3339("2026-03-10T12:30:00Z")?.with_timezone(&Utc))
+        );
+        assert_eq!(metadata.device_type.as_deref(), Some("spectroscopy"));
+        Ok(())
+    }
+
+    #[test]
+    fn test_radiance_calibrator_from_files_uses_oldest_timestamp(
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        use std::io::Write;
+
+        let write_file = |content: &str| -> std::io::Result<tempfile::NamedTempFile> {
+            let mut file = tempfile::NamedTempFile::new()?;
+            write!(file, "{content}")?;
+            Ok(file)
+        };
+
+        let lamp = write_file(
+            "# calibration_timestamp: 2026-03-11T12:00:00Z\n# device_type: spectroscopy\n300 1\n400 1\n",
+        )?;
+        let g1 = write_file(
+            "# calibration_timestamp: 2026-03-10T09:00:00Z\n# device_type: spectroscopy\n300 1\n400 1\n",
+        )?;
+        let g2 = write_file(
+            "# calibration_timestamp: 2026-03-12T08:00:00Z\n# device_type: spectroscopy\n300 1\n400 1\n",
+        )?;
+
+        let calibrator =
+            RadianceCalibrator::from_files(lamp.path(), &[(1u8, g1.path()), (2u8, g2.path())])?;
+
+        assert_eq!(calibrator.device_type(), "spectroscopy");
+        assert_eq!(
+            calibrator.calibration_timestamp(),
+            Some(DateTime::parse_from_rfc3339("2026-03-10T09:00:00Z")?.with_timezone(&Utc))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_radiance_calibrator_from_files_rejects_device_type_mismatch() {
+        use std::io::Write;
+
+        let write_file = |content: &str| -> std::io::Result<tempfile::NamedTempFile> {
+            let mut file = tempfile::NamedTempFile::new()?;
+            write!(file, "{content}")?;
+            Ok(file)
+        };
+
+        let lamp = write_file("# device_type: spectroscopy\n300 1\n400 1\n").unwrap();
+        let g1 = write_file("# device_type: imaging\n300 1\n400 1\n").unwrap();
+
+        let err = RadianceCalibrator::from_files(lamp.path(), &[(1u8, g1.path())]).unwrap_err();
+        assert!(
+            err.to_string().contains("device_type mismatch"),
+            "unexpected error: {err}"
+        );
     }
 }

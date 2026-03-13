@@ -62,19 +62,75 @@ pub use rhai;
 
 use rhai::{EvalAltResult, Position};
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::future::Future;
+use std::sync::{LazyLock, RwLock};
 use tokio::runtime::{Handle, RuntimeFlavor};
 use tokio::task::block_in_place;
 
 thread_local! {
     static SCRIPT_RUNTIME_HANDLE: RefCell<Option<Handle>> = const { RefCell::new(None) };
+    static SCRIPT_CALIBRATION_CONTEXT: RefCell<Option<String>> = const { RefCell::new(None) };
 }
+
+static ACTIVE_SCRIPT_CALIBRATIONS: LazyLock<
+    RwLock<HashMap<String, HashMap<String, experiment::CalibrationFreshness>>>,
+> = LazyLock::new(|| RwLock::new(HashMap::new()));
 
 /// Set the Tokio runtime handle for the current script thread.
 /// This allows scripts running in dedicated threads (detached from Tokio)
 /// to execute async hardware calls via `run_blocking`.
 pub fn set_script_runtime_handle(handle: Handle) {
     SCRIPT_RUNTIME_HANDLE.with(|h| *h.borrow_mut() = Some(handle));
+}
+
+/// Bind subsequent calibration updates on this thread to a script execution context.
+pub fn set_script_calibration_context(context_id: String) {
+    SCRIPT_CALIBRATION_CONTEXT.with(|ctx| *ctx.borrow_mut() = Some(context_id));
+}
+
+/// Clear the current script calibration context binding.
+pub fn clear_script_calibration_context() {
+    SCRIPT_CALIBRATION_CONTEXT.with(|ctx| *ctx.borrow_mut() = None);
+}
+
+/// Update the active calibration snapshot for the current script execution context.
+pub fn update_current_script_calibration(snapshot: experiment::CalibrationFreshness) {
+    let context_id = SCRIPT_CALIBRATION_CONTEXT.with(|ctx| ctx.borrow().clone());
+    let Some(context_id) = context_id else {
+        return;
+    };
+    let mut snapshot = snapshot;
+    snapshot.device_type = snapshot.device_type.to_ascii_lowercase();
+
+    let mut all_contexts = ACTIVE_SCRIPT_CALIBRATIONS
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    all_contexts
+        .entry(context_id)
+        .or_default()
+        .insert(snapshot.device_type.clone(), snapshot);
+}
+
+/// Read the latest calibration snapshot for a script execution context and device type.
+pub fn current_script_calibration(
+    context_id: &str,
+    device_type: &str,
+) -> Option<experiment::CalibrationFreshness> {
+    ACTIVE_SCRIPT_CALIBRATIONS
+        .read()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .get(context_id)
+        .and_then(|by_type| by_type.get(&device_type.to_ascii_lowercase()))
+        .cloned()
+}
+
+/// Drop all calibration snapshots associated with a script execution context.
+pub fn clear_script_calibrations(context_id: &str) {
+    ACTIVE_SCRIPT_CALIBRATIONS
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .remove(context_id);
 }
 
 /// Create a Rhai runtime error with a formatted message

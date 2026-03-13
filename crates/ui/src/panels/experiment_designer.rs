@@ -176,6 +176,13 @@ impl Default for ExperimentDesignerPanel {
 }
 
 impl ExperimentDesignerPanel {
+    fn calibration_staleness_warning(error: &str) -> Option<String> {
+        let marker = "CalibrationStalenessGate:";
+        error
+            .find(marker)
+            .map(|idx| error[idx..].trim().to_string())
+    }
+
     pub fn new() -> Self {
         Self::default()
     }
@@ -1177,7 +1184,11 @@ impl ExperimentDesignerPanel {
 
         // Error display
         if let Some(err) = &self.last_error {
-            ui.colored_label(egui::Color32::RED, err);
+            if let Some(warning) = Self::calibration_staleness_warning(err) {
+                ui.colored_label(egui::Color32::from_rgb(255, 200, 80), warning);
+            } else {
+                ui.colored_label(egui::Color32::RED, err);
+            }
         }
     }
 

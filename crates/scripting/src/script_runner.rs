@@ -37,7 +37,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, Result};
 // mpsc and watch channels used indirectly through YieldChannelBuilder
@@ -129,6 +129,16 @@ pub struct ScriptPlanRunner {
     config: ScriptRunConfig,
 }
 
+struct ScriptCalibrationCleanup {
+    context_id: String,
+}
+
+impl Drop for ScriptCalibrationCleanup {
+    fn drop(&mut self) {
+        crate::clear_script_calibrations(&self.context_id);
+    }
+}
+
 impl ScriptPlanRunner {
     /// Create a new ScriptPlanRunner with the given RunEngine
     pub fn new(run_engine: Arc<RunEngine>) -> Self {
@@ -149,6 +159,10 @@ impl ScriptPlanRunner {
         let mut plans_executed = 0u32;
         let mut total_events = 0u32;
         let mut run_uids = Vec::new();
+        let calibration_context_id = Self::new_calibration_context_id();
+        let _calibration_cleanup = ScriptCalibrationCleanup {
+            context_id: calibration_context_id.clone(),
+        };
 
         info!("Starting script execution");
 
@@ -163,10 +177,13 @@ impl ScriptPlanRunner {
         // This allows run_blocking to use block_on without deadlock issues (bd-2f43)
         let (script_done_tx, mut script_done_rx) = tokio::sync::oneshot::channel();
         let runtime_handle = tokio::runtime::Handle::current();
+        let calibration_context_for_thread = calibration_context_id.clone();
 
         std::thread::spawn(move || {
             crate::set_script_runtime_handle(runtime_handle);
+            crate::set_script_calibration_context(calibration_context_for_thread);
             let result = Self::run_script_blocking(&script_owned, handle_for_script);
+            crate::clear_script_calibration_context();
             let _ = script_done_tx.send(result);
         });
 
@@ -221,7 +238,7 @@ impl ScriptPlanRunner {
                     match yielded {
                         YieldedValue::Plan(plan) => {
                             debug!("Received yielded plan: {}", plan.plan_type());
-                            match self.execute_plan(plan).await {
+                            match self.execute_plan(plan, &calibration_context_id).await {
                                 Ok(result) => {
                                     plans_executed += 1;
                                     total_events += result.num_events;
@@ -254,7 +271,7 @@ impl ScriptPlanRunner {
                             debug!("Received yielded command: {:?}", cmd);
                             // Wrap single command in ImperativePlan
                             let plan = Box::new(ImperativePlan::new(vec![cmd]));
-                            match self.execute_plan(plan).await {
+                            match self.execute_plan(plan, &calibration_context_id).await {
                                 Ok(result) => {
                                     plans_executed += 1;
                                     total_events += result.num_events;
@@ -367,6 +384,14 @@ impl ScriptPlanRunner {
         }
     }
 
+    fn new_calibration_context_id() -> String {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or_default();
+        format!("script-calibration-{nanos}")
+    }
+
     /// Run the Rhai script in a blocking context
     fn run_script_blocking(
         script: &str,
@@ -395,9 +420,25 @@ impl ScriptPlanRunner {
     }
 
     /// Execute a single plan via the RunEngine and return the result
-    async fn execute_plan(&self, plan: Box<dyn Plan>) -> Result<YieldResult> {
+    async fn execute_plan(
+        &self,
+        plan: Box<dyn Plan>,
+        calibration_context_id: &str,
+    ) -> Result<YieldResult> {
         let plan_type = plan.plan_type().to_string();
         debug!("Executing plan: {}", plan_type);
+
+        if let Some(snapshot) =
+            crate::current_script_calibration(calibration_context_id, "spectroscopy")
+        {
+            self.run_engine
+                .register_calibration_snapshot(snapshot)
+                .await;
+        } else {
+            self.run_engine
+                .clear_calibration_snapshot("spectroscopy")
+                .await;
+        }
 
         // Subscribe to documents before queueing
         let mut doc_rx = self.run_engine.subscribe();

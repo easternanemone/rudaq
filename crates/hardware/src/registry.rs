@@ -66,8 +66,9 @@
 // use anyhow::{anyhow, Result}; // Removed
 // use anyhow::anyhow; // Removed
 use common::capabilities::{
-    Commandable, EmissionControl, ExposureControl, FrameProducer, Movable, Parameterized, Readable,
-    Reconfigurable, Settable, ShutterControl, Stageable, Triggerable, WavelengthTunable,
+    Commandable, EmissionControl, ExposureControl, FrameProducer, GatedCamera, Movable,
+    Parameterized, Readable, Reconfigurable, Settable, ShutterControl, SpectrometerControl,
+    Stageable, Triggerable, WavelengthTunable,
 };
 use common::data::Frame;
 use common::driver::{
@@ -322,6 +323,10 @@ struct RegisteredDevice {
     emission_control: Option<Arc<dyn EmissionControl>>,
     /// WavelengthTunable implementation (if supported) - tunable laser wavelength (bd-pwjo)
     wavelength_tunable: Option<Arc<dyn WavelengthTunable>>,
+    /// GatedCamera implementation (if supported) - ICCD/DDG control.
+    gated_camera: Option<Arc<dyn GatedCamera>>,
+    /// SpectrometerControl implementation (if supported) - grating/wavelength control.
+    spectrometer_control: Option<Arc<dyn SpectrometerControl>>,
     /// Reconfigurable implementation (if supported) - runtime config changes
     reconfigurable: Option<Arc<dyn Reconfigurable>>,
     /// Optional lifecycle hooks for registration/shutdown
@@ -388,6 +393,12 @@ impl RegisteredDevice {
         }
         if self.wavelength_tunable.is_some() {
             caps.push(Capability::WavelengthTunable);
+        }
+        if self.gated_camera.is_some() {
+            caps.push(Capability::GatedCamera);
+        }
+        if self.spectrometer_control.is_some() {
+            caps.push(Capability::SpectrometerControl);
         }
         if self.reconfigurable.is_some() {
             caps.push(Capability::Reconfigurable);
@@ -903,6 +914,8 @@ impl DeviceRegistry {
             shutter_control: components.shutter_control,
             emission_control: components.emission_control,
             wavelength_tunable: components.wavelength_tunable,
+            gated_camera: components.gated_camera,
+            spectrometer_control: components.spectrometer_control,
             reconfigurable: components.reconfigurable,
             lifecycle: components.lifecycle,
             metadata,
@@ -1355,6 +1368,8 @@ impl DeviceRegistry {
                         shutter_control: None,
                         emission_control: None,
                         wavelength_tunable: None,
+                        gated_camera: None,
+                        spectrometer_control: None,
                         reconfigurable: None,
                         lifecycle: None,
                         metadata: old_metadata,
@@ -1685,6 +1700,8 @@ impl DeviceRegistry {
             shutter_control: None,
             emission_control: None,
             wavelength_tunable: None,
+            gated_camera: None,
+            spectrometer_control: None,
             reconfigurable: None,
             lifecycle: None,
             metadata,
