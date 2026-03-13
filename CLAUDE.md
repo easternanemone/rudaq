@@ -136,7 +136,7 @@ registry.register_from_config(DeviceConfig { id, name, driver: DriverConfig { ty
 
 **Issue tracking**: This project uses `bdh` (beads). Run `bdh prime` for the authoritative workflow — it is auto-injected at session start by hooks. Run `bdh onboard` to generate agent policy guidance including multi-agent coordination and recording guidelines.
 
-**Worktree safety**: Always use `bdh ...` as the primary beads entrypoint, including in git worktrees (it handles BeadHub coordination). Only if you must run low-level `bd` directly (rare) should you use `bash scripts/bd-safe.sh ...` to avoid worktree-local `.beads` drift. Verify local/runtime artifact drift with `bash scripts/beads-worktree-hygiene.sh status`, and use `bash scripts/beads-worktree-hygiene.sh cleanup --apply` to move stale worktree-local `.beads` artifacts.
+**Worktree safety**: Always use `bdh ...` as the primary beads entrypoint, including in git worktrees (it handles BeadHub coordination). Only if you must run low-level `bdh` directly (rare) should you use `bash scripts/bd-safe.sh ...` to avoid worktree-local `.beads` drift. Verify local/runtime artifact drift with `bash scripts/beads-worktree-hygiene.sh status`, and use `bash scripts/beads-worktree-hygiene.sh cleanup --apply` to move stale worktree-local `.beads` artifacts.
 
 **Code search**: Primary tool is `grepai search "query" --json --compact`. Trace calls with `grepai trace callers/callees "Symbol" --json`. Fall back to `rg`/`grep` if grepai is unavailable.
 

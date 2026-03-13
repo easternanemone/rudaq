@@ -468,20 +468,42 @@ message StopStreamResponse {
   uint64 frames_captured = 2;
 }
 
-// Stream quality level for bandwidth/quality tradeoff
+// Stream quality level for bandwidth/quality tradeoff.
+//
+// IMPORTANT: This controls server-side downsampling before compression/transport.
+// For fixed bit depth/FPS, bandwidth scales approximately with pixel count.
+//
+// Recommended policy:
+// - GUI live preview default: FAST
+// - Experiment monitoring default: PREVIEW
+// - Pixel-accurate analysis/harness testing: FULL (explicit opt-in)
 enum StreamQuality {
-  STREAM_QUALITY_FULL = 0;     // Full resolution (default)
-  STREAM_QUALITY_PREVIEW = 1;  // 2x2 binned (~4x smaller)
-  STREAM_QUALITY_FAST = 2;     // 4x4 binned (~16x smaller)
+  // No downsampling (1.0x pixel payload).
+  // Use for pixel-accurate scientific analysis, validation, and harness diagnostics.
+  STREAM_QUALITY_FULL = 0;
+
+  // 2x2 spatial averaging (~4x fewer pixels, ~75% payload reduction).
+  // Good default for experiment monitoring where moderate detail is still useful.
+  STREAM_QUALITY_PREVIEW = 1;
+
+  // 4x4 spatial averaging (~16x fewer pixels, ~93.75% payload reduction).
+  // Recommended default for interactive image viewing and remote/thin clients.
+  STREAM_QUALITY_FAST = 2;
 }
 
-// Stream frames from a FrameProducer device to GUI
+// Stream frames from a FrameProducer device to GUI.
 message StreamFramesRequest {
   string device_id = 1;
-  uint32 max_fps = 2;  // Rate limit for GUI rendering (0 = no limit)
-  StreamQuality quality = 3;  // Quality level for server-side downsampling
-}
 
+  // Rate limit for outgoing frames from this stream (0 = no rate limit).
+  // Orthogonal to `quality`: this caps temporal rate, while quality controls
+  // per-frame payload via spatial downsampling.
+  uint32 max_fps = 2;
+
+  // Server-side downsampling level. Prefer FAST/PREVIEW for routine UI use,
+  // and reserve FULL for explicit high-fidelity workflows.
+  StreamQuality quality = 3;
+}
 // Streaming performance metrics for GUI clients
 message StreamingMetrics {
   double current_fps = 1;
