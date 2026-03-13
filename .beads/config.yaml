@@ -42,11 +42,14 @@
 # Use 'bd export --events' to trigger manually regardless of this setting.
 # events-export: false
 
-# Git branch for beads commits (bd sync will commit to this branch)
+# Git branch for Dolt history commits (`bd vc commit` / `bd dolt commit`)
 # IMPORTANT: Set this for team projects so all clones use the same sync branch.
 # This setting persists across clones (unlike database config which is gitignored).
 # Can also use BEADS_SYNC_BRANCH env var for local override.
-# If not set, bd sync will require you to run 'bd config set sync.branch <branch>'.
+# rust-daq pushes issue state to BeadHub via `bdh` auto-sync / `bdh :force-sync`;
+# this setting does not configure `bdh dolt push`.
+# If not set, version-control commands that use sync.branch may require
+# 'bd config set sync.branch <branch>'.
 sync-branch: "beads-sync"
 
 # Multi-repo configuration (experimental - bd-307)
