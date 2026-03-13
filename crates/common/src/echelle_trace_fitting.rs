@@ -16,7 +16,8 @@
 #![allow(
     clippy::cast_precision_loss,
     clippy::cast_possible_truncation,
-    clippy::cast_sign_loss
+    clippy::cast_sign_loss,
+    clippy::cast_possible_wrap
 )]
 
 use serde::{Deserialize, Serialize};
@@ -283,7 +284,8 @@ fn trace_order(
     }
 
     // --- Pass 2: Gaussian-weight centroids ---
-    let gauss_sigma = config.fwhm_gaussian / (2.0 * (2.0_f64.ln()).sqrt());
+    // sigma = FWHM / (2 * sqrt(2 * ln(2))) ≈ FWHM / 2.3548
+    let gauss_sigma = config.fwhm_gaussian / (2.0 * (2.0 * 2.0_f64.ln()).sqrt());
     let mut xs2 = Vec::new();
     let mut ys2 = Vec::new();
 
@@ -437,7 +439,11 @@ fn residual_rms(residuals: &[f64], mask: &[bool]) -> f64 {
 
 /// Fit a polynomial of given degree using least-squares (normal equations).
 ///
-/// Uses monomial basis for simplicity. Returns coefficients [c0, c1, ..., cn].
+/// Internally normalizes x-coordinates to [-1, 1] for numerical stability,
+/// then converts coefficients back to the original domain. This avoids
+/// catastrophic precision loss from monomial x^8 ≈ 10^29 on 4K frames.
+///
+/// Returns coefficients [c0, c1, ..., cn] in the original x domain.
 fn fit_polynomial(
     xs: &[f64],
     ys: &[f64],
@@ -450,29 +456,46 @@ fn fit_polynomial(
         return None;
     }
 
-    // Build the Vandermonde matrix and normal equations: (V^T V) c = V^T y.
-    // For numerical stability, we solve directly via Gaussian elimination.
-    let m = xs.len();
+    // Center and scale x to [-1, 1] for conditioning.
+    let x_min = xs.iter().copied().fold(f64::INFINITY, f64::min);
+    let x_max = xs.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    let x_range = x_max - x_min;
 
-    // Compute V^T V (n x n) and V^T y (n x 1).
+    // If all x-values are identical, only a constant can be fit.
+    if x_range < 1e-10 {
+        if degree == 0 {
+            let mean = ys.iter().sum::<f64>() / ys.len() as f64;
+            return Some(vec![mean]);
+        }
+        return None;
+    }
+
+    let alpha = 2.0 / x_range; // scale factor
+    let beta = -(x_max + x_min) / x_range; // shift: t = alpha*x + beta
+
+    // Transform x to normalized coordinates.
+    let ts: Vec<f64> = xs.iter().map(|&x| alpha * x + beta).collect();
+
+    // Build normal equations in normalized space: (V^T V) c = V^T y.
+    let m = ts.len();
     let mut vtv = vec![0.0_f64; n * n];
     let mut vty = vec![0.0_f64; n];
 
     for i in 0..m {
-        let x = xs[i];
+        let t = ts[i];
         let y = ys[i];
-        let mut xi = 1.0_f64;
+        let mut ti = 1.0_f64;
         for j in 0..n {
-            let mut xij = xi;
+            let mut tij = ti;
             for k in j..n {
-                vtv[j * n + k] += xi * xij;
+                vtv[j * n + k] += ti * tij;
                 if j != k {
-                    vtv[k * n + j] += xi * xij;
+                    vtv[k * n + j] += ti * tij;
                 }
-                xij *= x;
+                tij *= t;
             }
-            vty[j] += xi * y;
-            xi *= x;
+            vty[j] += ti * y;
+            ti *= t;
         }
     }
 
@@ -486,7 +509,6 @@ fn fit_polynomial(
     }
 
     for col in 0..n {
-        // Find pivot.
         let mut max_row = col;
         let mut max_val = aug[col * (n + 1) + col].abs();
         for row in (col + 1)..n {
@@ -498,17 +520,15 @@ fn fit_polynomial(
         }
 
         if max_val < 1e-15 {
-            return None; // singular
+            return None;
         }
 
-        // Swap rows.
         if max_row != col {
             for j in 0..=n {
                 aug.swap(col * (n + 1) + j, max_row * (n + 1) + j);
             }
         }
 
-        // Eliminate below.
         let pivot = aug[col * (n + 1) + col];
         for row in (col + 1)..n {
             let factor = aug[row * (n + 1) + col] / pivot;
@@ -518,17 +538,51 @@ fn fit_polynomial(
         }
     }
 
-    // Back-substitution.
-    let mut coeffs = vec![0.0_f64; n];
+    let mut norm_coeffs = vec![0.0_f64; n];
     for i in (0..n).rev() {
         let mut sum = aug[i * (n + 1) + n];
         for j in (i + 1)..n {
-            sum -= aug[i * (n + 1) + j] * coeffs[j];
+            sum -= aug[i * (n + 1) + j] * norm_coeffs[j];
         }
-        coeffs[i] = sum / aug[i * (n + 1) + i];
+        norm_coeffs[i] = sum / aug[i * (n + 1) + i];
     }
 
-    Some(coeffs)
+    // Convert normalized coefficients back to original domain.
+    // p(x) = Σ a_k (alpha*x + beta)^k
+    // Expand using binomial theorem to get coefficients in x.
+    Some(denormalize_coefficients(&norm_coeffs, alpha, beta))
+}
+
+/// Convert polynomial coefficients from normalized domain t = alpha*x + beta
+/// back to coefficients in the original x domain.
+///
+/// Uses the binomial expansion: `(alpha*x + beta)^k = Σ_j C(k,j) alpha^j beta^(k-j) x^j`
+fn denormalize_coefficients(norm_coeffs: &[f64], alpha: f64, beta: f64) -> Vec<f64> {
+    let n = norm_coeffs.len();
+    let mut orig = vec![0.0_f64; n];
+
+    // Precompute binomial coefficients (Pascal's triangle, max degree ~10).
+    let mut binom = vec![vec![0.0_f64; n]; n];
+    for k in 0..n {
+        binom[k][0] = 1.0;
+        for j in 1..=k {
+            binom[k][j] = binom[k - 1][j - 1] + if j < k { binom[k - 1][j] } else { 0.0 };
+        }
+    }
+
+    for (k, &a_k) in norm_coeffs.iter().enumerate() {
+        if a_k.abs() < 1e-30 {
+            continue;
+        }
+        // Expand a_k * (alpha*x + beta)^k
+        for j in 0..=k {
+            // C(k,j) * alpha^j * beta^(k-j)
+            let term = a_k * binom[k][j] * alpha.powi(j as i32) * beta.powi((k - j) as i32);
+            orig[j] += term;
+        }
+    }
+
+    orig
 }
 
 #[cfg(test)]
