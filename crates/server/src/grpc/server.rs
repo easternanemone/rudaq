@@ -547,6 +547,7 @@ fn spectrum_payload_from_parts(
         timestamp_ns,
         intensity_unit: intensity_unit.unwrap_or_default(),
         metadata_json,
+        device_id: metadata_string(metadata_object, &["device_id"]).unwrap_or_default(),
     }
 }
 
@@ -688,6 +689,27 @@ fn build_image_measurement(device_id: &str, frame: &common::data::Frame) -> Meas
             sequence_gap_from_previous: None,
         },
         timestamp: chrono::Utc::now(),
+    }
+}
+
+fn load_echelle_profile_for_device(
+    registry: &hardware::registry::DeviceRegistry,
+    device_id: &str,
+) -> Option<Arc<common::echelle::EchelleCalibrationProfile>> {
+    let profile_path = registry.get_driver_config_string(device_id, "echelle_profile_path")?;
+    match common::echelle::EchelleCalibrationProfile::load_from_path(std::path::Path::new(
+        &profile_path,
+    )) {
+        Ok(profile) => Some(Arc::new(profile)),
+        Err(error) => {
+            tracing::warn!(
+                device_id = %device_id,
+                profile_path = %profile_path,
+                error = %error,
+                "Failed to load echelle profile; server-side extraction disabled for device"
+            );
+            None
+        }
     }
 }
 
@@ -1361,7 +1383,16 @@ impl ControlService for DaqServer {
                     continue;
                 };
 
-                if !channels.is_empty() && !channels.contains(&name) {
+                let spectrum_device_id = metadata_string(
+                    metadata.as_ref().and_then(serde_json::Value::as_object),
+                    &["device_id"],
+                );
+                if !channels.is_empty()
+                    && !channels.contains(&name)
+                    && spectrum_device_id
+                        .as_ref()
+                        .map_or(true, |device_id| !channels.contains(device_id))
+                {
                     continue;
                 }
 
@@ -1803,15 +1834,73 @@ pub async fn start_server_with_hardware(
                 .and_then(|v| v.parse::<usize>().ok())
                 .unwrap_or(16);
             let (meas_tx, meas_rx) = tokio::sync::mpsc::channel(meas_chan);
+            let image_meas_tx = meas_tx.clone();
             let device_id_clone = device_id.clone();
+            let extraction_feed =
+                load_echelle_profile_for_device(&registry, &device_id).map(|profile| {
+                    let (extract_tx, mut extract_rx) =
+                        tokio::sync::watch::channel(None::<Arc<common::data::Frame>>);
+                    let spectrum_meas_tx = meas_tx.clone();
+                    let extraction_device_id = device_id.clone();
+                    let extraction_profile = profile.clone();
+                    tokio::spawn(async move {
+                        let mut u16_scratch = Vec::new();
+                        while extract_rx.changed().await.is_ok() {
+                            let Some(frame) = extract_rx.borrow_and_update().clone() else {
+                                continue;
+                            };
+
+                            match common::echelle::extract_preview_with_u16_scratch(
+                                extraction_profile.as_ref(),
+                                &frame.data,
+                                frame.width,
+                                frame.height,
+                                frame.bit_depth,
+                                frame.frame_number,
+                                &mut u16_scratch,
+                            ) {
+                                Ok(preview) => {
+                                    for measurement in preview.to_measurements_with_context(
+                                        false,
+                                        Some(&extraction_device_id),
+                                    ) {
+                                        if spectrum_meas_tx.send(measurement).await.is_err() {
+                                            return;
+                                        }
+                                    }
+                                }
+                                Err(error) => {
+                                    tracing::warn!(
+                                        device_id = %extraction_device_id,
+                                        frame_number = frame.frame_number,
+                                        error = %error,
+                                        "Echelle extraction failed; raw frame streaming continues"
+                                    );
+                                }
+                            }
+
+                            tokio::task::yield_now().await;
+                        }
+                    });
+
+                    tracing::info!(
+                        device_id = %device_id,
+                        "Enabled server-side echelle spectrum extraction for frame source"
+                    );
+
+                    extract_tx
+                });
 
             // 4. Spawn Converter Task (Frame -> Measurement)
             tokio::spawn(async move {
                 while let Some(frame) = frame_rx.recv().await {
                     let measurement = build_image_measurement(&device_id_clone, &frame);
 
-                    if meas_tx.send(measurement).await.is_err() {
+                    if image_meas_tx.send(measurement).await.is_err() {
                         break; // Downstream closed
+                    }
+                    if let Some(extract_tx) = &extraction_feed {
+                        extract_tx.send_replace(Some(frame.clone()));
                     }
                 }
             });
@@ -2714,6 +2803,47 @@ mod tests {
         assert_eq!(client1_data.len(), 3);
         assert_eq!(client2_data.len(), 3);
         assert_eq!(client1_data, client2_data);
+    }
+
+    #[tokio::test]
+    #[cfg(feature = "scripting")]
+    async fn test_stream_spectra_filters_by_device_id_metadata() {
+        use tokio_stream::StreamExt;
+
+        let server = create_test_server();
+        let data_sender = server.data_sender();
+        let request = Request::new(crate::grpc::proto::SpectrumStreamRequest {
+            channels: vec!["camera-a".to_string()],
+            max_rate_hz: 0,
+        });
+
+        let response = server.stream_spectra(request).await.unwrap();
+        let mut stream = response.into_inner();
+
+        tokio::spawn(async move {
+            let _ = data_sender.send(Measurement::Spectrum {
+                name: "echelle_order_0".to_string(),
+                frequencies: vec![500.0, 501.0],
+                amplitudes: vec![1.0, 2.0],
+                frequency_unit: Some("nm".to_string()),
+                amplitude_unit: Some("counts".to_string()),
+                metadata: Some(serde_json::json!({
+                    "device_id": "camera-a",
+                    "relative_index": 0
+                })),
+                timestamp: Utc::now(),
+            });
+        });
+
+        let payload = stream
+            .next()
+            .await
+            .expect("expected a streamed spectrum")
+            .expect("expected streamed spectrum payload");
+
+        assert_eq!(payload.name, "echelle_order_0");
+        assert_eq!(payload.device_id, "camera-a");
+        assert_eq!(payload.order_index, 0);
     }
 
     #[test]

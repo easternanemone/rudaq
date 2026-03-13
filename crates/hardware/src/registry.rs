@@ -1440,6 +1440,16 @@ impl DeviceRegistry {
         self.devices.get(id).and_then(|d| d.source_frame.clone())
     }
 
+    /// Get a string-valued driver config entry for a registered device.
+    pub fn get_driver_config_string(&self, id: &str, key: &str) -> Option<String> {
+        self.devices.get(id).and_then(|device| {
+            let toml::Value::Table(config) = &device.config.driver.config else {
+                return None;
+            };
+            config.get(key)?.as_str().map(ToOwned::to_owned)
+        })
+    }
+
     /// Get a device as ExposureControl (if it supports this capability)
     pub fn get_exposure_control(&self, id: &str) -> Option<Arc<dyn ExposureControl>> {
         self.devices

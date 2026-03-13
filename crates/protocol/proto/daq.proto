@@ -143,6 +143,7 @@ message SpectrumPayload {
   uint64 timestamp_ns = 11;
   string intensity_unit = 12;
   string metadata_json = 13; // serialized metadata object for forward-compatible transport
+  string device_id = 14; // originating frame producer when spectrum came from image extraction
 }
 
 // Request to list all scripts
