@@ -40,6 +40,29 @@ pub(super) struct RgbaConversionResult {
     pub(super) computed_max: f32,
 }
 
+/// Request for background echelle extraction (bd-fwyp)
+pub(super) struct EchelleExtractionRequest {
+    /// Raw frame data (Arc for zero-copy sharing)
+    pub(super) data: Arc<Vec<u8>>,
+    pub(super) width: u32,
+    pub(super) height: u32,
+    pub(super) bit_depth: u32,
+    pub(super) frame_number: u64,
+    /// Calibration profile (Arc for zero-copy sharing)
+    pub(super) profile: Arc<common::echelle::EchelleCalibrationProfile>,
+}
+
+/// Result of background echelle extraction (bd-fwyp)
+pub(super) struct EchelleExtractionResult {
+    /// Extraction preview (None on error)
+    pub(super) preview: Result<super::echelle_extraction::EchelleExtractionPreview, String>,
+    /// Extraction wall-clock time in milliseconds
+    pub(super) extract_ms: f64,
+    /// Frame number for ordering (kept for future use)
+    #[allow(dead_code)]
+    pub(super) frame_number: u64,
+}
+
 /// Helper function to get pixel value from frame data (bd-pgcb)
 ///
 /// Used by crosshair feature. Free function to avoid borrow checker issues in closures.

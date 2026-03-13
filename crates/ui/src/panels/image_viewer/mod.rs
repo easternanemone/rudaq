@@ -297,6 +297,16 @@ pub struct ImageViewerPanel {
     /// True when thread spawn failed (e.g., WASM); skip retry and convert synchronously
     rgba_sync_mode: bool,
 
+    // -- Background Echelle Extraction (bd-fwyp: move extraction off UI thread) --
+    /// Receiver for completed echelle extractions from background thread
+    echelle_extract_rx: Option<std::sync::mpsc::Receiver<EchelleExtractionResult>>,
+    /// Sender for echelle extraction requests
+    echelle_extract_tx: Option<std::sync::mpsc::SyncSender<EchelleExtractionRequest>>,
+    /// Pending echelle extraction result ready to be applied
+    pending_echelle: Option<EchelleExtractionResult>,
+    /// True when thread spawn failed (e.g., WASM); extract synchronously
+    echelle_sync_mode: bool,
+
     // -- Crosshair Feature (bd-pgcb) --
     /// Enable crosshair cursor display
     crosshair_enabled: bool,
@@ -446,6 +456,12 @@ impl Default for ImageViewerPanel {
             pending_rgba: None,
             rgba_recycle_tx: None,
             rgba_sync_mode: false,
+
+            // Background echelle extraction (bd-fwyp)
+            echelle_extract_rx: None,
+            echelle_extract_tx: None,
+            pending_echelle: None,
+            echelle_sync_mode: false,
 
             // Crosshair (bd-pgcb)
             crosshair_enabled: false,
@@ -1004,60 +1020,6 @@ impl ImageViewerPanel {
             self.mark_echelle_editor_dirty();
         }
         Ok(())
-    }
-
-    fn maybe_update_echelle_preview(&mut self, frame: &FrameUpdate) {
-        if !self.echelle_extraction_enabled {
-            return;
-        }
-
-        let decimation = u64::from(self.echelle_extract_every_n_frames.max(1));
-        if decimation > 1 && !frame.frame_number.is_multiple_of(decimation) {
-            self.echelle_extract_skipped_frames =
-                self.echelle_extract_skipped_frames.saturating_add(1);
-            return;
-        }
-
-        let Some(profile) = self.echelle_profile_cache.profile().cloned() else {
-            self.echelle_preview = None;
-            self.echelle_preview_error = None;
-            return;
-        };
-
-        let t0 = Instant::now();
-        match extract_preview_with_u16_scratch(
-            &profile,
-            &frame.data,
-            frame.width,
-            frame.height,
-            frame.bit_depth,
-            frame.frame_number,
-            &mut self.echelle_decode_scratch_u16,
-        ) {
-            Ok(preview) => {
-                self.echelle_last_extract_ms = Some(t0.elapsed().as_secs_f64() * 1000.0);
-                self.echelle_extract_runs = self.echelle_extract_runs.saturating_add(1);
-                let order_count = preview.orders.len();
-                if order_count == 0 {
-                    self.echelle_preview = None;
-                    self.echelle_preview_error =
-                        Some("Echelle profile has no enabled orders for extraction".to_string());
-                    return;
-                }
-                if self.echelle_selected_order_plot >= order_count {
-                    self.echelle_selected_order_plot = 0;
-                }
-                self.echelle_preview_measurements = preview.to_measurements();
-                self.echelle_preview = Some(preview);
-                self.echelle_preview_error = None;
-            }
-            Err(err) => {
-                self.echelle_last_extract_ms = Some(t0.elapsed().as_secs_f64() * 1000.0);
-                self.echelle_extract_errors = self.echelle_extract_errors.saturating_add(1);
-                self.echelle_preview_error = Some(err);
-                // Preserve last-good preview for continuity, similar to profile hot reload semantics.
-            }
-        }
     }
 
     fn render_echelle_calibration_workspace(&mut self, ui: &mut egui::Ui) {
@@ -2376,6 +2338,177 @@ impl ImageViewerPanel {
         }
     }
 
+    // -- Background Echelle Extraction (bd-fwyp) --
+
+    /// Spawn a dedicated thread for echelle extraction.
+    ///
+    /// Mirrors the RGBA converter pattern: bounded request channel, unbounded result channel.
+    /// The worker thread owns its own u16 scratch buffer for 12/16-bit decode.
+    fn spawn_echelle_extractor(&mut self) -> bool {
+        let (request_tx, request_rx) = std::sync::mpsc::sync_channel::<EchelleExtractionRequest>(2);
+        let (result_tx, result_rx) = std::sync::mpsc::channel::<EchelleExtractionResult>();
+
+        let spawn_result = std::thread::Builder::new()
+            .name("echelle-extractor".into())
+            .spawn(move || {
+                tracing::debug!("Echelle extractor thread started");
+                let mut u16_scratch = Vec::new();
+
+                while let Ok(req) = request_rx.recv() {
+                    let t0 = std::time::Instant::now();
+                    let preview = extract_preview_with_u16_scratch(
+                        &req.profile,
+                        &req.data,
+                        req.width,
+                        req.height,
+                        req.bit_depth,
+                        req.frame_number,
+                        &mut u16_scratch,
+                    );
+                    let extract_ms = t0.elapsed().as_secs_f64() * 1000.0;
+
+                    let result = EchelleExtractionResult {
+                        preview,
+                        extract_ms,
+                        frame_number: req.frame_number,
+                    };
+
+                    if result_tx.send(result).is_err() {
+                        tracing::debug!("Echelle extractor result receiver dropped, exiting");
+                        break;
+                    }
+                }
+
+                tracing::debug!("Echelle extractor thread exiting");
+            });
+
+        match spawn_result {
+            Ok(_handle) => {
+                self.echelle_extract_tx = Some(request_tx);
+                self.echelle_extract_rx = Some(result_rx);
+                true
+            }
+            Err(e) => {
+                tracing::error!(
+                    "Failed to spawn echelle extractor thread: {}. Falling back to synchronous extraction.",
+                    e
+                );
+                self.echelle_sync_mode = true;
+                false
+            }
+        }
+    }
+
+    /// Poll for completed echelle extractions from background thread (bd-fwyp)
+    fn poll_echelle_results(&mut self) {
+        if let Some(rx) = &self.echelle_extract_rx {
+            let mut latest: Option<EchelleExtractionResult> = None;
+            while let Ok(result) = rx.try_recv() {
+                latest = Some(result);
+            }
+            if latest.is_some() {
+                self.pending_echelle = latest;
+            }
+        }
+    }
+
+    /// Apply pending echelle extraction result to panel state (bd-fwyp)
+    fn apply_pending_echelle(&mut self) {
+        if let Some(result) = self.pending_echelle.take() {
+            self.echelle_last_extract_ms = Some(result.extract_ms);
+            match result.preview {
+                Ok(preview) => {
+                    self.echelle_extract_runs = self.echelle_extract_runs.saturating_add(1);
+                    let order_count = preview.orders.len();
+                    if order_count == 0 {
+                        self.echelle_preview = None;
+                        self.echelle_preview_error = Some(
+                            "Echelle profile has no enabled orders for extraction".to_string(),
+                        );
+                        return;
+                    }
+                    if self.echelle_selected_order_plot >= order_count {
+                        self.echelle_selected_order_plot = 0;
+                    }
+                    self.echelle_preview_measurements = preview.to_measurements();
+                    self.echelle_preview = Some(preview);
+                    self.echelle_preview_error = None;
+                }
+                Err(err) => {
+                    self.echelle_extract_errors = self.echelle_extract_errors.saturating_add(1);
+                    self.echelle_preview_error = Some(err);
+                }
+            }
+        }
+    }
+
+    /// Submit frame for background echelle extraction (bd-fwyp)
+    ///
+    /// Handles decimation gating, profile lookup, and submission.
+    /// Falls back to synchronous extraction on WASM or thread spawn failure.
+    fn submit_for_echelle_extraction(&mut self, frame: &FrameUpdate) {
+        if !self.echelle_extraction_enabled {
+            return;
+        }
+
+        let decimation = u64::from(self.echelle_extract_every_n_frames.max(1));
+        if decimation > 1 && !frame.frame_number.is_multiple_of(decimation) {
+            self.echelle_extract_skipped_frames =
+                self.echelle_extract_skipped_frames.saturating_add(1);
+            return;
+        }
+
+        let Some(profile) = self.echelle_profile_cache.profile().cloned() else {
+            self.echelle_preview = None;
+            self.echelle_preview_error = None;
+            return;
+        };
+
+        // Spawn extractor thread lazily on first use
+        if self.echelle_extract_tx.is_none() && !self.echelle_sync_mode {
+            self.spawn_echelle_extractor();
+        }
+
+        let request = EchelleExtractionRequest {
+            data: frame.data.clone(),
+            width: frame.width,
+            height: frame.height,
+            bit_depth: frame.bit_depth,
+            frame_number: frame.frame_number,
+            profile,
+        };
+
+        if let Some(tx) = &self.echelle_extract_tx {
+            match tx.try_send(request) {
+                Ok(()) => {}
+                Err(mpsc::TrySendError::Full(_)) => {
+                    // Queue full, frame dropped (acceptable under load)
+                }
+                Err(mpsc::TrySendError::Disconnected(_)) => {
+                    self.echelle_extract_tx = None;
+                }
+            }
+        } else {
+            // No background thread (e.g., WASM): extract synchronously
+            let t0 = Instant::now();
+            let preview = extract_preview_with_u16_scratch(
+                &request.profile,
+                &request.data,
+                request.width,
+                request.height,
+                request.bit_depth,
+                request.frame_number,
+                &mut self.echelle_decode_scratch_u16,
+            );
+            self.pending_echelle = Some(EchelleExtractionResult {
+                preview,
+                extract_ms: t0.elapsed().as_secs_f64() * 1000.0,
+                frame_number: request.frame_number,
+            });
+            self.apply_pending_echelle();
+        }
+    }
+
     /// Poll for async action results
     fn poll_actions(&mut self) {
         while let Ok(action) = self.action_rx.try_recv() {
@@ -3362,6 +3495,10 @@ impl ImageViewerPanel {
         self.poll_rgba_results();
         self.apply_pending_rgba(ctx);
 
+        // bd-fwyp: Poll for completed echelle extractions from background thread
+        self.poll_echelle_results();
+        self.apply_pending_echelle();
+
         let Some(rx) = &self.frame_rx else { return };
 
         // Drain ALL pending frames, keeping only the last one
@@ -3446,8 +3583,8 @@ impl ImageViewerPanel {
         self.histogram
             .from_frame_data(&frame.data, frame.width, frame.height, frame.bit_depth);
 
-        // bd-2kla.4: Optional local echelle extraction preview (decimated)
-        self.maybe_update_echelle_preview(&frame);
+        // bd-fwyp: Submit for background echelle extraction (decimated)
+        self.submit_for_echelle_extraction(&frame);
 
         // bd-07j1: Update colorbar range from frame data
         let bit_max = match frame.bit_depth {
