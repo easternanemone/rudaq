@@ -56,6 +56,7 @@ pub mod data;
 pub mod capabilities;
 pub mod echelle;
 pub mod echelle_rectification;
+pub mod echelle_scattered_light;
 pub mod echelle_trace_fitting;
 pub mod error;
 pub mod error_recovery;
