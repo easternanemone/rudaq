@@ -55,6 +55,7 @@ pub mod data;
 // Document model (Bluesky-style)
 pub mod capabilities;
 pub mod echelle;
+pub mod echelle_trace_fitting;
 pub mod error;
 pub mod error_recovery;
 pub mod experiment;
