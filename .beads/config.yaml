@@ -70,3 +70,5 @@ sync-branch: "beads-sync"
 # - github.repo
 
 dolt.shared-server: true
+
+dolt.database: "rust_daq"
