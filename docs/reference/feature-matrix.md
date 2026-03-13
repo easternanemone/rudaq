@@ -67,6 +67,8 @@ These storage features are owned by the `storage` crate. Some are passed through
 | `storage_parquet`| `storage` | Apache Parquet format | `parquet` (requires `storage_arrow`) |
 | `storage_tiff` | `storage` | TIFF image export | `image` crate |
 | `storage_zarr` | `storage` | Zarr V3 array storage | `zarrs` crate |
+| `metrics` | `storage` | Prometheus metrics for ring buffer | `prometheus`, `pool/metrics` |
+| `networking` | `storage` | Networking support for remote storage | None |
 
 **Storage Feature Propagation:**
 - `storage_hdf5` propagates to `storage/storage_hdf5`
@@ -146,10 +148,13 @@ These devices require **no feature flags** — they load at runtime via TOML con
 | `server` | Full gRPC server | `server`, includes `networking` |
 | `modules` | Module system with runtime assignment | `daq-modules` |
 | `scripting_python` | Python bindings for scripting | `scripting/python` (PyO3) |
+| `db-surreal` | SurrealDB base (internal, activated by mem/rocksdb) | `db` + `server/db-surreal` |
 | `db-surreal-mem` | In-memory SurrealDB (default) | `db` with kv-mem |
 | `db-surreal-rocksdb` | Persistent SurrealDB with RocksDB | `db` with kv-rocksdb |
 | `production` | Production profile | `db-surreal-rocksdb` + `modules` + `all_hardware` |
 | `metrics` | Prometheus metrics for observability | `prometheus` |
+| `storage_arrow` | Arrow IPC storage (passthrough to `storage`) | `storage/storage_arrow` |
+| `storage_hdf5` | HDF5 storage (passthrough to `storage`) | `storage/storage_hdf5` |
 
 **GUI Applications** (separate `ui` crate):
 - `standalone` — Native desktop GUI (default, uses `eframe` + `egui`)
@@ -261,7 +266,8 @@ The CI system tests these combinations:
 ```
 bin crate features:
   maitai → pvcam_hardware + comedi_hardware + hardware/serial
-  pvcam_hardware → pvcam_sdk → driver-registry/pvcam_hardware
+  pvcam_hardware → pvcam_sdk
+  pvcam_sdk → driver-registry/pvcam_sdk
   comedi_hardware → driver-registry/comedi_hardware
   all_hardware → driver-registry/all_hardware
   full → storage_arrow + serial + modules + all_hardware

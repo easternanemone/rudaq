@@ -32,9 +32,10 @@
 | **Drivers** | `driver-*`, `*-sys` | FFI bindings (PVCAM, Comedi, Andor) and driver implementations. |
 | **Protocol** | `protocol` | Protobuf definitions and gRPC service traits. |
 | **Server** | `server` | The gRPC implementation, orchestrating calls to hardware and storage. |
-| **Engine** | `experiment`, `scripting`| Rhai engine integration, task sequences, coordinated multi-axis scans. |
+| **Engine** | `experiment`, `scripting`, `daq-modules` | Rhai engine integration, task sequences, module system, coordinated multi-axis scans. |
 | **Storage** | `storage`, `pool` | Fast streaming (Ring Buffer, Arrow) and persistence (HDF5). |
-| **UI** | `ui` [PRIMARY], `ui-slint` [EXPERIMENTAL] | `ui` is the primary supported operator UI (native + WASM); `ui-slint` is evaluation-only and not production parity. `daq-rerun` is a specialized auxiliary workflow, not a full UI replacement. |
+| **UI** | `ui` [PRIMARY], `ui-slint` [EXPERIMENTAL] | `ui` is the primary supported operator UI (native + WASM); `ui-slint` is evaluation-only and not production parity. |
+| **Testing** | `integration-tests` | Cross-crate integration test suite. |
 
 ## Feature Flags (Compile Time)
 
