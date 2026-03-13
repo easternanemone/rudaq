@@ -150,8 +150,14 @@ whats-next.md
 
 # Local AI tool config
 .agents/
+.agent/
 .factory/
 .cocoindex_code/
+.codex/
+.cursor/
+.github/prompts/
+.github/skills/
+openspec/
 
 # Git worktrees
 .worktrees/
