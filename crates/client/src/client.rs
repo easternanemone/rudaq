@@ -131,7 +131,7 @@ use protocol::daq::{
     SetParameterRequest,
     SetShutterRequest,
     SetWavelengthRequest,
-    SpectrumDataPoint,
+    SpectrumPayload,
     SpectrumStreamRequest,
     StartEngineRequest,
     StartEngineResponse,
@@ -514,7 +514,7 @@ impl DaqClient {
         &mut self,
         channels: Vec<String>,
         max_rate_hz: u32,
-    ) -> Result<impl futures::Stream<Item = Result<SpectrumDataPoint, tonic::Status>>> {
+    ) -> Result<impl futures::Stream<Item = Result<SpectrumPayload, tonic::Status>>> {
         let request = SpectrumStreamRequest {
             channels,
             max_rate_hz,

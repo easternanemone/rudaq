@@ -506,6 +506,131 @@ impl DaqServer {
     }
 }
 
+fn spectrum_payload_from_parts(
+    name: String,
+    wavelengths: Vec<f64>,
+    intensities: Vec<f64>,
+    wavelength_unit: Option<String>,
+    intensity_unit: Option<String>,
+    metadata: Option<serde_json::Value>,
+    timestamp_ns: u64,
+) -> crate::grpc::proto::SpectrumPayload {
+    let metadata_object = metadata.as_ref().and_then(serde_json::Value::as_object);
+    let metadata_json = metadata
+        .as_ref()
+        .and_then(|value| serde_json::to_string(value).ok())
+        .unwrap_or_default();
+
+    let merged = metadata_bool(metadata_object, &["merged"]).unwrap_or_else(|| {
+        metadata_string(metadata_object, &["kind"]).is_some_and(|kind| kind == "echelle_merged")
+            || name.contains("merged")
+    });
+    let order_index = metadata_i32(metadata_object, &["order_index", "relative_index"])
+        .unwrap_or(if merged { -1 } else { 0 });
+
+    crate::grpc::proto::SpectrumPayload {
+        wavelengths,
+        intensities,
+        ivar: metadata_f64_list(metadata_object, &["ivar"]).unwrap_or_default(),
+        wavelength_unit: wavelength_unit.unwrap_or_default(),
+        order_index,
+        merged,
+        calibration_profile_id: metadata_string(
+            metadata_object,
+            &["calibration_profile_id", "profile_id"],
+        )
+        .unwrap_or_default(),
+        quality_flags: metadata_string_list(metadata_object, &["quality_flags"])
+            .unwrap_or_default(),
+        snr_estimate: metadata_f64(metadata_object, &["snr_estimate"]).unwrap_or_default(),
+        name,
+        timestamp_ns,
+        intensity_unit: intensity_unit.unwrap_or_default(),
+        metadata_json,
+    }
+}
+
+fn metadata_string(
+    metadata: Option<&serde_json::Map<String, serde_json::Value>>,
+    keys: &[&str],
+) -> Option<String> {
+    keys.iter().find_map(|key| {
+        metadata
+            .and_then(|object| object.get(*key))
+            .and_then(serde_json::Value::as_str)
+            .map(ToOwned::to_owned)
+    })
+}
+
+fn metadata_bool(
+    metadata: Option<&serde_json::Map<String, serde_json::Value>>,
+    keys: &[&str],
+) -> Option<bool> {
+    keys.iter().find_map(|key| {
+        metadata
+            .and_then(|object| object.get(*key))
+            .and_then(serde_json::Value::as_bool)
+    })
+}
+
+fn metadata_i32(
+    metadata: Option<&serde_json::Map<String, serde_json::Value>>,
+    keys: &[&str],
+) -> Option<i32> {
+    keys.iter().find_map(|key| {
+        metadata
+            .and_then(|object| object.get(*key))
+            .and_then(serde_json::Value::as_i64)
+            .and_then(|value| i32::try_from(value).ok())
+    })
+}
+
+fn metadata_f64(
+    metadata: Option<&serde_json::Map<String, serde_json::Value>>,
+    keys: &[&str],
+) -> Option<f64> {
+    keys.iter().find_map(|key| {
+        metadata
+            .and_then(|object| object.get(*key))
+            .and_then(serde_json::Value::as_f64)
+    })
+}
+
+fn metadata_string_list(
+    metadata: Option<&serde_json::Map<String, serde_json::Value>>,
+    keys: &[&str],
+) -> Option<Vec<String>> {
+    keys.iter().find_map(|key| {
+        metadata
+            .and_then(|object| object.get(*key))
+            .and_then(serde_json::Value::as_array)
+            .map(|values| {
+                values
+                    .iter()
+                    .filter_map(serde_json::Value::as_str)
+                    .map(ToOwned::to_owned)
+                    .collect::<Vec<_>>()
+            })
+    })
+}
+
+fn metadata_f64_list(
+    metadata: Option<&serde_json::Map<String, serde_json::Value>>,
+    keys: &[&str],
+) -> Option<Vec<f64>> {
+    keys.iter().find_map(|key| {
+        metadata
+            .and_then(|object| object.get(*key))
+            .and_then(serde_json::Value::as_array)
+            .map(|values| {
+                values
+                    .iter()
+                    .filter_map(serde_json::Value::as_f64)
+                    .collect()
+            })
+    })
+}
+
 fn encode_measurement_frame(measurement: &Measurement) -> Result<Vec<u8>, bincode::Error> {
     let payload = bincode::serialize(measurement)?;
     let mut frame = Vec::with_capacity(4 + payload.len());
@@ -1039,9 +1164,8 @@ impl ControlService for DaqServer {
 
     type StreamMeasurementsStream =
         tokio_stream::wrappers::ReceiverStream<Result<crate::grpc::proto::DataPoint, Status>>;
-    type StreamSpectraStream = tokio_stream::wrappers::ReceiverStream<
-        Result<crate::grpc::proto::SpectrumDataPoint, Status>,
-    >;
+    type StreamSpectraStream =
+        tokio_stream::wrappers::ReceiverStream<Result<crate::grpc::proto::SpectrumPayload, Status>>;
 
     /// Stream measurement data from specified channels
     async fn stream_measurements(
@@ -1248,20 +1372,15 @@ impl ControlService for DaqServer {
                 #[allow(clippy::cast_sign_loss)]
                 // SAFETY: value is non-negative at this point
                 let timestamp_ns = timestamp.timestamp_nanos_opt().unwrap_or(0) as u64;
-                let metadata_json = metadata
-                    .as_ref()
-                    .and_then(|m| serde_json::to_string(m).ok())
-                    .unwrap_or_default();
-
-                let proto_spectrum = crate::grpc::proto::SpectrumDataPoint {
+                let proto_spectrum = spectrum_payload_from_parts(
                     name,
-                    x_values: frequencies,
-                    y_values: amplitudes,
-                    x_unit: frequency_unit.unwrap_or_default(),
-                    y_unit: amplitude_unit.unwrap_or_default(),
+                    frequencies,
+                    amplitudes,
+                    frequency_unit,
+                    amplitude_unit,
+                    metadata,
                     timestamp_ns,
-                    metadata_json,
-                };
+                );
 
                 if tx.send(Ok(proto_spectrum)).await.is_err() {
                     break;
@@ -2683,6 +2802,65 @@ mod tests {
         assert_eq!(metadata.roi_origin, Some((8, 16)));
         assert_eq!(metadata.frame_number, Some(42));
         assert_eq!(metadata.sequence_gap_from_previous, None);
+    }
+
+    #[test]
+    fn test_spectrum_payload_from_parts_defaults_without_metadata() {
+        let payload = spectrum_payload_from_parts(
+            "spectrum-a".to_string(),
+            vec![500.0, 501.0],
+            vec![1.0, 2.0],
+            Some("nm".to_string()),
+            Some("counts".to_string()),
+            None,
+            123,
+        );
+
+        assert_eq!(payload.name, "spectrum-a");
+        assert_eq!(payload.wavelengths, vec![500.0, 501.0]);
+        assert_eq!(payload.intensities, vec![1.0, 2.0]);
+        assert_eq!(payload.wavelength_unit, "nm");
+        assert_eq!(payload.intensity_unit, "counts");
+        assert_eq!(payload.order_index, 0);
+        assert!(!payload.merged);
+        assert!(payload.ivar.is_empty());
+        assert!(payload.quality_flags.is_empty());
+        assert_eq!(payload.timestamp_ns, 123);
+        assert!(payload.metadata_json.is_empty());
+    }
+
+    #[test]
+    fn test_spectrum_payload_from_parts_parses_echelle_metadata() {
+        let payload = spectrum_payload_from_parts(
+            "echelle_merged_preview".to_string(),
+            vec![500.0, 501.0],
+            vec![1.0, 2.0],
+            Some("nm".to_string()),
+            Some("counts".to_string()),
+            Some(serde_json::json!({
+                "kind": "echelle_merged",
+                "profile_id": "profile-42",
+                "quality_flags": ["cosmic_masked", "blaze_corrected"],
+                "snr_estimate": 18.5,
+                "ivar": [0.25, 0.5]
+            })),
+            456,
+        );
+
+        assert!(payload.merged);
+        assert_eq!(payload.order_index, -1);
+        assert_eq!(payload.calibration_profile_id, "profile-42");
+        assert_eq!(
+            payload.quality_flags,
+            vec!["cosmic_masked".to_string(), "blaze_corrected".to_string()]
+        );
+        assert_eq!(payload.snr_estimate, 18.5);
+        assert_eq!(payload.ivar, vec![0.25, 0.5]);
+        assert!(
+            payload
+                .metadata_json
+                .contains("\"profile_id\":\"profile-42\"")
+        );
     }
 
     #[test]
