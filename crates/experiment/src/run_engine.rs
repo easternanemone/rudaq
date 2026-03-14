@@ -1793,6 +1793,7 @@ mod tests {
         }
 
         async fn get_calibration(&self, num_pixels: usize) -> anyhow::Result<Vec<f64>> {
+            #[allow(clippy::cast_precision_loss)] // test pixel indices are small
             Ok((0..num_pixels).map(|idx| 300.0 + idx as f64).collect())
         }
 

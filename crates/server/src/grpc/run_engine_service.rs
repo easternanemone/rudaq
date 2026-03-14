@@ -205,6 +205,7 @@ impl Clone for RunEngineServiceImpl {
     }
 }
 
+#[allow(clippy::result_large_err)] // Status is tonic's standard error type
 fn proto_snapshot_to_domain(
     proto: ProtoCalibrationSnapshot,
 ) -> Result<experiment::CalibrationFreshness, Status> {

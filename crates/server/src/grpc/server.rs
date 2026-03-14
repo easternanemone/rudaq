@@ -1391,7 +1391,7 @@ impl ControlService for DaqServer {
                     && !channels.contains(&name)
                     && spectrum_device_id
                         .as_ref()
-                        .map_or(true, |device_id| !channels.contains(device_id))
+                        .is_none_or(|device_id| !channels.contains(device_id))
                 {
                     continue;
                 }
