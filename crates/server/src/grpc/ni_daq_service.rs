@@ -296,11 +296,15 @@ impl NiDaqService for NiDaqServiceImpl {
             // Determine stop condition
             let max_samples = match req.stop_condition {
                 Some(stream_analog_input_request::StopCondition::SampleCount(count)) => {
+                    // Proto u64 sample count fits in usize on 64-bit targets
+                    #[allow(clippy::cast_possible_truncation)]
                     Some(count as usize)
                 }
                 Some(stream_analog_input_request::StopCondition::DurationMs(duration_ms)) => {
                     // Calculate approximate sample count from duration
-                    let duration_secs = duration_ms as f64 / 1000.0;
+                    let duration_secs = f64::from(duration_ms) / 1000.0;
+                    // sample_rate * duration is always positive and bounded by hardware limits
+                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                     let total_samples = (req.sample_rate_hz * duration_secs) as usize;
                     Some(total_samples)
                 }
@@ -344,6 +348,8 @@ impl NiDaqService for NiDaqServiceImpl {
 
                                 let overflow = acquisition.overflow_count() > 0;
 
+                                // Channel count is always small (hardware-bounded)
+                                #[allow(clippy::cast_possible_truncation)]
                                 let data = AnalogInputData {
                                     voltages: interleaved,
                                     n_channels: n_channels as u32,
@@ -578,6 +584,8 @@ impl NiDaqService for NiDaqServiceImpl {
                         )?;
                         let voltage = ai.raw_to_voltage(raw, &range);
 
+                        // u128 nanoseconds won't exceed u64 for ~585 years
+                        #[allow(clippy::cast_possible_truncation)]
                         let timestamp_ns = SystemTime::now()
                             .duration_since(SystemTime::UNIX_EPOCH)
                             .unwrap_or_default()
@@ -1176,13 +1184,14 @@ impl NiDaqService for NiDaqServiceImpl {
                             .read(counter)
                             .map_err(|e| anyhow::anyhow!("Failed to read counter: {}", e))?;
 
-                        // Get timestamp
+                        // u128 nanoseconds won't exceed u64 for ~585 years
+                        #[allow(clippy::cast_possible_truncation)]
                         let timestamp_ns = SystemTime::now()
                             .duration_since(SystemTime::UNIX_EPOCH)
                             .unwrap_or_default()
                             .as_nanos() as u64;
 
-                        Ok((count as u64, timestamp_ns))
+                        Ok((u64::from(count), timestamp_ns))
                     })
                     .await
                     .map_err(|e| anyhow::anyhow!("Task join error: {}", e))?
@@ -1599,6 +1608,8 @@ impl NiDaqService for NiDaqServiceImpl {
                             ai_channels,
                             ao_channels,
                             dio_channels,
+                            // Counter count is always small (hardware-bounded)
+                            #[allow(clippy::cast_possible_truncation)]
                             counter_channels: counter_count as u32,
                             ai_resolution_bits: ai_resolution,
                             ao_resolution_bits: ao_resolution,

@@ -123,7 +123,7 @@ impl UniversalDriverFactory {
             "universal_{}",
             manifest.device.name.to_lowercase().replace(' ', "_")
         );
-        let caps_vec: Vec<CoreCapability> = manifest
+        let mut caps_vec: Vec<CoreCapability> = manifest
             .device
             .capability_names
             .iter()
@@ -141,6 +141,12 @@ impl UniversalDriverFactory {
                 _ => None,
             })
             .collect();
+
+        // StateRefreshable is always wired at build time (bd-47p2), so the
+        // factory must advertise it for factory-info / device-capability parity.
+        if !caps_vec.contains(&CoreCapability::StateRefreshable) {
+            caps_vec.push(CoreCapability::StateRefreshable);
+        }
 
         // Leak once at construction time to satisfy the &'static lifetime
         // required by the DriverFactory trait. Factory instances are long-lived

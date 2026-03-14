@@ -2702,6 +2702,7 @@ dependencies = [
  "hostname",
  "parking_lot 0.12.5",
  "pool",
+ "rayon",
  "regex-lite",
  "schemars 0.8.22",
  "serde",

@@ -1424,6 +1424,7 @@ impl DaqApp {
             modules_panel: ModulesPanel::default(),
             plan_runner_panel: PlanRunnerPanel::default(),
             scan_builder_panel: ScanBuilderPanel::default(),
+            #[allow(clippy::default_constructed_unit_structs)] // unit struct stub on wasm32
             experiment_designer_panel: ExperimentDesignerPanel::default(),
             document_viewer_panel: DocumentViewerPanel::default(),
             instrument_manager_panel: InstrumentManagerPanel::default(),
@@ -1588,6 +1589,7 @@ impl DaqApp {
             modules_panel: ModulesPanel::default(),
             plan_runner_panel: PlanRunnerPanel::default(),
             scan_builder_panel: ScanBuilderPanel::default(),
+            #[allow(clippy::default_constructed_unit_structs)] // unit struct stub on wasm32
             experiment_designer_panel: ExperimentDesignerPanel::default(),
             document_viewer_panel: DocumentViewerPanel::default(),
             instrument_manager_panel: InstrumentManagerPanel::default(),
