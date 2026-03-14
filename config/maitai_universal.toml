@@ -160,3 +160,42 @@ device = "/dev/comedi0"
 channel = 1
 range_index = 0
 units = "V"
+
+# ============================================================================
+# Comedi Digital I/O (bd-u0lg)
+# ============================================================================
+# DIO subsystem on the same NI PCI-MIO-16XE-10 card.
+# 8 channels, directly configurable as input or output per-pin.
+# Registered as a separate device so NiDaqService DIO RPCs route through
+# the DeviceRegistry instead of opening /dev/comedi0 directly.
+
+[[devices]]
+id = "ni_daq_dio"
+name = "NI DAQ Digital I/O"
+[devices.driver]
+type = "comedi_digital_io"
+device = "/dev/comedi0"
+output_channels = []
+
+# ============================================================================
+# Comedi Counters/Timers (bd-u0lg)
+# ============================================================================
+# Counter subsystem on the same NI PCI-MIO-16XE-10 card.
+# Two 24-bit counter/timer channels (General Purpose Counter/Timer).
+# Each registered as a separate device for independent read/reset via registry.
+
+[[devices]]
+id = "ni_daq_counter_0"
+name = "NI DAQ Counter 0"
+[devices.driver]
+type = "comedi_counter"
+device = "/dev/comedi0"
+channel = 0
+
+[[devices]]
+id = "ni_daq_counter_1"
+name = "NI DAQ Counter 1"
+[devices.driver]
+type = "comedi_counter"
+device = "/dev/comedi0"
+channel = 1

@@ -60,6 +60,16 @@ Engine
   scripting        ← Rhai engine with hardware bindings, optional PyO3
   daq-modules      ← PyMoDAQ/DynExp-style module system with Bluesky lifecycle
 
+Echelle Spectroscopy (in common crate)
+  echelle                       ← Profile types, BadPixelMask, calibration schema
+  echelle_calibration_pipeline  ← End-to-end: arc frame → wavelength-calibrated profile
+  echelle_wavelength_fitting    ← Arc line detection, HgAr atlas, Chebyshev wavelength fits
+  echelle_trace_fitting         ← Order trace detection from flat/arc frames
+  echelle_rectification         ← Per-order rectification into contiguous buffers
+  echelle_optimal_extraction    ← Horne 1986 optimal extraction kernel
+  echelle_scattered_light       ← 2D Chebyshev scattered light subtraction
+  fits_io [feature = "fits"]    ← FITS file I/O for calibration frame import
+
 Services & Storage
   server           ← gRPC services: Hardware, Scan, RunEngine, Storage, Plugin, etc.
   client           ← gRPC client library
@@ -180,6 +190,10 @@ WASM GUI: `http://100.117.5.12:8080`. Known reconnect bug (beefcake-48ad): must 
 | `scripts/target-maintenance.sh` | Clean bloated target/ directory |
 | `scripts/bd-safe.sh` | Worktree-safe beads commands (auto-discovers Dolt/SQLite backend) |
 | `scripts/beads-worktree-hygiene.sh` | Detect/clean stale worktree-local beads runtime artifacts |
+| `scripts/echelle/overnight-soak.sh` | 12h echelle extraction stability soak (memory, frame drops, latency) |
+| `scripts/echelle/analyze-soak-results.py` | Plot and analyze soak test CSV output (memory, latency, PASS/FAIL) |
+| `scripts/echelle/validate_vs_pypeit.py` | E2E validation: compare rust-daq extraction vs PypeIt reference |
+| `scripts/post-crash-forensics.sh` | Post-crash system forensics (dmesg, coredumps, journal, network) |
 
 ### Leabs/iSTAR Repro Commands
 

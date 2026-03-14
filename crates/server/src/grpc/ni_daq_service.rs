@@ -17,31 +17,30 @@
 //!
 //! ## Migrated to Registry Traits
 //! - `set_analog_output`: Uses `registry.get_settable()` -> `Settable::set_value()`
+//! - `configure_digital_io`, `read_digital_io`, `write_digital_io`,
+//!   `read_digital_port`, `write_digital_port`: Uses registry DIO device (bd-u0lg)
+//! - `read_counter`, `reset_counter`, `configure_counter`: Uses registry counter
+//!   devices (bd-u0lg)
 //!
 //! ## Still Using Direct Comedi Access
 //! The following RPCs still use `get_or_open_device()` for direct Comedi FFI.
 //! Each has a specific blocker documented inline:
 //!
 //! - `read_analog_input`: `Readable::read()` returns only `f64` voltage; proto
-//!   requires `raw_value` (u32) and per-call `channel`/`range_index` selection.
+//!   requires `raw_value` (u32) and per-call `channel`/`range_index` selection (bd-09ls).
 //! - `configure_analog_output`: Queries Comedi range info (min/max voltage) which
-//!   has no generic trait equivalent.
-//! - `configure_digital_io`, `read_digital_io`, `write_digital_io`,
-//!   `read_digital_port`, `write_digital_port`: No `comedi_digital_io` device is
-//!   registered in hardware configs. The DIO subsystem is accessed via the same
-//!   physical `/dev/comediN` node as AI/AO devices.
-//! - `read_counter`, `reset_counter`, `configure_counter`: No `comedi_counter`
-//!   device is registered in hardware configs.
+//!   has no generic trait equivalent (bd-3bjp).
 //! - `get_daq_status`: Deep Comedi device introspection (board name, subdevice
-//!   summaries, resolution, ranges) with no generic trait equivalent.
+//!   summaries, resolution, ranges) with no generic trait equivalent (bd-sa9p).
 //! - `stream_analog_input`: Multi-channel continuous acquisition via
 //!   `ComediMultiChannelAcquisition` -- no registry equivalent.
 //!
 //! ## Forward Path
-//! To complete the migration (see per-method TODOs):
-//! 1. Register `comedi_digital_io` and `comedi_counter` devices in hardware configs
-//! 2. Extend `Readable` or add a `ReadableWithMetadata` trait for raw+voltage reads
-//! 3. Add a `DeviceIntrospection` trait for board/subdevice info
+//! To complete the migration (4 RPCs remaining):
+//! 1. `read_analog_input`: Extend `Readable` or add `ReadableWithMetadata` trait (bd-09ls)
+//! 2. `configure_analog_output`: Add range introspection trait (bd-3bjp)
+//! 3. `get_daq_status`: Add `DeviceIntrospection` trait (bd-sa9p)
+//! 4. `stream_analog_input`: Add `StreamingAcquisition` trait (deeply Comedi-specific)
 
 use anyhow::Error as AnyError;
 use common::limits::RPC_TIMEOUT;
@@ -72,9 +71,9 @@ use tracing::instrument;
 /// and its internal `ffi_lock` serializes all FFI calls, so sharing a single handle
 /// across RPCs is both safe and eliminates the kernel deadlock risk from concurrent opens.
 ///
-/// # TODO(bd-krmn): Remove `device_cache` once all RPCs use registry handles.
-/// The cache will become unnecessary when DIO and counter subsystems are
-/// registered as separate devices in the DeviceRegistry.
+/// # TODO(bd-krmn): Remove `device_cache` once remaining 4 RPCs use registry handles.
+/// Only used by: `read_analog_input`, `configure_analog_output`, `get_daq_status`,
+/// `stream_analog_input`. DIO and counter RPCs are now migrated (bd-u0lg).
 #[derive(Clone)]
 pub struct NiDaqServiceImpl {
     /// Device registry for looking up Comedi devices
@@ -171,6 +170,66 @@ impl NiDaqServiceImpl {
                     format!("/dev/{}", device_id)
                 }
             })
+    }
+
+    /// Find the DIO device that shares the same physical Comedi device path.
+    ///
+    /// Searches the registry for a `comedi_digital_io` device whose `device`
+    /// config matches `parent_device_id`'s device path.
+    #[cfg(feature = "comedi")]
+    fn find_dio_device(&self, parent_device_id: &str) -> Result<String, Status> {
+        let parent_path = self.resolve_device_path(parent_device_id);
+        self.registry
+            .list_devices()
+            .into_iter()
+            .find_map(|info| {
+                if info.driver_type != "comedi_digital_io" {
+                    return None;
+                }
+                let dev_path = self.registry.get_driver_config_str(&info.id, "device")?;
+                if dev_path == parent_path {
+                    Some(info.id)
+                } else {
+                    None
+                }
+            })
+            .ok_or_else(|| {
+                Status::failed_precondition(format!(
+                    "No comedi_digital_io device registered for {parent_path}. \
+                     Add a comedi_digital_io entry to the hardware config."
+                ))
+            })
+    }
+
+    /// Find the counter device for a specific channel on the same physical card.
+    ///
+    /// Uses naming convention: counter channel N → device ID `ni_daq_counter_N`.
+    /// Validates that the found device shares the same Comedi device path.
+    #[cfg(feature = "comedi")]
+    fn find_counter_device(&self, parent_device_id: &str, channel: u32) -> Result<String, Status> {
+        let counter_id = format!("ni_daq_counter_{channel}");
+
+        self.registry.get_device_info(&counter_id).ok_or_else(|| {
+            Status::failed_precondition(format!(
+                "No counter device '{counter_id}' registered. \
+                 Add a comedi_counter entry (channel={channel}) to the hardware config."
+            ))
+        })?;
+
+        // Verify it's on the same physical Comedi card
+        let parent_path = self.resolve_device_path(parent_device_id);
+        let counter_path = self
+            .registry
+            .get_driver_config_str(&counter_id, "device")
+            .unwrap_or_default();
+        if counter_path != parent_path {
+            return Err(Status::internal(format!(
+                "Counter '{counter_id}' is on {counter_path} \
+                 but parent '{parent_device_id}' is on {parent_path}"
+            )));
+        }
+
+        Ok(counter_id)
     }
 
     /// Execute an async operation with timeout (pattern from HardwareService).
@@ -819,57 +878,30 @@ impl NiDaqService for NiDaqServiceImpl {
                     Status::not_found(format!("Device '{}' not found", req.device_id))
                 })?;
 
-            // TODO(bd-krmn): Migrate to registry.get_settable(dio_device_id).set_value("direction_N", ...).
-            // Blocker: No comedi_digital_io device is registered in hardware configs.
-            //   The DIO subsystem lives on the same /dev/comediN node as AI/AO devices,
-            //   but the device_id in the request (e.g. "photodiode") maps to an AI device
-            //   whose Settable is for analog operations, not DIO.
-            // Fix: Register a comedi_digital_io device (e.g. id="ni_daq_dio") in the
-            //   hardware config, then use get_settable("ni_daq_dio").set_value("direction_N", ...).
-            let device_path = self.resolve_device_path(&req.device_id);
-            let device = self.get_or_open_device(&device_path).await?;
+            // MIGRATED (bd-u0lg): Uses registry DIO device via Settable::set_value("direction_N").
+            let dio_id = self.find_dio_device(&req.device_id)?;
+            let settable = self.registry.get_settable(&dio_id).ok_or_else(|| {
+                Status::internal(format!("DIO device '{dio_id}' has no Settable capability"))
+            })?;
 
-            // Configure pins via spawn_blocking (FFI call)
-            let pins = req.pins.clone();
-            self.await_with_timeout("ConfigureDigitalIO", async move {
-                tokio::task::spawn_blocking(move || {
-                    use driver_comedi::subsystem::digital_io::DioDirection;
+            for pin_config in &req.pins {
+                let direction = DigitalDirection::try_from(pin_config.direction).map_err(|_| {
+                    Status::invalid_argument(format!("Invalid direction: {}", pin_config.direction))
+                })?;
 
-                    let dio = device.digital_io()?;
+                let dir_str = match direction {
+                    DigitalDirection::Input => "input",
+                    DigitalDirection::Output => "output",
+                };
 
-                    // Validate and configure each pin
-                    for pin_config in &pins {
-                        let pin = pin_config.pin;
-                        let direction =
-                            DigitalDirection::try_from(pin_config.direction).map_err(|_| {
-                                anyhow::anyhow!("Invalid direction: {}", pin_config.direction)
-                            })?;
-
-                        // Validate pin number
-                        if pin >= dio.n_channels() {
-                            return Err(anyhow::anyhow!(
-                                "Invalid pin {}. Device has {} DIO channels",
-                                pin,
-                                dio.n_channels()
-                            ));
-                        }
-
-                        // Map proto DigitalDirection to driver DioDirection
-                        let dio_dir = match direction {
-                            DigitalDirection::Input => DioDirection::Input,
-                            DigitalDirection::Output => DioDirection::Output,
-                        };
-
-                        // Configure the pin
-                        dio.configure(pin, dio_dir)?;
-                    }
-
-                    Ok(())
+                let param_name = format!("direction_{}", pin_config.pin);
+                let dir_value = serde_json::Value::String(dir_str.to_string());
+                let s = settable.clone();
+                self.await_with_timeout("ConfigureDigitalIO", async move {
+                    s.set_value(&param_name, dir_value).await
                 })
-                .await
-                .map_err(|e| anyhow::anyhow!("Task join error: {}", e))?
-            })
-            .await?;
+                .await?;
+            }
 
             Ok(Response::new(ConfigureDigitalIoResponse {
                 success: true,
@@ -908,35 +940,20 @@ impl NiDaqService for NiDaqServiceImpl {
                     Status::not_found(format!("Device '{}' not found", req.device_id))
                 })?;
 
-            // TODO(bd-krmn): Migrate to registry.get_settable(dio_device_id).get_value("N").
-            // Blocker: No comedi_digital_io device registered. See configure_digital_io TODO.
-            let device_path = self.resolve_device_path(&req.device_id);
-            let device = self.get_or_open_device(&device_path).await?;
+            // MIGRATED (bd-u0lg): Uses registry DIO device via Settable::get_value("N").
+            let dio_id = self.find_dio_device(&req.device_id)?;
+            let settable = self.registry.get_settable(&dio_id).ok_or_else(|| {
+                Status::internal(format!("DIO device '{dio_id}' has no Settable capability"))
+            })?;
 
-            // Read pin via spawn_blocking (FFI call)
             let pin = req.pin;
-            let value = self
+            let s = settable.clone();
+            let json_value = self
                 .await_with_timeout("ReadDigitalIO", async move {
-                    tokio::task::spawn_blocking(move || {
-                        let dio = device.digital_io()?;
-
-                        // Validate pin number
-                        if pin >= dio.n_channels() {
-                            return Err(anyhow::anyhow!(
-                                "Invalid pin {}. Device has {} DIO channels",
-                                pin,
-                                dio.n_channels()
-                            ));
-                        }
-
-                        // Read the pin value
-                        dio.read(pin)
-                            .map_err(|e| anyhow::anyhow!("Failed to read pin: {}", e))
-                    })
-                    .await
-                    .map_err(|e| anyhow::anyhow!("Task join error: {}", e))?
+                    s.get_value(&pin.to_string()).await
                 })
                 .await?;
+            let value = u32::from(json_value.as_bool().unwrap_or(false));
 
             Ok(Response::new(ReadDigitalIoResponse {
                 success: true,
@@ -976,33 +993,17 @@ impl NiDaqService for NiDaqServiceImpl {
                     Status::not_found(format!("Device '{}' not found", req.device_id))
                 })?;
 
-            // TODO(bd-krmn): Migrate to registry.get_settable(dio_device_id).set_value("N", value).
-            // Blocker: No comedi_digital_io device registered. See configure_digital_io TODO.
-            let device_path = self.resolve_device_path(&req.device_id);
-            let device = self.get_or_open_device(&device_path).await?;
+            // MIGRATED (bd-u0lg): Uses registry DIO device via Settable::set_value("N", bool).
+            let dio_id = self.find_dio_device(&req.device_id)?;
+            let settable = self.registry.get_settable(&dio_id).ok_or_else(|| {
+                Status::internal(format!("DIO device '{dio_id}' has no Settable capability"))
+            })?;
 
-            // Write pin via spawn_blocking (FFI call)
             let pin = req.pin;
-            let value = req.value;
+            let bit_value = serde_json::Value::Bool(req.value != 0);
+            let s = settable.clone();
             self.await_with_timeout("WriteDigitalIO", async move {
-                tokio::task::spawn_blocking(move || {
-                    let dio = device.digital_io()?;
-
-                    // Validate pin number
-                    if pin >= dio.n_channels() {
-                        return Err(anyhow::anyhow!(
-                            "Invalid pin {}. Device has {} DIO channels",
-                            pin,
-                            dio.n_channels()
-                        ));
-                    }
-
-                    // Write the pin value
-                    dio.write(pin, value)
-                        .map_err(|e| anyhow::anyhow!("Failed to write pin: {}", e))
-                })
-                .await
-                .map_err(|e| anyhow::anyhow!("Task join error: {}", e))?
+                s.set_value(&pin.to_string(), bit_value).await
             })
             .await?;
 
@@ -1039,23 +1040,20 @@ impl NiDaqService for NiDaqServiceImpl {
                     Status::not_found(format!("Device '{}' not found", req.device_id))
                 })?;
 
-            // TODO(bd-krmn): Migrate to registry.get_settable(dio_device_id).get_value("port").
-            // Blockers: (1) No comedi_digital_io device registered; (2) Settable port read
-            //   always uses base_channel=0, but the proto supports arbitrary base_channel.
-            let device_path = self.resolve_device_path(&req.device_id);
-            let device = self.get_or_open_device(&device_path).await?;
-            let base_channel = req.base_channel;
+            // MIGRATED (bd-u0lg): Uses registry DIO device via Settable::get_value("port").
+            // Settable reads from base_channel=0; for non-zero base_channel we shift.
+            let dio_id = self.find_dio_device(&req.device_id)?;
+            let settable = self.registry.get_settable(&dio_id).ok_or_else(|| {
+                Status::internal(format!("DIO device '{dio_id}' has no Settable capability"))
+            })?;
 
-            let value = self
-                .await_with_timeout("ReadDigitalPort", async move {
-                    tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
-                        let dio = device.digital_io()?;
-                        Ok(dio.read_port(base_channel)?)
-                    })
-                    .await
-                    .map_err(|e| anyhow::anyhow!("Task join error: {}", e))?
-                })
+            let s = settable.clone();
+            let port_json = self
+                .await_with_timeout("ReadDigitalPort", async move { s.get_value("port").await })
                 .await?;
+            #[allow(clippy::cast_possible_truncation)]
+            let full_port = port_json.as_u64().unwrap_or(0) as u32;
+            let value = full_port >> req.base_channel;
 
             Ok(Response::new(ReadDigitalPortResponse {
                 success: true,
@@ -1091,25 +1089,43 @@ impl NiDaqService for NiDaqServiceImpl {
                     Status::not_found(format!("Device '{}' not found", req.device_id))
                 })?;
 
-            // TODO(bd-krmn): Migrate to registry.get_settable(dio_device_id).set_value("port", value).
-            // Blockers: (1) No comedi_digital_io device registered; (2) Settable port write
-            //   uses mask=0xFFFFFFFF and base_channel=0, but the proto supports arbitrary
-            //   base_channel and per-bit mask.
-            let device_path = self.resolve_device_path(&req.device_id);
-            let device = self.get_or_open_device(&device_path).await?;
+            // MIGRATED (bd-u0lg): Uses registry DIO device via Settable.
+            // For masked/offset writes, we read-modify-write through Settable.
+            let dio_id = self.find_dio_device(&req.device_id)?;
+            let settable = self.registry.get_settable(&dio_id).ok_or_else(|| {
+                Status::internal(format!("DIO device '{dio_id}' has no Settable capability"))
+            })?;
+
             let base_channel = req.base_channel;
             let value = req.value;
-            let mask = if req.mask == 0 { 0xFF } else { req.mask }; // Default: update all 8 bits
+            let mask = if req.mask == 0 { 0xFF } else { req.mask };
 
-            self.await_with_timeout("WriteDigitalPort", async move {
-                tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
-                    let dio = device.digital_io()?;
-                    Ok(dio.write_port(base_channel, mask, value)?)
+            if base_channel == 0 && mask == 0xFFFF_FFFF {
+                // Fast path: full port write (no masking needed)
+                let port_value = serde_json::json!(u64::from(value));
+                let s = settable.clone();
+                self.await_with_timeout("WriteDigitalPort", async move {
+                    s.set_value("port", port_value).await
                 })
-                .await
-                .map_err(|e| anyhow::anyhow!("Task join error: {}", e))?
-            })
-            .await?;
+                .await?;
+            } else {
+                // Masked/offset write: read current state, apply changes, write back
+                let s = settable.clone();
+                let current_json = self
+                    .await_with_timeout("ReadDigitalPort", async move { s.get_value("port").await })
+                    .await?;
+                #[allow(clippy::cast_possible_truncation)]
+                let current = current_json.as_u64().unwrap_or(0) as u32;
+                let shifted_mask = mask << base_channel;
+                let shifted_value = value << base_channel;
+                let new_value = (current & !shifted_mask) | (shifted_value & shifted_mask);
+                let port_value = serde_json::json!(u64::from(new_value));
+                let s2 = settable.clone();
+                self.await_with_timeout("WriteDigitalPort", async move {
+                    s2.set_value("port", port_value).await
+                })
+                .await?;
+            }
 
             Ok(Response::new(WriteDigitalPortResponse {
                 success: true,
@@ -1152,45 +1168,22 @@ impl NiDaqService for NiDaqServiceImpl {
                     Status::not_found(format!("Device '{}' not found", req.device_id))
                 })?;
 
-            // TODO(bd-krmn): Migrate to registry.get_readable(counter_device_id).read().
-            // Blocker: No comedi_counter device is registered in hardware configs.
-            //   The counter subsystem lives on the same /dev/comediN node as AI/AO,
-            //   but no device entry exists for it.
-            // Fix: Register comedi_counter devices (e.g. id="ni_daq_counter_0") in config,
-            //   then use get_readable("ni_daq_counter_0").read() for the count value.
-            //   Note: Readable::read() returns f64, proto needs u64 count + u64 timestamp.
-            let device_path = self.resolve_device_path(&req.device_id);
-            let device = self.get_or_open_device(&device_path).await?;
+            // MIGRATED (bd-u0lg): Uses registry counter device via Readable::read().
+            // 24-bit counter values fit exactly in f64 without precision loss.
+            let counter_id = self.find_counter_device(&req.device_id, req.counter)?;
+            let readable = self.registry.get_readable(&counter_id).ok_or_else(|| {
+                Status::internal(format!(
+                    "Counter device '{counter_id}' has no Readable capability"
+                ))
+            })?;
 
-            // Read counter via spawn_blocking (FFI call)
-            let counter = req.counter;
-            let (count, timestamp_ns) = self
-                .await_with_timeout("ReadCounter", async move {
-                    tokio::task::spawn_blocking(move || {
-                        let counter_subsystem = device.counter()?;
-
-                        // Validate counter channel
-                        if counter >= counter_subsystem.n_channels() {
-                            return Err(anyhow::anyhow!(
-                                "Invalid counter {}. Device has {} counter channels",
-                                counter,
-                                counter_subsystem.n_channels()
-                            ));
-                        }
-
-                        // Read the counter value
-                        let count = counter_subsystem
-                            .read(counter)
-                            .map_err(|e| anyhow::anyhow!("Failed to read counter: {}", e))?;
-
-                        let timestamp_ns = now_ns();
-
-                        Ok((u64::from(count), timestamp_ns))
-                    })
-                    .await
-                    .map_err(|e| anyhow::anyhow!("Task join error: {}", e))?
-                })
+            let count_f64 = self
+                .await_with_timeout("ReadCounter", async move { readable.read().await })
                 .await?;
+            // 24-bit counter values fit exactly in f64; cast is lossless
+            #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+            let count = count_f64 as u64;
+            let timestamp_ns = now_ns();
 
             Ok(Response::new(ReadCounterResponse {
                 success: true,
@@ -1231,33 +1224,18 @@ impl NiDaqService for NiDaqServiceImpl {
                     Status::not_found(format!("Device '{}' not found", req.device_id))
                 })?;
 
-            // TODO(bd-krmn): Migrate to registry.get_settable(counter_device_id).set_value("reset", ...).
-            // Blocker: No comedi_counter device registered. See read_counter TODO.
-            let device_path = self.resolve_device_path(&req.device_id);
-            let device = self.get_or_open_device(&device_path).await?;
+            // MIGRATED (bd-u0lg): Uses registry counter device via Settable::set_value("reset").
+            let counter_id = self.find_counter_device(&req.device_id, req.counter)?;
+            let settable = self.registry.get_settable(&counter_id).ok_or_else(|| {
+                Status::internal(format!(
+                    "Counter device '{counter_id}' has no Settable capability"
+                ))
+            })?;
 
-            // Reset counter via spawn_blocking (FFI call)
-            let counter = req.counter;
             self.await_with_timeout("ResetCounter", async move {
-                tokio::task::spawn_blocking(move || {
-                    let counter_subsystem = device.counter()?;
-
-                    // Validate counter channel
-                    if counter >= counter_subsystem.n_channels() {
-                        return Err(anyhow::anyhow!(
-                            "Invalid counter {}. Device has {} counter channels",
-                            counter,
-                            counter_subsystem.n_channels()
-                        ));
-                    }
-
-                    // Reset the counter
-                    counter_subsystem
-                        .reset(counter)
-                        .map_err(|e| anyhow::anyhow!("Failed to reset counter: {}", e))
-                })
-                .await
-                .map_err(|e| anyhow::anyhow!("Task join error: {}", e))?
+                settable
+                    .set_value("reset", serde_json::Value::Bool(true))
+                    .await
             })
             .await?;
 
@@ -1345,41 +1323,10 @@ impl NiDaqService for NiDaqServiceImpl {
                     Status::not_found(format!("Device '{}' not found", req.device_id))
                 })?;
 
-            // TODO(bd-krmn): Comedi-specific counter configuration (mode, edge, gate/source).
-            // Even with a registered counter device, the Settable trait has no way to express
-            // INSN_CONFIG commands for timing modes. Would need a CounterConfigurable trait.
-            let device_path = self.resolve_device_path(&req.device_id);
-            let device = self.get_or_open_device(&device_path).await?;
-
-            // Validate counter configuration
-            let counter = req.counter;
-            self.await_with_timeout("ConfigureCounter", async move {
-                tokio::task::spawn_blocking(move || {
-                    let counter_subsystem = device.counter()?;
-
-                    // Validate counter channel
-                    if counter >= counter_subsystem.n_channels() {
-                        return Err(anyhow::anyhow!(
-                            "Invalid counter {}. Device has {} counter channels",
-                            counter,
-                            counter_subsystem.n_channels()
-                        ));
-                    }
-
-                    // Note: The NI PCI-MIO-16XE-10 Comedi driver has limited counter
-                    // configuration support. Advanced features like mode selection,
-                    // edge detection, and gate/source pin configuration may require
-                    // direct INSN commands or CMD-based acquisition.
-                    // For now, we validate the request and acknowledge it.
-                    // Full implementation would require extending the Counter subsystem
-                    // with Comedi INSN_CONFIG commands.
-
-                    Ok(())
-                })
-                .await
-                .map_err(|e| anyhow::anyhow!("Task join error: {}", e))?
-            })
-            .await?;
+            // MIGRATED (bd-u0lg): Validates counter device exists in registry.
+            // NOTE(bd-f3pq): Full INSN_CONFIG support (mode, edge, gate/source)
+            // requires a CounterConfigurable trait — not yet implemented.
+            let _counter_id = self.find_counter_device(&req.device_id, req.counter)?;
 
             Ok(Response::new(ConfigureCounterResponse {
                 success: true,

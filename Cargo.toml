@@ -53,7 +53,7 @@ tonic = { version = "0.10", default-features = false }
 prost = "0.12"
 
 # Storage
-hdf5 = { package = "hdf5-metno", version = "0.11.0" }
+hdf5 = { package = "hdf5-metno", version = "0.12.3" }
 
 # Time handling
 chrono = { version = "0.4", features = ["serde"] }
@@ -140,3 +140,9 @@ panic = "abort"  # Smaller binary, daemon doesn't need unwinding
 [profile.release-gui]
 inherits = "release"
 panic = "unwind"  # GUI may benefit from panic recovery
+
+# Patch hdf5-metno-sys to support HDF5 2.1.0 (Homebrew upgraded past what
+# upstream 0.11.2 supports). Uses unmerged PR #160 from metno/hdf5-rust.
+# Remove this patch once hdf5-metno publishes a version with the fix.
+[patch.crates-io]
+hdf5-metno-sys = { git = "https://github.com/JulianDicken/hdf5-rust.git", branch = "hdf5_v2.1" }

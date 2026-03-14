@@ -3327,7 +3327,7 @@ dependencies = [
  "objc2 0.5.2",
  "objc2-foundation 0.2.2",
  "web-sys",
- "winreg",
+ "winreg 0.52.0",
 ]
 
 [[package]]
@@ -5629,7 +5629,7 @@ dependencies = [
  "libc",
  "log",
  "rustversion",
- "windows-link 0.2.1",
+ "windows-link 0.1.3",
  "windows-result 0.4.1",
 ]
 
@@ -6176,9 +6176,9 @@ dependencies = [
 
 [[package]]
 name = "hdf5-metno"
-version = "0.11.0"
+version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a6c90397db1fe43273705a49b49e0595bd0d49f4aac990b116103ae5bf52961"
+checksum = "f5edd95aa03aba1a5072096ec656ed006d2d40a8e9e9f8267e61e0dd2fccabb0"
 dependencies = [
  "bitflags 2.11.0",
  "cfg-if",
@@ -6192,9 +6192,9 @@ dependencies = [
 
 [[package]]
 name = "hdf5-metno-derive"
-version = "0.9.3"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "205c825c5140aa2791cec795068e8aa8d299862009b7fbd59bd4d876b47842c5"
+checksum = "e5f5b353c797530e868881b12c1c307c0994cd3400195391d7021e6e6db02da6"
 dependencies = [
  "proc-macro-crate",
  "proc-macro-error2",
@@ -6205,9 +6205,8 @@ dependencies = [
 
 [[package]]
 name = "hdf5-metno-sys"
-version = "0.10.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "de20d5ba22c244493bdfefb91d8e9de08e3e58d96a792532da5e0df545aed279"
+version = "0.11.2"
+source = "git+https://github.com/JulianDicken/hdf5-rust.git?branch=hdf5_v2.1#e3c6cfed8c618a821e10715fc1d580d98649773b"
 dependencies = [
  "libc",
  "libloading",
@@ -6216,14 +6215,14 @@ dependencies = [
  "regex",
  "serde",
  "serde_derive",
- "winreg",
+ "winreg 0.55.0",
 ]
 
 [[package]]
 name = "hdf5-metno-types"
-version = "0.10.2"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1698f197367c277fac6c3a35ad12397941b57f7554778d925ceb54c3fe754723"
+checksum = "c994ebf205f9128cb490f01e1e41742842b7171b878caadb1a44abdc6a535a88"
 dependencies = [
  "ascii",
  "cfg-if",
@@ -13503,7 +13502,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.4.15",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -14741,6 +14740,7 @@ dependencies = [
  "cfg-if",
  "libc",
  "psm",
+ "windows-sys 0.52.0",
  "windows-sys 0.59.0",
 ]
 
@@ -18000,8 +18000,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a277a57398d4bfa075df44f501a17cfdf8542d224f0d36095a2adc7aee4ef0a5"
 dependencies = [
  "cfg-if",
- "serde",
  "windows-sys 0.48.0",
+]
+
+[[package]]
+name = "winreg"
+version = "0.55.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb5a765337c50e9ec252c2069be9bf91c7df47afb103b642ba3a53bf8101be97"
+dependencies = [
+ "cfg-if",
+ "serde",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
