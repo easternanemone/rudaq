@@ -6395,6 +6395,12 @@ fn fit_wavelength_model_for_order_from_points(
             domain_end,
             unit,
         } => {
+            if coefficients.is_empty() {
+                return Err(format!(
+                    "Order {} has an empty polynomial (no coefficients) — cannot fit",
+                    order.relative_index
+                ));
+            }
             let degree = coefficients.len().saturating_sub(1);
             if enabled_points.len() < coefficients.len() {
                 return Err(format!(

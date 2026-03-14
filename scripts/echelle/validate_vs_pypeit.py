@@ -14,7 +14,7 @@ Usage:
 Exit codes:
     0  All tolerances pass.
     1  At least one bright-line (SNR > 100) tolerance failed.
-    2  Only faint-line (SNR 10-100) tolerances failed (bright lines passed).
+    2  Bright lines passed but faint-line or wavelength tolerances failed.
 """
 
 from __future__ import annotations
@@ -67,7 +67,7 @@ class OrderSpectrum:
         """Rough per-order SNR from peak flux / noise-floor estimate."""
         if self.flux.size < 10:
             return 0.0
-        # Noise ~ inter-quartile range of the bottom half of pixels
+        # Noise ~ IQR of full flux distribution (IQR/1.349 ≈ sigma for Gaussian)
         sorted_flux = np.sort(self.flux)
         q25 = sorted_flux[len(sorted_flux) // 4]
         q75 = sorted_flux[len(sorted_flux) * 3 // 4]
@@ -137,6 +137,18 @@ def load_rust_json(path: Path) -> list[OrderSpectrum]:
     # or the entire file may be a list of order dicts.
     order_list = data if isinstance(data, list) else data.get("orders", [])
 
+    def _to_nm(wl: np.ndarray, unit: str) -> np.ndarray:
+        """Normalise wavelengths to nanometres."""
+        u = unit.lower().strip()
+        if u in ("aa", "angstrom", "angstroms", "a"):
+            return wl / 10.0
+        if u in ("um", "micron", "microns"):
+            return wl * 1000.0
+        # Heuristic: values > 2000 are likely Angstroms
+        if u == "nm" and wl.size > 0 and float(np.max(wl)) > 2000.0:
+            return wl / 10.0
+        return wl  # assume nm
+
     for entry in order_list:
         # Format 2: extraction result with explicit arrays
         if "wavelengths" in entry and "flux" in entry:
@@ -145,12 +157,13 @@ def load_rust_json(path: Path) -> list[OrderSpectrum]:
             oi = int(entry.get("relative_index", entry.get("order_index", 0)))
             phys = entry.get("physical_order_number")
             unit = entry.get("wavelength_unit", "nm")
+            wl = _to_nm(wl, unit)
             orders.append(OrderSpectrum(
                 order_index=oi,
                 physical_order_number=int(phys) if phys is not None else None,
                 wavelengths=wl,
                 flux=fl,
-                wavelength_unit=unit,
+                wavelength_unit="nm",
             ))
             continue
 
@@ -176,12 +189,13 @@ def load_rust_json(path: Path) -> list[OrderSpectrum]:
         oi = int(entry.get("relative_index", entry.get("order_index", 0)))
         phys = entry.get("physical_order_number")
         unit = wl_model.get("unit", "nm")
+        wl = _to_nm(wl, unit)
         orders.append(OrderSpectrum(
             order_index=oi,
             physical_order_number=int(phys) if phys is not None else None,
             wavelengths=wl,
             flux=fl,
-            wavelength_unit=unit,
+            wavelength_unit="nm",
         ))
 
     return orders
@@ -938,7 +952,7 @@ def main() -> int:
     elif not report.bright_passed:
         return 1
     else:
-        # Only faint lines failed
+        # Bright lines passed but faint-line or wavelength tolerances failed
         return 2
 
 
