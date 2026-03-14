@@ -191,7 +191,7 @@ impl NiDaqServiceImpl {
 }
 
 /// Get current timestamp in nanoseconds since UNIX epoch.
-#[allow(dead_code)]
+#[cfg_attr(not(feature = "comedi"), allow(dead_code))]
 fn now_ns() -> u64 {
     common::time::now_ns()
 }
@@ -584,12 +584,7 @@ impl NiDaqService for NiDaqServiceImpl {
                         )?;
                         let voltage = ai.raw_to_voltage(raw, &range);
 
-                        // u128 nanoseconds won't exceed u64 for ~585 years
-                        #[allow(clippy::cast_possible_truncation)]
-                        let timestamp_ns = SystemTime::now()
-                            .duration_since(SystemTime::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_nanos() as u64;
+                        let timestamp_ns = now_ns();
 
                         Ok((voltage, raw, timestamp_ns))
                     })
@@ -1184,12 +1179,7 @@ impl NiDaqService for NiDaqServiceImpl {
                             .read(counter)
                             .map_err(|e| anyhow::anyhow!("Failed to read counter: {}", e))?;
 
-                        // u128 nanoseconds won't exceed u64 for ~585 years
-                        #[allow(clippy::cast_possible_truncation)]
-                        let timestamp_ns = SystemTime::now()
-                            .duration_since(SystemTime::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_nanos() as u64;
+                        let timestamp_ns = now_ns();
 
                         Ok((u64::from(count), timestamp_ns))
                     })
