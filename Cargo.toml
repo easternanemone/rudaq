@@ -58,6 +58,9 @@ hdf5 = { package = "hdf5-metno", version = "0.11.0" }
 # Time handling
 chrono = { version = "0.4", features = ["serde"] }
 
+# Parallelism
+rayon = "1.10"
+
 # Dev dependencies
 tempfile = "3.15"
 proptest = "1.6"

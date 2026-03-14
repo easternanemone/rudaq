@@ -30,6 +30,29 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=rust-daq-daemon
 
+# Resource limits (bd-vhr3.2)
+# --- Resource limits ---
+# Memory: soft warning at 3G, hard kill at 4G (prevents OOM-killing other services)
+MemoryHigh=3G
+MemoryMax=4G
+
+# CPU: allow full utilization (DAQ is real-time sensitive), but cap at 8 cores
+# Adjust CPUQuota for machines with fewer cores.
+CPUQuota=800%
+
+# File descriptors: Comedi + HDF5 + gRPC connections need headroom
+LimitNOFILE=65536
+
+# Tasks (threads): extraction + streaming + rayon pool
+TasksMax=512
+
+# Core dumps: enable for crash forensics (pairs with bd-vhr3.3)
+LimitCORE=infinity
+
+# Watchdog: systemd will restart the daemon if it stops sending sd_notify within 90s
+# (requires sd_notify integration in the daemon — currently informational)
+WatchdogSec=90
+
 # Hardening
 NoNewPrivileges=true
 ProtectSystem=strict

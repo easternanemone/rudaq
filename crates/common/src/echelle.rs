@@ -188,6 +188,84 @@ pub struct EchelleCorrections {
     pub excluded_regions: Vec<PixelRegion>,
 }
 
+/// Loaded bad-pixel mask: a 2D boolean grid where `true` marks a bad pixel
+/// that should be excluded from all extraction sums and profile estimates.
+///
+/// Construct via [`BadPixelMask::from_raw_bytes`] (one byte per pixel, non-zero = bad)
+/// or [`BadPixelMask::new`] for programmatic use.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BadPixelMask {
+    width: u32,
+    height: u32,
+    /// Row-major mask: `mask[y * width + x]`.  `true` = bad pixel.
+    mask: Vec<bool>,
+}
+
+impl BadPixelMask {
+    /// Build a mask from a pre-computed boolean vector (row-major, `width * height` elements).
+    ///
+    /// Returns `Err` if the length does not match `width * height`.
+    pub fn new(width: u32, height: u32, mask: Vec<bool>) -> Result<Self, String> {
+        let expected = (width as usize).saturating_mul(height as usize);
+        if mask.len() != expected {
+            return Err(format!(
+                "bad-pixel mask length {} does not match {}x{} = {}",
+                mask.len(),
+                width,
+                height,
+                expected
+            ));
+        }
+        Ok(Self {
+            width,
+            height,
+            mask,
+        })
+    }
+
+    /// Load from raw bytes: one byte per pixel, row-major.  Non-zero = bad pixel.
+    pub fn from_raw_bytes(width: u32, height: u32, data: &[u8]) -> Result<Self, String> {
+        let expected = (width as usize).saturating_mul(height as usize);
+        if data.len() != expected {
+            return Err(format!(
+                "raw mask data length {} does not match {}x{} = {}",
+                data.len(),
+                width,
+                height,
+                expected
+            ));
+        }
+        let mask = data.iter().map(|&b| b != 0).collect();
+        Ok(Self {
+            width,
+            height,
+            mask,
+        })
+    }
+
+    /// Returns `true` if the pixel at `(x, y)` is masked (bad).
+    #[inline]
+    pub fn is_masked(&self, x: u32, y: u32) -> bool {
+        if x >= self.width || y >= self.height {
+            return false;
+        }
+        self.mask[(y * self.width + x) as usize]
+    }
+
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+
+    /// Number of pixels flagged as bad.
+    pub fn bad_count(&self) -> usize {
+        self.mask.iter().filter(|&&b| b).count()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EchelleProvenance {
     pub creator_tool: String,
@@ -935,6 +1013,26 @@ pub fn extract_preview(
     bit_depth: u32,
     frame_number: u64,
 ) -> Result<EchelleExtractionPreview, String> {
+    extract_preview_masked(
+        profile,
+        frame_data,
+        width,
+        height,
+        bit_depth,
+        frame_number,
+        None,
+    )
+}
+
+pub fn extract_preview_masked(
+    profile: &EchelleCalibrationProfile,
+    frame_data: &[u8],
+    width: u32,
+    height: u32,
+    bit_depth: u32,
+    frame_number: u64,
+    mask: Option<&BadPixelMask>,
+) -> Result<EchelleExtractionPreview, String> {
     profile
         .validate_for_frame(EchelleFrameContext {
             width,
@@ -945,7 +1043,7 @@ pub fn extract_preview(
         .map_err(|error| error.to_string())?;
 
     let decoded = DecodedIntensityFrame::decode(frame_data, width, height, bit_depth, None)?;
-    extract_preview_with_scratch_inner(profile, &decoded, bit_depth, frame_number)
+    extract_preview_with_scratch_inner(profile, &decoded, bit_depth, frame_number, mask)
 }
 
 pub fn extract_preview_with_u16_scratch(
@@ -956,6 +1054,29 @@ pub fn extract_preview_with_u16_scratch(
     bit_depth: u32,
     frame_number: u64,
     u16_scratch: &mut Vec<u16>,
+) -> Result<EchelleExtractionPreview, String> {
+    extract_preview_with_u16_scratch_masked(
+        profile,
+        frame_data,
+        width,
+        height,
+        bit_depth,
+        frame_number,
+        u16_scratch,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn extract_preview_with_u16_scratch_masked(
+    profile: &EchelleCalibrationProfile,
+    frame_data: &[u8],
+    width: u32,
+    height: u32,
+    bit_depth: u32,
+    frame_number: u64,
+    u16_scratch: &mut Vec<u16>,
+    mask: Option<&BadPixelMask>,
 ) -> Result<EchelleExtractionPreview, String> {
     profile
         .validate_for_frame(EchelleFrameContext {
@@ -968,7 +1089,7 @@ pub fn extract_preview_with_u16_scratch(
 
     let decoded =
         DecodedIntensityFrame::decode(frame_data, width, height, bit_depth, Some(u16_scratch))?;
-    extract_preview_with_scratch_inner(profile, &decoded, bit_depth, frame_number)
+    extract_preview_with_scratch_inner(profile, &decoded, bit_depth, frame_number, mask)
 }
 
 #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // Overlay coordinates intentionally quantize calibrated f64 positions into UI-friendly f32 pixels.
@@ -1007,17 +1128,29 @@ fn extract_preview_with_scratch_inner(
     decoded: &DecodedIntensityFrame<'_>,
     bit_depth: u32,
     frame_number: u64,
+    mask: Option<&BadPixelMask>,
 ) -> Result<EchelleExtractionPreview, String> {
     let saturation_threshold = bit_depth_max(bit_depth);
-    let mut orders = Vec::new();
-    for order in profile.orders.iter().filter(|order| order.enabled) {
-        orders.push(extract_order(
-            profile,
-            order,
-            decoded,
-            saturation_threshold,
-        )?);
-    }
+    let enabled_orders: Vec<_> = profile
+        .orders
+        .iter()
+        .filter(|order| order.enabled)
+        .collect();
+
+    #[cfg(not(target_arch = "wasm32"))]
+    let orders: Vec<EchelleOrderPreview> = {
+        use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+        enabled_orders
+            .par_iter()
+            .map(|order| extract_order(profile, order, decoded, saturation_threshold, mask))
+            .collect::<Result<Vec<_>, _>>()?
+    };
+
+    #[cfg(target_arch = "wasm32")]
+    let orders: Vec<EchelleOrderPreview> = enabled_orders
+        .iter()
+        .map(|order| extract_order(profile, order, decoded, saturation_threshold, mask))
+        .collect::<Result<Vec<_>, _>>()?;
 
     Ok(EchelleExtractionPreview {
         frame_number,
@@ -1034,6 +1167,7 @@ fn extract_order(
     order: &EchelleOrderCalibration,
     frame: &DecodedIntensityFrame<'_>,
     saturation_threshold: u32,
+    mask: Option<&BadPixelMask>,
 ) -> Result<EchelleOrderPreview, String> {
     let half_width = order
         .aperture_half_width_px
@@ -1101,7 +1235,7 @@ fn extract_order(
                         && y >= 0
                         && (x as u32) < frame.width()
                         && (y as u32) < frame.height()
-                        && !is_excluded(profile, x as u32, y as u32)
+                        && !is_excluded(profile, mask, x as u32, y as u32)
                     {
                         if let Some(pixel) = frame.get(x as u32, y as u32) {
                             sample_sum = f64::from(pixel);
@@ -1125,7 +1259,7 @@ fn extract_order(
                             || y < 0
                             || (x as u32) >= frame.width()
                             || (y as u32) >= frame.height()
-                            || is_excluded(profile, x as u32, y as u32)
+                            || is_excluded(profile, mask, x as u32, y as u32)
                         {
                             continue;
                         }
@@ -1144,6 +1278,7 @@ fn extract_order(
                             // Background sidebands operate in signed detector coordinates around the order center.
                             let (background_sum, background_count) = sample_background_sidebands(
                                 profile,
+                                mask,
                                 frame,
                                 sample_local as i32,
                                 center_px,
@@ -1188,9 +1323,10 @@ fn extract_order(
     })
 }
 
-#[allow(clippy::cast_sign_loss)] // Sideband window math walks signed detector offsets but only returns non-negative coverage counts.
+#[allow(clippy::cast_sign_loss, clippy::too_many_arguments)] // Sideband window math walks signed detector offsets but only returns non-negative coverage counts.
 fn sample_background_sidebands(
     profile: &EchelleCalibrationProfile,
+    mask: Option<&BadPixelMask>,
     frame: &DecodedIntensityFrame<'_>,
     sample_local: i32,
     center_px: i32,
@@ -1219,7 +1355,7 @@ fn sample_background_sidebands(
                     || y < 0
                     || (x as u32) >= frame.width()
                     || (y as u32) >= frame.height()
-                    || is_excluded(profile, x as u32, y as u32)
+                    || is_excluded(profile, mask, x as u32, y as u32)
                 {
                     continue;
                 }
@@ -1290,12 +1426,18 @@ fn map_disp_cross_to_local_xy(
     }
 }
 
-fn is_excluded(profile: &EchelleCalibrationProfile, x: u32, y: u32) -> bool {
+fn is_excluded(
+    profile: &EchelleCalibrationProfile,
+    mask: Option<&BadPixelMask>,
+    x: u32,
+    y: u32,
+) -> bool {
     profile
         .corrections
         .excluded_regions
         .iter()
         .any(|region| point_in_region(x, y, region))
+        || mask.is_some_and(|m| m.is_masked(x, y))
 }
 
 #[inline]
@@ -1640,5 +1782,126 @@ mod tests {
             panic!("expected merged extracted measurement to be a spectrum");
         };
         assert_eq!(name, "echelle_merged");
+    }
+
+    #[test]
+    fn test_bad_pixel_mask_construction_and_query() {
+        let mask =
+            BadPixelMask::from_raw_bytes(4, 3, &[0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0]).unwrap();
+
+        assert_eq!(mask.width(), 4);
+        assert_eq!(mask.height(), 3);
+        assert_eq!(mask.bad_count(), 2);
+        assert!(!mask.is_masked(0, 0));
+        assert!(mask.is_masked(1, 0));
+        assert!(mask.is_masked(3, 1));
+        assert!(!mask.is_masked(2, 2));
+        // Out-of-bounds returns false (not masked).
+        assert!(!mask.is_masked(10, 10));
+    }
+
+    #[test]
+    fn test_bad_pixel_mask_rejects_wrong_size() {
+        let err = BadPixelMask::from_raw_bytes(4, 3, &[0; 10]).unwrap_err();
+        assert!(err.contains("does not match"));
+    }
+
+    #[test]
+    fn test_extraction_excludes_masked_pixels() {
+        // 16×5 frame, trace at y=2 (dispersion along X), aperture radius 1 → rows 1,2,3.
+        // All signal pixels have value 100. Mask pixel (4, 2) as bad.
+        let width = 16u32;
+        let height = 5u32;
+        let frame_width = width;
+        let frame_height = height;
+        let bytes_per_pixel = 2usize;
+        let frame_bytes = (frame_width as usize) * (frame_height as usize) * bytes_per_pixel;
+        let mut frame = vec![0u8; frame_bytes];
+
+        // Fill rows 1..=3 with value 100 (little-endian u16).
+        for x in 0..width {
+            for y in 1..=3 {
+                let idx = ((y * width + x) as usize) * 2;
+                frame[idx] = 100;
+                frame[idx + 1] = 0;
+            }
+        }
+
+        let profile = EchelleCalibrationProfile {
+            schema_version: EchelleSchemaVersion::v1(),
+            profile_id: None,
+            display_name: "mask-test".to_string(),
+            compatibility: EchelleFrameCompatibility {
+                sensor_width: width,
+                sensor_height: height,
+                frame_width,
+                frame_height,
+                roi_x: 0,
+                roi_y: 0,
+                binning_x: 1,
+                binning_y: 1,
+                bit_depth: Some(16),
+            },
+            orientation: EchelleOrientation {
+                dispersion_axis: DetectorAxis::X,
+                cross_dispersion_axis: DetectorAxis::Y,
+                order_number_increase_direction: AxisDirection::Positive,
+                wavelength_increase_with_dispersion_positive: true,
+            },
+            extraction: EchelleExtractionConfig {
+                summation_mode: EchelleSummationMode::SimpleSum,
+                default_aperture_half_width_px: 1.0,
+                background: None,
+            },
+            orders: vec![EchelleOrderCalibration {
+                relative_index: 0,
+                physical_order_number: None,
+                sample_start: 0,
+                sample_end: width - 1,
+                trace: EchelleTraceModel::Polynomial {
+                    basis: PolynomialBasis::Monomial,
+                    coefficients: vec![2.0],
+                    domain_start: 0.0,
+                    domain_end: f64::from(width - 1),
+                },
+                wavelength: EchelleWavelengthModel::Sampled {
+                    wavelengths: (0..width).map(|i| 500.0 + f64::from(i)).collect(),
+                    unit: "nm".to_string(),
+                },
+                aperture_half_width_px: None,
+                enabled: true,
+                notes: None,
+            }],
+            corrections: EchelleCorrections::default(),
+            provenance: EchelleProvenance {
+                creator_tool: "test".to_string(),
+                creator_version: None,
+                created_at_utc: Utc::now(),
+                source_frame_ids: vec![],
+                notes: None,
+            },
+        };
+
+        // Extraction without mask: all samples get 3 pixels × 100 = 300.
+        let no_mask = extract_preview(&profile, &frame, width, height, 16, 1).unwrap();
+        assert_eq!(no_mask.orders[0].flux[4], 300.0);
+
+        // Build mask that marks (4, 2) as bad.
+        let mut mask_data = vec![0u8; (width * height) as usize];
+        mask_data[(2 * width + 4) as usize] = 1; // (x=4, y=2) is bad
+        let mask = BadPixelMask::from_raw_bytes(width, height, &mask_data).unwrap();
+
+        // Extraction with mask: sample at x=4 loses center pixel → 2 × 100 = 200.
+        let with_mask =
+            extract_preview_masked(&profile, &frame, width, height, 16, 1, Some(&mask)).unwrap();
+        assert_eq!(with_mask.orders[0].flux[4], 200.0);
+        // Sample at x=3 is unaffected → still 300.
+        assert_eq!(with_mask.orders[0].flux[3], 300.0);
+        // Valid fraction at x=4 should be 2/3.
+        let frac = with_mask.orders[0].valid_fraction[4];
+        assert!(
+            (frac - 2.0 / 3.0).abs() < 1e-5,
+            "expected ~0.667, got {frac}"
+        );
     }
 }

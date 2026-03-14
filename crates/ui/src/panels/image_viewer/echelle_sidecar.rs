@@ -1,20 +1,54 @@
 #![allow(dead_code)]
-//! Prototype sidecar runner for future Python echelle extraction integration.
+//! Production sidecar runner for Python echelle extraction integration.
 //!
-//! This module intentionally keeps the contract simple: JSON request/response
-//! over stdio, per-request process spawn (which also provides trivial restart
-//! semantics), timeout handling, and structured stderr capture.
+//! Per-request process spawn with retry, circuit breaking, and proper timeout
+//! handling. The per-request model is intentional: spawn overhead (~5ms) is
+//! dwarfed by extraction time, and process isolation gives clean failure
+//! boundaries.
 
 use serde_json::Value;
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 
+/// Configuration for sidecar retry and circuit breaker behavior.
 #[derive(Debug, Clone)]
+pub(super) struct SidecarConfig {
+    /// Maximum retry attempts per request (0 = no retries).
+    pub(super) max_retries: u32,
+    /// Initial backoff delay between retries.
+    pub(super) initial_backoff: Duration,
+    /// Maximum backoff delay (caps exponential growth).
+    pub(super) max_backoff: Duration,
+    /// Consecutive failures before the circuit breaker opens.
+    pub(super) circuit_breaker_threshold: u32,
+    /// Cooldown period while circuit is open before allowing a probe request.
+    pub(super) circuit_breaker_cooldown: Duration,
+}
+
+impl Default for SidecarConfig {
+    fn default() -> Self {
+        Self {
+            max_retries: 2,
+            initial_backoff: Duration::from_millis(100),
+            max_backoff: Duration::from_secs(5),
+            circuit_breaker_threshold: 5,
+            circuit_breaker_cooldown: Duration::from_secs(30),
+        }
+    }
+}
+
+#[derive(Debug)]
 pub(super) struct EchelleSidecarRunner {
     program: String,
     args: Vec<String>,
     timeout: Duration,
+    config: SidecarConfig,
+    /// Consecutive failure count for circuit breaker.
+    consecutive_failures: AtomicU32,
+    /// Timestamp (as epoch millis) when circuit breaker opened. 0 = closed.
+    circuit_opened_at_ms: AtomicU32,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -45,6 +79,16 @@ pub(super) enum SidecarRunnerError {
         timeout_ms: u64,
     },
     Kill(std::io::Error),
+    /// Circuit breaker is open — too many consecutive failures.
+    CircuitOpen {
+        consecutive_failures: u32,
+        cooldown_remaining: Duration,
+    },
+    /// All retry attempts exhausted.
+    RetriesExhausted {
+        attempts: u32,
+        last_error: Box<SidecarRunnerError>,
+    },
 }
 
 impl std::fmt::Display for SidecarRunnerError {
@@ -62,6 +106,25 @@ impl std::fmt::Display for SidecarRunnerError {
                 write!(f, "sidecar request timed out after {timeout_ms} ms")
             }
             Self::Kill(e) => write!(f, "failed to terminate timed-out sidecar: {e}"),
+            Self::CircuitOpen {
+                consecutive_failures,
+                cooldown_remaining,
+            } => {
+                write!(
+                    f,
+                    "sidecar circuit breaker open after {consecutive_failures} consecutive failures \
+                     (cooldown: {cooldown_remaining:?} remaining)"
+                )
+            }
+            Self::RetriesExhausted {
+                attempts,
+                last_error,
+            } => {
+                write!(
+                    f,
+                    "sidecar request failed after {attempts} attempts: {last_error}"
+                )
+            }
         }
     }
 }
@@ -77,6 +140,9 @@ impl EchelleSidecarRunner {
             program: program.into(),
             args: args.into_iter().map(Into::into).collect(),
             timeout: Duration::from_secs(2),
+            config: SidecarConfig::default(),
+            consecutive_failures: AtomicU32::new(0),
+            circuit_opened_at_ms: AtomicU32::new(0),
         }
     }
 
@@ -85,15 +151,73 @@ impl EchelleSidecarRunner {
         self
     }
 
+    pub(super) fn with_config(mut self, config: SidecarConfig) -> Self {
+        self.config = config;
+        self
+    }
+
+    /// Run a health check. Bypasses circuit breaker (used to probe recovery).
     pub(super) fn health_check(&self) -> Result<SidecarInvocationResult, SidecarRunnerError> {
-        self.request_json(&serde_json::json!({
+        self.request_json_once(&serde_json::json!({
             "request_id": "health-check",
             "op": "health"
         }))
     }
 
+    /// Validate the sidecar is functional. Runs a health check and verifies
+    /// the response contains `{"ok": true}`.
+    pub(super) fn validate(&self) -> Result<(), SidecarRunnerError> {
+        let result = self.health_check()?;
+        if result.response.get("ok") == Some(&Value::Bool(true)) {
+            Ok(())
+        } else {
+            Err(SidecarRunnerError::EmptyResponse)
+        }
+    }
+
+    /// Send a JSON request with retry and circuit breaker protection.
     #[allow(clippy::cast_possible_truncation)]
     pub(super) fn request_json(
+        &self,
+        request: &Value,
+    ) -> Result<SidecarInvocationResult, SidecarRunnerError> {
+        self.check_circuit_breaker()?;
+
+        let max_attempts = self.config.max_retries + 1;
+        let mut last_error = None;
+        let mut backoff = self.config.initial_backoff;
+
+        for attempt in 0..max_attempts {
+            if attempt > 0 {
+                eprintln!(
+                    "[sidecar] retry {attempt}/{} after {backoff:?}",
+                    self.config.max_retries
+                );
+                std::thread::sleep(backoff);
+                backoff = (backoff * 2).min(self.config.max_backoff);
+            }
+
+            match self.request_json_once(request) {
+                Ok(result) => {
+                    self.record_success();
+                    return Ok(result);
+                }
+                Err(e) => {
+                    self.record_failure();
+                    last_error = Some(e);
+                }
+            }
+        }
+
+        Err(SidecarRunnerError::RetriesExhausted {
+            attempts: max_attempts,
+            last_error: Box::new(last_error.expect("at least one attempt was made")),
+        })
+    }
+
+    /// Send a single JSON request without retry (the low-level path).
+    #[allow(clippy::cast_possible_truncation)]
+    fn request_json_once(
         &self,
         request: &Value,
     ) -> Result<SidecarInvocationResult, SidecarRunnerError> {
@@ -139,7 +263,9 @@ impl EchelleSidecarRunner {
             Ok(line)
         });
 
-        // Prototype runner uses per-request spawn; timeout + kill gives restart semantics by respawn.
+        // Poll for child exit with timeout. Child stays in this thread so we
+        // can kill it on timeout. 50ms granularity is fine for processes that
+        // typically run 10-500ms.
         loop {
             if start.elapsed() > self.timeout {
                 child.kill().map_err(SidecarRunnerError::Kill)?;
@@ -158,7 +284,7 @@ impl EchelleSidecarRunner {
             {
                 break;
             }
-            std::thread::sleep(Duration::from_millis(10));
+            std::thread::sleep(Duration::from_millis(50));
         }
 
         let stdout_line = stdout_handle
@@ -179,6 +305,69 @@ impl EchelleSidecarRunner {
             elapsed: start.elapsed(),
         })
     }
+
+    /// Check if the circuit breaker allows a request through.
+    #[allow(clippy::cast_possible_truncation)]
+    fn check_circuit_breaker(&self) -> Result<(), SidecarRunnerError> {
+        let failures = self.consecutive_failures.load(Ordering::Relaxed);
+        if failures < self.config.circuit_breaker_threshold {
+            return Ok(());
+        }
+
+        let opened_at = self.circuit_opened_at_ms.load(Ordering::Relaxed);
+        if opened_at == 0 {
+            return Ok(());
+        }
+
+        let now_ms = epoch_millis_u32();
+        let elapsed = Duration::from_millis(u64::from(now_ms.saturating_sub(opened_at)));
+
+        if elapsed >= self.config.circuit_breaker_cooldown {
+            // Half-open: allow one probe request through, reset will happen on success.
+            return Ok(());
+        }
+
+        Err(SidecarRunnerError::CircuitOpen {
+            consecutive_failures: failures,
+            cooldown_remaining: self.config.circuit_breaker_cooldown.saturating_sub(elapsed),
+        })
+    }
+
+    fn record_success(&self) {
+        self.consecutive_failures.store(0, Ordering::Relaxed);
+        self.circuit_opened_at_ms.store(0, Ordering::Relaxed);
+    }
+
+    #[allow(clippy::cast_possible_truncation)]
+    fn record_failure(&self) {
+        let prev = self.consecutive_failures.fetch_add(1, Ordering::Relaxed);
+        if prev + 1 >= self.config.circuit_breaker_threshold {
+            let opened = self.circuit_opened_at_ms.load(Ordering::Relaxed);
+            if opened == 0 {
+                self.circuit_opened_at_ms
+                    .store(epoch_millis_u32(), Ordering::Relaxed);
+                eprintln!(
+                    "[sidecar] circuit breaker OPEN after {} consecutive failures",
+                    prev + 1
+                );
+            }
+        }
+    }
+
+    /// Current consecutive failure count (for observability).
+    pub(super) fn consecutive_failures(&self) -> u32 {
+        self.consecutive_failures.load(Ordering::Relaxed)
+    }
+}
+
+/// Truncated epoch milliseconds fitting in u32 (~49 days of range, wraps).
+/// Sufficient for relative duration comparisons within a single process lifetime.
+#[allow(clippy::cast_possible_truncation)]
+fn epoch_millis_u32() -> u32 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u32
 }
 
 fn read_stderr_events(stderr: impl std::io::Read) -> Vec<SidecarLogEvent> {
@@ -214,7 +403,7 @@ mod tests {
 
         let result = runner
             .request_json(&serde_json::json!({"request_id":"1","op":"health"}))
-            .unwrap();
+            .expect("request should succeed");
         assert_eq!(result.response["ok"], true);
         assert_eq!(result.response["echo"]["op"], "health");
         assert!(!result.stderr_events.is_empty());
@@ -226,9 +415,99 @@ mod tests {
 
     #[test]
     fn times_out_and_kills_hanging_sidecar() {
-        let runner = EchelleSidecarRunner::new("/bin/sh", ["-c", "sleep 2"])
-            .with_timeout(Duration::from_millis(100));
+        let runner = EchelleSidecarRunner::new("/bin/sh", ["-c", "sleep 10"])
+            .with_timeout(Duration::from_millis(100))
+            .with_config(SidecarConfig {
+                max_retries: 0,
+                ..SidecarConfig::default()
+            });
         let err = runner.health_check().unwrap_err();
         assert!(matches!(err, SidecarRunnerError::Timeout { .. }));
+    }
+
+    #[test]
+    fn retries_on_transient_failure() {
+        // First invocation fails (bad program), but we test the retry machinery
+        // by using a program that always fails — we expect RetriesExhausted.
+        let runner = EchelleSidecarRunner::new("/bin/sh", ["-c", "exit 1"])
+            .with_timeout(Duration::from_secs(1))
+            .with_config(SidecarConfig {
+                max_retries: 2,
+                initial_backoff: Duration::from_millis(10),
+                max_backoff: Duration::from_millis(50),
+                ..SidecarConfig::default()
+            });
+
+        let err = runner
+            .request_json(&serde_json::json!({"op":"test"}))
+            .unwrap_err();
+        assert!(
+            matches!(
+                err,
+                SidecarRunnerError::RetriesExhausted { attempts: 3, .. }
+            ),
+            "expected RetriesExhausted with 3 attempts, got: {err}"
+        );
+    }
+
+    #[test]
+    fn circuit_breaker_opens_after_threshold() {
+        let runner = EchelleSidecarRunner::new("/bin/sh", ["-c", "exit 1"])
+            .with_timeout(Duration::from_secs(1))
+            .with_config(SidecarConfig {
+                max_retries: 0,
+                circuit_breaker_threshold: 3,
+                circuit_breaker_cooldown: Duration::from_secs(60),
+                ..SidecarConfig::default()
+            });
+
+        // Burn through 3 failures to trip the circuit breaker.
+        for _ in 0..3 {
+            let _ = runner.request_json(&serde_json::json!({"op":"test"}));
+        }
+
+        assert!(runner.consecutive_failures() >= 3);
+
+        // Next request should be rejected by the circuit breaker.
+        let err = runner
+            .request_json(&serde_json::json!({"op":"test"}))
+            .unwrap_err();
+        assert!(
+            matches!(err, SidecarRunnerError::CircuitOpen { .. }),
+            "expected CircuitOpen, got: {err}"
+        );
+    }
+
+    #[test]
+    fn validate_succeeds_on_healthy_sidecar() {
+        let runner =
+            EchelleSidecarRunner::new("/bin/sh", ["-c", r#"read line; echo '{"ok":true}'"#])
+                .with_timeout(Duration::from_secs(1));
+
+        runner.validate().expect("validation should pass");
+    }
+
+    #[test]
+    fn success_resets_circuit_breaker() {
+        let runner = EchelleSidecarRunner::new(
+            "/bin/sh",
+            ["-c", r#"read line; echo '{"ok":true,"echo":'"$line"'}'"#],
+        )
+        .with_timeout(Duration::from_secs(1))
+        .with_config(SidecarConfig {
+            max_retries: 0,
+            circuit_breaker_threshold: 10,
+            ..SidecarConfig::default()
+        });
+
+        // Manually bump the failure counter.
+        runner.consecutive_failures.store(5, Ordering::Relaxed);
+        assert_eq!(runner.consecutive_failures(), 5);
+
+        // A successful request should reset it.
+        runner
+            .request_json(&serde_json::json!({"op":"health"}))
+            .expect("request should succeed");
+        assert_eq!(runner.consecutive_failures(), 0);
     }
 }

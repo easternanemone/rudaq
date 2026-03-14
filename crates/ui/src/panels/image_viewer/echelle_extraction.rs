@@ -8,8 +8,9 @@
 use chrono::Utc;
 use common::core::Measurement;
 use common::echelle::{
-    DetectorAxis, EchelleCalibrationProfile, EchelleFrameContext, EchelleOrderCalibration,
-    EchelleSummationMode, EchelleTraceModel, EchelleWavelengthModel, PixelRegion, PolynomialBasis,
+    BadPixelMask, DetectorAxis, EchelleCalibrationProfile, EchelleFrameContext,
+    EchelleOrderCalibration, EchelleSummationMode, EchelleTraceModel, EchelleWavelengthModel,
+    PixelRegion, PolynomialBasis,
 };
 use serde_json::json;
 
@@ -218,6 +219,26 @@ pub(super) fn extract_preview(
     bit_depth: u32,
     frame_number: u64,
 ) -> Result<EchelleExtractionPreview, String> {
+    extract_preview_masked(
+        profile,
+        frame_data,
+        width,
+        height,
+        bit_depth,
+        frame_number,
+        None,
+    )
+}
+
+pub(super) fn extract_preview_masked(
+    profile: &EchelleCalibrationProfile,
+    frame_data: &[u8],
+    width: u32,
+    height: u32,
+    bit_depth: u32,
+    frame_number: u64,
+    mask: Option<&BadPixelMask>,
+) -> Result<EchelleExtractionPreview, String> {
     profile
         .validate_for_frame(EchelleFrameContext {
             width,
@@ -228,7 +249,7 @@ pub(super) fn extract_preview(
         .map_err(|e| e.to_string())?;
 
     let decoded = DecodedIntensityFrame::decode(frame_data, width, height, bit_depth, None)?;
-    extract_preview_with_scratch_inner(profile, &decoded, bit_depth, frame_number)
+    extract_preview_with_scratch_inner(profile, &decoded, bit_depth, frame_number, mask)
 }
 
 pub(super) fn extract_preview_with_u16_scratch(
@@ -239,6 +260,29 @@ pub(super) fn extract_preview_with_u16_scratch(
     bit_depth: u32,
     frame_number: u64,
     u16_scratch: &mut Vec<u16>,
+) -> Result<EchelleExtractionPreview, String> {
+    extract_preview_with_u16_scratch_masked(
+        profile,
+        frame_data,
+        width,
+        height,
+        bit_depth,
+        frame_number,
+        u16_scratch,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn extract_preview_with_u16_scratch_masked(
+    profile: &EchelleCalibrationProfile,
+    frame_data: &[u8],
+    width: u32,
+    height: u32,
+    bit_depth: u32,
+    frame_number: u64,
+    u16_scratch: &mut Vec<u16>,
+    mask: Option<&BadPixelMask>,
 ) -> Result<EchelleExtractionPreview, String> {
     profile
         .validate_for_frame(EchelleFrameContext {
@@ -251,7 +295,7 @@ pub(super) fn extract_preview_with_u16_scratch(
 
     let decoded =
         DecodedIntensityFrame::decode(frame_data, width, height, bit_depth, Some(u16_scratch))?;
-    extract_preview_with_scratch_inner(profile, &decoded, bit_depth, frame_number)
+    extract_preview_with_scratch_inner(profile, &decoded, bit_depth, frame_number, mask)
 }
 
 #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
@@ -289,12 +333,13 @@ fn extract_preview_with_scratch_inner(
     decoded: &DecodedIntensityFrame<'_>,
     bit_depth: u32,
     frame_number: u64,
+    mask: Option<&BadPixelMask>,
 ) -> Result<EchelleExtractionPreview, String> {
     let saturation_threshold = bit_depth_max(bit_depth);
 
     let mut orders = Vec::new();
     for order in profile.orders.iter().filter(|o| o.enabled) {
-        let preview = extract_order(profile, order, decoded, saturation_threshold)?;
+        let preview = extract_order(profile, order, decoded, saturation_threshold, mask)?;
         orders.push(preview);
     }
 
@@ -314,6 +359,7 @@ fn extract_order(
     order: &EchelleOrderCalibration,
     frame: &DecodedIntensityFrame<'_>,
     saturation_threshold: u32,
+    mask: Option<&BadPixelMask>,
 ) -> Result<EchelleOrderPreview, String> {
     let half_width = order
         .aperture_half_width_px
@@ -381,7 +427,7 @@ fn extract_order(
                         && y >= 0
                         && (x as u32) < frame.width()
                         && (y as u32) < frame.height()
-                        && !is_excluded(profile, x as u32, y as u32)
+                        && !is_excluded(profile, mask, x as u32, y as u32)
                     {
                         if let Some(pixel) = frame.get(x as u32, y as u32) {
                             sample_sum = f64::from(pixel);
@@ -405,7 +451,7 @@ fn extract_order(
                             || y < 0
                             || (x as u32) >= frame.width()
                             || (y as u32) >= frame.height()
-                            || is_excluded(profile, x as u32, y as u32)
+                            || is_excluded(profile, mask, x as u32, y as u32)
                         {
                             continue;
                         }
@@ -423,6 +469,7 @@ fn extract_order(
                             #[allow(clippy::cast_possible_wrap)]
                             let (bg_sum, bg_count) = sample_background_sidebands(
                                 profile,
+                                mask,
                                 frame,
                                 sample_local as i32,
                                 center_px,
@@ -467,9 +514,10 @@ fn extract_order(
     })
 }
 
-#[allow(clippy::cast_sign_loss)]
+#[allow(clippy::cast_sign_loss, clippy::too_many_arguments)]
 fn sample_background_sidebands(
     profile: &EchelleCalibrationProfile,
+    mask: Option<&BadPixelMask>,
     frame: &DecodedIntensityFrame<'_>,
     sample_local: i32,
     center_px: i32,
@@ -498,7 +546,7 @@ fn sample_background_sidebands(
                     || y < 0
                     || (x as u32) >= frame.width()
                     || (y as u32) >= frame.height()
-                    || is_excluded(profile, x as u32, y as u32)
+                    || is_excluded(profile, mask, x as u32, y as u32)
                 {
                     continue;
                 }
@@ -562,13 +610,18 @@ fn map_disp_cross_to_local_xy(
     }
 }
 
-fn is_excluded(profile: &EchelleCalibrationProfile, x: u32, y: u32) -> bool {
+fn is_excluded(
+    profile: &EchelleCalibrationProfile,
+    mask: Option<&BadPixelMask>,
+    x: u32,
+    y: u32,
+) -> bool {
     profile
         .corrections
         .excluded_regions
         .iter()
         .any(|r| point_in_region(x, y, r))
-    // TODO(bd-2kla.4.2.2): wire bad_pixel_mask artifact loading/sampling.
+        || mask.is_some_and(|m| m.is_masked(x, y))
 }
 
 #[inline]
