@@ -296,23 +296,33 @@ impl NiDaqService for NiDaqServiceImpl {
             // Determine stop condition
             let max_samples = match req.stop_condition {
                 Some(stream_analog_input_request::StopCondition::SampleCount(count)) => {
-                    // Proto u64 sample count fits in usize on 64-bit targets
-                    #[allow(clippy::cast_possible_truncation)]
-                    Some(count as usize)
+                    let n = usize::try_from(count).map_err(|_| {
+                        Status::invalid_argument("sample_count exceeds platform limit")
+                    })?;
+                    Some(n)
                 }
                 Some(stream_analog_input_request::StopCondition::DurationMs(duration_ms)) => {
-                    // Calculate approximate sample count from duration
+                    // rate validated ≤ 100 kHz (line 255), duration_ms is u32
+                    // ⇒ product ≤ 100_000 × 4_294_967 ≈ 4.3e11, fits in usize on 64-bit
                     let duration_secs = f64::from(duration_ms) / 1000.0;
-                    // sample_rate * duration is always positive and bounded by hardware limits
+                    let total = req.sample_rate_hz * duration_secs;
+                    if !total.is_finite() || total < 0.0 {
+                        return Err(Status::invalid_argument(
+                            "computed sample count out of range",
+                        ));
+                    }
+                    // Safe: validated finite and non-negative above; bounded by
+                    // rate ≤ 100 kHz × duration ≤ u32::MAX ms ≈ 4.3e11, fits usize
                     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-                    let total_samples = (req.sample_rate_hz * duration_secs) as usize;
-                    Some(total_samples)
+                    Some(total as usize)
                 }
                 Some(stream_analog_input_request::StopCondition::Continuous(_)) | None => None,
             };
 
             // Spawn background task to poll samples and send via gRPC stream
             let n_channels = req.channels.len();
+            let n_channels_u32 = u32::try_from(n_channels)
+                .map_err(|_| Status::invalid_argument("too many channels"))?;
             tokio::spawn(async move {
                 let mut sequence_number = 0u64;
                 let mut total_samples_sent = 0usize;
@@ -348,11 +358,9 @@ impl NiDaqService for NiDaqServiceImpl {
 
                                 let overflow = acquisition.overflow_count() > 0;
 
-                                // Channel count is always small (hardware-bounded)
-                                #[allow(clippy::cast_possible_truncation)]
                                 let data = AnalogInputData {
                                     voltages: interleaved,
-                                    n_channels: n_channels as u32,
+                                    n_channels: n_channels_u32,
                                     sequence_number,
                                     timestamp_ns: now_ns(),
                                     samples_acquired: acquisition.scans_acquired(),
@@ -571,8 +579,6 @@ impl NiDaqService for NiDaqServiceImpl {
             let (voltage, raw_value, timestamp_ns) = self
                 .await_with_timeout("ReadAnalogInput", async move {
                     tokio::task::spawn_blocking(move || {
-                        use std::time::SystemTime;
-
                         let ai = device.analog_input()?;
 
                         // Get the range for voltage conversion
@@ -1161,8 +1167,6 @@ impl NiDaqService for NiDaqServiceImpl {
             let (count, timestamp_ns) = self
                 .await_with_timeout("ReadCounter", async move {
                     tokio::task::spawn_blocking(move || {
-                        use std::time::SystemTime;
-
                         let counter_subsystem = device.counter()?;
 
                         // Validate counter channel
@@ -1598,9 +1602,7 @@ impl NiDaqService for NiDaqServiceImpl {
                             ai_channels,
                             ao_channels,
                             dio_channels,
-                            // Counter count is always small (hardware-bounded)
-                            #[allow(clippy::cast_possible_truncation)]
-                            counter_channels: counter_count as u32,
+                            counter_channels: u32::try_from(counter_count).unwrap_or(0),
                             ai_resolution_bits: ai_resolution,
                             ao_resolution_bits: ao_resolution,
                             ai_ranges,
