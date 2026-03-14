@@ -85,6 +85,10 @@ pub mod feature_flags;
 #[cfg(feature = "serial")]
 pub mod serial;
 
+// FITS file I/O for calibration frame import (requires "fits" feature + cfitsio C library)
+#[cfg(feature = "fits")]
+pub mod fits_io;
+
 // Game loop state broadcasting (Phase 4)
 pub mod state_cache;
 

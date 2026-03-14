@@ -1,0 +1,132 @@
+# PypeIt configuration template for Mechelle 5000 echelle spectrograph
+#
+# This template provides a starting point for reducing Mechelle 5000 data
+# captured via the rust-daq / Andor iStar camera pipeline. It is intended
+# for generating reference spec1d outputs to compare against rust-daq's
+# built-in echelle extraction.
+#
+# ─── How to use ──────────────────────────────────────────────────────
+#
+# 1. Install PypeIt:
+#        pip install pypeit
+#
+# 2. Copy this template and edit the [data] section to point at your
+#    raw FITS frames (arc lamp, flat, science).
+#
+# 3. Run the PypeIt reduction:
+#        pypeit_setup -s mechelle5000 -r /path/to/raw/
+#        run_pypeit mechelle5000.pypeit
+#
+# 4. Compare spec1d output against rust-daq using:
+#        python validate_vs_pypeit.py \
+#            --rust-json <rust_extraction.json> \
+#            --pypeit-fits Science/spec1d_*.fits
+#
+# ─── Spectrograph parameters ─────────────────────────────────────────
+#
+# The Mechelle 5000 is a cross-dispersed echelle spectrograph with:
+#   - Resolving power: R ~ 5000 (across 200-900 nm)
+#   - Detector: 2048 x 2048 pixels (Andor iStar)
+#   - Dispersion axis: X (horizontal)
+#   - Cross-dispersion axis: Y (vertical, prism)
+#   - ~20-24 visible orders on the detector
+#   - Order separation: ~18-30 pixels (varies with wavelength)
+#
+# PypeIt does not ship a built-in Mechelle 5000 spectrograph definition,
+# so we use the "keck_hires" base (another cross-dispersed echelle) and
+# override the relevant parameters. For production use, consider creating
+# a custom spectrograph class in PypeIt.
+#
+# ─── IMPORTANT NOTES ─────────────────────────────────────────────────
+#
+# - The raw frames from rust-daq are stored as LZ4-compressed u16 blobs,
+#   not standard FITS files. You must first convert them to FITS using
+#   the rust-daq export tool or the reference_extract_hg2.py script
+#   before PypeIt can process them.
+#
+# - Wavelength calibration requires an arc lamp frame (HgAr, ThAr, etc.)
+#   The line list should match the lamp used during calibration.
+#
+# - The iStar camera has 12-bit ADC depth transported as 16-bit words.
+#   Saturation occurs at 4095 ADU, not 65535.
+#
+
+# PypeIt reduction file
+# Auto-generated template for Mechelle 5000 + Andor iStar
+
+[rdx]
+    # Spectrograph identifier.
+    # NOTE: Replace with a custom spectrograph class for production use.
+    # This template uses a generic echelle base for illustration.
+    spectrograph = keck_hires
+
+[calibrations]
+    [[wavelengths]]
+        # Arc lamp line identification parameters.
+        # The Mechelle 5000 uses HgAr or ThAr lamps for wavelength calibration.
+        lamps = HgI, ArI
+        # Reidentification threshold: how close (in pixels) a detected line
+        # must be to an atlas line to be considered a match.
+        rms_threshold = 0.15
+        # Polynomial order for the per-order wavelength solution.
+        # Chebyshev basis of order 4 is typical for the Mechelle.
+        n_order = 4
+        # Minimum number of matched lines per order to accept the solution.
+        n_final = 3
+        # Signal-to-noise threshold for arc line detection.
+        sigdetect = 5.0
+        # Reference frame index (0-based) in the data block below.
+        # Set to the index of your arc lamp frame.
+        # refframe = 0
+
+    [[slitedges]]
+        # Order edge detection parameters.
+        # The Mechelle has relatively closely spaced orders.
+        edge_thresh = 20.0
+        # Minimum number of pixels for a valid order trace.
+        minimum_slit_length = 100
+        # Maximum number of orders to detect.
+        # The Mechelle 5000 typically shows 20-24 orders.
+        # max_nspec = 24
+
+    [[flatfield]]
+        # Flat-fielding normalisation.
+        # Use a continuum lamp flat or internal halogen lamp.
+        slit_illum_finecorr = False
+
+    [[tilts]]
+        # Spectral tilt tracing for 2D extraction.
+        # Echelle spectrographs require tilt correction for curved orders.
+        spat_order = 5
+        spec_order = 5
+
+[reduce]
+    [[extraction]]
+        # Extraction method: 'optimal' uses Horne (1986) weighting.
+        # 'boxcar' uses simple summation within the aperture.
+        use_2dmodel_mask = False
+
+    [[findobj]]
+        # Object finding parameters (for science frames).
+        # For arc/calibration frames, this is typically not used.
+        snr_thresh = 10.0
+
+[flexure]
+    # Flexure correction (set to skip if the instrument is stable).
+    spec_method = skip
+
+# ─── Data block ──────────────────────────────────────────────────────
+#
+# List your raw FITS files here. Each line has the format:
+#   path/to/file.fits  |  frametype
+#
+# Frame types: arc, pixelflat, trace, science, standard, bias, dark
+#
+# Example (replace with your actual file paths):
+#
+# [data]
+#     |          filename |   frametype |
+#     | arc_HgAr_001.fits |         arc |
+#     |     flat_001.fits |   pixelflat |
+#     |     flat_001.fits |       trace |
+#     |  science_001.fits |     science |

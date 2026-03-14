@@ -1,0 +1,183 @@
+# GitHub Actions workflow template for nightly echelle extraction soak test.
+#
+# Runs on the leabs-dev self-hosted runner with access to the iStar camera.
+# Nightly schedule uses a shortened 1-hour soak; manual dispatch allows
+# configurable duration.
+#
+# Copy this file to .github/workflows/nightly-echelle-soak.yml to activate.
+
+name: Nightly Echelle Extraction Soak
+
+on:
+  schedule:
+    # Run nightly at 22:00 UTC (after lab hours)
+    - cron: "0 22 * * *"
+  workflow_dispatch:
+    inputs:
+      hours:
+        description: "Soak duration in hours"
+        required: false
+        default: "1"
+        type: string
+      daemon_url:
+        description: "Daemon host:port"
+        required: false
+        default: "10.0.0.40:50051"
+        type: string
+      device_id:
+        description: "Camera device ID"
+        required: false
+        default: "istar_camera"
+        type: string
+      branch:
+        description: "Branch to checkout"
+        required: false
+        default: "main"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-echelle-soak
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  echelle-soak:
+    name: Echelle extraction soak (${{ inputs.hours || '1' }}h)
+    runs-on: [self-hosted, Linux, X64, leabs]
+    timeout-minutes: 780  # 13 hours (12h soak + 1h buffer)
+    env:
+      LEABS_HOST: ${{ vars.LEABS_TAILSCALE_HOST || '10.0.0.40' }}
+      LAB_SSH_PRIVATE_KEY: ${{ secrets.LAB_SSH_PRIVATE_KEY }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch || 'main' }}
+
+      - name: Resolve parameters
+        run: |
+          set -euo pipefail
+
+          if [[ "${GITHUB_EVENT_NAME}" == "schedule" ]]; then
+            hours="1"
+            daemon_url="${LEABS_HOST}:50051"
+            device_id="istar_camera"
+          else
+            hours="${{ inputs.hours }}"
+            daemon_url="${{ inputs.daemon_url }}"
+            device_id="${{ inputs.device_id }}"
+          fi
+
+          # Validate hours is a positive number
+          if [[ ! "${hours}" =~ ^[0-9]+$ ]] || [[ "${hours}" -lt 1 ]]; then
+            echo "::error::Hours must be a positive integer, got '${hours}'"
+            exit 1
+          fi
+
+          {
+            echo "SOAK_HOURS=${hours}"
+            echo "DAEMON_URL=${daemon_url}"
+            echo "DEVICE_ID=${device_id}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Verify dependencies
+        run: |
+          set -euo pipefail
+          echo "Checking for required tools..."
+
+          for tool in grpcurl ssh; do
+            if ! command -v "$tool" >/dev/null 2>&1; then
+              echo "::error::Required tool '${tool}' not found"
+              exit 1
+            fi
+          done
+
+          echo "All dependencies present"
+
+      - name: Verify daemon reachability
+        run: |
+          set -euo pipefail
+          echo "Checking daemon at ${DAEMON_URL}..."
+
+          grpcurl -plaintext \
+            -connect-timeout 10 \
+            -import-path crates/protocol/proto \
+            -proto daq.proto \
+            "${DAEMON_URL}" daq.ControlService/GetDaemonInfo
+
+      - name: Run soak test
+        run: |
+          set -euo pipefail
+          output_dir="/tmp/echelle-soak-ci-$(date +%Y%m%d-%H%M%S)"
+
+          bash scripts/echelle/overnight-soak.sh \
+            --hours "${SOAK_HOURS}" \
+            --daemon-url "${DAEMON_URL}" \
+            --device "${DEVICE_ID}" \
+            --output-dir "${output_dir}" \
+            --sample-interval 60
+
+          # Save the output dir path for later steps
+          echo "SOAK_OUTPUT_DIR=${output_dir}" >> "${GITHUB_ENV}"
+
+      - name: Run analysis
+        if: always()
+        run: |
+          set -euo pipefail
+          output_dir="${SOAK_OUTPUT_DIR:-/tmp/echelle-soak-ci-unknown}"
+
+          if [[ ! -d "${output_dir}" ]]; then
+            echo "::warning::Soak output directory not found: ${output_dir}"
+            exit 0
+          fi
+
+          python3 scripts/echelle/analyze-soak-results.py \
+            "${output_dir}" \
+            --no-plots \
+            || echo "::warning::Analysis script reported failures"
+
+      - name: Generate step summary
+        if: always()
+        run: |
+          set -euo pipefail
+          output_dir="${SOAK_OUTPUT_DIR:-/tmp/echelle-soak-ci-unknown}"
+
+          {
+            echo "## Echelle Extraction Soak Test"
+            echo ""
+            echo "**Duration:** ${SOAK_HOURS} hours"
+            echo "**Daemon:** ${DAEMON_URL}"
+            echo "**Device:** ${DEVICE_ID}"
+            echo ""
+
+            summary="${output_dir}/summary.txt"
+            analysis="${output_dir}/analysis_summary.txt"
+
+            if [[ -f "${analysis}" ]]; then
+              echo '```'
+              cat "${analysis}"
+              echo '```'
+            elif [[ -f "${summary}" ]]; then
+              echo '```'
+              cat "${summary}"
+              echo '```'
+            else
+              echo "No summary file found."
+            fi
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload soak artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: echelle-soak-${{ github.run_id }}
+          path: ${{ env.SOAK_OUTPUT_DIR || '/tmp/echelle-soak-ci-unknown' }}/
+          retention-days: 30
+          if-no-files-found: warn

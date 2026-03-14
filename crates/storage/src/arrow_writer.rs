@@ -88,10 +88,11 @@ fn is_tensor_shape(shape: &[i32]) -> bool {
 
 /// Compute the total number of elements in a tensor from its shape.
 #[cfg(feature = "storage_arrow")]
-#[allow(clippy::cast_sign_loss)]
-// SAFETY: value is non-negative at this point
 fn tensor_num_elements(shape: &[i32]) -> usize {
-    shape.iter().map(|&d| d as usize).product()
+    shape
+        .iter()
+        .map(|&d| usize::try_from(d).unwrap_or(0))
+        .product()
 }
 
 // ── Internal state ───────────────────────────────────────────────────────────

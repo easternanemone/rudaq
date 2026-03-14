@@ -2696,6 +2696,7 @@ dependencies = [
  "bytes",
  "chrono",
  "criterion",
+ "fitsio",
  "futures",
  "getrandom 0.2.17",
  "hdf5-metno",
@@ -5253,6 +5254,25 @@ name = "find_peaks"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "17ba6fe8df99019a8cb0c712414e10081b3bbdb10d8f7ab95719863ced5db982"
+
+[[package]]
+name = "fitsio"
+version = "0.21.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a37418b8a2e67655b4717287f3c170945ca5f453355a02274250b69400148f4"
+dependencies = [
+ "fitsio-sys",
+ "libc",
+]
+
+[[package]]
+name = "fitsio-sys"
+version = "0.5.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "14929d0b6fa44a87b374a138ea2256c02c1b5beae1dbc98f62a3e132f862fed1"
+dependencies = [
+ "pkg-config",
+]
 
 [[package]]
 name = "fixed"

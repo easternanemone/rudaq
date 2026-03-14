@@ -155,13 +155,23 @@ impl UniversalDriver {
                 let converted =
                     self.evaluate_formula(conv, mapping.from_param.as_ref(), input_val)?;
                 if let Some(param_name) = &mapping.input_param {
+                    let rounded = converted.round();
+                    #[allow(clippy::cast_precision_loss)]
+                    // Imprecise bounds are conservative — subsequent cast is safe
+                    let (lo, hi) = (i64::MIN as f64, i64::MAX as f64);
+                    if !rounded.is_finite() || rounded < lo || rounded > hi {
+                        return Err(anyhow!(
+                            "Converted value {} for parameter '{}' overflows i64",
+                            converted,
+                            param_name
+                        ));
+                    }
+                    #[allow(clippy::cast_possible_truncation)]
+                    // SAFETY: bounds checked above — rounded is finite and within i64 range
+                    let int_val = rounded as i64;
                     params.insert(
                         param_name.clone(),
-                        #[allow(clippy::cast_possible_truncation)]
-                        // SAFETY: rounding f64 to i64 — truncation acceptable for device register values
-                        serde_json::Value::Number(serde_json::Number::from(
-                            converted.round() as i64
-                        )),
+                        serde_json::Value::Number(serde_json::Number::from(int_val)),
                     );
                 }
             } else if let Some(param_name) = &mapping.from_param {

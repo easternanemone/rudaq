@@ -484,9 +484,13 @@ impl RingBuffer {
 
         // CRITICAL: Validate file size BEFORE memory mapping to prevent
         // accessing invalid memory if the file was truncated or corrupted
-        #[allow(clippy::cast_possible_truncation)]
-        // SAFETY: value is bounded and fits in target type
-        let file_size = file.metadata().map_err(DaqError::Io)?.len() as usize;
+        let file_size =
+            usize::try_from(file.metadata().map_err(DaqError::Io)?.len()).map_err(|_| {
+                DaqError::Storage(StorageError::new(
+                    StorageErrorKind::Configuration,
+                    "Ring buffer file exceeds addressable memory size",
+                ))
+            })?;
 
         if file_size < HEADER_SIZE {
             return Err(DaqError::Storage(StorageError::new(

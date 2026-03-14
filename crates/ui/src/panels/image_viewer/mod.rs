@@ -48,6 +48,10 @@ use common::echelle::{
     EchelleOrientation, EchelleProvenance, EchelleSchemaVersion, EchelleSummationMode,
     EchelleTraceModel, EchelleWavelengthModel, PolynomialBasis,
 };
+use common::echelle_wavelength_fitting::{
+    detect_arc_lines, fit_order_wavelength, load_hgar_atlas, match_lines_to_atlas, ArcDetectConfig,
+    ArcLine, OrderWlSolution, WlFitConfig,
+};
 use protocol::compression::decompress_frame_into;
 use protocol::daq::StreamQuality;
 use serde::{Deserialize, Serialize};
@@ -95,6 +99,29 @@ struct EchelleLineListEntryUi {
     label: String,
 }
 
+/// Row in the arc-line match table (bd-a64a).
+#[derive(Debug, Clone)]
+struct ArcLineMatchRow {
+    /// Detected line pixel center.
+    pixel_center: f64,
+    /// Detected line SNR (amplitude / noise).
+    snr: f64,
+    /// Detected line FWHM in pixels.
+    fwhm: f64,
+    /// Matched atlas wavelength (nm).
+    matched_wavelength_nm: f64,
+    /// Residual: predicted - atlas (nm). Set after fitting.
+    residual_nm: f64,
+    /// Atlas line species label.
+    species: String,
+    /// Whether this match is included in the fit.
+    included: bool,
+    /// Index into the detected_arc_lines vec.
+    detected_line_idx: usize,
+    /// Index into the atlas vec.
+    atlas_line_idx: usize,
+}
+
 #[derive(Debug, Clone, Default)]
 struct EchelleCalibrationUiState {
     tab: EchelleCalibrationTab,
@@ -118,6 +145,15 @@ struct EchelleCalibrationUiState {
     trace_auto_detect_threshold_fraction: f64,
     fit_outlier_sigma: f64,
     fit_rms_acceptance_px: f64,
+    // Arc line detection state (bd-a64a)
+    arc_detect_config: ArcDetectConfig,
+    detected_arc_lines: Vec<ArcLine>,
+    // Atlas matching state (bd-a64a)
+    atlas_match_tolerance_nm: f64,
+    matched_pairs: Vec<ArcLineMatchRow>,
+    // Chebyshev fit state (bd-a64a)
+    wl_fit_config: WlFitConfig,
+    wl_fit_solution: Option<OrderWlSolution>,
     blaze_preview_enabled: bool,
     blaze_preview_scale: f64,
     status_message: Option<String>,
@@ -136,6 +172,9 @@ impl EchelleCalibrationUiState {
             trace_auto_detect_threshold_fraction: 0.25,
             fit_outlier_sigma: 3.0,
             fit_rms_acceptance_px: 0.25,
+            arc_detect_config: ArcDetectConfig::default(),
+            atlas_match_tolerance_nm: 0.5,
+            wl_fit_config: WlFitConfig::default(),
             blaze_preview_enabled: false,
             blaze_preview_scale: 1.0,
             ..Default::default()
@@ -1806,6 +1845,12 @@ impl ImageViewerPanel {
             });
     }
 
+    #[allow(
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::too_many_lines
+    )]
     fn render_echelle_calibration_wavelength_fit_tab(&mut self, ui: &mut egui::Ui) {
         self.ensure_echelle_calibration_editor_profile();
         let Some(_) = self.echelle_cal_ui.editor_profile.as_ref() else {
@@ -1813,6 +1858,7 @@ impl ImageViewerPanel {
             return;
         };
 
+        // ── Section 1: Manual LSQ Fit (legacy) ──────────────────────────
         let mut trigger_fit_selected = false;
         ui.horizontal_wrapped(|ui| {
             ui.add(
@@ -1830,7 +1876,7 @@ impl ImageViewerPanel {
             if ui.button("Fit Selected Order (LSQ)").clicked() {
                 trigger_fit_selected = true;
             }
-            ui.small("Manual picks only (assisted matching planned later).");
+            ui.small("Manual picks (see arc-line auto-match below).");
         });
 
         if trigger_fit_selected {
@@ -1857,8 +1903,532 @@ impl ImageViewerPanel {
             }
         }
 
+        // ── Section 2: Arc Line Detection (bd-a64a) ─────────────────────
+        ui.separator();
+        ui.strong("Arc Line Auto-Detection & Matching");
+
+        let mut trigger_detect = false;
+        ui.horizontal_wrapped(|ui| {
+            ui.add(
+                egui::DragValue::new(&mut self.echelle_cal_ui.arc_detect_config.sigdetect)
+                    .range(1.0..=50.0)
+                    .speed(0.5)
+                    .prefix("SNR "),
+            );
+            ui.add(
+                egui::DragValue::new(&mut self.echelle_cal_ui.arc_detect_config.min_fwhm)
+                    .range(0.5..=10.0)
+                    .speed(0.1)
+                    .prefix("FWHM min "),
+            );
+            ui.add(
+                egui::DragValue::new(&mut self.echelle_cal_ui.arc_detect_config.max_fwhm)
+                    .range(1.0..=20.0)
+                    .speed(0.1)
+                    .prefix("FWHM max "),
+            );
+            if ui.button("Detect Arc Lines").clicked() {
+                trigger_detect = true;
+            }
+        });
+
+        if trigger_detect {
+            // Get the 1D spectrum for the selected order from the extraction preview.
+            let selected_order_idx = self.echelle_selected_order_plot;
+            let spectrum_opt = self.echelle_preview.as_ref().and_then(|preview| {
+                preview.orders.get(selected_order_idx).map(|order| {
+                    (
+                        order.relative_index,
+                        order.flux.iter().map(|&v| v as f32).collect::<Vec<f32>>(),
+                    )
+                })
+            });
+            match spectrum_opt {
+                Some((rel_idx, spectrum)) if !spectrum.is_empty() => {
+                    let config = self.echelle_cal_ui.arc_detect_config.clone();
+                    let lines = detect_arc_lines(&spectrum, rel_idx, &config);
+                    self.echelle_cal_ui.status_message = Some(format!(
+                        "Detected {} arc lines on order {rel_idx}",
+                        lines.len()
+                    ));
+                    self.echelle_cal_ui.detected_arc_lines = lines;
+                    self.echelle_cal_ui.last_error = None;
+                    // Clear downstream state when detection changes.
+                    self.echelle_cal_ui.matched_pairs.clear();
+                    self.echelle_cal_ui.wl_fit_solution = None;
+                }
+                _ => {
+                    self.echelle_cal_ui.last_error = Some(
+                        "No extracted spectrum available. Stream frames and enable echelle extraction first."
+                            .to_string(),
+                    );
+                }
+            }
+        }
+
+        // Show detected lines summary.
+        if !self.echelle_cal_ui.detected_arc_lines.is_empty() {
+            let n = self.echelle_cal_ui.detected_arc_lines.len();
+            ui.small(format!(
+                "{n} detected arc lines (order {})",
+                self.echelle_cal_ui
+                    .detected_arc_lines
+                    .first()
+                    .map_or(0, |l| l.order)
+            ));
+        }
+
+        // ── Section 3: Atlas Matching (bd-a64a) ─────────────────────────
+        let mut trigger_match = false;
+        ui.horizontal_wrapped(|ui| {
+            ui.add(
+                egui::DragValue::new(&mut self.echelle_cal_ui.atlas_match_tolerance_nm)
+                    .range(0.01..=5.0)
+                    .speed(0.01)
+                    .prefix("tolerance nm "),
+            );
+            if ui
+                .add_enabled(
+                    !self.echelle_cal_ui.detected_arc_lines.is_empty(),
+                    egui::Button::new("Match to Atlas"),
+                )
+                .clicked()
+            {
+                trigger_match = true;
+            }
+        });
+
+        if trigger_match {
+            // We need a seed wavelength function from the current profile order.
+            let selected_idx = self.echelle_cal_ui.selected_order_edit_idx;
+            let seed_fn_result: Result<Box<dyn Fn(f64) -> f64>, String> = if let Some(profile) =
+                self.echelle_cal_ui.editor_profile.as_ref()
+            {
+                if let Some(order) = profile.orders.get(selected_idx) {
+                    match &order.wavelength {
+                        EchelleWavelengthModel::Polynomial {
+                            basis,
+                            coefficients,
+                            domain_start,
+                            domain_end,
+                            ..
+                        } => {
+                            let basis = *basis;
+                            let coeffs = coefficients.clone();
+                            let ds = *domain_start;
+                            let de = *domain_end;
+                            Ok(Box::new(move |px: f64| -> f64 {
+                                eval_polynomial_for_ui(basis, &coeffs, ds, de, px).unwrap_or(0.0)
+                            }) as Box<dyn Fn(f64) -> f64>)
+                        }
+                        EchelleWavelengthModel::Sampled { wavelengths, .. } => {
+                            let wls = wavelengths.clone();
+                            Ok(Box::new(move |px: f64| -> f64 {
+                                let idx = px.round().clamp(0.0, f64::MAX) as usize;
+                                wls.get(idx).copied().unwrap_or(0.0)
+                            }) as Box<dyn Fn(f64) -> f64>)
+                        }
+                    }
+                } else {
+                    Err("Selected order is out of range".to_string())
+                }
+            } else {
+                Err("No editor profile loaded".to_string())
+            };
+
+            match seed_fn_result {
+                Ok(seed_fn) => {
+                    let atlas = load_hgar_atlas();
+                    let tolerance = self.echelle_cal_ui.atlas_match_tolerance_nm;
+                    let lines = &self.echelle_cal_ui.detected_arc_lines;
+                    let raw_matches =
+                        match_lines_to_atlas(lines, &atlas, seed_fn.as_ref(), tolerance);
+
+                    // Build match table rows.
+                    let rows: Vec<ArcLineMatchRow> = raw_matches
+                        .iter()
+                        .map(|&(li, ai)| {
+                            let line = &lines[li];
+                            let atlas_line = &atlas[ai];
+                            let predicted_wl = seed_fn(line.pixel_center);
+                            // Estimate noise from amplitude / SNR approximation.
+                            // The detect function filters by sigdetect, so SNR >= config threshold.
+                            let snr = line.amplitude
+                                / self.echelle_cal_ui.arc_detect_config.sigdetect.max(1.0);
+                            ArcLineMatchRow {
+                                pixel_center: line.pixel_center,
+                                snr,
+                                fwhm: line.fwhm(),
+                                matched_wavelength_nm: atlas_line.wavelength_nm,
+                                residual_nm: predicted_wl - atlas_line.wavelength_nm,
+                                species: atlas_line.species.clone(),
+                                included: true,
+                                detected_line_idx: li,
+                                atlas_line_idx: ai,
+                            }
+                        })
+                        .collect();
+                    self.echelle_cal_ui.status_message =
+                        Some(format!("Matched {} lines to HgAr atlas", rows.len()));
+                    self.echelle_cal_ui.matched_pairs = rows;
+                    self.echelle_cal_ui.last_error = None;
+                    self.echelle_cal_ui.wl_fit_solution = None;
+                }
+                Err(err) => {
+                    self.echelle_cal_ui.last_error = Some(err);
+                }
+            }
+        }
+
+        // ── Section 4: Chebyshev Fit (bd-a64a) ──────────────────────────
+        let mut trigger_cheb_fit = false;
+        let mut trigger_export_profile = false;
+        ui.horizontal_wrapped(|ui| {
+            ui.add(
+                egui::DragValue::new(&mut self.echelle_cal_ui.wl_fit_config.poly_degree)
+                    .range(1..=10)
+                    .prefix("degree "),
+            );
+            ui.add(
+                egui::DragValue::new(&mut self.echelle_cal_ui.wl_fit_config.sigma_clip)
+                    .range(1.0..=10.0)
+                    .speed(0.1)
+                    .prefix("σ-clip "),
+            );
+            ui.add(
+                egui::DragValue::new(&mut self.echelle_cal_ui.wl_fit_config.max_clip_iters)
+                    .range(0..=20)
+                    .prefix("iters "),
+            );
+            let has_matches = !self.echelle_cal_ui.matched_pairs.is_empty();
+            if ui
+                .add_enabled(has_matches, egui::Button::new("Fit Chebyshev"))
+                .clicked()
+            {
+                trigger_cheb_fit = true;
+            }
+            if ui
+                .add_enabled(
+                    self.echelle_cal_ui.wl_fit_solution.is_some(),
+                    egui::Button::new("Export to Profile"),
+                )
+                .clicked()
+            {
+                trigger_export_profile = true;
+            }
+        });
+
+        if trigger_cheb_fit {
+            let atlas = load_hgar_atlas();
+            let lines = &self.echelle_cal_ui.detected_arc_lines;
+            let matches: Vec<(usize, usize)> = self
+                .echelle_cal_ui
+                .matched_pairs
+                .iter()
+                .filter(|r| r.included)
+                .map(|r| (r.detected_line_idx, r.atlas_line_idx))
+                .collect();
+            let order_idx = lines.first().map_or(0, |l| l.order);
+            let config = self.echelle_cal_ui.wl_fit_config.clone();
+            match fit_order_wavelength(lines, &atlas, &matches, order_idx, &config) {
+                Some(solution) => {
+                    // Update residuals in match table rows using the fitted solution.
+                    for row in &mut self.echelle_cal_ui.matched_pairs {
+                        let fitted_wl = solution.eval(row.pixel_center);
+                        row.residual_nm = fitted_wl - row.matched_wavelength_nm;
+                    }
+                    self.echelle_cal_ui.status_message = Some(format!(
+                        "Chebyshev fit: RMS {:.4} nm, {}/{} lines used",
+                        solution.rms_nm, solution.n_lines_used, solution.n_lines_total,
+                    ));
+                    self.echelle_cal_ui.wl_fit_solution = Some(solution);
+                    self.echelle_cal_ui.last_error = None;
+                }
+                None => {
+                    self.echelle_cal_ui.last_error = Some(
+                        "Chebyshev fit failed: too few matched lines or singular matrix"
+                            .to_string(),
+                    );
+                }
+            }
+        }
+
+        // ── Section 5: Export to Profile (bd-a64a) ───────────────────────
+        if trigger_export_profile {
+            if let Some(solution) = &self.echelle_cal_ui.wl_fit_solution {
+                let selected_idx = self.echelle_cal_ui.selected_order_edit_idx;
+                if let Some(profile) = self.echelle_cal_ui.editor_profile.as_mut() {
+                    if let Some(order) = profile.orders.get_mut(selected_idx) {
+                        order.wavelength = EchelleWavelengthModel::Polynomial {
+                            basis: PolynomialBasis::Chebyshev,
+                            coefficients: solution.coefficients.clone(),
+                            domain_start: solution.pixel_min,
+                            domain_end: solution.pixel_max,
+                            unit: "nm".to_string(),
+                        };
+                        self.echelle_cal_ui.status_message = Some(format!(
+                            "Exported Chebyshev wavelength model to order {} (RMS {:.4} nm)",
+                            order.relative_index, solution.rms_nm,
+                        ));
+                        self.echelle_cal_ui.last_error = None;
+                    } else {
+                        self.echelle_cal_ui.last_error =
+                            Some("Selected order is out of range".to_string());
+                    }
+                }
+                self.mark_echelle_editor_dirty();
+            }
+        }
+
+        // ── Section 6: Match Table (bd-a64a) ────────────────────────────
+        if !self.echelle_cal_ui.matched_pairs.is_empty() {
+            ui.separator();
+
+            // Compute RMS for the warning threshold (2*rms).
+            let included_residuals: Vec<f64> = self
+                .echelle_cal_ui
+                .matched_pairs
+                .iter()
+                .filter(|r| r.included)
+                .map(|r| r.residual_nm)
+                .collect();
+            let match_rms = if included_residuals.is_empty() {
+                0.0
+            } else {
+                let sum_sq: f64 = included_residuals.iter().map(|r| r * r).sum();
+                (sum_sq / included_residuals.len() as f64).sqrt()
+            };
+            let warning_threshold = 2.0 * match_rms;
+
+            egui::ScrollArea::vertical()
+                .max_height(200.0)
+                .id_salt("arc_match_table")
+                .show(ui, |ui| {
+                    egui::Grid::new("echelle_arc_match_grid")
+                        .striped(true)
+                        .show(ui, |ui| {
+                            ui.strong("Incl");
+                            ui.strong("Pixel");
+                            ui.strong("SNR");
+                            ui.strong("FWHM");
+                            ui.strong("Atlas nm");
+                            ui.strong("Residual nm");
+                            ui.strong("Species");
+                            ui.end_row();
+
+                            for row in &mut self.echelle_cal_ui.matched_pairs {
+                                ui.checkbox(&mut row.included, "");
+                                ui.label(format!("{:.2}", row.pixel_center));
+                                ui.label(format!("{:.1}", row.snr));
+                                ui.label(format!("{:.2}", row.fwhm));
+                                ui.label(format!("{:.3}", row.matched_wavelength_nm));
+                                if row.residual_nm.abs() > warning_threshold
+                                    && warning_threshold > 0.0
+                                {
+                                    ui.colored_label(
+                                        colors::WARNING,
+                                        format!("{:.4}", row.residual_nm),
+                                    );
+                                } else {
+                                    ui.label(format!("{:.4}", row.residual_nm));
+                                }
+                                ui.label(&row.species);
+                                ui.end_row();
+                            }
+                        });
+                });
+        }
+
+        // ── Section 7: Fit Diagnostics (bd-a64a) ────────────────────────
+        if let Some(solution) = &self.echelle_cal_ui.wl_fit_solution {
+            ui.separator();
+            ui.horizontal_wrapped(|ui| {
+                ui.strong("Fit Diagnostics");
+                ui.separator();
+                ui.small(format!("RMS: {:.4} nm", solution.rms_nm));
+                ui.separator();
+                ui.small(format!(
+                    "Lines: {}/{}",
+                    solution.n_lines_used, solution.n_lines_total
+                ));
+                ui.separator();
+                ui.small(format!(
+                    "Degree: {}",
+                    solution.coefficients.len().saturating_sub(1)
+                ));
+                ui.separator();
+                if solution.rms_nm <= self.echelle_cal_ui.fit_rms_acceptance_px {
+                    ui.colored_label(colors::SUCCESS, "PASS");
+                } else {
+                    ui.colored_label(colors::WARNING, "REVIEW");
+                }
+            });
+
+            // Residual scatter plot with sigma bands.
+            let residual_points: Vec<[f64; 2]> = self
+                .echelle_cal_ui
+                .matched_pairs
+                .iter()
+                .filter(|r| r.included)
+                .map(|r| [r.pixel_center, r.residual_nm])
+                .collect();
+            let excluded_points: Vec<[f64; 2]> = self
+                .echelle_cal_ui
+                .matched_pairs
+                .iter()
+                .filter(|r| !r.included)
+                .map(|r| [r.pixel_center, r.residual_nm])
+                .collect();
+
+            let rms = solution.rms_nm;
+            let px_min = solution.pixel_min;
+            let px_max = solution.pixel_max;
+
+            Plot::new("echelle_cheb_residual_scatter")
+                .height(170.0)
+                .allow_scroll(false)
+                .allow_zoom(true)
+                .allow_drag(true)
+                .x_axis_label("pixel")
+                .y_axis_label("residual (nm)")
+                .show(ui, |plot_ui| {
+                    // Zero line.
+                    plot_ui.line(
+                        Line::new("zero", PlotPoints::new(vec![[px_min, 0.0], [px_max, 0.0]]))
+                            .color(egui::Color32::GRAY),
+                    );
+
+                    // +/- 1 sigma bands.
+                    plot_ui.line(
+                        Line::new("+1σ", PlotPoints::new(vec![[px_min, rms], [px_max, rms]]))
+                            .color(egui::Color32::from_rgba_premultiplied(100, 200, 100, 120))
+                            .style(egui_plot::LineStyle::dashed_dense()),
+                    );
+                    plot_ui.line(
+                        Line::new("-1σ", PlotPoints::new(vec![[px_min, -rms], [px_max, -rms]]))
+                            .color(egui::Color32::from_rgba_premultiplied(100, 200, 100, 120))
+                            .style(egui_plot::LineStyle::dashed_dense()),
+                    );
+
+                    // +/- 3 sigma bands.
+                    plot_ui.line(
+                        Line::new(
+                            "+3σ",
+                            PlotPoints::new(vec![[px_min, 3.0 * rms], [px_max, 3.0 * rms]]),
+                        )
+                        .color(egui::Color32::from_rgba_premultiplied(200, 80, 80, 120))
+                        .style(egui_plot::LineStyle::dashed_dense()),
+                    );
+                    plot_ui.line(
+                        Line::new(
+                            "-3σ",
+                            PlotPoints::new(vec![[px_min, -3.0 * rms], [px_max, -3.0 * rms]]),
+                        )
+                        .color(egui::Color32::from_rgba_premultiplied(200, 80, 80, 120))
+                        .style(egui_plot::LineStyle::dashed_dense()),
+                    );
+
+                    // Included points.
+                    if !residual_points.is_empty() {
+                        plot_ui.points(
+                            Points::new("included", PlotPoints::new(residual_points))
+                                .radius(3.5)
+                                .color(egui::Color32::from_rgb(100, 200, 255)),
+                        );
+                    }
+                    // Excluded points.
+                    if !excluded_points.is_empty() {
+                        plot_ui.points(
+                            Points::new("excluded", PlotPoints::new(excluded_points))
+                                .radius(3.0)
+                                .color(egui::Color32::from_rgb(180, 80, 80))
+                                .shape(egui_plot::MarkerShape::Cross),
+                        );
+                    }
+                });
+
+            // Wavelength solution preview overlaid on spectrum.
+            if let Some(preview) = &self.echelle_preview {
+                let order_plot_idx = self.echelle_selected_order_plot;
+                if let Some(order_preview) = preview.orders.get(order_plot_idx) {
+                    if !order_preview.flux.is_empty() {
+                        ui.small("Wavelength solution overlay on arc spectrum:");
+                        let n_samples = order_preview.flux.len();
+                        // Build the fitted wavelength curve.
+                        let wl_curve: Vec<[f64; 2]> = (0..n_samples)
+                            .map(|i| {
+                                let px = i as f64;
+                                let wl = solution.eval(px);
+                                [px, wl]
+                            })
+                            .collect();
+                        // Build spectrum (normalized to fit on same plot).
+                        let flux_max = order_preview
+                            .flux
+                            .iter()
+                            .copied()
+                            .fold(0.0_f64, f64::max)
+                            .max(1.0);
+                        let wl_range = (solution.eval(solution.pixel_max)
+                            - solution.eval(solution.pixel_min))
+                        .abs()
+                        .max(1.0);
+                        let flux_as_wl: Vec<[f64; 2]> = order_preview
+                            .flux
+                            .iter()
+                            .enumerate()
+                            .map(|(i, &f)| {
+                                let px = i as f64;
+                                let wl_base = solution.eval(solution.pixel_min);
+                                [px, wl_base + (f / flux_max) * wl_range * 0.3]
+                            })
+                            .collect();
+
+                        // Detected line markers as vertical lines in wavelength space.
+                        let line_markers: Vec<[f64; 2]> = self
+                            .echelle_cal_ui
+                            .detected_arc_lines
+                            .iter()
+                            .map(|l| [l.pixel_center, solution.eval(l.pixel_center)])
+                            .collect();
+
+                        Plot::new("echelle_wl_solution_overlay")
+                            .height(150.0)
+                            .allow_scroll(false)
+                            .allow_zoom(true)
+                            .allow_drag(true)
+                            .x_axis_label("pixel")
+                            .y_axis_label("wavelength (nm)")
+                            .show(ui, |plot_ui| {
+                                plot_ui.line(
+                                    Line::new("λ(pixel)", PlotPoints::new(wl_curve))
+                                        .color(egui::Color32::from_rgb(255, 200, 60))
+                                        .width(2.0),
+                                );
+                                if !flux_as_wl.is_empty() {
+                                    plot_ui.line(
+                                        Line::new("spectrum", PlotPoints::new(flux_as_wl)).color(
+                                            egui::Color32::from_rgba_premultiplied(
+                                                120, 180, 255, 100,
+                                            ),
+                                        ),
+                                    );
+                                }
+                                if !line_markers.is_empty() {
+                                    plot_ui.points(
+                                        Points::new("arc lines", PlotPoints::new(line_markers))
+                                            .radius(3.0)
+                                            .color(egui::Color32::from_rgb(255, 100, 100)),
+                                    );
+                                }
+                            });
+                    }
+                }
+            }
+        }
+
+        // ── Section 8: Legacy manual-points residual display ─────────────
         let Some(profile) = self.echelle_cal_ui.editor_profile.as_ref() else {
-            ui.weak("No editor profile loaded.");
             return;
         };
 
@@ -1873,95 +2443,176 @@ impl ImageViewerPanel {
             global_sum_sq += residuals.iter().map(|(_, r)| r * r).sum::<f64>();
         }
         if global_count > 0 {
-            #[allow(clippy::cast_precision_loss)]
+            ui.separator();
             let global_rms = (global_sum_sq / global_count as f64).sqrt();
             ui.small(format!(
-                "Global residual summary across editor orders: {} points | RMS {:.6}",
+                "Manual points residual summary: {} points | RMS {:.6}",
                 global_count, global_rms
             ));
-        }
 
-        let selected_order = profile
-            .orders
-            .get(self.echelle_cal_ui.selected_order_edit_idx)
-            .or_else(|| profile.orders.first());
-        let Some(order) = selected_order else {
-            ui.weak("No orders available.");
-            return;
-        };
-
-        let residuals = compute_wavelength_fit_residuals_for_order(
-            order,
-            &self.echelle_cal_ui.calibration_points,
-        );
-        let count = residuals.len();
-        if count == 0 {
-            ui.weak("No enabled calibration points for the selected order.");
-            return;
-        }
-
-        #[allow(clippy::cast_precision_loss)]
-        let rms = (residuals.iter().map(|(_, r)| r * r).sum::<f64>() / count as f64).sqrt();
-        #[allow(clippy::cast_precision_loss)]
-        let mean_abs = residuals.iter().map(|(_, r)| r.abs()).sum::<f64>() / count as f64;
-        #[allow(clippy::cast_precision_loss)]
-        let mean = residuals.iter().map(|(_, r)| *r).sum::<f64>() / count as f64;
-        #[allow(clippy::cast_precision_loss)]
-        let stddev = (residuals
-            .iter()
-            .map(|(_, r)| {
-                let d = *r - mean;
-                d * d
-            })
-            .sum::<f64>()
-            / count as f64)
-            .sqrt();
-        let sigma = self.echelle_cal_ui.fit_outlier_sigma.max(0.1);
-        let outliers = residuals
-            .iter()
-            .filter(|(_, r)| stddev > 0.0 && ((*r - mean).abs() / stddev) > sigma)
-            .count();
-
-        ui.horizontal_wrapped(|ui| {
-            ui.small(format!("Order rel={}", order.relative_index));
-            ui.separator();
-            ui.small(format!("points: {count}"));
-            ui.separator();
-            ui.small(format!("RMS: {:.6}", rms));
-            ui.separator();
-            ui.small(format!("mean|resid|: {:.6}", mean_abs));
-            ui.separator();
-            ui.small(format!("outliers@{sigma:.1}σ: {outliers}"));
-            ui.separator();
-            if rms <= self.echelle_cal_ui.fit_rms_acceptance_px {
-                ui.colored_label(colors::SUCCESS, "Within acceptance threshold");
-            } else {
-                ui.colored_label(colors::WARNING, "Exceeds acceptance threshold");
-            }
-        });
-
-        let points: Vec<[f64; 2]> = residuals.iter().map(|(x, r)| [*x, *r]).collect();
-        Plot::new("echelle_wavelength_fit_residual_plot")
-            .height(160.0)
-            .allow_scroll(false)
-            .allow_zoom(true)
-            .allow_drag(true)
-            .x_axis_label("sample")
-            .y_axis_label("λ residual")
-            .show(ui, |plot_ui| {
-                plot_ui.points(
-                    Points::new("residuals", PlotPoints::new(points))
-                        .radius(3.0)
-                        .color(egui::Color32::from_rgb(255, 185, 60)),
+            let selected_order = profile
+                .orders
+                .get(self.echelle_cal_ui.selected_order_edit_idx)
+                .or_else(|| profile.orders.first());
+            if let Some(order) = selected_order {
+                let residuals = compute_wavelength_fit_residuals_for_order(
+                    order,
+                    &self.echelle_cal_ui.calibration_points,
                 );
-                plot_ui.line(Line::new(
-                    "zero",
-                    PlotPoints::new(vec![
-                        [f64::from(order.sample_start), 0.0],
-                        [f64::from(order.sample_end), 0.0],
-                    ]),
-                ));
-            });
+                let count = residuals.len();
+                if count > 0 {
+                    let rms =
+                        (residuals.iter().map(|(_, r)| r * r).sum::<f64>() / count as f64).sqrt();
+                    let mean = residuals.iter().map(|(_, r)| *r).sum::<f64>() / count as f64;
+                    let stddev = (residuals
+                        .iter()
+                        .map(|(_, r)| {
+                            let d = *r - mean;
+                            d * d
+                        })
+                        .sum::<f64>()
+                        / count as f64)
+                        .sqrt();
+                    let sigma = self.echelle_cal_ui.fit_outlier_sigma.max(0.1);
+                    let outliers = residuals
+                        .iter()
+                        .filter(|(_, r)| stddev > 0.0 && ((*r - mean).abs() / stddev) > sigma)
+                        .count();
+
+                    ui.horizontal_wrapped(|ui| {
+                        ui.small(format!("Order rel={}", order.relative_index));
+                        ui.separator();
+                        ui.small(format!("points: {count}"));
+                        ui.separator();
+                        ui.small(format!("RMS: {:.6}", rms));
+                        ui.separator();
+                        ui.small(format!("outliers@{sigma:.1}σ: {outliers}"));
+                        ui.separator();
+                        if rms <= self.echelle_cal_ui.fit_rms_acceptance_px {
+                            ui.colored_label(colors::SUCCESS, "Within acceptance");
+                        } else {
+                            ui.colored_label(colors::WARNING, "Exceeds acceptance");
+                        }
+                    });
+
+                    let points: Vec<[f64; 2]> = residuals.iter().map(|(x, r)| [*x, *r]).collect();
+                    Plot::new("echelle_wavelength_fit_residual_plot")
+                        .height(140.0)
+                        .allow_scroll(false)
+                        .allow_zoom(true)
+                        .allow_drag(true)
+                        .x_axis_label("sample")
+                        .y_axis_label("λ residual")
+                        .show(ui, |plot_ui| {
+                            plot_ui.points(
+                                Points::new("residuals", PlotPoints::new(points))
+                                    .radius(3.0)
+                                    .color(egui::Color32::from_rgb(255, 185, 60)),
+                            );
+                            plot_ui.line(Line::new(
+                                "zero",
+                                PlotPoints::new(vec![
+                                    [f64::from(order.sample_start), 0.0],
+                                    [f64::from(order.sample_end), 0.0],
+                                ]),
+                            ));
+                        });
+                }
+            }
+        }
+
+        // ── Arc line markers on spectrum plot (bd-a64a) ──────────────────
+        if !self.echelle_cal_ui.detected_arc_lines.is_empty() {
+            if let Some(preview) = &self.echelle_preview {
+                let order_plot_idx = self.echelle_selected_order_plot;
+                if let Some(order_preview) = preview.orders.get(order_plot_idx) {
+                    if !order_preview.flux.is_empty() {
+                        ui.separator();
+                        ui.small("Detected arc lines on extracted spectrum:");
+                        let spectrum_points: Vec<[f64; 2]> = order_preview
+                            .flux
+                            .iter()
+                            .enumerate()
+                            .map(|(i, &f)| [i as f64, f])
+                            .collect();
+                        let flux_max = order_preview
+                            .flux
+                            .iter()
+                            .copied()
+                            .fold(0.0_f64, f64::max)
+                            .max(1.0);
+
+                        Plot::new("echelle_arc_detect_overlay_plot")
+                            .height(160.0)
+                            .allow_scroll(false)
+                            .allow_zoom(true)
+                            .allow_drag(true)
+                            .x_axis_label("pixel")
+                            .y_axis_label("counts")
+                            .show(ui, |plot_ui| {
+                                plot_ui.line(
+                                    Line::new("spectrum", PlotPoints::new(spectrum_points))
+                                        .color(egui::Color32::from_rgb(120, 200, 255)),
+                                );
+                                // Vertical markers at detected line positions.
+                                for line in &self.echelle_cal_ui.detected_arc_lines {
+                                    let px = line.pixel_center;
+                                    plot_ui.line(
+                                        Line::new(
+                                            "",
+                                            PlotPoints::new(vec![[px, 0.0], [px, flux_max * 0.9]]),
+                                        )
+                                        .color(egui::Color32::from_rgba_premultiplied(
+                                            255, 80, 80, 160,
+                                        ))
+                                        .width(1.0),
+                                    );
+                                }
+                                // SNR/FWHM annotations as point markers at line peaks.
+                                let line_peaks: Vec<[f64; 2]> = self
+                                    .echelle_cal_ui
+                                    .detected_arc_lines
+                                    .iter()
+                                    .map(|l| [l.pixel_center, l.amplitude])
+                                    .collect();
+                                plot_ui.points(
+                                    Points::new("line peaks", PlotPoints::new(line_peaks))
+                                        .radius(4.0)
+                                        .color(egui::Color32::from_rgb(255, 120, 60)),
+                                );
+                            });
+
+                        // Line detail table.
+                        egui::ScrollArea::vertical()
+                            .max_height(120.0)
+                            .id_salt("arc_line_detail_table")
+                            .show(ui, |ui| {
+                                egui::Grid::new("echelle_arc_line_detail_grid")
+                                    .striped(true)
+                                    .show(ui, |ui| {
+                                        ui.strong("Pixel");
+                                        ui.strong("Amplitude");
+                                        ui.strong("SNR");
+                                        ui.strong("FWHM");
+                                        ui.end_row();
+                                        let noise_est = self
+                                            .echelle_cal_ui
+                                            .arc_detect_config
+                                            .sigdetect
+                                            .max(1.0);
+                                        for line in &self.echelle_cal_ui.detected_arc_lines {
+                                            ui.label(format!("{:.2}", line.pixel_center));
+                                            ui.label(format!("{:.1}", line.amplitude));
+                                            ui.label(format!("{:.1}", line.amplitude / noise_est));
+                                            ui.label(format!("{:.2}", line.fwhm()));
+                                            ui.end_row();
+                                        }
+                                    });
+                            });
+                    }
+                }
+            }
+        }
     }
 
     fn render_echelle_calibration_blaze_tab(&mut self, ui: &mut egui::Ui) {
