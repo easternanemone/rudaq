@@ -357,6 +357,16 @@ impl RunEngine {
         self.feedback_rx.lock().await.take()
     }
 
+    /// Clone the feedback sender for external producers (bd-7md9).
+    ///
+    /// This allows server-layer components (e.g., `FeedbackRouter`) to push
+    /// `FeedbackEvent` values into the same channel the `RunEngine` uses
+    /// internally. The sender uses `try_send` semantics — callers should
+    /// handle a full channel gracefully.
+    pub fn feedback_sender(&self) -> mpsc::Sender<FeedbackEvent> {
+        self.feedback_tx.clone()
+    }
+
     /// Set the watchdog timeout for orphaned plan detection.
     ///
     /// If a plan has been Running or Paused with no meaningful activity

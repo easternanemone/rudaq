@@ -60,7 +60,7 @@ pub use mock_daq_output::{MockDAQOutput, MockDAQOutputFactory, VoltageRange};
 pub use mock_laser::{MockLaser, MockLaserFactory};
 pub use mock_power_meter::{MockPowerMeter, MockPowerMeterFactory};
 pub use mock_rotator::{MockRotator, MockRotatorFactory};
-pub use mock_stage::{MockStage, MockStageFactory};
+pub use mock_stage::{MockStage, MockStageFactory, MockStageProfile};
 
 // Re-export for convenience
 pub use pattern::generate_test_pattern;

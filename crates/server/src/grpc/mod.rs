@@ -6,6 +6,7 @@ pub mod custom_health_service;
 pub mod error_mapping;
 #[cfg(test)]
 mod error_mapping_tests;
+pub mod feedback_router;
 pub mod hardware_service;
 pub mod health_service;
 #[cfg(feature = "metrics")]
@@ -72,6 +73,7 @@ pub mod proto {
 /// Re-export compression helpers for frame streaming (bd-7rk0)
 pub use protocol::compression;
 
+pub use feedback_router::FeedbackRouter;
 pub use hardware_service::HardwareServiceImpl;
 pub use health_service::HealthServiceImpl;
 #[cfg(feature = "metrics")]

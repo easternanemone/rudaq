@@ -7,16 +7,91 @@ use common::driver::{Capability, DeviceComponents, DeviceMetadata, DriverFactory
 use common::observable::ParameterSet;
 use common::parameter::Parameter;
 use futures::future::BoxFuture;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::time::{sleep, Duration};
 
-use crate::common::{ErrorConfig, MockMode, MockRng};
+use crate::common::{ErrorConfig, MockMode, MockRng, TimingConfig};
 
 // =============================================================================
 // MockStageFactory - DriverFactory implementation
 // =============================================================================
+
+/// Named presets for common MockStage configurations.
+///
+/// Each profile maps to specific `TimingConfig` + `ErrorConfig` + mode settings,
+/// making test scenarios accessible from TOML without builder boilerplate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum MockStageProfile {
+    /// Minimal latency, no errors, instant mode. For fast unit tests.
+    #[default]
+    Fast,
+    /// Realistic timing (settling, communication delays). For integration tests.
+    Realistic,
+    /// Adds noise and occasional move failures. For robustness testing.
+    Noisy,
+    /// Injects errors (timeouts, communication loss). For chaos/fault testing.
+    Faulty,
+}
+
+impl MockStageProfile {
+    /// Returns the timing configuration for this profile.
+    pub fn timing_config(self) -> TimingConfig {
+        match self {
+            Self::Fast => TimingConfig::default(),
+            Self::Realistic | Self::Noisy => TimingConfig::stage(),
+            Self::Faulty => TimingConfig {
+                frame_readout_ms: 0,
+                settling_time_ms: 100,
+                communication_delay_ms: 20,
+            },
+        }
+    }
+
+    /// Returns the error configuration for this profile.
+    pub fn error_config(self) -> ErrorConfig {
+        match self {
+            Self::Fast | Self::Realistic => ErrorConfig::none(),
+            Self::Noisy => ErrorConfig::random_failures(0.02),
+            Self::Faulty => ErrorConfig::scenarios(vec![
+                crate::common::ErrorScenario::FailAfterN {
+                    operation: "move",
+                    count: 50,
+                },
+                crate::common::ErrorScenario::CommunicationLoss,
+            ]),
+        }
+    }
+
+    /// Returns the mock mode for this profile.
+    pub fn mode(self) -> MockMode {
+        match self {
+            Self::Fast => MockMode::Instant,
+            Self::Realistic | Self::Noisy => MockMode::Realistic,
+            Self::Faulty => MockMode::Chaos,
+        }
+    }
+
+    /// Returns the base settling time in ms for this profile.
+    pub fn base_settling_ms(self) -> u64 {
+        match self {
+            Self::Fast => 0,
+            Self::Realistic | Self::Noisy => 10,
+            Self::Faulty => 50,
+        }
+    }
+
+    /// Returns the settling coefficient (ms per mm) for this profile.
+    pub fn settling_coefficient(self) -> f64 {
+        match self {
+            Self::Fast => 0.0,
+            Self::Realistic | Self::Noisy => 5.0,
+            Self::Faulty => 10.0,
+        }
+    }
+}
 
 /// Configuration for MockStage driver
 #[derive(Debug, Clone, Deserialize)]
@@ -28,6 +103,10 @@ pub struct MockStageConfig {
     /// Motion speed in mm/sec (default: 10.0)
     #[serde(default = "default_speed")]
     pub speed_mm_per_sec: f64,
+
+    /// Named profile for timing/error/mode presets (default: fast)
+    #[serde(default)]
+    pub profile: MockStageProfile,
 }
 
 fn default_speed() -> f64 {
@@ -39,6 +118,7 @@ impl Default for MockStageConfig {
         Self {
             initial_position: 0.0,
             speed_mm_per_sec: 10.0,
+            profile: MockStageProfile::default(),
         }
     }
 }
@@ -314,12 +394,17 @@ impl MockStage {
 
     /// Create mock stage with configuration.
     pub fn with_config(config: MockStageConfig) -> Self {
+        let profile = config.profile;
         Self::builder()
             .initial_position(config.initial_position)
             .velocity_profile(VelocityProfile {
                 max_velocity: config.speed_mm_per_sec,
                 ..Default::default()
             })
+            .mode(profile.mode())
+            .error_config(profile.error_config())
+            .base_settling(profile.base_settling_ms())
+            .settling_coefficient(profile.settling_coefficient())
             .build()
     }
 
@@ -917,5 +1002,184 @@ mod tests {
 
         // Instant mode should be very fast (<10ms)
         assert!(duration.as_millis() < 10, "Not instant: {:?}", duration);
+    }
+
+    // =========================================================================
+    // MockStageProfile tests
+    // =========================================================================
+
+    #[test]
+    fn test_profile_default_is_fast() {
+        assert_eq!(MockStageProfile::default(), MockStageProfile::Fast);
+    }
+
+    #[test]
+    fn test_profile_fast_timing() {
+        let timing = MockStageProfile::Fast.timing_config();
+        assert_eq!(timing, TimingConfig::default());
+    }
+
+    #[test]
+    fn test_profile_fast_mode() {
+        assert_eq!(MockStageProfile::Fast.mode(), MockMode::Instant);
+    }
+
+    #[test]
+    fn test_profile_fast_settling() {
+        assert_eq!(MockStageProfile::Fast.base_settling_ms(), 0);
+        assert_eq!(MockStageProfile::Fast.settling_coefficient(), 0.0);
+    }
+
+    #[test]
+    fn test_profile_realistic_timing() {
+        let timing = MockStageProfile::Realistic.timing_config();
+        assert_eq!(timing, TimingConfig::stage());
+    }
+
+    #[test]
+    fn test_profile_realistic_mode() {
+        assert_eq!(MockStageProfile::Realistic.mode(), MockMode::Realistic);
+    }
+
+    #[test]
+    fn test_profile_realistic_settling() {
+        assert_eq!(MockStageProfile::Realistic.base_settling_ms(), 10);
+        assert_eq!(MockStageProfile::Realistic.settling_coefficient(), 5.0);
+    }
+
+    #[test]
+    fn test_profile_realistic_no_errors() {
+        let error_config = MockStageProfile::Realistic.error_config();
+        // Should succeed without errors
+        assert!(error_config.check_operation("mock_stage", "move").is_ok());
+    }
+
+    #[test]
+    fn test_profile_noisy_timing() {
+        let timing = MockStageProfile::Noisy.timing_config();
+        assert_eq!(timing, TimingConfig::stage());
+    }
+
+    #[test]
+    fn test_profile_noisy_mode() {
+        assert_eq!(MockStageProfile::Noisy.mode(), MockMode::Realistic);
+    }
+
+    #[test]
+    fn test_profile_noisy_has_errors() {
+        let error_config = MockStageProfile::Noisy.error_config();
+        // With 2% failure rate, run enough times to see at least one failure
+        let mut failures = 0;
+        for _ in 0..1000 {
+            if error_config.check_operation("mock_stage", "move").is_err() {
+                failures += 1;
+            }
+        }
+        assert!(failures > 0, "Noisy profile should produce some failures");
+    }
+
+    #[test]
+    fn test_profile_faulty_mode() {
+        assert_eq!(MockStageProfile::Faulty.mode(), MockMode::Chaos);
+    }
+
+    #[test]
+    fn test_profile_faulty_timing() {
+        let timing = MockStageProfile::Faulty.timing_config();
+        assert_eq!(timing.settling_time_ms, 100);
+        assert_eq!(timing.communication_delay_ms, 20);
+    }
+
+    #[test]
+    fn test_profile_faulty_settling() {
+        assert_eq!(MockStageProfile::Faulty.base_settling_ms(), 50);
+        assert_eq!(MockStageProfile::Faulty.settling_coefficient(), 10.0);
+    }
+
+    #[test]
+    fn test_profile_serde_roundtrip() {
+        // Verify all variants deserialize from snake_case TOML
+        let toml_str = r#"profile = "fast""#;
+        let val: toml::Value = toml::from_str(toml_str).unwrap();
+        let table = val.as_table().unwrap();
+        let profile: MockStageProfile = table.get("profile").unwrap().clone().try_into().unwrap();
+        assert_eq!(profile, MockStageProfile::Fast);
+
+        let toml_str = r#"profile = "realistic""#;
+        let val: toml::Value = toml::from_str(toml_str).unwrap();
+        let table = val.as_table().unwrap();
+        let profile: MockStageProfile = table.get("profile").unwrap().clone().try_into().unwrap();
+        assert_eq!(profile, MockStageProfile::Realistic);
+
+        let toml_str = r#"profile = "noisy""#;
+        let val: toml::Value = toml::from_str(toml_str).unwrap();
+        let table = val.as_table().unwrap();
+        let profile: MockStageProfile = table.get("profile").unwrap().clone().try_into().unwrap();
+        assert_eq!(profile, MockStageProfile::Noisy);
+
+        let toml_str = r#"profile = "faulty""#;
+        let val: toml::Value = toml::from_str(toml_str).unwrap();
+        let table = val.as_table().unwrap();
+        let profile: MockStageProfile = table.get("profile").unwrap().clone().try_into().unwrap();
+        assert_eq!(profile, MockStageProfile::Faulty);
+    }
+
+    #[tokio::test]
+    async fn test_config_with_profile_realistic() {
+        let config = MockStageConfig {
+            initial_position: 5.0,
+            speed_mm_per_sec: 10.0,
+            profile: MockStageProfile::Realistic,
+        };
+
+        let stage = MockStage::with_config(config);
+
+        // Realistic mode: position has sub-micron encoder noise
+        let pos = stage.position().await.unwrap();
+        assert!(
+            (pos - 5.0).abs() < 0.001,
+            "Position should be ~5.0 (got {pos})"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_config_with_profile_fast() {
+        let config = MockStageConfig {
+            initial_position: 0.0,
+            speed_mm_per_sec: 10.0,
+            profile: MockStageProfile::Fast,
+        };
+
+        let stage = MockStage::with_config(config);
+
+        // Fast mode: instant move, no noise
+        let start = tokio::time::Instant::now();
+        stage.move_abs(50.0).await.unwrap();
+        let duration = start.elapsed();
+
+        assert!(duration.as_millis() < 10, "Fast profile should be instant");
+        assert_eq!(stage.position().await.unwrap(), 50.0);
+    }
+
+    #[tokio::test]
+    async fn test_factory_with_profile_toml() {
+        let factory = MockStageFactory;
+
+        let config: toml::Value = toml::from_str(
+            r#"
+            initial_position = 1.0
+            speed_mm_per_sec = 20.0
+            profile = "fast"
+            "#,
+        )
+        .unwrap();
+
+        let components = factory.build(config).await.unwrap();
+        assert!(components.movable.is_some());
+
+        let movable = components.movable.unwrap();
+        // Fast profile: instant move
+        movable.move_abs(10.0).await.unwrap();
+        assert_eq!(movable.position().await.unwrap(), 10.0);
     }
 }

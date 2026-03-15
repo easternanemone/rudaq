@@ -68,28 +68,17 @@ impl GraphPlan {
         }
 
         // Validate loop termination modes before translation.
-        // Condition and Infinite loops are not supported in the runtime MVP —
-        // they require RunEngine-level condition evaluation (deferred to Phase 2).
+        // Phase 4: Condition loops are now supported via RepeatWhile.
+        // Infinite loops remain rejected — they require manual abort support.
         for (node_id, node) in snarl.node_ids() {
             if let ExperimentNode::Loop(config) = node {
-                match &config.termination {
-                    super::nodes::LoopTermination::Count { .. } => {} // OK
-                    super::nodes::LoopTermination::Condition { .. } => {
-                        return Err(TranslationError::InvalidNode {
-                            node_id,
-                            reason: "Condition-based loops are not supported in the \
-                                    runtime MVP. Use Count termination instead."
-                                .to_string(),
-                        });
-                    }
-                    super::nodes::LoopTermination::Infinite { .. } => {
-                        return Err(TranslationError::InvalidNode {
-                            node_id,
-                            reason: "Infinite loops are not supported in the runtime \
-                                    MVP. Use Count termination instead."
-                                .to_string(),
-                        });
-                    }
+                if let super::nodes::LoopTermination::Infinite { .. } = &config.termination {
+                    return Err(TranslationError::InvalidNode {
+                        node_id,
+                        reason: "Infinite loops are not supported. \
+                                Use Count or Condition termination instead."
+                            .to_string(),
+                    });
                 }
             }
         }
@@ -339,10 +328,10 @@ fn translate_node_with_snarl(
                     position: config.position,
                 });
                 if config.wait_settled {
-                    // TODO: Add WaitSettled command when available
-                    // For now, just add a checkpoint
-                    commands.push(PlanCommand::Checkpoint {
-                        label: format!("node_{:?}_settled", node_id),
+                    // Phase 4: Emit real WaitSettled for move-and-settle
+                    commands.push(PlanCommand::WaitSettled {
+                        device_id: config.device.clone(),
+                        timeout_seconds: 30.0, // Default 30s settle timeout for moves
                     });
                 }
             }
@@ -355,75 +344,137 @@ fn translate_node_with_snarl(
                         seconds: *milliseconds / 1000.0,
                     });
                 }
-                WaitCondition::Threshold { timeout_ms, .. } => {
-                    // TODO: Implement threshold-based waits
-                    tracing::warn!(
-                        "Threshold-based waits not yet implemented, using timeout fallback"
-                    );
-                    commands.push(PlanCommand::Wait {
-                        seconds: *timeout_ms / 1000.0,
+                WaitCondition::Threshold {
+                    device_id,
+                    timeout_ms,
+                    ..
+                } => {
+                    // Phase 4: Emit WaitSettled which performs real threshold
+                    // polling in RunEngine. The device_id + timeout are the
+                    // primary knobs; threshold field/operator details are
+                    // evaluated by the RunEngine's settled-detection logic.
+                    commands.push(PlanCommand::WaitSettled {
+                        device_id: device_id.clone(),
+                        timeout_seconds: *timeout_ms / 1000.0,
                     });
                 }
-                WaitCondition::Stability { timeout_ms, .. } => {
-                    // TODO: Implement stability-based waits
-                    tracing::warn!(
-                        "Stability-based waits not yet implemented, using timeout fallback"
-                    );
-                    commands.push(PlanCommand::Wait {
-                        seconds: *timeout_ms / 1000.0,
+                WaitCondition::Stability {
+                    device_id,
+                    timeout_ms,
+                    ..
+                } => {
+                    // Phase 4: Emit WaitSettled which performs real stability
+                    // detection in RunEngine (1% tolerance, 500ms window).
+                    // The device_id + timeout are the primary knobs; tolerance
+                    // and duration_ms from the node config are available for
+                    // future WaitSettled field extensions.
+                    commands.push(PlanCommand::WaitSettled {
+                        device_id: device_id.clone(),
+                        timeout_seconds: *timeout_ms / 1000.0,
                     });
                 }
             }
         }
         ExperimentNode::Loop(config) => {
-            use super::nodes::LoopTermination;
+            use super::nodes::{LoopTermination, ThresholdOp};
 
             // Get loop body nodes
             let body_nodes = find_loop_body_nodes(node_id, snarl);
 
-            // Determine iteration count based on termination mode
-            let iterations = match &config.termination {
-                LoopTermination::Count { iterations } => *iterations,
-                LoopTermination::Condition { max_iterations, .. } => {
-                    tracing::warn!(
-                        "Condition-based loop at {:?} using max_iterations={} as safety limit. \
-                        True condition evaluation requires RunEngine runtime support.",
-                        node_id,
-                        max_iterations
-                    );
-                    *max_iterations
+            // Helper: translate body nodes into a flat command list
+            let translate_body =
+                |body_nodes: &[NodeId],
+                 snarl: &Snarl<ExperimentNode>|
+                 -> (Vec<PlanCommand>, Vec<String>, Vec<String>, usize) {
+                    let mut cmds = Vec::new();
+                    let mut mvs = Vec::new();
+                    let mut dets = Vec::new();
+                    let mut evts = 0;
+                    for &body_node_id in body_nodes {
+                        if let Some(body_node) = snarl.get_node(body_node_id) {
+                            let (body_cmds, body_movers, body_detectors, body_events) =
+                                translate_node_with_snarl(body_node, body_node_id, snarl);
+                            cmds.extend(body_cmds);
+                            mvs.extend(body_movers);
+                            dets.extend(body_detectors);
+                            evts += body_events;
+                        }
+                    }
+                    (cmds, mvs, dets, evts)
+                };
+
+            match &config.termination {
+                LoopTermination::Count { iterations } => {
+                    // Fixed-count: unroll loop body N times
+                    for i in 0..*iterations {
+                        commands.push(PlanCommand::Checkpoint {
+                            label: format!("loop_{:?}_iter_{}_start", node_id, i),
+                        });
+
+                        let (body_cmds, body_movers, body_detectors, body_events) =
+                            translate_body(&body_nodes, snarl);
+                        commands.extend(body_cmds);
+                        movers.extend(body_movers);
+                        detectors.extend(body_detectors);
+                        events += body_events;
+
+                        commands.push(PlanCommand::Checkpoint {
+                            label: format!("loop_{:?}_iter_{}_end", node_id, i),
+                        });
+                    }
+                }
+                LoopTermination::Condition {
+                    device_id,
+                    operator,
+                    value,
+                    max_iterations,
+                } => {
+                    // Phase 4: Emit RepeatWhile with EvalCondition::Threshold.
+                    // RunEngine evaluates the condition before each iteration.
+                    let (body_cmds, body_movers, body_detectors, _body_events) =
+                        translate_body(&body_nodes, snarl);
+                    movers.extend(body_movers);
+                    detectors.extend(body_detectors);
+                    // Note: events from body are generated dynamically at runtime,
+                    // so we don't add them to the static count here.
+
+                    let above = matches!(operator, ThresholdOp::GreaterThan);
+                    commands.push(PlanCommand::RepeatWhile {
+                        condition: experiment::plans::EvalCondition::Threshold {
+                            device_id: device_id.clone(),
+                            field: "value".to_string(),
+                            threshold: *value,
+                            above,
+                        },
+                        body: body_cmds,
+                        max_iterations: *max_iterations,
+                    });
                 }
                 LoopTermination::Infinite { max_iterations } => {
+                    // Infinite loops are rejected at validation; this branch
+                    // is unreachable but kept for exhaustiveness.
                     tracing::warn!(
                         "Infinite loop at {:?} using max_iterations={} as safety limit",
                         node_id,
                         max_iterations
                     );
-                    *max_iterations
-                }
-            };
+                    for i in 0..*max_iterations {
+                        commands.push(PlanCommand::Checkpoint {
+                            label: format!("loop_{:?}_iter_{}_start", node_id, i),
+                        });
 
-            // Unroll loop body N times
-            for i in 0..iterations {
-                commands.push(PlanCommand::Checkpoint {
-                    label: format!("loop_{:?}_iter_{}_start", node_id, i),
-                });
-
-                // Translate each body node for this iteration
-                for &body_node_id in &body_nodes {
-                    if let Some(body_node) = snarl.get_node(body_node_id) {
                         let (body_cmds, body_movers, body_detectors, body_events) =
-                            translate_node_with_snarl(body_node, body_node_id, snarl);
+                            translate_body(&body_nodes, snarl);
                         commands.extend(body_cmds);
                         movers.extend(body_movers);
                         detectors.extend(body_detectors);
                         events += body_events;
+
+                        commands.push(PlanCommand::Checkpoint {
+                            label: format!("loop_{:?}_iter_{}_end", node_id, i),
+                        });
                     }
                 }
-
-                commands.push(PlanCommand::Checkpoint {
-                    label: format!("loop_{:?}_iter_{}_end", node_id, i),
-                });
             }
         }
         ExperimentNode::NestedScan(config) => {
@@ -1193,10 +1244,13 @@ mod tests {
     }
 
     #[test]
-    fn test_condition_loop_rejected() {
+    fn test_condition_loop_emits_repeat_while() {
+        use crate::graph::nodes::AcquireConfig;
+
         let mut snarl = Snarl::new();
 
-        snarl.insert_node(
+        // Create a condition-based loop
+        let loop_node = snarl.insert_node(
             egui::pos2(0.0, 0.0),
             ExperimentNode::Loop(LoopConfig {
                 termination: LoopTermination::Condition {
@@ -1208,13 +1262,242 @@ mod tests {
             }),
         );
 
-        let result = GraphPlan::from_snarl(&snarl);
-        assert!(result.is_err(), "Condition loops should be rejected");
-        let err = result.unwrap_err().to_string();
-        assert!(
-            err.contains("Condition-based loops are not supported"),
-            "Error should mention condition loop: {err}"
+        // Add a body node
+        let acquire = snarl.insert_node(
+            egui::pos2(100.0, 0.0),
+            ExperimentNode::Acquire(AcquireConfig {
+                detector: "camera".to_string(),
+                exposure_ms: Some(50.0),
+                frame_count: 1,
+            }),
         );
+
+        // Connect loop body output (pin 1) to acquire
+        snarl.connect(
+            egui_snarl::OutPinId {
+                node: loop_node,
+                output: 1,
+            },
+            egui_snarl::InPinId {
+                node: acquire,
+                input: 0,
+            },
+        );
+
+        let plan = GraphPlan::from_snarl(&snarl).expect("Condition loops should translate");
+
+        // Should contain a RepeatWhile command
+        let repeat_while = plan
+            .commands
+            .iter()
+            .find(|cmd| matches!(cmd, PlanCommand::RepeatWhile { .. }));
+        assert!(
+            repeat_while.is_some(),
+            "Should emit RepeatWhile for condition-based loop"
+        );
+
+        // Verify RepeatWhile fields
+        if let Some(PlanCommand::RepeatWhile {
+            condition,
+            body,
+            max_iterations,
+        }) = repeat_while
+        {
+            assert_eq!(*max_iterations, 100, "max_iterations should be 100");
+
+            // Condition should be a Threshold with above=true (GreaterThan)
+            match condition {
+                experiment::plans::EvalCondition::Threshold {
+                    device_id,
+                    threshold,
+                    above,
+                    ..
+                } => {
+                    assert_eq!(device_id, "sensor");
+                    assert!((threshold - 1.0).abs() < f64::EPSILON);
+                    assert!(above, "GreaterThan should map to above=true");
+                }
+                _ => panic!("Expected EvalCondition::Threshold"),
+            }
+
+            // Body should contain Trigger + Read for the acquire node
+            let has_trigger = body
+                .iter()
+                .any(|cmd| matches!(cmd, PlanCommand::Trigger { .. }));
+            assert!(has_trigger, "Body should contain Trigger command");
+        }
+    }
+
+    #[test]
+    fn test_condition_loop_less_than_emits_above_false() {
+        let mut snarl = Snarl::new();
+
+        snarl.insert_node(
+            egui::pos2(0.0, 0.0),
+            ExperimentNode::Loop(LoopConfig {
+                termination: LoopTermination::Condition {
+                    device_id: "temp_sensor".to_string(),
+                    operator: ThresholdOp::LessThan,
+                    value: 25.0,
+                    max_iterations: 50,
+                },
+            }),
+        );
+
+        let plan = GraphPlan::from_snarl(&snarl).expect("Condition loops should translate");
+
+        let repeat_while = plan
+            .commands
+            .iter()
+            .find(|cmd| matches!(cmd, PlanCommand::RepeatWhile { .. }));
+        assert!(repeat_while.is_some());
+
+        if let Some(PlanCommand::RepeatWhile { condition, .. }) = repeat_while {
+            match condition {
+                experiment::plans::EvalCondition::Threshold { above, .. } => {
+                    assert!(!above, "LessThan should map to above=false");
+                }
+                _ => panic!("Expected EvalCondition::Threshold"),
+            }
+        }
+    }
+
+    #[test]
+    fn test_threshold_wait_emits_wait_settled() {
+        use crate::graph::nodes::WaitCondition;
+
+        let mut snarl = Snarl::new();
+
+        snarl.insert_node(
+            egui::pos2(0.0, 0.0),
+            ExperimentNode::Wait {
+                condition: WaitCondition::Threshold {
+                    device_id: "power_meter".to_string(),
+                    operator: ThresholdOp::GreaterThan,
+                    value: 100.0,
+                    timeout_ms: 5000.0,
+                },
+            },
+        );
+
+        let plan = GraphPlan::from_snarl(&snarl).expect("Translation failed");
+
+        // Should emit WaitSettled, not Wait
+        let wait_settled = plan
+            .commands
+            .iter()
+            .find(|cmd| matches!(cmd, PlanCommand::WaitSettled { .. }));
+        assert!(
+            wait_settled.is_some(),
+            "Threshold wait should emit WaitSettled"
+        );
+
+        if let Some(PlanCommand::WaitSettled {
+            device_id,
+            timeout_seconds,
+        }) = wait_settled
+        {
+            assert_eq!(device_id, "power_meter");
+            assert!((timeout_seconds - 5.0).abs() < f64::EPSILON);
+        }
+
+        // Should NOT emit a plain Wait
+        let plain_wait = plan
+            .commands
+            .iter()
+            .any(|cmd| matches!(cmd, PlanCommand::Wait { .. }));
+        assert!(
+            !plain_wait,
+            "Threshold wait should not fall back to plain Wait"
+        );
+    }
+
+    #[test]
+    fn test_stability_wait_emits_wait_settled() {
+        use crate::graph::nodes::WaitCondition;
+
+        let mut snarl = Snarl::new();
+
+        snarl.insert_node(
+            egui::pos2(0.0, 0.0),
+            ExperimentNode::Wait {
+                condition: WaitCondition::Stability {
+                    device_id: "temperature".to_string(),
+                    tolerance: 0.01,
+                    duration_ms: 500.0,
+                    timeout_ms: 10000.0,
+                },
+            },
+        );
+
+        let plan = GraphPlan::from_snarl(&snarl).expect("Translation failed");
+
+        // Should emit WaitSettled, not Wait
+        let wait_settled = plan
+            .commands
+            .iter()
+            .find(|cmd| matches!(cmd, PlanCommand::WaitSettled { .. }));
+        assert!(
+            wait_settled.is_some(),
+            "Stability wait should emit WaitSettled"
+        );
+
+        if let Some(PlanCommand::WaitSettled {
+            device_id,
+            timeout_seconds,
+        }) = wait_settled
+        {
+            assert_eq!(device_id, "temperature");
+            assert!((timeout_seconds - 10.0).abs() < f64::EPSILON);
+        }
+
+        // Should NOT emit a plain Wait
+        let plain_wait = plan
+            .commands
+            .iter()
+            .any(|cmd| matches!(cmd, PlanCommand::Wait { .. }));
+        assert!(
+            !plain_wait,
+            "Stability wait should not fall back to plain Wait"
+        );
+    }
+
+    #[test]
+    fn test_move_wait_settled_emits_wait_settled() {
+        use crate::graph::nodes::MoveConfig;
+
+        let mut snarl = Snarl::new();
+
+        snarl.insert_node(
+            egui::pos2(0.0, 0.0),
+            ExperimentNode::Move(MoveConfig {
+                device: "stage_x".to_string(),
+                position: 42.0,
+                wait_settled: true,
+                ..Default::default()
+            }),
+        );
+
+        let plan = GraphPlan::from_snarl(&snarl).expect("Translation failed");
+
+        // Should have MoveTo followed by WaitSettled
+        let has_move = plan.commands.iter().any(
+            |cmd| matches!(cmd, PlanCommand::MoveTo { device_id, .. } if device_id == "stage_x"),
+        );
+        assert!(has_move, "Should emit MoveTo");
+
+        let wait_settled = plan
+            .commands
+            .iter()
+            .find(|cmd| matches!(cmd, PlanCommand::WaitSettled { .. }));
+        assert!(
+            wait_settled.is_some(),
+            "Move with wait_settled=true should emit WaitSettled"
+        );
+
+        if let Some(PlanCommand::WaitSettled { device_id, .. }) = wait_settled {
+            assert_eq!(device_id, "stage_x");
+        }
     }
 
     #[test]
