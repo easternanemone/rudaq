@@ -1505,6 +1505,40 @@ impl RunEngine {
                     .await?;
                 Ok(false)
             }
+
+            PlanCommand::ConditionalBranch {
+                condition,
+                then_commands,
+                else_commands: _,
+            } => {
+                warn!(
+                    ?condition,
+                    "ConditionalBranch not yet implemented, falling back to then_commands"
+                );
+                // TODO(bd-up05): Implement condition evaluation with FeedbackChannel
+                // Box::pin required because process_command is recursive here.
+                let mut emitted = false;
+                for sub_cmd in then_commands {
+                    if Box::pin(self.process_command(sub_cmd)).await? {
+                        emitted = true;
+                    }
+                }
+                Ok(emitted)
+            }
+
+            PlanCommand::WaitSettled {
+                device_id,
+                timeout_seconds,
+            } => {
+                warn!(
+                    %device_id,
+                    timeout_seconds,
+                    "WaitSettled not yet implemented, falling back to timeout"
+                );
+                // TODO(bd-chkq/bd-odrz): Implement settled detection via Readable polling
+                tokio::time::sleep(std::time::Duration::from_secs_f64(timeout_seconds)).await;
+                Ok(false)
+            }
         }
     }
 

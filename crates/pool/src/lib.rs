@@ -83,12 +83,16 @@
 //! # });
 //! ```
 
+pub mod borrow_guard;
 pub mod buffer_pool;
 pub mod foreign_view;
 pub mod frame_data;
 
 // Re-export buffer pool types for convenience
 pub use buffer_pool::{BufferPool, PooledBuffer};
+
+// Re-export borrow guard types for zero-copy FFI safety
+pub use borrow_guard::{BorrowCount, BorrowGuard};
 
 // Re-export foreign view trait for external consumers
 pub use foreign_view::ForeignView;

@@ -15,7 +15,7 @@ use common::observable::ParameterSet;
 use common::parameter::Parameter;
 use futures::future::BoxFuture;
 use pool::{FrameData, Pool};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
@@ -82,6 +82,72 @@ impl CameraDeviceState {
 // MockCameraFactory - DriverFactory implementation
 // =============================================================================
 
+/// Named presets for common MockCamera configurations.
+///
+/// Each profile maps to specific `TimingConfig` + `ErrorConfig` + mode settings,
+/// making test scenarios accessible from TOML without builder boilerplate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum MockCameraProfile {
+    /// Minimal latency, no errors, instant mode. For fast unit tests.
+    #[default]
+    Fast,
+    /// Realistic timing (readout, settling, communication delays). For integration tests.
+    Realistic,
+    /// Adds noise and occasional frame loss. For robustness testing.
+    Noisy,
+    /// Injects errors (timeouts, communication loss). For chaos/fault testing.
+    Faulty,
+}
+
+impl MockCameraProfile {
+    /// Returns the timing configuration for this profile.
+    pub fn timing_config(self) -> TimingConfig {
+        match self {
+            Self::Fast => TimingConfig::default(),
+            Self::Realistic | Self::Noisy => TimingConfig::camera(),
+            Self::Faulty => TimingConfig {
+                frame_readout_ms: 50,
+                settling_time_ms: 0,
+                communication_delay_ms: 10,
+            },
+        }
+    }
+
+    /// Returns the error configuration for this profile.
+    pub fn error_config(self) -> ErrorConfig {
+        match self {
+            Self::Fast | Self::Realistic => ErrorConfig::none(),
+            Self::Noisy => ErrorConfig::random_failures(0.02),
+            Self::Faulty => ErrorConfig::scenarios(vec![
+                crate::common::ErrorScenario::FailAfterN {
+                    operation: "trigger",
+                    count: 50,
+                },
+                crate::common::ErrorScenario::CommunicationLoss,
+            ]),
+        }
+    }
+
+    /// Returns the mock mode for this profile.
+    pub fn mode(self) -> MockMode {
+        match self {
+            Self::Fast => MockMode::Instant,
+            Self::Realistic | Self::Noisy => MockMode::Realistic,
+            Self::Faulty => MockMode::Chaos,
+        }
+    }
+
+    /// Returns the frame loss rate for this profile.
+    pub fn frame_loss_rate(self) -> f64 {
+        match self {
+            Self::Fast | Self::Realistic => 0.0,
+            Self::Noisy => 0.01,
+            Self::Faulty => 0.05,
+        }
+    }
+}
+
 /// Configuration for MockCamera driver
 #[derive(Debug, Clone, Deserialize)]
 pub struct MockCameraConfig {
@@ -96,6 +162,10 @@ pub struct MockCameraConfig {
     /// Initial exposure in seconds (default: 0.033)
     #[serde(default = "default_exposure")]
     pub exposure_s: f64,
+
+    /// Named profile for timing/error/mode presets (default: fast)
+    #[serde(default)]
+    pub profile: MockCameraProfile,
 }
 
 fn default_width() -> u32 {
@@ -114,6 +184,7 @@ impl Default for MockCameraConfig {
             width: 1920,
             height: 1080,
             exposure_s: 0.033,
+            profile: MockCameraProfile::default(),
         }
     }
 }
@@ -445,6 +516,7 @@ impl MockCamera {
             width: builder.width,
             height: builder.height,
             exposure_s: 0.033,
+            profile: MockCameraProfile::default(),
         };
 
         Self::with_full_config(
@@ -924,12 +996,13 @@ impl MockCamera {
 
     /// Create mock camera with basic configuration (backward compatible).
     pub fn with_config(config: MockCameraConfig) -> Self {
+        let profile = config.profile;
         Self::with_full_config(
             config,
-            MockMode::Instant,
-            0.0,
-            ErrorConfig::none(),
-            TimingConfig::camera(),
+            profile.mode(),
+            profile.frame_loss_rate(),
+            profile.error_config(),
+            profile.timing_config(),
             0,
             0,
             20.0,

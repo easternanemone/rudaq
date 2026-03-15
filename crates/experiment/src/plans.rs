@@ -35,6 +35,35 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+/// Condition types for evaluating scan data at runtime
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum EvalCondition {
+    /// Check if a value exceeds a threshold
+    Threshold {
+        /// Device ID to check
+        device_id: String,
+        /// Field name (e.g., "intensity")
+        field: String,
+        /// Threshold value
+        threshold: f64,
+        /// True if checking value > threshold, false for value < threshold
+        above: bool,
+    },
+    /// Compare two device readings
+    Comparison {
+        /// Left-hand device
+        left_device_id: String,
+        /// Left field name
+        left_field: String,
+        /// Right-hand device
+        right_device_id: String,
+        /// Right field name
+        right_field: String,
+        /// Comparison operator as string: "gt", "lt", "eq", "gte", "lte"
+        operator: String,
+    },
+}
+
 /// Commands that plans yield for the RunEngine to execute
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum PlanCommand {
@@ -86,6 +115,22 @@ pub enum PlanCommand {
         parameter: String,
         /// Value to set
         value: String,
+    },
+    /// Conditionally execute one of two command sequences
+    ConditionalBranch {
+        /// Condition to evaluate
+        condition: EvalCondition,
+        /// Commands to execute if condition is true
+        then_commands: Vec<PlanCommand>,
+        /// Commands to execute if condition is false
+        else_commands: Vec<PlanCommand>,
+    },
+    /// Wait until a device reports settled/stable
+    WaitSettled {
+        /// Device to wait on
+        device_id: String,
+        /// Maximum time to wait in seconds
+        timeout_seconds: f64,
     },
 }
 

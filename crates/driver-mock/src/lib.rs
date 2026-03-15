@@ -52,7 +52,9 @@ mod pattern;
 pub use common::{ErrorConfig, ErrorScenario, MockMode, MockRng, TimingConfig};
 
 // Re-export driver types
-pub use mock_camera::{CameraDeviceState, MockCamera, MockCameraFactory};
+pub use mock_camera::{
+    CameraDeviceState, MockCamera, MockCameraConfig, MockCameraFactory, MockCameraProfile,
+};
 pub use mock_daq_output::{MockDAQOutput, MockDAQOutputFactory, VoltageRange};
 pub use mock_laser::{MockLaser, MockLaserFactory};
 pub use mock_power_meter::{MockPowerMeter, MockPowerMeterFactory};

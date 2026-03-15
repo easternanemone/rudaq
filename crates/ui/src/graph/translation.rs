@@ -289,11 +289,12 @@ fn translate_node_with_snarl(
                     commands.push(PlanCommand::Checkpoint {
                         label: format!("node_{:?}_point_{}", node_id, i),
                     });
+                    #[allow(clippy::cast_possible_truncation)]
                     commands.push(PlanCommand::EmitEvent {
                         stream: "primary".to_string(),
                         data: HashMap::new(),
                         positions: [(actuator.clone(), pos)].into_iter().collect(),
-                        scan_indices: None,
+                        scan_indices: Some(vec![(actuator.clone(), i as usize)]),
                     });
                     events += 1;
                 }
@@ -550,10 +551,26 @@ fn translate_node_with_snarl(
                     positions.insert("_outer_idx".to_string(), f64::from(outer_idx));
                     positions.insert("_inner_idx".to_string(), f64::from(inner_idx));
 
+                    // Use dimension names from config, falling back to actuator ID, then "outer"/"inner"
+                    let outer_dim = if !config.outer.dimension_name.is_empty() {
+                        config.outer.dimension_name.clone()
+                    } else if !config.outer.actuator.is_empty() {
+                        config.outer.actuator.clone()
+                    } else {
+                        "outer".to_string()
+                    };
+                    let inner_dim = if !config.inner.dimension_name.is_empty() {
+                        config.inner.dimension_name.clone()
+                    } else if !config.inner.actuator.is_empty() {
+                        config.inner.actuator.clone()
+                    } else {
+                        "inner".to_string()
+                    };
+
                     #[allow(clippy::cast_possible_truncation)]
                     let scan_indices = Some(vec![
-                        ("outer".to_string(), outer_idx as usize),
-                        ("inner".to_string(), inner_idx as usize),
+                        (outer_dim, outer_idx as usize),
+                        (inner_dim, inner_idx as usize),
                     ]);
 
                     commands.push(PlanCommand::EmitEvent {
@@ -609,12 +626,20 @@ fn translate_node_with_snarl(
                         ),
                     });
 
-                    // Emit event
+                    // Emit event with scan index
+                    let dim_name = if !config.scan.dimension_name.is_empty() {
+                        config.scan.dimension_name.clone()
+                    } else if !config.scan.actuator.is_empty() {
+                        config.scan.actuator.clone()
+                    } else {
+                        "scan".to_string()
+                    };
+                    #[allow(clippy::cast_possible_truncation)]
                     commands.push(PlanCommand::EmitEvent {
                         stream: "primary".to_string(),
                         data: HashMap::new(),
                         positions: [(config.scan.actuator.clone(), pos)].into_iter().collect(),
-                        scan_indices: None,
+                        scan_indices: Some(vec![(dim_name, i as usize)]),
                     });
                     events += 1;
                 }
@@ -1212,5 +1237,225 @@ mod tests {
             err.contains("Infinite loops are not supported"),
             "Error should mention infinite loop: {err}"
         );
+    }
+
+    #[test]
+    fn test_nested_scan_dimension_names_propagated() {
+        let mut snarl = Snarl::new();
+
+        // Create NestedScan with explicit dimension names
+        snarl.insert_node(
+            egui::pos2(0.0, 0.0),
+            ExperimentNode::NestedScan(NestedScanConfig {
+                outer: ScanDimension {
+                    actuator: "stage_x".to_string(),
+                    dimension_name: "wavelength".to_string(),
+                    start: 400.0,
+                    stop: 800.0,
+                    points: 3,
+                },
+                inner: ScanDimension {
+                    actuator: "stage_y".to_string(),
+                    dimension_name: "position".to_string(),
+                    start: 0.0,
+                    stop: 10.0,
+                    points: 2,
+                },
+                nesting_warning_depth: 3,
+            }),
+        );
+
+        let plan = GraphPlan::from_snarl(&snarl).expect("Translation failed");
+
+        // Collect all EmitEvent scan_indices
+        let indices: Vec<_> = plan
+            .commands
+            .iter()
+            .filter_map(|cmd| {
+                if let PlanCommand::EmitEvent { scan_indices, .. } = cmd {
+                    scan_indices.clone()
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // Should have 3 x 2 = 6 events with indices
+        assert_eq!(indices.len(), 6, "Expected 6 events with scan_indices");
+
+        // All indices should use the configured dimension names
+        for idx_vec in &indices {
+            assert_eq!(idx_vec.len(), 2);
+            assert_eq!(
+                idx_vec[0].0, "wavelength",
+                "Outer dimension name should be 'wavelength'"
+            );
+            assert_eq!(
+                idx_vec[1].0, "position",
+                "Inner dimension name should be 'position'"
+            );
+        }
+
+        // Check specific indices: (0,0), (0,1), (1,0), (1,1), (2,0), (2,1)
+        assert_eq!(
+            indices[0],
+            vec![("wavelength".to_string(), 0), ("position".to_string(), 0)]
+        );
+        assert_eq!(
+            indices[1],
+            vec![("wavelength".to_string(), 0), ("position".to_string(), 1)]
+        );
+        assert_eq!(
+            indices[2],
+            vec![("wavelength".to_string(), 1), ("position".to_string(), 0)]
+        );
+        assert_eq!(
+            indices[5],
+            vec![("wavelength".to_string(), 2), ("position".to_string(), 1)]
+        );
+    }
+
+    #[test]
+    fn test_nested_scan_fallback_to_actuator_name() {
+        let mut snarl = Snarl::new();
+
+        // Create NestedScan with empty dimension names -- should fall back to actuator IDs
+        snarl.insert_node(
+            egui::pos2(0.0, 0.0),
+            ExperimentNode::NestedScan(NestedScanConfig {
+                outer: ScanDimension {
+                    actuator: "motor_x".to_string(),
+                    dimension_name: String::new(),
+                    start: 0.0,
+                    stop: 10.0,
+                    points: 2,
+                },
+                inner: ScanDimension {
+                    actuator: "motor_y".to_string(),
+                    dimension_name: String::new(),
+                    start: 0.0,
+                    stop: 5.0,
+                    points: 2,
+                },
+                nesting_warning_depth: 3,
+            }),
+        );
+
+        let plan = GraphPlan::from_snarl(&snarl).expect("Translation failed");
+
+        let first_indices = plan
+            .commands
+            .iter()
+            .find_map(|cmd| {
+                if let PlanCommand::EmitEvent { scan_indices, .. } = cmd {
+                    scan_indices.clone()
+                } else {
+                    None
+                }
+            })
+            .expect("Should have at least one EmitEvent with scan_indices");
+
+        // Should fall back to actuator IDs
+        assert_eq!(
+            first_indices[0].0, "motor_x",
+            "Should fall back to outer actuator ID"
+        );
+        assert_eq!(
+            first_indices[1].0, "motor_y",
+            "Should fall back to inner actuator ID"
+        );
+    }
+
+    #[test]
+    fn test_single_scan_has_scan_indices() {
+        let mut snarl = Snarl::new();
+
+        snarl.insert_node(
+            egui::pos2(0.0, 0.0),
+            ExperimentNode::Scan {
+                actuator: "stage_z".to_string(),
+                start: 0.0,
+                stop: 100.0,
+                points: 5,
+            },
+        );
+
+        let plan = GraphPlan::from_snarl(&snarl).expect("Translation failed");
+
+        let indices: Vec<_> = plan
+            .commands
+            .iter()
+            .filter_map(|cmd| {
+                if let PlanCommand::EmitEvent { scan_indices, .. } = cmd {
+                    scan_indices.clone()
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        assert_eq!(indices.len(), 5, "Expected 5 events with scan_indices");
+
+        // Single-level scan uses actuator ID as dimension name
+        for (i, idx_vec) in indices.iter().enumerate() {
+            assert_eq!(idx_vec.len(), 1, "Single scan should have 1 dimension");
+            assert_eq!(
+                idx_vec[0].0, "stage_z",
+                "Dimension name should be actuator ID"
+            );
+            assert_eq!(idx_vec[0].1, i, "Index should match iteration");
+        }
+    }
+
+    #[test]
+    fn test_adaptive_scan_has_scan_indices() {
+        use crate::graph::nodes::{
+            AdaptiveAction, AdaptiveScanConfig, TriggerCondition, TriggerLogic,
+        };
+
+        let mut snarl = Snarl::new();
+
+        snarl.insert_node(
+            egui::pos2(0.0, 0.0),
+            ExperimentNode::AdaptiveScan(AdaptiveScanConfig {
+                scan: ScanDimension {
+                    actuator: "wavelength_motor".to_string(),
+                    dimension_name: "lambda".to_string(),
+                    start: 400.0,
+                    stop: 800.0,
+                    points: 4,
+                },
+                triggers: vec![TriggerCondition::default()],
+                trigger_logic: TriggerLogic::Any,
+                action: AdaptiveAction::Zoom2x,
+                require_approval: false,
+            }),
+        );
+
+        let plan = GraphPlan::from_snarl(&snarl).expect("Translation failed");
+
+        let indices: Vec<_> = plan
+            .commands
+            .iter()
+            .filter_map(|cmd| {
+                if let PlanCommand::EmitEvent { scan_indices, .. } = cmd {
+                    scan_indices.clone()
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        assert_eq!(indices.len(), 4, "Expected 4 events with scan_indices");
+
+        // Adaptive scan uses dimension_name from config
+        for (i, idx_vec) in indices.iter().enumerate() {
+            assert_eq!(idx_vec.len(), 1, "Adaptive scan should have 1 dimension");
+            assert_eq!(
+                idx_vec[0].0, "lambda",
+                "Should use configured dimension name"
+            );
+            assert_eq!(idx_vec[0].1, i, "Index should match iteration");
+        }
     }
 }
