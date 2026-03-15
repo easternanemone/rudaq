@@ -203,6 +203,20 @@ bash scripts/repro-istar-stream-crash.sh --build-remote --soak-seconds 1800  # i
 bash scripts/istar-stream-overnight-matrix.sh --hours 10 --batch-size 6       # Overnight iSTAR stream matrix run
 ```
 
+## Quick Commands
+
+- `/test [crate] [--ci|--hardware|--coverage]` — Run nextest with smart defaults
+- `/clippy [crate] [--fix]` — Clippy with CI-parity flags
+- `/check [crate] [--wasm|--all]` — Fast cargo check
+- `/grind [--max N] [--issue ID]` — Autonomous beads issue loop
+
+## Build Optimization
+
+`.cargo/config.toml` enables:
+- `split-debuginfo = "packed"` — faster macOS linking
+- `opt-level = 2` for all dependencies in dev mode — faster tests
+- Build script optimization (`opt-level = 2` for build-override)
+
 ## References
 
 - Agent policy: `AGENTS.md` (local/gitignored, auto-injected by hooks; generate with `bdh onboard`)
@@ -211,6 +225,8 @@ bash scripts/istar-stream-overnight-matrix.sh --hours 10 --batch-size 6       # 
 - Architecture deep-dive: `docs/explanation/architecture.md`
 - Hardware setup: `docs/how-to/hardware-setup.md`
 - Driver guide: `docs/how-to/hardware-drivers.md`
+- Build config: `.cargo/config.toml`
+- Custom commands: `.claude/commands/`
 
 <!-- BEADHUB:START -->
 ## BeadHub Coordination Rules

@@ -1,31 +1,29 @@
 # Cargo configuration for rust-daq
-# Helps manage build artifact size and improve build times
+# Optimized for macOS M1 Max development
 
 [build]
-# Use sparse registry protocol for faster index updates
-rustflags = []
+# Sparse registry protocol is default since Cargo 1.68+
 
 [profile.dev]
-# Limit incremental compilation cache to 256MB per crate
-# Reduces disk usage at cost of slightly slower incremental rebuilds
 incremental = true
+# Packed debuginfo: faster linking on macOS (single .dSYM instead of per-object)
+split-debuginfo = "packed"
 
 [profile.dev.build-override]
-# Optimize build scripts in dev mode for faster builds
+# Optimize build scripts and proc-macros in dev mode for faster builds
+opt-level = 2
+
+[profile.dev.package."*"]
+# Optimize all dependencies even in dev mode — speeds up tests significantly
+# Only your own crates compile unoptimized (for fast incremental rebuilds)
 opt-level = 2
 
 [profile.release]
-# Disable incremental for release builds (not useful, saves space)
 incremental = false
+split-debuginfo = "packed"
 
 # Mold linker for faster linking on Linux (opt-in):
 # Copy the following into ~/.cargo/config.toml on machines with mold installed:
 #   [target.x86_64-unknown-linux-gnu]
 #   rustflags = ["-C", "linker=clang", "-C", "link-arg=-fuse-ld=mold"]
 # Requires: sudo apt install mold clang
-
-# Recommendations for managing target directory size:
-# 1. Run `cargo clean` periodically (monthly or when >5GB)
-# 2. Install cargo-sweep: `cargo install cargo-sweep`
-#    Then run: `cargo sweep --maxsize 2GB` to clean old artifacts
-# 3. Use `cargo build --timings` to identify slow dependencies

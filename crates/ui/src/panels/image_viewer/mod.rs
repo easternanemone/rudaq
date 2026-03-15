@@ -14,11 +14,15 @@
 //! - Panel drains channel each frame and updates texture
 
 pub mod colormap;
+mod controls;
+mod echelle_calibration;
 mod echelle_extraction;
 mod echelle_profile_cache;
 #[cfg(not(target_arch = "wasm32"))]
 mod echelle_sidecar;
+mod echelle_spectrum;
 mod processing;
+mod side_panel;
 mod types;
 
 pub use colormap::*;
@@ -56,23 +60,32 @@ use protocol::compression::decompress_frame_into;
 use protocol::daq::StreamQuality;
 use serde::{Deserialize, Serialize};
 
+/// View mode for the central area: 2D echellogram, 1D spectrum, or split (bd-alxb).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-enum EchellePlotXAxisMode {
+pub(super) enum SpectrumViewMode {
+    #[default]
+    Echellogram,
+    Spectrum,
+    Split,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(super) enum EchellePlotXAxisMode {
     #[default]
     Wavelength,
     SampleIndex,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-struct EchellePlotHoverLink {
-    relative_index: u32,
-    sample_index: usize,
-    wavelength: f64,
-    flux: f64,
+pub(super) struct EchellePlotHoverLink {
+    pub(super) relative_index: u32,
+    pub(super) sample_index: usize,
+    pub(super) wavelength: f64,
+    pub(super) flux: f64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-enum EchelleCalibrationTab {
+pub(super) enum EchelleCalibrationTab {
     #[default]
     Profile,
     Trace,
@@ -83,85 +96,85 @@ enum EchelleCalibrationTab {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-struct EchelleCalibrationPointUi {
-    enabled: bool,
-    order_relative_index: u32,
-    x_sample: f64,
-    y_pixel: f64,
-    wavelength: f64,
-    note: String,
+pub(super) struct EchelleCalibrationPointUi {
+    pub(super) enabled: bool,
+    pub(super) order_relative_index: u32,
+    pub(super) x_sample: f64,
+    pub(super) y_pixel: f64,
+    pub(super) wavelength: f64,
+    pub(super) note: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-struct EchelleLineListEntryUi {
-    enabled: bool,
-    wavelength: f64,
-    label: String,
+pub(super) struct EchelleLineListEntryUi {
+    pub(super) enabled: bool,
+    pub(super) wavelength: f64,
+    pub(super) label: String,
 }
 
 /// Row in the arc-line match table (bd-a64a).
 #[derive(Debug, Clone)]
-struct ArcLineMatchRow {
+pub(super) struct ArcLineMatchRow {
     /// Detected line pixel center.
-    pixel_center: f64,
+    pub(super) pixel_center: f64,
     /// Detected line SNR (amplitude / noise).
-    snr: f64,
+    pub(super) snr: f64,
     /// Detected line FWHM in pixels.
-    fwhm: f64,
+    pub(super) fwhm: f64,
     /// Matched atlas wavelength (nm).
-    matched_wavelength_nm: f64,
+    pub(super) matched_wavelength_nm: f64,
     /// Residual: predicted - atlas (nm). Set after fitting.
-    residual_nm: f64,
+    pub(super) residual_nm: f64,
     /// Atlas line species label.
-    species: String,
+    pub(super) species: String,
     /// Whether this match is included in the fit.
-    included: bool,
+    pub(super) included: bool,
     /// Index into the detected_arc_lines vec.
-    detected_line_idx: usize,
+    pub(super) detected_line_idx: usize,
     /// Index into the atlas vec.
-    atlas_line_idx: usize,
+    pub(super) atlas_line_idx: usize,
 }
 
 #[derive(Debug, Clone, Default)]
-struct EchelleCalibrationUiState {
-    tab: EchelleCalibrationTab,
-    editor_profile: Option<EchelleCalibrationProfile>,
-    editor_dirty: bool,
-    editor_last_loaded_path: Option<std::path::PathBuf>,
-    save_as_path_text: String,
-    points_path_text: String,
-    line_list_path_text: String,
-    blaze_export_path_text: String,
-    calibration_points: Vec<EchelleCalibrationPointUi>,
-    line_list: Vec<EchelleLineListEntryUi>,
-    selected_order_edit_idx: usize,
-    selected_point_idx: usize,
-    trace_overlay_enabled: bool,
-    trace_overlay_all_orders: bool,
-    trace_overlay_sample_step: u32,
-    trace_overlay_max_orders: u32,
-    trace_nudge_px: f64,
-    trace_auto_detect_min_separation_px: u32,
-    trace_auto_detect_threshold_fraction: f64,
-    fit_outlier_sigma: f64,
-    fit_rms_acceptance_px: f64,
+pub(super) struct EchelleCalibrationUiState {
+    pub(super) tab: EchelleCalibrationTab,
+    pub(super) editor_profile: Option<EchelleCalibrationProfile>,
+    pub(super) editor_dirty: bool,
+    pub(super) editor_last_loaded_path: Option<std::path::PathBuf>,
+    pub(super) save_as_path_text: String,
+    pub(super) points_path_text: String,
+    pub(super) line_list_path_text: String,
+    pub(super) blaze_export_path_text: String,
+    pub(super) calibration_points: Vec<EchelleCalibrationPointUi>,
+    pub(super) line_list: Vec<EchelleLineListEntryUi>,
+    pub(super) selected_order_edit_idx: usize,
+    pub(super) selected_point_idx: usize,
+    pub(super) trace_overlay_enabled: bool,
+    pub(super) trace_overlay_all_orders: bool,
+    pub(super) trace_overlay_sample_step: u32,
+    pub(super) trace_overlay_max_orders: u32,
+    pub(super) trace_nudge_px: f64,
+    pub(super) trace_auto_detect_min_separation_px: u32,
+    pub(super) trace_auto_detect_threshold_fraction: f64,
+    pub(super) fit_outlier_sigma: f64,
+    pub(super) fit_rms_acceptance_px: f64,
     // Arc line detection state (bd-a64a)
-    arc_detect_config: ArcDetectConfig,
-    detected_arc_lines: Vec<ArcLine>,
+    pub(super) arc_detect_config: ArcDetectConfig,
+    pub(super) detected_arc_lines: Vec<ArcLine>,
     // Atlas matching state (bd-a64a)
-    atlas_match_tolerance_nm: f64,
-    matched_pairs: Vec<ArcLineMatchRow>,
+    pub(super) atlas_match_tolerance_nm: f64,
+    pub(super) matched_pairs: Vec<ArcLineMatchRow>,
     // Chebyshev fit state (bd-a64a)
-    wl_fit_config: WlFitConfig,
-    wl_fit_solution: Option<OrderWlSolution>,
-    blaze_preview_enabled: bool,
-    blaze_preview_scale: f64,
-    status_message: Option<String>,
-    last_error: Option<String>,
+    pub(super) wl_fit_config: WlFitConfig,
+    pub(super) wl_fit_solution: Option<OrderWlSolution>,
+    pub(super) blaze_preview_enabled: bool,
+    pub(super) blaze_preview_scale: f64,
+    pub(super) status_message: Option<String>,
+    pub(super) last_error: Option<String>,
 }
 
 impl EchelleCalibrationUiState {
-    fn with_defaults() -> Self {
+    pub(super) fn with_defaults() -> Self {
         Self {
             trace_overlay_enabled: true,
             trace_overlay_all_orders: false,
@@ -185,225 +198,229 @@ impl EchelleCalibrationUiState {
 /// Image Viewer Panel state
 pub struct ImageViewerPanel {
     /// Currently selected device ID
-    device_id: Option<String>,
+    pub(super) device_id: Option<String>,
     /// Current frame dimensions
-    width: u32,
-    height: u32,
+    pub(super) width: u32,
+    pub(super) height: u32,
     /// Current frame bit depth
-    bit_depth: u32,
+    pub(super) bit_depth: u32,
     /// Frame counter
-    frame_count: u64,
+    pub(super) frame_count: u64,
     /// Cached texture handle
-    texture: Option<egui::TextureHandle>,
+    pub(super) texture: Option<egui::TextureHandle>,
     /// Current colormap
-    colormap: Colormap,
+    pub(super) colormap: Colormap,
     /// Current scale mode
-    scale_mode: ScaleMode,
+    pub(super) scale_mode: ScaleMode,
     /// Zoom level (1.0 = fit to window)
-    zoom: f32,
+    pub(super) zoom: f32,
     /// Pan offset
-    pan: egui::Vec2,
+    pub(super) pan: egui::Vec2,
     /// Frame update receiver
-    frame_rx: Option<FrameUpdateReceiver>,
+    pub(super) frame_rx: Option<FrameUpdateReceiver>,
     /// Frame update sender (for cloning to async tasks)
-    frame_tx: Option<FrameUpdateSender>,
+    pub(super) frame_tx: Option<FrameUpdateSender>,
     /// Active stream subscription
-    subscription: Option<FrameStreamSubscription>,
+    pub(super) subscription: Option<FrameStreamSubscription>,
     /// FPS counter
-    fps_counter: FpsCounter,
+    pub(super) fps_counter: FpsCounter,
     /// Auto-fit zoom on next frame
-    auto_fit: bool,
+    pub(super) auto_fit: bool,
     /// Error message
-    error: Option<String>,
+    pub(super) error: Option<String>,
     /// Status message
-    status: Option<String>,
+    pub(super) status: Option<String>,
     /// Max FPS for streaming (rate limit)
-    max_fps: u32,
+    pub(super) max_fps: u32,
     /// ROI selector state
-    roi_selector: RoiSelector,
+    pub(super) roi_selector: RoiSelector,
     /// Last frame raw data (for ROI statistics computation)
-    last_frame_data: Option<Arc<Vec<u8>>>,
+    pub(super) last_frame_data: Option<Arc<Vec<u8>>>,
     /// Show ROI statistics panel
-    show_roi_panel: bool,
+    pub(super) show_roi_panel: bool,
     /// Show pixel statistics panel (bd-li4i)
-    show_pixel_stats: bool,
+    pub(super) show_pixel_stats: bool,
     /// Cached pixel statistics for current frame (bd-li4i)
-    pixel_statistics: Option<PixelStatistics>,
+    pub(super) pixel_statistics: Option<PixelStatistics>,
     /// Histogram for intensity distribution
-    histogram: Histogram,
+    pub(super) histogram: Histogram,
     /// Histogram display position
-    histogram_position: HistogramPosition,
+    pub(super) histogram_position: HistogramPosition,
     /// Available camera devices
-    available_cameras: Vec<String>,
+    pub(super) available_cameras: Vec<String>,
     /// Full sensor dimensions by camera ID (from device metadata)
-    camera_full_frame_dims: std::collections::HashMap<String, (u32, u32)>,
+    pub(super) camera_full_frame_dims: std::collections::HashMap<String, (u32, u32)>,
     /// Display minimum (0.0-1.0 normalized) - pixels at or below this are black
-    display_min: f32,
+    pub(super) display_min: f32,
     /// Display maximum (0.0-1.0 normalized) - pixels at or above this are white
-    display_max: f32,
+    pub(super) display_max: f32,
     /// Auto-contrast mode - automatically compute min/max from frame data (deprecated, use contrast_mode)
-    auto_contrast: bool,
+    pub(super) auto_contrast: bool,
     /// Contrast enhancement mode (bd-j6xm)
-    contrast_mode: ContrastMode,
+    pub(super) contrast_mode: ContrastMode,
     /// Low percentile for auto-percentile mode (0.0-100.0) (bd-j6xm)
-    percentile_low: f32,
+    pub(super) percentile_low: f32,
     /// High percentile for auto-percentile mode (0.0-100.0) (bd-j6xm)
-    percentile_high: f32,
+    pub(super) percentile_high: f32,
     /// Async action receiver
-    action_rx: std::sync::mpsc::Receiver<ImageViewerAction>,
+    pub(super) action_rx: std::sync::mpsc::Receiver<ImageViewerAction>,
     /// Async action sender
-    action_tx: std::sync::mpsc::Sender<ImageViewerAction>,
+    pub(super) action_tx: std::sync::mpsc::Sender<ImageViewerAction>,
     /// Last refresh time
-    last_refresh: Option<Instant>,
+    pub(super) last_refresh: Option<Instant>,
     /// Stream generation counter — incremented on each start_stream() call.
     /// Used by streaming tasks to detect if they've been superseded, preventing
     /// stale tasks from calling stop_stream() and killing a newer stream.
-    stream_generation: Arc<AtomicU64>,
+    pub(super) stream_generation: Arc<AtomicU64>,
 
     // -- Camera Control Fields --
     /// Camera parameters (cached)
-    camera_params: Vec<ParameterCache>,
+    pub(super) camera_params: Vec<ParameterCache>,
     /// Parameter edit buffers (device_id, param_name) -> value
-    param_edit_buffers: std::collections::HashMap<(String, String), String>,
+    pub(super) param_edit_buffers: std::collections::HashMap<(String, String), String>,
     /// Parameter errors (device_id, param_name) -> error
-    param_errors: std::collections::HashMap<(String, String), String>,
+    pub(super) param_errors: std::collections::HashMap<(String, String), String>,
     /// Show controls side panel
-    show_controls: bool,
+    pub(super) show_controls: bool,
     /// Receiver for parameter load results
-    param_load_rx: Option<mpsc::Receiver<ParamLoadResult>>,
+    pub(super) param_load_rx: Option<mpsc::Receiver<ParamLoadResult>>,
     /// Sender for parameter set results (persistent, cloned per request)
-    param_set_tx: mpsc::Sender<ParamSetResult>,
+    pub(super) param_set_tx: mpsc::Sender<ParamSetResult>,
     /// Receiver for parameter set results
-    param_set_rx: mpsc::Receiver<ParamSetResult>,
+    pub(super) param_set_rx: mpsc::Receiver<ParamSetResult>,
     /// Parameters currently being set
-    setting_params: std::collections::HashSet<(String, String)>,
+    pub(super) setting_params: std::collections::HashSet<(String, String)>,
     /// Pending parameter updates to execute
-    pending_param_updates: Vec<(String, String, String)>,
+    pub(super) pending_param_updates: Vec<(String, String, String)>,
     /// Device ID currently loading parameters
-    loading_params_device: Option<String>,
+    pub(super) loading_params_device: Option<String>,
     /// Live exposure preview mode (updates during drag)
-    live_exposure: bool,
+    pub(super) live_exposure: bool,
     /// Last time exposure was sent (for debounce)
-    exposure_last_sent: Option<Instant>,
+    pub(super) exposure_last_sent: Option<Instant>,
 
     // -- Connection Resilience Fields (bd-12qt) --
     /// Connection state for the current device
-    connection_state: ConnectionState,
+    pub(super) connection_state: ConnectionState,
     /// Number of consecutive connection failures
-    retry_count: u32,
+    pub(super) retry_count: u32,
     /// Time of last disconnect (for auto-retry backoff)
-    last_disconnect: Option<Instant>,
+    pub(super) last_disconnect: Option<Instant>,
     /// Enable automatic reconnection attempts
-    auto_reconnect: bool,
+    pub(super) auto_reconnect: bool,
 
     // -- Stream Metrics (bd-7rk0: gRPC improvements) --
     /// Latest streaming metrics from server
-    stream_metrics: Option<StreamMetrics>,
+    pub(super) stream_metrics: Option<StreamMetrics>,
 
     // -- Physical Coordinate Calibration (bd-4088.6) --
     /// Pixel to physical unit calibration in X direction (units per pixel)
-    pixel_scale_x: Option<f64>,
+    pub(super) pixel_scale_x: Option<f64>,
     /// Pixel to physical unit calibration in Y direction (units per pixel)
-    pixel_scale_y: Option<f64>,
+    pub(super) pixel_scale_y: Option<f64>,
     /// Physical unit label (e.g., "µm", "mm")
-    scale_unit: String,
+    pub(super) scale_unit: String,
 
     // -- Recording Fields (bd-3pdi.5.3) --
     /// Current recording state
-    recording_state: RecordingState,
+    pub(super) recording_state: RecordingState,
     /// Recording name input
-    recording_name: String,
+    pub(super) recording_name: String,
     /// Current output path (when recording)
-    recording_output_path: Option<String>,
+    pub(super) recording_output_path: Option<String>,
     /// Recording status from server
-    recording_status: Option<protocol::daq::RecordingStatus>,
+    pub(super) recording_status: Option<protocol::daq::RecordingStatus>,
     /// Last recording status poll time
-    last_recording_poll: Option<Instant>,
+    pub(super) last_recording_poll: Option<Instant>,
 
     // -- Stream Quality Settings --
     /// Stream quality level for server-side downsampling
-    stream_quality: StreamQuality,
+    pub(super) stream_quality: StreamQuality,
 
     // -- Background RGBA Conversion (bd-xifj: move CPU work off UI thread) --
     /// Receiver for completed RGBA conversions from background thread
-    rgba_rx: Option<std::sync::mpsc::Receiver<RgbaConversionResult>>,
+    pub(super) rgba_rx: Option<std::sync::mpsc::Receiver<RgbaConversionResult>>,
     /// Sender for RGBA conversion requests (cloned to background thread)
-    rgba_request_tx: Option<std::sync::mpsc::SyncSender<RgbaConversionRequest>>,
+    pub(super) rgba_request_tx: Option<std::sync::mpsc::SyncSender<RgbaConversionRequest>>,
     /// Pending RGBA data ready to be applied to texture
-    pending_rgba: Option<RgbaConversionResult>,
+    pub(super) pending_rgba: Option<RgbaConversionResult>,
     /// Sender to recycle used buffers back to the converter thread (bd-wdx3)
-    rgba_recycle_tx: Option<std::sync::mpsc::Sender<Vec<u8>>>,
+    pub(super) rgba_recycle_tx: Option<std::sync::mpsc::Sender<Vec<u8>>>,
     /// True when thread spawn failed (e.g., WASM); skip retry and convert synchronously
-    rgba_sync_mode: bool,
+    pub(super) rgba_sync_mode: bool,
 
     // -- Background Echelle Extraction (bd-fwyp: move extraction off UI thread) --
     /// Receiver for completed echelle extractions from background thread
-    echelle_extract_rx: Option<std::sync::mpsc::Receiver<EchelleExtractionResult>>,
+    pub(super) echelle_extract_rx: Option<std::sync::mpsc::Receiver<EchelleExtractionResult>>,
     /// Sender for echelle extraction requests
-    echelle_extract_tx: Option<std::sync::mpsc::SyncSender<EchelleExtractionRequest>>,
+    pub(super) echelle_extract_tx: Option<std::sync::mpsc::SyncSender<EchelleExtractionRequest>>,
     /// Pending echelle extraction result ready to be applied
-    pending_echelle: Option<EchelleExtractionResult>,
+    pub(super) pending_echelle: Option<EchelleExtractionResult>,
     /// True when thread spawn failed (e.g., WASM); extract synchronously
-    echelle_sync_mode: bool,
+    pub(super) echelle_sync_mode: bool,
 
     // -- Crosshair Feature (bd-pgcb) --
     /// Enable crosshair cursor display
-    crosshair_enabled: bool,
+    pub(super) crosshair_enabled: bool,
     /// Locked crosshair position (pixel coordinates)
-    crosshair_locked_pos: Option<(i32, i32)>,
+    pub(super) crosshair_locked_pos: Option<(i32, i32)>,
 
     // -- Interactive Colorbar (bd-07j1) --
     /// Interactive colorbar widget for midpoint adjustment
-    colorbar: crate::widgets::Colorbar,
+    pub(super) colorbar: crate::widgets::Colorbar,
     /// Show colorbar in the image viewer
-    show_colorbar: bool,
+    pub(super) show_colorbar: bool,
 
     // -- Metadata Overlay (bd-6h1c) --
     /// Show acquisition metadata overlay on the image
-    show_metadata_overlay: bool,
+    pub(super) show_metadata_overlay: bool,
 
     // -- Scale Bar Overlay (bd-0tcg) --
     /// Show scale bar overlay on the image
-    show_scale_bar: bool,
+    pub(super) show_scale_bar: bool,
     /// Last frame timestamp in nanoseconds (for overlay display)
-    last_frame_timestamp_ns: u64,
+    pub(super) last_frame_timestamp_ns: u64,
 
     // -- Echelle Calibration Profile Cache (bd-2kla.2.4) --
     /// Optional cached echelle calibration profile with hot-reload-safe semantics.
-    echelle_profile_cache: EchelleProfileCache,
+    pub(super) echelle_profile_cache: EchelleProfileCache,
     /// Last extracted echelle spectrum preview (MVP local extraction path).
-    echelle_preview: Option<EchelleExtractionPreview>,
+    pub(super) echelle_preview: Option<EchelleExtractionPreview>,
     /// Most recent extraction error (kept separate from general panel errors).
-    echelle_preview_error: Option<String>,
+    pub(super) echelle_preview_error: Option<String>,
     /// Extract every Nth frame to bound CPU cost on UI path.
-    echelle_extract_every_n_frames: u32,
+    pub(super) echelle_extract_every_n_frames: u32,
     /// Toggle echelle extraction preview while profile is loaded.
-    echelle_extraction_enabled: bool,
+    pub(super) echelle_extraction_enabled: bool,
     /// Selected order index for side-panel plot (0 = first extracted order).
-    echelle_selected_order_plot: usize,
+    pub(super) echelle_selected_order_plot: usize,
     /// Show merged wavelength-sorted preview when available.
-    echelle_show_merged_plot: bool,
+    pub(super) echelle_show_merged_plot: bool,
     /// Reusable scratch buffer for 12/16-bit decode fallback path (allocation control).
-    echelle_decode_scratch_u16: Vec<u16>,
+    pub(super) echelle_decode_scratch_u16: Vec<u16>,
     /// Debug/export hook: latest preview spectra materialized as Measurement::Spectrum values.
-    echelle_preview_measurements: Vec<Measurement>,
+    pub(super) echelle_preview_measurements: Vec<Measurement>,
     /// Display-only moving-average smoothing for the spectrum preview plot.
-    echelle_plot_smoothing_window: u32,
+    pub(super) echelle_plot_smoothing_window: u32,
     /// X-axis display mode for the spectrum preview.
-    echelle_plot_x_axis_mode: EchellePlotXAxisMode,
+    pub(super) echelle_plot_x_axis_mode: EchellePlotXAxisMode,
     /// Developer diagnostics counters for the local extractor.
-    echelle_extract_runs: u64,
-    echelle_extract_errors: u64,
-    echelle_extract_skipped_frames: u64,
-    echelle_last_extract_ms: Option<f64>,
+    pub(super) echelle_extract_runs: u64,
+    pub(super) echelle_extract_errors: u64,
+    pub(super) echelle_extract_skipped_frames: u64,
+    pub(super) echelle_last_extract_ms: Option<f64>,
     /// Hover cross-link from spectrum plot to image sample marker.
-    echelle_plot_hover_link: Option<EchellePlotHoverLink>,
+    pub(super) echelle_plot_hover_link: Option<EchellePlotHoverLink>,
     /// Calibration authoring workspace state (bd-2kla.8 scaffolding).
-    echelle_cal_ui: EchelleCalibrationUiState,
+    pub(super) echelle_cal_ui: EchelleCalibrationUiState,
     /// True when the active echelle profile snapshot should be resynced into RunEngine state.
-    echelle_run_engine_sync_dirty: bool,
+    pub(super) echelle_run_engine_sync_dirty: bool,
     /// True while an async echelle snapshot sync request is in flight.
-    echelle_run_engine_sync_in_flight: bool,
+    pub(super) echelle_run_engine_sync_in_flight: bool,
+
+    // -- Spectrum View Mode (bd-alxb) --
+    /// Current view mode: 2D echellogram, 1D spectrum, or split view.
+    pub(super) spectrum_view_mode: SpectrumViewMode,
 }
 
 impl Default for ImageViewerPanel {
@@ -538,6 +555,9 @@ impl Default for ImageViewerPanel {
             echelle_cal_ui: EchelleCalibrationUiState::with_defaults(),
             echelle_run_engine_sync_dirty: false,
             echelle_run_engine_sync_in_flight: false,
+
+            // Spectrum view mode (bd-alxb)
+            spectrum_view_mode: SpectrumViewMode::default(),
         }
     }
 }
@@ -679,2152 +699,6 @@ impl ImageViewerPanel {
                 self.status = Some("Echelle profile cleared".to_string());
             }
         }
-    }
-
-    fn mark_echelle_run_engine_sync_dirty(&mut self) {
-        self.echelle_run_engine_sync_dirty = true;
-    }
-
-    fn build_echelle_run_engine_snapshot(&self) -> Option<protocol::daq::CalibrationSnapshot> {
-        let profile = self.echelle_profile_cache.profile()?;
-        let target_device_id = self.device_id.clone()?;
-        Some(protocol::daq::CalibrationSnapshot {
-            device_type: "spectroscopy".to_string(),
-            target_device_id: Some(target_device_id),
-            calibration_timestamp_rfc3339: None,
-            grating_wavelength_coverage: Vec::new(),
-            echelle_frame_compatibility: Some(protocol::daq::EchelleFrameCompatibility {
-                sensor_width: profile.compatibility.sensor_width,
-                sensor_height: profile.compatibility.sensor_height,
-                frame_width: profile.compatibility.frame_width,
-                frame_height: profile.compatibility.frame_height,
-                roi_x: profile.compatibility.roi_x,
-                roi_y: profile.compatibility.roi_y,
-                binning_x: profile.compatibility.binning_x,
-                binning_y: profile.compatibility.binning_y,
-                bit_depth: profile.compatibility.bit_depth,
-            }),
-        })
-    }
-
-    fn sync_echelle_profile_to_run_engine(
-        &mut self,
-        client: Option<&mut DaqClient>,
-        runtime: &Runtime,
-    ) {
-        if !self.echelle_run_engine_sync_dirty || self.echelle_run_engine_sync_in_flight {
-            return;
-        }
-        let Some(client) = client else {
-            return;
-        };
-
-        let snapshot = self.build_echelle_run_engine_snapshot();
-        let action_tx = self.action_tx.clone();
-        let mut client = client.clone();
-        self.echelle_run_engine_sync_dirty = false;
-        self.echelle_run_engine_sync_in_flight = true;
-
-        runtime.spawn(async move {
-            let result = if let Some(snapshot) = snapshot {
-                client.set_calibration_snapshot(snapshot).await.map(|_| {
-                    "Synced active echelle profile into RunEngine readiness gate".to_string()
-                })
-            } else {
-                client
-                    .clear_calibration_snapshot("spectroscopy", false, true)
-                    .await
-                    .map(|_| {
-                        "Cleared echelle profile state from RunEngine readiness gate".to_string()
-                    })
-            };
-
-            match result {
-                Ok(message) => {
-                    let _ = action_tx.send(ImageViewerAction::EchelleCalibrationSynced { message });
-                }
-                Err(error) => {
-                    let _ = action_tx.send(ImageViewerAction::EchelleCalibrationSyncError(
-                        format!("Failed to sync echelle calibration gate: {error}"),
-                    ));
-                }
-            }
-        });
-    }
-
-    fn ensure_echelle_calibration_editor_profile(&mut self) {
-        if self.echelle_cal_ui.editor_profile.is_some() {
-            return;
-        }
-        if let Some(profile) = self.echelle_profile_cache.profile() {
-            self.echelle_cal_ui.editor_profile = Some((**profile).clone());
-            self.echelle_cal_ui.editor_last_loaded_path =
-                self.echelle_profile_cache.path().map(|p| p.to_path_buf());
-            return;
-        }
-        self.echelle_cal_ui.editor_profile = Some(self.default_echelle_calibration_profile());
-        self.echelle_cal_ui.editor_dirty = true;
-        self.echelle_cal_ui.status_message =
-            Some("Created new draft calibration profile from current frame metadata".to_string());
-    }
-
-    fn default_echelle_calibration_profile(&self) -> EchelleCalibrationProfile {
-        let frame_width = self.width.max(1);
-        let frame_height = self.height.max(1);
-        let sample_end = frame_width.saturating_sub(1).min(1023);
-        let center_y = (f64::from(frame_height) / 2.0).max(1.0);
-        EchelleCalibrationProfile {
-            schema_version: EchelleSchemaVersion::v1(),
-            profile_id: None,
-            display_name: format!("Mechelle Draft {}x{}", frame_width, frame_height),
-            compatibility: EchelleFrameCompatibility {
-                sensor_width: frame_width,
-                sensor_height: frame_height,
-                frame_width,
-                frame_height,
-                roi_x: 0,
-                roi_y: 0,
-                binning_x: 1,
-                binning_y: 1,
-                bit_depth: (self.bit_depth > 0).then_some(self.bit_depth),
-            },
-            orientation: EchelleOrientation {
-                dispersion_axis: DetectorAxis::X,
-                cross_dispersion_axis: DetectorAxis::Y,
-                order_number_increase_direction: AxisDirection::Positive,
-                wavelength_increase_with_dispersion_positive: true,
-            },
-            extraction: EchelleExtractionConfig {
-                summation_mode: EchelleSummationMode::SimpleSum,
-                default_aperture_half_width_px: 4.0,
-                background: None,
-            },
-            orders: vec![EchelleOrderCalibration {
-                relative_index: 0,
-                physical_order_number: None,
-                sample_start: 0,
-                sample_end,
-                trace: EchelleTraceModel::Polynomial {
-                    basis: PolynomialBasis::Monomial,
-                    coefficients: vec![center_y],
-                    domain_start: 0.0,
-                    domain_end: f64::from(frame_width.saturating_sub(1)) + 1.0,
-                },
-                wavelength: EchelleWavelengthModel::Polynomial {
-                    basis: PolynomialBasis::Monomial,
-                    coefficients: vec![0.0, 1.0],
-                    domain_start: 0.0,
-                    domain_end: f64::from(frame_width.saturating_sub(1)) + 1.0,
-                    unit: "nm".to_string(),
-                },
-                aperture_half_width_px: Some(4.0),
-                enabled: true,
-                notes: Some("Draft placeholder order; replace with traced Mechelle orders".into()),
-            }],
-            corrections: Default::default(),
-            provenance: EchelleProvenance {
-                creator_tool: "rust-daq-image-viewer".to_string(),
-                creator_version: None,
-                created_at_utc: chrono::Utc::now(),
-                source_frame_ids: Vec::new(),
-                notes: Some("Draft created from Image Viewer calibration workspace".to_string()),
-            },
-        }
-    }
-
-    fn mark_echelle_editor_dirty(&mut self) {
-        self.echelle_cal_ui.editor_dirty = true;
-        self.echelle_cal_ui.last_error = None;
-    }
-
-    fn save_echelle_editor_profile_to_path(
-        &mut self,
-        activate_after_save: bool,
-    ) -> Result<std::path::PathBuf, String> {
-        let mut profile = self
-            .echelle_cal_ui
-            .editor_profile
-            .clone()
-            .ok_or_else(|| "No calibration profile in editor".to_string())?;
-        profile.provenance.created_at_utc = chrono::Utc::now();
-        let mut note = String::from("Saved from Image Viewer calibration workspace");
-        if let Some(existing) = profile.provenance.notes.as_deref() {
-            if !existing.trim().is_empty() && !existing.contains("Saved from Image Viewer") {
-                note = format!("{existing}\n{note}");
-            } else if !existing.trim().is_empty() {
-                note = existing.to_string();
-            }
-        }
-        profile.provenance.notes = Some(note);
-        let path_text = self.echelle_cal_ui.save_as_path_text.trim();
-        if path_text.is_empty() {
-            return Err("Enter a .toml or .json path to save the calibration profile".to_string());
-        }
-        let path = std::path::PathBuf::from(path_text);
-        if let Some(parent) = path.parent() {
-            if !parent.as_os_str().is_empty() && !parent.exists() {
-                std::fs::create_dir_all(parent).map_err(|e| {
-                    format!(
-                        "Failed to create calibration profile directory {}: {e}",
-                        parent.display()
-                    )
-                })?;
-            }
-        }
-        profile
-            .save_to_path(&path)
-            .map_err(|e| format!("Failed to save calibration profile {}: {e}", path.display()))?;
-        self.echelle_cal_ui.editor_dirty = false;
-        self.echelle_cal_ui.editor_last_loaded_path = Some(path.clone());
-        self.echelle_cal_ui.status_message =
-            Some(format!("Saved calibration profile to {}", path.display()));
-        self.echelle_cal_ui.last_error = None;
-        if activate_after_save {
-            self.set_echelle_profile_path(path.clone());
-            self.poll_echelle_profile_cache();
-        }
-        Ok(path)
-    }
-
-    fn import_echelle_calibration_points_from_path(
-        &mut self,
-        path: &std::path::Path,
-    ) -> Result<usize, String> {
-        let text = std::fs::read_to_string(path)
-            .map_err(|e| format!("Failed to read {}: {e}", path.display()))?;
-        let items = serde_json::from_str::<Vec<EchelleCalibrationPointUi>>(&text)
-            .map_err(|e| format!("Failed to parse calibration points JSON: {e}"))?;
-        let count = items.len();
-        self.echelle_cal_ui.calibration_points = items;
-        self.echelle_cal_ui.selected_point_idx = self
-            .echelle_cal_ui
-            .selected_point_idx
-            .min(count.saturating_sub(1));
-        Ok(count)
-    }
-
-    fn export_echelle_calibration_points_to_path(
-        &self,
-        path: &std::path::Path,
-    ) -> Result<(), String> {
-        let json = serde_json::to_string_pretty(&self.echelle_cal_ui.calibration_points)
-            .map_err(|e| format!("Failed to serialize calibration points: {e}"))?;
-        std::fs::write(path, json).map_err(|e| format!("Failed to write {}: {e}", path.display()))
-    }
-
-    fn import_echelle_line_list_from_path(
-        &mut self,
-        path: &std::path::Path,
-    ) -> Result<usize, String> {
-        let text = std::fs::read_to_string(path)
-            .map_err(|e| format!("Failed to read {}: {e}", path.display()))?;
-        let items = serde_json::from_str::<Vec<EchelleLineListEntryUi>>(&text)
-            .map_err(|e| format!("Failed to parse line list JSON: {e}"))?;
-        let count = items.len();
-        self.echelle_cal_ui.line_list = items;
-        Ok(count)
-    }
-
-    fn export_echelle_line_list_to_path(&self, path: &std::path::Path) -> Result<(), String> {
-        let json = serde_json::to_string_pretty(&self.echelle_cal_ui.line_list)
-            .map_err(|e| format!("Failed to serialize line list: {e}"))?;
-        std::fs::write(path, json).map_err(|e| format!("Failed to write {}: {e}", path.display()))
-    }
-
-    #[allow(clippy::cast_possible_truncation)]
-    fn auto_detect_trace_seeds_from_current_frame(&mut self) -> Result<usize, String> {
-        self.ensure_echelle_calibration_editor_profile();
-        let frame = self
-            .last_frame_data
-            .as_ref()
-            .ok_or_else(|| "No frame available for auto-detect".to_string())?;
-        let profile = self
-            .echelle_cal_ui
-            .editor_profile
-            .as_ref()
-            .ok_or_else(|| "No editor profile loaded".to_string())?;
-
-        let centers = detect_cross_dispersion_peaks_from_frame(
-            frame.as_ref(),
-            self.width,
-            self.height,
-            self.bit_depth,
-            profile.orientation.dispersion_axis,
-            self.echelle_cal_ui
-                .trace_auto_detect_min_separation_px
-                .max(1),
-            self.echelle_cal_ui.trace_overlay_max_orders.max(1) as usize,
-            self.echelle_cal_ui
-                .trace_auto_detect_threshold_fraction
-                .clamp(0.01, 0.95),
-        )?;
-        if centers.is_empty() {
-            return Err("No candidate order peaks detected in the current frame".to_string());
-        }
-
-        if let Some(profile) = self.echelle_cal_ui.editor_profile.as_mut() {
-            let dispersion_len = match profile.orientation.dispersion_axis {
-                DetectorAxis::X => profile.compatibility.frame_width.max(1),
-                DetectorAxis::Y => profile.compatibility.frame_height.max(1),
-            };
-            let cross_roi_offset = match profile.orientation.cross_dispersion_axis {
-                DetectorAxis::X => f64::from(profile.compatibility.roi_x),
-                DetectorAxis::Y => f64::from(profile.compatibility.roi_y),
-            };
-            let template_wavelength = profile
-                .orders
-                .get(self.echelle_cal_ui.selected_order_edit_idx)
-                .map(|o| o.wavelength.clone())
-                .or_else(|| profile.orders.first().map(|o| o.wavelength.clone()))
-                .unwrap_or(EchelleWavelengthModel::Polynomial {
-                    basis: PolynomialBasis::Monomial,
-                    coefficients: vec![0.0, 1.0],
-                    domain_start: 0.0,
-                    domain_end: f64::from(dispersion_len.saturating_sub(1)) + 1.0,
-                    unit: "nm".to_string(),
-                });
-
-            let mut new_orders = Vec::with_capacity(centers.len());
-            for (idx, center_local) in centers.iter().enumerate() {
-                new_orders.push(EchelleOrderCalibration {
-                    relative_index: idx as u32,
-                    physical_order_number: None,
-                    sample_start: 0,
-                    sample_end: dispersion_len.saturating_sub(1),
-                    trace: EchelleTraceModel::Polynomial {
-                        basis: PolynomialBasis::Monomial,
-                        coefficients: vec![*center_local + cross_roi_offset],
-                        domain_start: 0.0,
-                        domain_end: f64::from(dispersion_len.saturating_sub(1)) + 1.0,
-                    },
-                    wavelength: template_wavelength.clone(),
-                    aperture_half_width_px: None,
-                    enabled: true,
-                    notes: Some("Auto-detected constant trace seed from frame peaks".to_string()),
-                });
-            }
-            profile.orders = new_orders;
-        }
-        self.echelle_cal_ui.selected_order_edit_idx = 0;
-        self.mark_echelle_editor_dirty();
-        Ok(centers.len())
-    }
-
-    fn export_selected_order_blaze_preview_artifact(
-        &mut self,
-        path: &std::path::Path,
-    ) -> Result<(), String> {
-        let preview = self
-            .echelle_preview
-            .as_ref()
-            .ok_or_else(|| "No extracted preview is available".to_string())?;
-        let order = preview
-            .orders
-            .get(self.echelle_selected_order_plot)
-            .ok_or_else(|| "No selected order preview available".to_string())?;
-        if order.flux.is_empty() {
-            return Err("Selected order preview has empty flux".to_string());
-        }
-
-        let max_flux = order
-            .flux
-            .iter()
-            .copied()
-            .fold(f64::NEG_INFINITY, f64::max)
-            .max(1e-12);
-        use std::fmt::Write;
-        let mut out = String::from("sample,wavelength,raw_flux,normalized_flux\n");
-        for (i, (&w, &f)) in order.wavelengths.iter().zip(&order.flux).enumerate() {
-            let _ = writeln!(out, "{i},{w},{f},{}", f / max_flux);
-        }
-        if let Some(parent) = path.parent() {
-            if !parent.as_os_str().is_empty() && !parent.exists() {
-                std::fs::create_dir_all(parent).map_err(|e| {
-                    format!(
-                        "Failed to create blaze artifact directory {}: {e}",
-                        parent.display()
-                    )
-                })?;
-            }
-        }
-        std::fs::write(path, out)
-            .map_err(|e| format!("Failed to write {}: {e}", path.display()))?;
-
-        if let Some(profile) = self.echelle_cal_ui.editor_profile.as_mut() {
-            profile.corrections.blaze = Some(EchelleArtifactRef {
-                path: path.display().to_string(),
-                sha256: None,
-                format: Some("csv".to_string()),
-            });
-            self.mark_echelle_editor_dirty();
-        }
-        Ok(())
-    }
-
-    fn render_echelle_calibration_workspace(&mut self, ui: &mut egui::Ui) {
-        egui::CollapsingHeader::new("Calibration Workspace (Mechelle / Echelle)")
-            .default_open(true)
-            .show(ui, |ui| {
-                ui.small(
-                    "Author and validate echelle calibration profiles, order traces, arc picks, and fit diagnostics.",
-                );
-
-                ui.horizontal_wrapped(|ui| {
-                    for (tab, label) in [
-                        (EchelleCalibrationTab::Profile, "Profile"),
-                        (EchelleCalibrationTab::Trace, "Trace"),
-                        (EchelleCalibrationTab::LinePoints, "Arc/Points"),
-                        (EchelleCalibrationTab::WavelengthFit, "Wavelength Fit"),
-                        (EchelleCalibrationTab::BlazeFlat, "Blaze/Flat"),
-                        (EchelleCalibrationTab::MechelleNotes, "Mechelle UX"),
-                    ] {
-                        ui.selectable_value(&mut self.echelle_cal_ui.tab, tab, label);
-                    }
-                });
-
-                if let Some(msg) = &self.echelle_cal_ui.status_message {
-                    ui.small(msg);
-                }
-                if let Some(err) = &self.echelle_cal_ui.last_error {
-                    ui.colored_label(colors::ERROR, err);
-                }
-
-                ui.separator();
-
-                let mut trigger_load_editor = false;
-                let mut trigger_save_editor = false;
-                let mut trigger_save_activate = false;
-                let mut trigger_activate_only = false;
-
-                ui.horizontal_wrapped(|ui| {
-                    ui.label("Profile path:");
-                    ui.text_edit_singleline(&mut self.echelle_cal_ui.save_as_path_text);
-                    if ui.button("Load Editor").clicked() {
-                        trigger_load_editor = true;
-                    }
-                    if ui.button("Save").clicked() {
-                        trigger_save_editor = true;
-                    }
-                    if ui.button("Save + Activate").clicked() {
-                        trigger_save_activate = true;
-                    }
-                    if ui.button("Activate Path").clicked() {
-                        trigger_activate_only = true;
-                    }
-                });
-                ui.horizontal_wrapped(|ui| {
-                    if ui.button("Clone Active -> Editor").clicked() {
-                        if let Some(profile) = self.echelle_profile_cache.profile() {
-                            self.echelle_cal_ui.editor_profile = Some((**profile).clone());
-                            self.echelle_cal_ui.editor_dirty = false;
-                            self.echelle_cal_ui.editor_last_loaded_path =
-                                self.echelle_profile_cache.path().map(|p| p.to_path_buf());
-                            if self.echelle_cal_ui.save_as_path_text.is_empty() {
-                                if let Some(path) = self.echelle_profile_cache.path() {
-                                    self.echelle_cal_ui.save_as_path_text = path.display().to_string();
-                                }
-                            }
-                            self.echelle_cal_ui.status_message =
-                                Some("Editor cloned from active profile".to_string());
-                            self.echelle_cal_ui.last_error = None;
-                        } else {
-                            self.echelle_cal_ui.last_error =
-                                Some("No active profile available to clone".to_string());
-                        }
-                    }
-                    if ui.button("New Draft From Frame").clicked() {
-                        self.echelle_cal_ui.editor_profile = Some(self.default_echelle_calibration_profile());
-                        self.echelle_cal_ui.editor_dirty = true;
-                        self.echelle_cal_ui.editor_last_loaded_path = None;
-                        self.echelle_cal_ui.status_message =
-                            Some("Created new draft calibration profile".to_string());
-                        self.echelle_cal_ui.last_error = None;
-                    }
-                    if ui.button("Reset Editor From Active").clicked() {
-                        if let Some(profile) = self.echelle_profile_cache.profile() {
-                            self.echelle_cal_ui.editor_profile = Some((**profile).clone());
-                            self.echelle_cal_ui.editor_dirty = false;
-                            self.echelle_cal_ui.status_message =
-                                Some("Editor reset from active profile".to_string());
-                            self.echelle_cal_ui.last_error = None;
-                        }
-                    }
-                    if let Some(path) = &self.echelle_cal_ui.editor_last_loaded_path {
-                        ui.small(format!("Editor source: {}", path.display()));
-                    } else {
-                        ui.small("Editor source: draft");
-                    }
-                    if self.echelle_cal_ui.editor_dirty {
-                        ui.colored_label(colors::WARNING, "Unsaved editor changes");
-                    }
-                });
-
-                if trigger_load_editor {
-                    let path = std::path::PathBuf::from(self.echelle_cal_ui.save_as_path_text.trim());
-                    if self.echelle_cal_ui.save_as_path_text.trim().is_empty() {
-                        self.echelle_cal_ui.last_error =
-                            Some("Enter a profile path before loading".to_string());
-                    } else {
-                        match EchelleCalibrationProfile::load_from_path(&path) {
-                            Ok(profile) => {
-                                self.echelle_cal_ui.editor_profile = Some(profile);
-                                self.echelle_cal_ui.editor_dirty = false;
-                                self.echelle_cal_ui.editor_last_loaded_path = Some(path.clone());
-                                self.echelle_cal_ui.status_message =
-                                    Some(format!("Loaded editor profile from {}", path.display()));
-                                self.echelle_cal_ui.last_error = None;
-                            }
-                            Err(err) => {
-                                self.echelle_cal_ui.last_error = Some(format!(
-                                    "Failed to load editor profile {}: {err}",
-                                    path.display()
-                                ));
-                            }
-                        }
-                    }
-                }
-                if trigger_save_editor {
-                    if let Err(err) = self.save_echelle_editor_profile_to_path(false) {
-                        self.echelle_cal_ui.last_error = Some(err);
-                    }
-                }
-                if trigger_save_activate {
-                    if let Err(err) = self.save_echelle_editor_profile_to_path(true) {
-                        self.echelle_cal_ui.last_error = Some(err);
-                    }
-                }
-                if trigger_activate_only {
-                    let path_text = self.echelle_cal_ui.save_as_path_text.trim();
-                    if path_text.is_empty() {
-                        self.echelle_cal_ui.last_error =
-                            Some("Enter a profile path before activation".to_string());
-                    } else {
-                        self.set_echelle_profile_path(std::path::PathBuf::from(path_text));
-                        self.poll_echelle_profile_cache();
-                    }
-                }
-
-                match self.echelle_cal_ui.tab {
-                    EchelleCalibrationTab::Profile => self.render_echelle_calibration_profile_tab(ui),
-                    EchelleCalibrationTab::Trace => self.render_echelle_calibration_trace_tab(ui),
-                    EchelleCalibrationTab::LinePoints => {
-                        self.render_echelle_calibration_line_points_tab(ui);
-                    }
-                    EchelleCalibrationTab::WavelengthFit => {
-                        self.render_echelle_calibration_wavelength_fit_tab(ui);
-                    }
-                    EchelleCalibrationTab::BlazeFlat => self.render_echelle_calibration_blaze_tab(ui),
-                    EchelleCalibrationTab::MechelleNotes => {
-                        self.render_echelle_calibration_mechelle_notes_tab(ui);
-                    }
-                }
-            });
-    }
-
-    fn render_echelle_calibration_profile_tab(&mut self, ui: &mut egui::Ui) {
-        self.ensure_echelle_calibration_editor_profile();
-        let Some(profile) = self.echelle_cal_ui.editor_profile.as_mut() else {
-            ui.weak("No editor profile loaded.");
-            return;
-        };
-
-        let mut changed = false;
-        egui::Grid::new("echelle_cal_profile_grid")
-            .num_columns(2)
-            .spacing([8.0, 4.0])
-            .show(ui, |ui| {
-                ui.label("Display name");
-                changed |= ui.text_edit_singleline(&mut profile.display_name).changed();
-                ui.end_row();
-
-                ui.label("Profile ID");
-                let mut id_text = profile.profile_id.clone().unwrap_or_default();
-                if ui.text_edit_singleline(&mut id_text).changed() {
-                    profile.profile_id = if id_text.trim().is_empty() {
-                        None
-                    } else {
-                        Some(id_text)
-                    };
-                    changed = true;
-                }
-                ui.end_row();
-
-                ui.label("Schema");
-                ui.horizontal(|ui| {
-                    changed |= ui
-                        .add(egui::DragValue::new(&mut profile.schema_version.major).range(1..=9))
-                        .changed();
-                    changed |= ui
-                        .add(egui::DragValue::new(&mut profile.schema_version.minor).range(0..=99))
-                        .changed();
-                    changed |= ui
-                        .add(egui::DragValue::new(&mut profile.schema_version.patch).range(0..=99))
-                        .changed();
-                });
-                ui.end_row();
-
-                ui.label("Compatibility");
-                ui.horizontal_wrapped(|ui| {
-                    changed |= ui
-                        .add(
-                            egui::DragValue::new(&mut profile.compatibility.frame_width)
-                                .range(1..=8192)
-                                .prefix("frame_w "),
-                        )
-                        .changed();
-                    changed |= ui
-                        .add(
-                            egui::DragValue::new(&mut profile.compatibility.frame_height)
-                                .range(1..=8192)
-                                .prefix("frame_h "),
-                        )
-                        .changed();
-                    changed |= ui
-                        .add(
-                            egui::DragValue::new(&mut profile.compatibility.roi_x)
-                                .range(0..=8192)
-                                .prefix("roi_x "),
-                        )
-                        .changed();
-                    changed |= ui
-                        .add(
-                            egui::DragValue::new(&mut profile.compatibility.roi_y)
-                                .range(0..=8192)
-                                .prefix("roi_y "),
-                        )
-                        .changed();
-                    changed |= ui
-                        .add(
-                            egui::DragValue::new(&mut profile.compatibility.binning_x)
-                                .range(1..=16)
-                                .prefix("bin_x "),
-                        )
-                        .changed();
-                    changed |= ui
-                        .add(
-                            egui::DragValue::new(&mut profile.compatibility.binning_y)
-                                .range(1..=16)
-                                .prefix("bin_y "),
-                        )
-                        .changed();
-                });
-                ui.end_row();
-
-                ui.label("Provenance");
-                ui.vertical(|ui| {
-                    changed |= ui
-                        .text_edit_singleline(&mut profile.provenance.creator_tool)
-                        .changed();
-                    let mut version = profile
-                        .provenance
-                        .creator_version
-                        .clone()
-                        .unwrap_or_default();
-                    if ui.text_edit_singleline(&mut version).changed() {
-                        profile.provenance.creator_version = if version.trim().is_empty() {
-                            None
-                        } else {
-                            Some(version)
-                        };
-                        changed = true;
-                    }
-                    let notes = profile.provenance.notes.get_or_insert_with(String::new);
-                    changed |= ui.text_edit_multiline(notes).changed();
-                    ui.small(format!(
-                        "created_at_utc: {}",
-                        profile.provenance.created_at_utc
-                    ));
-                });
-                ui.end_row();
-            });
-
-        ui.separator();
-        match profile.validate() {
-            Ok(()) => ui.colored_label(colors::SUCCESS, "Profile validates"),
-            Err(err) => ui.colored_label(colors::WARNING, format!("Validation issue: {err}")),
-        };
-
-        if changed {
-            self.mark_echelle_editor_dirty();
-        }
-    }
-
-    fn render_echelle_calibration_trace_tab(&mut self, ui: &mut egui::Ui) {
-        self.ensure_echelle_calibration_editor_profile();
-
-        ui.horizontal_wrapped(|ui| {
-            ui.checkbox(
-                &mut self.echelle_cal_ui.trace_overlay_enabled,
-                "Show trace overlays on image",
-            );
-            ui.checkbox(
-                &mut self.echelle_cal_ui.trace_overlay_all_orders,
-                "All orders",
-            );
-            ui.add(
-                egui::DragValue::new(&mut self.echelle_cal_ui.trace_overlay_sample_step)
-                    .range(1..=256)
-                    .prefix("step "),
-            );
-            ui.add(
-                egui::DragValue::new(&mut self.echelle_cal_ui.trace_overlay_max_orders)
-                    .range(1..=256)
-                    .prefix("max "),
-            );
-            ui.add(
-                egui::DragValue::new(&mut self.echelle_cal_ui.trace_nudge_px)
-                    .range(0.01..=20.0)
-                    .speed(0.05)
-                    .prefix("nudge "),
-            );
-        });
-        ui.horizontal_wrapped(|ui| {
-            ui.add(
-                egui::DragValue::new(&mut self.echelle_cal_ui.trace_auto_detect_min_separation_px)
-                    .range(1..=512)
-                    .prefix("auto min-sep "),
-            );
-            ui.add(
-                egui::DragValue::new(&mut self.echelle_cal_ui.trace_auto_detect_threshold_fraction)
-                    .range(0.01..=0.95)
-                    .speed(0.01)
-                    .prefix("auto thr "),
-            );
-            if ui
-                .button("Auto-Detect Trace Seeds From Current Frame")
-                .clicked()
-            {
-                match self.auto_detect_trace_seeds_from_current_frame() {
-                    Ok(count) => {
-                        self.echelle_cal_ui.status_message = Some(format!(
-                            "Auto-detected {count} trace seed(s) from current frame"
-                        ));
-                        self.echelle_cal_ui.last_error = None;
-                    }
-                    Err(err) => self.echelle_cal_ui.last_error = Some(err),
-                }
-            }
-            ui.small("Creates constant-trace seeds from cross-dispersion peaks; refine manually.");
-        });
-
-        let Some(profile_ref) = self.echelle_cal_ui.editor_profile.as_ref() else {
-            ui.weak("No editor profile loaded.");
-            return;
-        };
-
-        let order_labels: Vec<String> = profile_ref
-            .orders
-            .iter()
-            .enumerate()
-            .map(|(idx, order)| {
-                format!(
-                    "#{idx} rel={}{}{}",
-                    order.relative_index,
-                    order
-                        .physical_order_number
-                        .map(|m| format!(" m={m}"))
-                        .unwrap_or_default(),
-                    if order.enabled { "" } else { " (disabled)" }
-                )
-            })
-            .collect();
-
-        if order_labels.is_empty() {
-            ui.weak("No orders in editor profile.");
-            return;
-        }
-
-        if self.echelle_cal_ui.selected_order_edit_idx >= order_labels.len() {
-            self.echelle_cal_ui.selected_order_edit_idx = 0;
-        }
-
-        ui.horizontal_wrapped(|ui| {
-            egui::ComboBox::from_id_salt("echelle_cal_trace_order_select")
-                .selected_text(
-                    order_labels
-                        .get(self.echelle_cal_ui.selected_order_edit_idx)
-                        .cloned()
-                        .unwrap_or_else(|| "order".to_string()),
-                )
-                .show_ui(ui, |ui| {
-                    for (idx, label) in order_labels.iter().enumerate() {
-                        ui.selectable_value(
-                            &mut self.echelle_cal_ui.selected_order_edit_idx,
-                            idx,
-                            label,
-                        );
-                    }
-                });
-            if ui.button("Add Order (Clone)").clicked() {
-                if let Some(profile) = self.echelle_cal_ui.editor_profile.as_mut() {
-                    let selected = self
-                        .echelle_cal_ui
-                        .selected_order_edit_idx
-                        .min(profile.orders.len() - 1);
-                    let mut new_order = profile.orders[selected].clone();
-                    let next_rel = profile
-                        .orders
-                        .iter()
-                        .map(|o| o.relative_index)
-                        .max()
-                        .unwrap_or(0)
-                        .saturating_add(1);
-                    new_order.relative_index = next_rel;
-                    new_order.physical_order_number = None;
-                    new_order.notes = Some("Cloned for manual trace adjustment".to_string());
-                    profile.orders.push(new_order);
-                    self.echelle_cal_ui.selected_order_edit_idx = profile.orders.len() - 1;
-                    self.mark_echelle_editor_dirty();
-                }
-            }
-            if ui.button("Remove Selected Order").clicked() {
-                if let Some(profile) = self.echelle_cal_ui.editor_profile.as_mut() {
-                    if profile.orders.len() > 1 {
-                        let idx = self
-                            .echelle_cal_ui
-                            .selected_order_edit_idx
-                            .min(profile.orders.len() - 1);
-                        profile.orders.remove(idx);
-                        self.echelle_cal_ui.selected_order_edit_idx = self
-                            .echelle_cal_ui
-                            .selected_order_edit_idx
-                            .min(profile.orders.len().saturating_sub(1));
-                        self.mark_echelle_editor_dirty();
-                    } else {
-                        self.echelle_cal_ui.last_error =
-                            Some("Profile must contain at least one order".to_string());
-                    }
-                }
-            }
-        });
-
-        let selected_idx = self.echelle_cal_ui.selected_order_edit_idx;
-        let mut changed = false;
-        if let Some(profile) = self.echelle_cal_ui.editor_profile.as_mut() {
-            if let Some(order) = profile.orders.get_mut(selected_idx) {
-                ui.separator();
-                ui.horizontal_wrapped(|ui| {
-                    changed |= ui.checkbox(&mut order.enabled, "Enabled").changed();
-                    changed |= ui
-                        .add(
-                            egui::DragValue::new(&mut order.relative_index)
-                                .range(0..=999)
-                                .prefix("rel "),
-                        )
-                        .changed();
-                    let mut physical_text = order
-                        .physical_order_number
-                        .map(|v| v.to_string())
-                        .unwrap_or_default();
-                    ui.label("m:");
-                    if ui.text_edit_singleline(&mut physical_text).changed() {
-                        order.physical_order_number = if physical_text.trim().is_empty() {
-                            None
-                        } else {
-                            physical_text.parse::<i32>().ok()
-                        };
-                        changed = true;
-                    }
-                });
-
-                ui.horizontal_wrapped(|ui| {
-                    changed |= ui
-                        .add(
-                            egui::DragValue::new(&mut order.sample_start)
-                                .range(0..=8191)
-                                .prefix("sample_start "),
-                        )
-                        .changed();
-                    changed |= ui
-                        .add(
-                            egui::DragValue::new(&mut order.sample_end)
-                                .range(0..=8191)
-                                .prefix("sample_end "),
-                        )
-                        .changed();
-                    let mut aperture_enabled = order.aperture_half_width_px.is_some();
-                    if ui
-                        .checkbox(&mut aperture_enabled, "Order aperture override")
-                        .changed()
-                    {
-                        if aperture_enabled && order.aperture_half_width_px.is_none() {
-                            order.aperture_half_width_px = Some(4.0);
-                        }
-                        if !aperture_enabled {
-                            order.aperture_half_width_px = None;
-                        }
-                        changed = true;
-                    }
-                    if let Some(ap) = &mut order.aperture_half_width_px {
-                        changed |= ui
-                            .add(
-                                egui::DragValue::new(ap)
-                                    .range(0.1..=128.0)
-                                    .speed(0.1)
-                                    .prefix("half-width "),
-                            )
-                            .changed();
-                    }
-                });
-
-                let notes = order.notes.get_or_insert_with(String::new);
-                changed |= ui.text_edit_multiline(notes).changed();
-
-                let EchelleTraceModel::Polynomial {
-                    basis,
-                    coefficients,
-                    domain_start,
-                    domain_end,
-                } = &mut order.trace;
-                ui.separator();
-                ui.horizontal_wrapped(|ui| {
-                    ui.label("Trace basis:");
-                    ui.selectable_value(basis, PolynomialBasis::Monomial, "Monomial");
-                    ui.selectable_value(basis, PolynomialBasis::Chebyshev, "Chebyshev");
-                    changed |= ui
-                        .add(
-                            egui::DragValue::new(domain_start)
-                                .speed(0.5)
-                                .prefix("domain_start "),
-                        )
-                        .changed();
-                    changed |= ui
-                        .add(
-                            egui::DragValue::new(domain_end)
-                                .speed(0.5)
-                                .prefix("domain_end "),
-                        )
-                        .changed();
-                });
-                ui.horizontal_wrapped(|ui| {
-                    if ui.button("Nudge -Y").clicked() {
-                        if let Some(c0) = coefficients.first_mut() {
-                            *c0 -= self.echelle_cal_ui.trace_nudge_px;
-                            changed = true;
-                        }
-                    }
-                    if ui.button("Nudge +Y").clicked() {
-                        if let Some(c0) = coefficients.first_mut() {
-                            *c0 += self.echelle_cal_ui.trace_nudge_px;
-                            changed = true;
-                        }
-                    }
-                    if ui.button("Add Coeff").clicked() {
-                        coefficients.push(0.0);
-                        changed = true;
-                    }
-                    if ui.button("Pop Coeff").clicked() && coefficients.len() > 1 {
-                        coefficients.pop();
-                        changed = true;
-                    }
-                });
-                egui::Grid::new("echelle_cal_trace_coeff_grid").show(ui, |ui| {
-                    for (i, coeff) in coefficients.iter_mut().enumerate() {
-                        ui.label(format!("c{i}"));
-                        changed |= ui.add(egui::DragValue::new(coeff).speed(0.01)).changed();
-                        ui.end_row();
-                    }
-                });
-            }
-        }
-
-        if let Some(profile) = self.echelle_cal_ui.editor_profile.as_ref() {
-            match profile.validate() {
-                Ok(()) => ui.colored_label(colors::SUCCESS, "Trace/order edits validate"),
-                Err(err) => ui.colored_label(colors::WARNING, format!("Validation issue: {err}")),
-            };
-        }
-        if changed {
-            self.mark_echelle_editor_dirty();
-        }
-    }
-
-    #[allow(clippy::cast_precision_loss)]
-    fn render_echelle_calibration_line_points_tab(&mut self, ui: &mut egui::Ui) {
-        self.ensure_echelle_calibration_editor_profile();
-
-        ui.horizontal_wrapped(|ui| {
-            ui.label("Points JSON:");
-            ui.text_edit_singleline(&mut self.echelle_cal_ui.points_path_text);
-            if ui.button("Import Points").clicked() {
-                let path_text = self.echelle_cal_ui.points_path_text.trim().to_string();
-                if path_text.is_empty() {
-                    self.echelle_cal_ui.last_error = Some("Enter a points JSON path".to_string());
-                } else {
-                    match self.import_echelle_calibration_points_from_path(std::path::Path::new(
-                        &path_text,
-                    )) {
-                        Ok(count) => {
-                            self.echelle_cal_ui.status_message =
-                                Some(format!("Imported {count} calibration points"));
-                            self.echelle_cal_ui.last_error = None;
-                        }
-                        Err(err) => self.echelle_cal_ui.last_error = Some(err),
-                    }
-                }
-            }
-            if ui.button("Export Points").clicked() {
-                let path_text = self.echelle_cal_ui.points_path_text.trim().to_string();
-                if path_text.is_empty() {
-                    self.echelle_cal_ui.last_error = Some("Enter a points JSON path".to_string());
-                } else {
-                    match self
-                        .export_echelle_calibration_points_to_path(std::path::Path::new(&path_text))
-                    {
-                        Ok(()) => {
-                            self.echelle_cal_ui.status_message =
-                                Some("Exported calibration points".to_string());
-                            self.echelle_cal_ui.last_error = None;
-                        }
-                        Err(err) => self.echelle_cal_ui.last_error = Some(err),
-                    }
-                }
-            }
-        });
-        ui.horizontal_wrapped(|ui| {
-            ui.label("Line list JSON:");
-            ui.text_edit_singleline(&mut self.echelle_cal_ui.line_list_path_text);
-            if ui.button("Import Line List").clicked() {
-                let path_text = self.echelle_cal_ui.line_list_path_text.trim().to_string();
-                if path_text.is_empty() {
-                    self.echelle_cal_ui.last_error =
-                        Some("Enter a line list JSON path".to_string());
-                } else {
-                    match self.import_echelle_line_list_from_path(std::path::Path::new(&path_text))
-                    {
-                        Ok(count) => {
-                            self.echelle_cal_ui.status_message =
-                                Some(format!("Imported {count} line-list entries"));
-                            self.echelle_cal_ui.last_error = None;
-                        }
-                        Err(err) => self.echelle_cal_ui.last_error = Some(err),
-                    }
-                }
-            }
-            if ui.button("Export Line List").clicked() {
-                let path_text = self.echelle_cal_ui.line_list_path_text.trim().to_string();
-                if path_text.is_empty() {
-                    self.echelle_cal_ui.last_error =
-                        Some("Enter a line list JSON path".to_string());
-                } else {
-                    match self.export_echelle_line_list_to_path(std::path::Path::new(&path_text)) {
-                        Ok(()) => {
-                            self.echelle_cal_ui.status_message =
-                                Some("Exported line list".to_string());
-                            self.echelle_cal_ui.last_error = None;
-                        }
-                        Err(err) => self.echelle_cal_ui.last_error = Some(err),
-                    }
-                }
-            }
-        });
-
-        ui.separator();
-        ui.horizontal_wrapped(|ui| {
-            if ui.button("Add Point").clicked() {
-                let (order_relative_index, x_sample, y_pixel, wavelength) =
-                    if let Some(link) = self.echelle_plot_hover_link {
-                        (
-                            link.relative_index,
-                            link.sample_index as f64,
-                            0.0,
-                            link.wavelength,
-                        )
-                    } else {
-                        (0, 0.0, 0.0, 0.0)
-                    };
-                self.echelle_cal_ui
-                    .calibration_points
-                    .push(EchelleCalibrationPointUi {
-                        enabled: true,
-                        order_relative_index,
-                        x_sample,
-                        y_pixel,
-                        wavelength,
-                        note: String::new(),
-                    });
-                self.echelle_cal_ui.selected_point_idx = self
-                    .echelle_cal_ui
-                    .calibration_points
-                    .len()
-                    .saturating_sub(1);
-            }
-            if ui.button("Remove Point").clicked()
-                && !self.echelle_cal_ui.calibration_points.is_empty()
-            {
-                let idx = self
-                    .echelle_cal_ui
-                    .selected_point_idx
-                    .min(self.echelle_cal_ui.calibration_points.len() - 1);
-                self.echelle_cal_ui.calibration_points.remove(idx);
-                self.echelle_cal_ui.selected_point_idx =
-                    self.echelle_cal_ui.selected_point_idx.min(
-                        self.echelle_cal_ui
-                            .calibration_points
-                            .len()
-                            .saturating_sub(1),
-                    );
-            }
-            ui.small(format!(
-                "{} calibration points",
-                self.echelle_cal_ui.calibration_points.len()
-            ));
-        });
-        egui::ScrollArea::vertical()
-            .max_height(180.0)
-            .show(ui, |ui| {
-                egui::Grid::new("echelle_cal_points_grid")
-                    .striped(true)
-                    .show(ui, |ui| {
-                        ui.strong("Sel");
-                        ui.strong("On");
-                        ui.strong("Order");
-                        ui.strong("x");
-                        ui.strong("y");
-                        ui.strong("λ");
-                        ui.strong("Note");
-                        ui.end_row();
-                        for (idx, p) in self
-                            .echelle_cal_ui
-                            .calibration_points
-                            .iter_mut()
-                            .enumerate()
-                        {
-                            ui.selectable_value(
-                                &mut self.echelle_cal_ui.selected_point_idx,
-                                idx,
-                                "•",
-                            );
-                            ui.checkbox(&mut p.enabled, "");
-                            ui.add(
-                                egui::DragValue::new(&mut p.order_relative_index).range(0..=999),
-                            );
-                            ui.add(egui::DragValue::new(&mut p.x_sample).speed(0.1));
-                            ui.add(egui::DragValue::new(&mut p.y_pixel).speed(0.1));
-                            ui.add(egui::DragValue::new(&mut p.wavelength).speed(0.001));
-                            ui.text_edit_singleline(&mut p.note);
-                            ui.end_row();
-                        }
-                    });
-            });
-
-        ui.separator();
-        ui.horizontal_wrapped(|ui| {
-            if ui.button("Add Line").clicked() {
-                self.echelle_cal_ui.line_list.push(EchelleLineListEntryUi {
-                    enabled: true,
-                    wavelength: 0.0,
-                    label: String::new(),
-                });
-            }
-            if ui.button("Remove Line").clicked() && !self.echelle_cal_ui.line_list.is_empty() {
-                self.echelle_cal_ui.line_list.pop();
-            }
-            ui.small(format!(
-                "{} line-list entries",
-                self.echelle_cal_ui.line_list.len()
-            ));
-        });
-        egui::ScrollArea::vertical()
-            .max_height(140.0)
-            .show(ui, |ui| {
-                egui::Grid::new("echelle_cal_line_list_grid")
-                    .striped(true)
-                    .show(ui, |ui| {
-                        ui.strong("On");
-                        ui.strong("λ");
-                        ui.strong("Label");
-                        ui.end_row();
-                        for line in &mut self.echelle_cal_ui.line_list {
-                            ui.checkbox(&mut line.enabled, "");
-                            ui.add(egui::DragValue::new(&mut line.wavelength).speed(0.001));
-                            ui.text_edit_singleline(&mut line.label);
-                            ui.end_row();
-                        }
-                    });
-            });
-    }
-
-    #[allow(
-        clippy::cast_precision_loss,
-        clippy::cast_possible_truncation,
-        clippy::cast_sign_loss,
-        clippy::too_many_lines
-    )]
-    fn render_echelle_calibration_wavelength_fit_tab(&mut self, ui: &mut egui::Ui) {
-        self.ensure_echelle_calibration_editor_profile();
-        let Some(_) = self.echelle_cal_ui.editor_profile.as_ref() else {
-            ui.weak("No editor profile loaded.");
-            return;
-        };
-
-        // ── Section 1: Manual LSQ Fit (legacy) ──────────────────────────
-        let mut trigger_fit_selected = false;
-        ui.horizontal_wrapped(|ui| {
-            ui.add(
-                egui::DragValue::new(&mut self.echelle_cal_ui.fit_outlier_sigma)
-                    .range(0.5..=10.0)
-                    .speed(0.1)
-                    .prefix("outlier σ "),
-            );
-            ui.add(
-                egui::DragValue::new(&mut self.echelle_cal_ui.fit_rms_acceptance_px)
-                    .range(0.01..=10.0)
-                    .speed(0.01)
-                    .prefix("accept RMS "),
-            );
-            if ui.button("Fit Selected Order (LSQ)").clicked() {
-                trigger_fit_selected = true;
-            }
-            ui.small("Manual picks (see arc-line auto-match below).");
-        });
-
-        if trigger_fit_selected {
-            let selected_idx = self.echelle_cal_ui.selected_order_edit_idx;
-            let points = self.echelle_cal_ui.calibration_points.clone();
-            let fit_result = if let Some(profile) = self.echelle_cal_ui.editor_profile.as_mut() {
-                if let Some(order) = profile.orders.get_mut(selected_idx) {
-                    fit_wavelength_model_for_order_from_points(order, &points)
-                } else {
-                    Err("Selected order is out of range".to_string())
-                }
-            } else {
-                Err("No editor profile loaded".to_string())
-            };
-            match fit_result {
-                Ok(summary) => {
-                    self.echelle_cal_ui.status_message = Some(summary);
-                    self.echelle_cal_ui.last_error = None;
-                    self.mark_echelle_editor_dirty();
-                }
-                Err(err) => {
-                    self.echelle_cal_ui.last_error = Some(err);
-                }
-            }
-        }
-
-        // ── Section 2: Arc Line Detection (bd-a64a) ─────────────────────
-        ui.separator();
-        ui.strong("Arc Line Auto-Detection & Matching");
-
-        let mut trigger_detect = false;
-        ui.horizontal_wrapped(|ui| {
-            ui.add(
-                egui::DragValue::new(&mut self.echelle_cal_ui.arc_detect_config.sigdetect)
-                    .range(1.0..=50.0)
-                    .speed(0.5)
-                    .prefix("SNR "),
-            );
-            ui.add(
-                egui::DragValue::new(&mut self.echelle_cal_ui.arc_detect_config.min_fwhm)
-                    .range(0.5..=10.0)
-                    .speed(0.1)
-                    .prefix("FWHM min "),
-            );
-            ui.add(
-                egui::DragValue::new(&mut self.echelle_cal_ui.arc_detect_config.max_fwhm)
-                    .range(1.0..=20.0)
-                    .speed(0.1)
-                    .prefix("FWHM max "),
-            );
-            if ui.button("Detect Arc Lines").clicked() {
-                trigger_detect = true;
-            }
-        });
-
-        if trigger_detect {
-            // Get the 1D spectrum for the selected order from the extraction preview.
-            let selected_order_idx = self.echelle_selected_order_plot;
-            let spectrum_opt = self.echelle_preview.as_ref().and_then(|preview| {
-                preview.orders.get(selected_order_idx).map(|order| {
-                    (
-                        order.relative_index,
-                        order.flux.iter().map(|&v| v as f32).collect::<Vec<f32>>(),
-                    )
-                })
-            });
-            match spectrum_opt {
-                Some((rel_idx, spectrum)) if !spectrum.is_empty() => {
-                    let config = self.echelle_cal_ui.arc_detect_config.clone();
-                    let lines = detect_arc_lines(&spectrum, rel_idx, &config);
-                    self.echelle_cal_ui.status_message = Some(format!(
-                        "Detected {} arc lines on order {rel_idx}",
-                        lines.len()
-                    ));
-                    self.echelle_cal_ui.detected_arc_lines = lines;
-                    self.echelle_cal_ui.last_error = None;
-                    // Clear downstream state when detection changes.
-                    self.echelle_cal_ui.matched_pairs.clear();
-                    self.echelle_cal_ui.wl_fit_solution = None;
-                }
-                _ => {
-                    self.echelle_cal_ui.last_error = Some(
-                        "No extracted spectrum available. Stream frames and enable echelle extraction first."
-                            .to_string(),
-                    );
-                }
-            }
-        }
-
-        // Show detected lines summary.
-        if !self.echelle_cal_ui.detected_arc_lines.is_empty() {
-            let n = self.echelle_cal_ui.detected_arc_lines.len();
-            ui.small(format!(
-                "{n} detected arc lines (order {})",
-                self.echelle_cal_ui
-                    .detected_arc_lines
-                    .first()
-                    .map_or(0, |l| l.order)
-            ));
-        }
-
-        // ── Section 3: Atlas Matching (bd-a64a) ─────────────────────────
-        let mut trigger_match = false;
-        ui.horizontal_wrapped(|ui| {
-            ui.add(
-                egui::DragValue::new(&mut self.echelle_cal_ui.atlas_match_tolerance_nm)
-                    .range(0.01..=5.0)
-                    .speed(0.01)
-                    .prefix("tolerance nm "),
-            );
-            if ui
-                .add_enabled(
-                    !self.echelle_cal_ui.detected_arc_lines.is_empty(),
-                    egui::Button::new("Match to Atlas"),
-                )
-                .clicked()
-            {
-                trigger_match = true;
-            }
-        });
-
-        if trigger_match {
-            // We need a seed wavelength function from the current profile order.
-            let selected_idx = self.echelle_cal_ui.selected_order_edit_idx;
-            let seed_fn_result: Result<Box<dyn Fn(f64) -> f64>, String> = if let Some(profile) =
-                self.echelle_cal_ui.editor_profile.as_ref()
-            {
-                if let Some(order) = profile.orders.get(selected_idx) {
-                    match &order.wavelength {
-                        EchelleWavelengthModel::Polynomial {
-                            basis,
-                            coefficients,
-                            domain_start,
-                            domain_end,
-                            ..
-                        } => {
-                            let basis = *basis;
-                            let coeffs = coefficients.clone();
-                            let ds = *domain_start;
-                            let de = *domain_end;
-                            Ok(Box::new(move |px: f64| -> f64 {
-                                eval_polynomial_for_ui(basis, &coeffs, ds, de, px).unwrap_or(0.0)
-                            }) as Box<dyn Fn(f64) -> f64>)
-                        }
-                        EchelleWavelengthModel::Sampled { wavelengths, .. } => {
-                            let wls = wavelengths.clone();
-                            Ok(Box::new(move |px: f64| -> f64 {
-                                let idx = px.round().clamp(0.0, f64::MAX) as usize;
-                                wls.get(idx).copied().unwrap_or(0.0)
-                            }) as Box<dyn Fn(f64) -> f64>)
-                        }
-                    }
-                } else {
-                    Err("Selected order is out of range".to_string())
-                }
-            } else {
-                Err("No editor profile loaded".to_string())
-            };
-
-            match seed_fn_result {
-                Ok(seed_fn) => {
-                    let atlas = load_hgar_atlas();
-                    let tolerance = self.echelle_cal_ui.atlas_match_tolerance_nm;
-                    let lines = &self.echelle_cal_ui.detected_arc_lines;
-                    let raw_matches =
-                        match_lines_to_atlas(lines, &atlas, seed_fn.as_ref(), tolerance);
-
-                    // Build match table rows.
-                    let rows: Vec<ArcLineMatchRow> = raw_matches
-                        .iter()
-                        .map(|&(li, ai)| {
-                            let line = &lines[li];
-                            let atlas_line = &atlas[ai];
-                            let predicted_wl = seed_fn(line.pixel_center);
-                            // Estimate noise from amplitude / SNR approximation.
-                            // The detect function filters by sigdetect, so SNR >= config threshold.
-                            let snr = line.amplitude
-                                / self.echelle_cal_ui.arc_detect_config.sigdetect.max(1.0);
-                            ArcLineMatchRow {
-                                pixel_center: line.pixel_center,
-                                snr,
-                                fwhm: line.fwhm(),
-                                matched_wavelength_nm: atlas_line.wavelength_nm,
-                                residual_nm: predicted_wl - atlas_line.wavelength_nm,
-                                species: atlas_line.species.clone(),
-                                included: true,
-                                detected_line_idx: li,
-                                atlas_line_idx: ai,
-                            }
-                        })
-                        .collect();
-                    self.echelle_cal_ui.status_message =
-                        Some(format!("Matched {} lines to HgAr atlas", rows.len()));
-                    self.echelle_cal_ui.matched_pairs = rows;
-                    self.echelle_cal_ui.last_error = None;
-                    self.echelle_cal_ui.wl_fit_solution = None;
-                }
-                Err(err) => {
-                    self.echelle_cal_ui.last_error = Some(err);
-                }
-            }
-        }
-
-        // ── Section 4: Chebyshev Fit (bd-a64a) ──────────────────────────
-        let mut trigger_cheb_fit = false;
-        let mut trigger_export_profile = false;
-        ui.horizontal_wrapped(|ui| {
-            ui.add(
-                egui::DragValue::new(&mut self.echelle_cal_ui.wl_fit_config.poly_degree)
-                    .range(1..=10)
-                    .prefix("degree "),
-            );
-            ui.add(
-                egui::DragValue::new(&mut self.echelle_cal_ui.wl_fit_config.sigma_clip)
-                    .range(1.0..=10.0)
-                    .speed(0.1)
-                    .prefix("σ-clip "),
-            );
-            ui.add(
-                egui::DragValue::new(&mut self.echelle_cal_ui.wl_fit_config.max_clip_iters)
-                    .range(0..=20)
-                    .prefix("iters "),
-            );
-            let has_matches = !self.echelle_cal_ui.matched_pairs.is_empty();
-            if ui
-                .add_enabled(has_matches, egui::Button::new("Fit Chebyshev"))
-                .clicked()
-            {
-                trigger_cheb_fit = true;
-            }
-            if ui
-                .add_enabled(
-                    self.echelle_cal_ui.wl_fit_solution.is_some(),
-                    egui::Button::new("Export to Profile"),
-                )
-                .clicked()
-            {
-                trigger_export_profile = true;
-            }
-        });
-
-        if trigger_cheb_fit {
-            let atlas = load_hgar_atlas();
-            let lines = &self.echelle_cal_ui.detected_arc_lines;
-            let matches: Vec<(usize, usize)> = self
-                .echelle_cal_ui
-                .matched_pairs
-                .iter()
-                .filter(|r| r.included)
-                .map(|r| (r.detected_line_idx, r.atlas_line_idx))
-                .collect();
-            let order_idx = lines.first().map_or(0, |l| l.order);
-            let config = self.echelle_cal_ui.wl_fit_config.clone();
-            match fit_order_wavelength(lines, &atlas, &matches, order_idx, &config) {
-                Some(solution) => {
-                    // Update residuals in match table rows using the fitted solution.
-                    for row in &mut self.echelle_cal_ui.matched_pairs {
-                        let fitted_wl = solution.eval(row.pixel_center);
-                        row.residual_nm = fitted_wl - row.matched_wavelength_nm;
-                    }
-                    self.echelle_cal_ui.status_message = Some(format!(
-                        "Chebyshev fit: RMS {:.4} nm, {}/{} lines used",
-                        solution.rms_nm, solution.n_lines_used, solution.n_lines_total,
-                    ));
-                    self.echelle_cal_ui.wl_fit_solution = Some(solution);
-                    self.echelle_cal_ui.last_error = None;
-                }
-                None => {
-                    self.echelle_cal_ui.last_error = Some(
-                        "Chebyshev fit failed: too few matched lines or singular matrix"
-                            .to_string(),
-                    );
-                }
-            }
-        }
-
-        // ── Section 5: Export to Profile (bd-a64a) ───────────────────────
-        if trigger_export_profile {
-            if let Some(solution) = &self.echelle_cal_ui.wl_fit_solution {
-                let selected_idx = self.echelle_cal_ui.selected_order_edit_idx;
-                if let Some(profile) = self.echelle_cal_ui.editor_profile.as_mut() {
-                    if let Some(order) = profile.orders.get_mut(selected_idx) {
-                        order.wavelength = EchelleWavelengthModel::Polynomial {
-                            basis: PolynomialBasis::Chebyshev,
-                            coefficients: solution.coefficients.clone(),
-                            domain_start: solution.pixel_min,
-                            domain_end: solution.pixel_max,
-                            unit: "nm".to_string(),
-                        };
-                        self.echelle_cal_ui.status_message = Some(format!(
-                            "Exported Chebyshev wavelength model to order {} (RMS {:.4} nm)",
-                            order.relative_index, solution.rms_nm,
-                        ));
-                        self.echelle_cal_ui.last_error = None;
-                    } else {
-                        self.echelle_cal_ui.last_error =
-                            Some("Selected order is out of range".to_string());
-                    }
-                }
-                self.mark_echelle_editor_dirty();
-            }
-        }
-
-        // ── Section 6: Match Table (bd-a64a) ────────────────────────────
-        if !self.echelle_cal_ui.matched_pairs.is_empty() {
-            ui.separator();
-
-            // Compute RMS for the warning threshold (2*rms).
-            let included_residuals: Vec<f64> = self
-                .echelle_cal_ui
-                .matched_pairs
-                .iter()
-                .filter(|r| r.included)
-                .map(|r| r.residual_nm)
-                .collect();
-            let match_rms = if included_residuals.is_empty() {
-                0.0
-            } else {
-                let sum_sq: f64 = included_residuals.iter().map(|r| r * r).sum();
-                (sum_sq / included_residuals.len() as f64).sqrt()
-            };
-            let warning_threshold = 2.0 * match_rms;
-
-            egui::ScrollArea::vertical()
-                .max_height(200.0)
-                .id_salt("arc_match_table")
-                .show(ui, |ui| {
-                    egui::Grid::new("echelle_arc_match_grid")
-                        .striped(true)
-                        .show(ui, |ui| {
-                            ui.strong("Incl");
-                            ui.strong("Pixel");
-                            ui.strong("SNR");
-                            ui.strong("FWHM");
-                            ui.strong("Atlas nm");
-                            ui.strong("Residual nm");
-                            ui.strong("Species");
-                            ui.end_row();
-
-                            for row in &mut self.echelle_cal_ui.matched_pairs {
-                                ui.checkbox(&mut row.included, "");
-                                ui.label(format!("{:.2}", row.pixel_center));
-                                ui.label(format!("{:.1}", row.snr));
-                                ui.label(format!("{:.2}", row.fwhm));
-                                ui.label(format!("{:.3}", row.matched_wavelength_nm));
-                                if row.residual_nm.abs() > warning_threshold
-                                    && warning_threshold > 0.0
-                                {
-                                    ui.colored_label(
-                                        colors::WARNING,
-                                        format!("{:.4}", row.residual_nm),
-                                    );
-                                } else {
-                                    ui.label(format!("{:.4}", row.residual_nm));
-                                }
-                                ui.label(&row.species);
-                                ui.end_row();
-                            }
-                        });
-                });
-        }
-
-        // ── Section 7: Fit Diagnostics (bd-a64a) ────────────────────────
-        if let Some(solution) = &self.echelle_cal_ui.wl_fit_solution {
-            ui.separator();
-            ui.horizontal_wrapped(|ui| {
-                ui.strong("Fit Diagnostics");
-                ui.separator();
-                ui.small(format!("RMS: {:.4} nm", solution.rms_nm));
-                ui.separator();
-                ui.small(format!(
-                    "Lines: {}/{}",
-                    solution.n_lines_used, solution.n_lines_total
-                ));
-                ui.separator();
-                ui.small(format!(
-                    "Degree: {}",
-                    solution.coefficients.len().saturating_sub(1)
-                ));
-                ui.separator();
-                if solution.rms_nm <= self.echelle_cal_ui.fit_rms_acceptance_px {
-                    ui.colored_label(colors::SUCCESS, "PASS");
-                } else {
-                    ui.colored_label(colors::WARNING, "REVIEW");
-                }
-            });
-
-            // Residual scatter plot with sigma bands.
-            let residual_points: Vec<[f64; 2]> = self
-                .echelle_cal_ui
-                .matched_pairs
-                .iter()
-                .filter(|r| r.included)
-                .map(|r| [r.pixel_center, r.residual_nm])
-                .collect();
-            let excluded_points: Vec<[f64; 2]> = self
-                .echelle_cal_ui
-                .matched_pairs
-                .iter()
-                .filter(|r| !r.included)
-                .map(|r| [r.pixel_center, r.residual_nm])
-                .collect();
-
-            let rms = solution.rms_nm;
-            let px_min = solution.pixel_min;
-            let px_max = solution.pixel_max;
-
-            Plot::new("echelle_cheb_residual_scatter")
-                .height(170.0)
-                .allow_scroll(false)
-                .allow_zoom(true)
-                .allow_drag(true)
-                .x_axis_label("pixel")
-                .y_axis_label("residual (nm)")
-                .show(ui, |plot_ui| {
-                    // Zero line.
-                    plot_ui.line(
-                        Line::new("zero", PlotPoints::new(vec![[px_min, 0.0], [px_max, 0.0]]))
-                            .color(egui::Color32::GRAY),
-                    );
-
-                    // +/- 1 sigma bands.
-                    plot_ui.line(
-                        Line::new("+1σ", PlotPoints::new(vec![[px_min, rms], [px_max, rms]]))
-                            .color(egui::Color32::from_rgba_premultiplied(100, 200, 100, 120))
-                            .style(egui_plot::LineStyle::dashed_dense()),
-                    );
-                    plot_ui.line(
-                        Line::new("-1σ", PlotPoints::new(vec![[px_min, -rms], [px_max, -rms]]))
-                            .color(egui::Color32::from_rgba_premultiplied(100, 200, 100, 120))
-                            .style(egui_plot::LineStyle::dashed_dense()),
-                    );
-
-                    // +/- 3 sigma bands.
-                    plot_ui.line(
-                        Line::new(
-                            "+3σ",
-                            PlotPoints::new(vec![[px_min, 3.0 * rms], [px_max, 3.0 * rms]]),
-                        )
-                        .color(egui::Color32::from_rgba_premultiplied(200, 80, 80, 120))
-                        .style(egui_plot::LineStyle::dashed_dense()),
-                    );
-                    plot_ui.line(
-                        Line::new(
-                            "-3σ",
-                            PlotPoints::new(vec![[px_min, -3.0 * rms], [px_max, -3.0 * rms]]),
-                        )
-                        .color(egui::Color32::from_rgba_premultiplied(200, 80, 80, 120))
-                        .style(egui_plot::LineStyle::dashed_dense()),
-                    );
-
-                    // Included points.
-                    if !residual_points.is_empty() {
-                        plot_ui.points(
-                            Points::new("included", PlotPoints::new(residual_points))
-                                .radius(3.5)
-                                .color(egui::Color32::from_rgb(100, 200, 255)),
-                        );
-                    }
-                    // Excluded points.
-                    if !excluded_points.is_empty() {
-                        plot_ui.points(
-                            Points::new("excluded", PlotPoints::new(excluded_points))
-                                .radius(3.0)
-                                .color(egui::Color32::from_rgb(180, 80, 80))
-                                .shape(egui_plot::MarkerShape::Cross),
-                        );
-                    }
-                });
-
-            // Wavelength solution preview overlaid on spectrum.
-            if let Some(preview) = &self.echelle_preview {
-                let order_plot_idx = self.echelle_selected_order_plot;
-                if let Some(order_preview) = preview.orders.get(order_plot_idx) {
-                    if !order_preview.flux.is_empty() {
-                        ui.small("Wavelength solution overlay on arc spectrum:");
-                        let n_samples = order_preview.flux.len();
-                        // Build the fitted wavelength curve.
-                        let wl_curve: Vec<[f64; 2]> = (0..n_samples)
-                            .map(|i| {
-                                let px = i as f64;
-                                let wl = solution.eval(px);
-                                [px, wl]
-                            })
-                            .collect();
-                        // Build spectrum (normalized to fit on same plot).
-                        let flux_max = order_preview
-                            .flux
-                            .iter()
-                            .copied()
-                            .fold(0.0_f64, f64::max)
-                            .max(1.0);
-                        let wl_range = (solution.eval(solution.pixel_max)
-                            - solution.eval(solution.pixel_min))
-                        .abs()
-                        .max(1.0);
-                        let flux_as_wl: Vec<[f64; 2]> = order_preview
-                            .flux
-                            .iter()
-                            .enumerate()
-                            .map(|(i, &f)| {
-                                let px = i as f64;
-                                let wl_base = solution.eval(solution.pixel_min);
-                                [px, wl_base + (f / flux_max) * wl_range * 0.3]
-                            })
-                            .collect();
-
-                        // Detected line markers as vertical lines in wavelength space.
-                        let line_markers: Vec<[f64; 2]> = self
-                            .echelle_cal_ui
-                            .detected_arc_lines
-                            .iter()
-                            .map(|l| [l.pixel_center, solution.eval(l.pixel_center)])
-                            .collect();
-
-                        Plot::new("echelle_wl_solution_overlay")
-                            .height(150.0)
-                            .allow_scroll(false)
-                            .allow_zoom(true)
-                            .allow_drag(true)
-                            .x_axis_label("pixel")
-                            .y_axis_label("wavelength (nm)")
-                            .show(ui, |plot_ui| {
-                                plot_ui.line(
-                                    Line::new("λ(pixel)", PlotPoints::new(wl_curve))
-                                        .color(egui::Color32::from_rgb(255, 200, 60))
-                                        .width(2.0),
-                                );
-                                if !flux_as_wl.is_empty() {
-                                    plot_ui.line(
-                                        Line::new("spectrum", PlotPoints::new(flux_as_wl)).color(
-                                            egui::Color32::from_rgba_premultiplied(
-                                                120, 180, 255, 100,
-                                            ),
-                                        ),
-                                    );
-                                }
-                                if !line_markers.is_empty() {
-                                    plot_ui.points(
-                                        Points::new("arc lines", PlotPoints::new(line_markers))
-                                            .radius(3.0)
-                                            .color(egui::Color32::from_rgb(255, 100, 100)),
-                                    );
-                                }
-                            });
-                    }
-                }
-            }
-        }
-
-        // ── Section 8: Legacy manual-points residual display ─────────────
-        let Some(profile) = self.echelle_cal_ui.editor_profile.as_ref() else {
-            return;
-        };
-
-        let mut global_count = 0usize;
-        let mut global_sum_sq = 0.0f64;
-        for order in &profile.orders {
-            let residuals = compute_wavelength_fit_residuals_for_order(
-                order,
-                &self.echelle_cal_ui.calibration_points,
-            );
-            global_count += residuals.len();
-            global_sum_sq += residuals.iter().map(|(_, r)| r * r).sum::<f64>();
-        }
-        if global_count > 0 {
-            ui.separator();
-            let global_rms = (global_sum_sq / global_count as f64).sqrt();
-            ui.small(format!(
-                "Manual points residual summary: {} points | RMS {:.6}",
-                global_count, global_rms
-            ));
-
-            let selected_order = profile
-                .orders
-                .get(self.echelle_cal_ui.selected_order_edit_idx)
-                .or_else(|| profile.orders.first());
-            if let Some(order) = selected_order {
-                let residuals = compute_wavelength_fit_residuals_for_order(
-                    order,
-                    &self.echelle_cal_ui.calibration_points,
-                );
-                let count = residuals.len();
-                if count > 0 {
-                    let rms =
-                        (residuals.iter().map(|(_, r)| r * r).sum::<f64>() / count as f64).sqrt();
-                    let mean = residuals.iter().map(|(_, r)| *r).sum::<f64>() / count as f64;
-                    let stddev = (residuals
-                        .iter()
-                        .map(|(_, r)| {
-                            let d = *r - mean;
-                            d * d
-                        })
-                        .sum::<f64>()
-                        / count as f64)
-                        .sqrt();
-                    let sigma = self.echelle_cal_ui.fit_outlier_sigma.max(0.1);
-                    let outliers = residuals
-                        .iter()
-                        .filter(|(_, r)| stddev > 0.0 && ((*r - mean).abs() / stddev) > sigma)
-                        .count();
-
-                    ui.horizontal_wrapped(|ui| {
-                        ui.small(format!("Order rel={}", order.relative_index));
-                        ui.separator();
-                        ui.small(format!("points: {count}"));
-                        ui.separator();
-                        ui.small(format!("RMS: {:.6}", rms));
-                        ui.separator();
-                        ui.small(format!("outliers@{sigma:.1}σ: {outliers}"));
-                        ui.separator();
-                        if rms <= self.echelle_cal_ui.fit_rms_acceptance_px {
-                            ui.colored_label(colors::SUCCESS, "Within acceptance");
-                        } else {
-                            ui.colored_label(colors::WARNING, "Exceeds acceptance");
-                        }
-                    });
-
-                    let points: Vec<[f64; 2]> = residuals.iter().map(|(x, r)| [*x, *r]).collect();
-                    Plot::new("echelle_wavelength_fit_residual_plot")
-                        .height(140.0)
-                        .allow_scroll(false)
-                        .allow_zoom(true)
-                        .allow_drag(true)
-                        .x_axis_label("sample")
-                        .y_axis_label("λ residual")
-                        .show(ui, |plot_ui| {
-                            plot_ui.points(
-                                Points::new("residuals", PlotPoints::new(points))
-                                    .radius(3.0)
-                                    .color(egui::Color32::from_rgb(255, 185, 60)),
-                            );
-                            plot_ui.line(Line::new(
-                                "zero",
-                                PlotPoints::new(vec![
-                                    [f64::from(order.sample_start), 0.0],
-                                    [f64::from(order.sample_end), 0.0],
-                                ]),
-                            ));
-                        });
-                }
-            }
-        }
-
-        // ── Arc line markers on spectrum plot (bd-a64a) ──────────────────
-        if !self.echelle_cal_ui.detected_arc_lines.is_empty() {
-            if let Some(preview) = &self.echelle_preview {
-                let order_plot_idx = self.echelle_selected_order_plot;
-                if let Some(order_preview) = preview.orders.get(order_plot_idx) {
-                    if !order_preview.flux.is_empty() {
-                        ui.separator();
-                        ui.small("Detected arc lines on extracted spectrum:");
-                        let spectrum_points: Vec<[f64; 2]> = order_preview
-                            .flux
-                            .iter()
-                            .enumerate()
-                            .map(|(i, &f)| [i as f64, f])
-                            .collect();
-                        let flux_max = order_preview
-                            .flux
-                            .iter()
-                            .copied()
-                            .fold(0.0_f64, f64::max)
-                            .max(1.0);
-
-                        Plot::new("echelle_arc_detect_overlay_plot")
-                            .height(160.0)
-                            .allow_scroll(false)
-                            .allow_zoom(true)
-                            .allow_drag(true)
-                            .x_axis_label("pixel")
-                            .y_axis_label("counts")
-                            .show(ui, |plot_ui| {
-                                plot_ui.line(
-                                    Line::new("spectrum", PlotPoints::new(spectrum_points))
-                                        .color(egui::Color32::from_rgb(120, 200, 255)),
-                                );
-                                // Vertical markers at detected line positions.
-                                for line in &self.echelle_cal_ui.detected_arc_lines {
-                                    let px = line.pixel_center;
-                                    plot_ui.line(
-                                        Line::new(
-                                            "",
-                                            PlotPoints::new(vec![[px, 0.0], [px, flux_max * 0.9]]),
-                                        )
-                                        .color(egui::Color32::from_rgba_premultiplied(
-                                            255, 80, 80, 160,
-                                        ))
-                                        .width(1.0),
-                                    );
-                                }
-                                // SNR/FWHM annotations as point markers at line peaks.
-                                let line_peaks: Vec<[f64; 2]> = self
-                                    .echelle_cal_ui
-                                    .detected_arc_lines
-                                    .iter()
-                                    .map(|l| [l.pixel_center, l.amplitude])
-                                    .collect();
-                                plot_ui.points(
-                                    Points::new("line peaks", PlotPoints::new(line_peaks))
-                                        .radius(4.0)
-                                        .color(egui::Color32::from_rgb(255, 120, 60)),
-                                );
-                            });
-
-                        // Line detail table.
-                        egui::ScrollArea::vertical()
-                            .max_height(120.0)
-                            .id_salt("arc_line_detail_table")
-                            .show(ui, |ui| {
-                                egui::Grid::new("echelle_arc_line_detail_grid")
-                                    .striped(true)
-                                    .show(ui, |ui| {
-                                        ui.strong("Pixel");
-                                        ui.strong("Amplitude");
-                                        ui.strong("SNR");
-                                        ui.strong("FWHM");
-                                        ui.end_row();
-                                        let noise_est = self
-                                            .echelle_cal_ui
-                                            .arc_detect_config
-                                            .sigdetect
-                                            .max(1.0);
-                                        for line in &self.echelle_cal_ui.detected_arc_lines {
-                                            ui.label(format!("{:.2}", line.pixel_center));
-                                            ui.label(format!("{:.1}", line.amplitude));
-                                            ui.label(format!("{:.1}", line.amplitude / noise_est));
-                                            ui.label(format!("{:.2}", line.fwhm()));
-                                            ui.end_row();
-                                        }
-                                    });
-                            });
-                    }
-                }
-            }
-        }
-    }
-
-    fn render_echelle_calibration_blaze_tab(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal_wrapped(|ui| {
-            ui.checkbox(
-                &mut self.echelle_cal_ui.blaze_preview_enabled,
-                "Preview blaze-corrected overlay",
-            );
-            ui.add(
-                egui::DragValue::new(&mut self.echelle_cal_ui.blaze_preview_scale)
-                    .range(0.05..=100.0)
-                    .speed(0.05)
-                    .prefix("scale "),
-            );
-            ui.small("MVP: scalar preview overlay while blaze artifact generation UI is staged.");
-        });
-        ui.horizontal_wrapped(|ui| {
-            ui.label("Blaze export CSV:");
-            ui.text_edit_singleline(&mut self.echelle_cal_ui.blaze_export_path_text);
-            if ui.button("Generate From Selected Order Preview").clicked() {
-                let path_text = self
-                    .echelle_cal_ui
-                    .blaze_export_path_text
-                    .trim()
-                    .to_string();
-                if path_text.is_empty() {
-                    self.echelle_cal_ui.last_error =
-                        Some("Enter a blaze export CSV path".to_string());
-                } else {
-                    match self.export_selected_order_blaze_preview_artifact(std::path::Path::new(
-                        &path_text,
-                    )) {
-                        Ok(()) => {
-                            self.echelle_cal_ui.status_message =
-                                Some(format!("Generated blaze preview artifact {}", path_text));
-                            self.echelle_cal_ui.last_error = None;
-                        }
-                        Err(err) => self.echelle_cal_ui.last_error = Some(err),
-                    }
-                }
-            }
-        });
-
-        if let Some(profile) = self.echelle_cal_ui.editor_profile.as_ref() {
-            ui.small(format!(
-                "Blaze artifact: {}",
-                profile
-                    .corrections
-                    .blaze
-                    .as_ref()
-                    .map(|b| b.path.as_str())
-                    .unwrap_or("<not set>")
-            ));
-            ui.small(format!(
-                "Flat-field artifact: {}",
-                profile
-                    .corrections
-                    .flat_field
-                    .as_ref()
-                    .map(|f| f.path.as_str())
-                    .unwrap_or("<not set>")
-            ));
-        }
-
-        let Some(preview) = &self.echelle_preview else {
-            ui.weak("No extracted preview available for blaze/flat comparison.");
-            return;
-        };
-        let Some(order) = preview.orders.get(self.echelle_selected_order_plot) else {
-            ui.weak("No selected order preview available.");
-            return;
-        };
-        if order.flux.is_empty() {
-            ui.weak("Selected order flux is empty.");
-            return;
-        }
-
-        #[allow(clippy::cast_precision_loss)]
-        let xs: Vec<f64> = if self.echelle_plot_x_axis_mode == EchellePlotXAxisMode::SampleIndex {
-            (0..order.flux.len()).map(|i| i as f64).collect()
-        } else {
-            order.wavelengths.clone()
-        };
-        let raw_points: Vec<[f64; 2]> = xs
-            .iter()
-            .copied()
-            .zip(order.flux.iter().copied())
-            .map(|(x, y)| [x, y])
-            .collect();
-        let corrected_points: Vec<[f64; 2]> = if self.echelle_cal_ui.blaze_preview_enabled {
-            let s = self.echelle_cal_ui.blaze_preview_scale.max(1e-9);
-            xs.iter()
-                .copied()
-                .zip(order.flux.iter().copied())
-                .map(|(x, y)| [x, y / s])
-                .collect()
-        } else {
-            Vec::new()
-        };
-
-        Plot::new("echelle_blaze_preview_compare_plot")
-            .height(170.0)
-            .allow_scroll(false)
-            .x_axis_label(
-                if self.echelle_plot_x_axis_mode == EchellePlotXAxisMode::SampleIndex {
-                    "sample"
-                } else {
-                    order.wavelength_unit.as_str()
-                },
-            )
-            .y_axis_label("counts")
-            .show(ui, |plot_ui| {
-                plot_ui.line(
-                    Line::new("Uncorrected", PlotPoints::new(raw_points))
-                        .color(egui::Color32::from_rgb(120, 200, 255)),
-                );
-                if !corrected_points.is_empty() {
-                    plot_ui.line(
-                        Line::new("Preview corrected", PlotPoints::new(corrected_points))
-                            .color(egui::Color32::from_rgb(255, 160, 60)),
-                    );
-                }
-            });
-    }
-
-    fn render_echelle_calibration_mechelle_notes_tab(&mut self, ui: &mut egui::Ui) {
-        self.ensure_echelle_calibration_editor_profile();
-        ui.small(
-            "Mechelle-specific UX planning for image slicer / multi-trace-per-order complexity.",
-        );
-        ui.separator();
-        ui.label("Current design assumptions:");
-        ui.small("1. A single physical echelle order may present multiple visible traces/slices.");
-        ui.small(
-            "2. Trace editing UI must support grouping multiple traces under one physical order.",
-        );
-        ui.small("3. Arc picks should support slice association and confidence labels.");
-        ui.small("4. Blaze/flat correction previews should compare per-slice and merged views.");
-        ui.small("5. Profile format may need future schema extension for sub-trace components.");
-        ui.separator();
-        if let Some(profile) = self.echelle_cal_ui.editor_profile.as_mut() {
-            ui.label("Operator notes / vendor quirks / slicer observations:");
-            let notes = profile.provenance.notes.get_or_insert_with(String::new);
-            if ui.text_edit_multiline(notes).changed() {
-                self.mark_echelle_editor_dirty();
-            }
-        }
-    }
-
-    fn build_echelle_trace_overlay_paths(&self) -> Vec<(u32, Vec<(f32, f32)>)> {
-        if !self.echelle_cal_ui.trace_overlay_enabled {
-            return Vec::new();
-        }
-        let profile = self
-            .echelle_cal_ui
-            .editor_profile
-            .clone()
-            .or_else(|| self.echelle_profile_cache.profile().map(|p| (**p).clone()));
-        let Some(profile) = profile else {
-            return Vec::new();
-        };
-        let sample_step = self.echelle_cal_ui.trace_overlay_sample_step.max(1) as usize;
-        let max_orders = self.echelle_cal_ui.trace_overlay_max_orders.max(1) as usize;
-        let selected_relative = self
-            .echelle_cal_ui
-            .editor_profile
-            .as_ref()
-            .and_then(|p| p.orders.get(self.echelle_cal_ui.selected_order_edit_idx))
-            .map(|o| o.relative_index);
-
-        let mut out = Vec::new();
-        for order in profile.orders.iter().filter(|o| o.enabled) {
-            if !self.echelle_cal_ui.trace_overlay_all_orders
-                && selected_relative.is_some()
-                && Some(order.relative_index) != selected_relative
-            {
-                continue;
-            }
-            if out.len() >= max_orders {
-                break;
-            }
-            let mut pts = Vec::new();
-            let total_samples = order
-                .sample_end
-                .saturating_sub(order.sample_start)
-                .saturating_add(1) as usize;
-            for sample_idx in (0..total_samples).step_by(sample_step) {
-                if let Some((x, y)) = order_sample_image_position(&profile, order, sample_idx) {
-                    if x.is_finite() && y.is_finite() {
-                        pts.push((x, y));
-                    }
-                }
-            }
-            if total_samples > 0 {
-                let last_idx = total_samples - 1;
-                if let Some((x, y)) = order_sample_image_position(&profile, order, last_idx) {
-                    if x.is_finite()
-                        && y.is_finite()
-                        && pts
-                            .last()
-                            .map(|(px, py)| (*px - x).abs() > 1e-3 || (*py - y).abs() > 1e-3)
-                            .unwrap_or(true)
-                    {
-                        pts.push((x, y));
-                    }
-                }
-            }
-            if pts.len() >= 2 {
-                out.push((order.relative_index, pts));
-            }
-        }
-        out
     }
 
     /// Spawn background thread for RGBA conversion (bd-xifj)
@@ -3157,565 +1031,6 @@ impl ImageViewerPanel {
                 frame_number: request.frame_number,
             });
             self.apply_pending_echelle();
-        }
-    }
-
-    /// Poll for async action results
-    fn poll_actions(&mut self) {
-        while let Ok(action) = self.action_rx.try_recv() {
-            match action {
-                ImageViewerAction::CamerasLoaded {
-                    ids,
-                    full_frame_dims,
-                } => {
-                    self.available_cameras = ids;
-                    self.camera_full_frame_dims = full_frame_dims;
-                    self.status = Some(format!("Found {} camera(s)", self.available_cameras.len()));
-                }
-                ImageViewerAction::Error(msg) => {
-                    self.error = Some(msg);
-                    // Clear subscription state on error to allow restart
-                    self.subscription = None;
-                    // bd-12qt: Update connection state on error
-                    if self.connection_state == ConnectionState::Connected {
-                        self.connection_state = ConnectionState::Disconnected;
-                        self.last_disconnect = Some(Instant::now());
-                        self.retry_count = 0;
-                    }
-                }
-                ImageViewerAction::ReconnectResult { device_id, success } => {
-                    // bd-12qt: Handle reconnection result
-                    if success {
-                        self.connection_state = ConnectionState::Connected;
-                        self.retry_count = 0;
-                        self.error = None;
-                        self.status = Some(format!("Reconnected to {}", device_id));
-                    } else {
-                        self.connection_state = ConnectionState::Disconnected;
-                        self.retry_count += 1;
-                        self.status =
-                            Some(format!("Reconnect failed (attempt {})", self.retry_count));
-                    }
-                }
-                // bd-3pdi.5.3: Recording action handlers
-                ImageViewerAction::RecordingStarted { output_path } => {
-                    self.recording_state = RecordingState::Recording;
-                    self.recording_output_path = Some(output_path.clone());
-                    self.status = Some(format!("Recording to {}", output_path));
-                    self.error = None;
-                }
-                ImageViewerAction::RecordingStopped {
-                    output_path,
-                    file_size_bytes,
-                    total_samples,
-                } => {
-                    self.recording_state = RecordingState::Idle;
-                    #[allow(clippy::cast_precision_loss)]
-                    let size_mb = file_size_bytes as f64 / 1_000_000.0;
-                    self.status = Some(format!(
-                        "Saved: {} ({:.2} MB, {} frames)",
-                        output_path, size_mb, total_samples
-                    ));
-                    self.error = None;
-                }
-                ImageViewerAction::RecordingStatus(status) => {
-                    if let Some(s) = status {
-                        self.recording_status = Some(s);
-                        // Update recording state based on status
-                        self.recording_state = match self.recording_status.as_ref().map(|s| s.state)
-                        {
-                            Some(2) => RecordingState::Recording, // RECORDING_ACTIVE
-                            _ => RecordingState::Idle,
-                        };
-                    }
-                }
-                ImageViewerAction::EchelleCalibrationSynced { message } => {
-                    self.echelle_run_engine_sync_in_flight = false;
-                    self.echelle_cal_ui.status_message = Some(message);
-                    self.echelle_cal_ui.last_error = None;
-                }
-                ImageViewerAction::EchelleCalibrationSyncError(message) => {
-                    self.echelle_run_engine_sync_in_flight = false;
-                    self.echelle_run_engine_sync_dirty = true;
-                    self.echelle_cal_ui.last_error = Some(message);
-                }
-            }
-        }
-    }
-
-    /// Refresh the list of available cameras
-    fn refresh_cameras(&mut self, client: &mut DaqClient, runtime: &Runtime) {
-        let action_tx = self.action_tx.clone();
-        let mut client = client.clone();
-
-        runtime.spawn(async move {
-            match client.list_devices().await {
-                Ok(devices) => {
-                    // Filter for camera devices (FrameProducer capability)
-                    let mut cameras: Vec<String> = Vec::new();
-                    let mut full_frame_dims: std::collections::HashMap<String, (u32, u32)> =
-                        std::collections::HashMap::new();
-
-                    for d in devices.into_iter().filter(|d| {
-                        // Check is_frame_producer flag or camera category
-                        d.is_frame_producer()
-                            || d.category == protocol::daq::DeviceCategory::Camera as i32
-                    }) {
-                        let id = d.id.clone();
-                        if let Some(meta) = d.metadata {
-                            if let (Some(w), Some(h)) = (meta.frame_width, meta.frame_height) {
-                                if w > 0 && h > 0 {
-                                    full_frame_dims.insert(id.clone(), (w, h));
-                                }
-                            }
-                        }
-                        cameras.push(id);
-                    }
-
-                    let _ = action_tx.send(ImageViewerAction::CamerasLoaded {
-                        ids: cameras,
-                        full_frame_dims,
-                    });
-                }
-                Err(e) => {
-                    let _ = action_tx.send(ImageViewerAction::Error(format!(
-                        "Failed to list cameras: {}",
-                        e
-                    )));
-                }
-            }
-        });
-
-        self.last_refresh = Some(Instant::now());
-    }
-
-    /// Load parameters for the selected camera (filtered for quick access)
-    fn load_camera_params(&mut self, client: &mut DaqClient, runtime: &Runtime, device_id: &str) {
-        // Don't start another load if already loading
-        if self.loading_params_device.as_deref() == Some(device_id) {
-            return;
-        }
-
-        let mut client = client.clone();
-        let device_id_str = device_id.to_string();
-
-        // Clear existing edit buffers and errors for this device
-        self.param_edit_buffers
-            .retain(|(dev_id, _), _| dev_id != device_id);
-        self.param_errors
-            .retain(|(dev_id, _), _| dev_id != device_id);
-
-        // Set loading state
-        self.loading_params_device = Some(device_id_str.clone());
-
-        // Create channel for result
-        let (tx, rx) = mpsc::channel();
-        self.param_load_rx = Some(rx);
-
-        // Spawn async task to load parameters in background
-        runtime.spawn(async move {
-            let device_id_for_error = device_id_str.clone();
-
-            let result = async {
-                let descriptors = client.list_parameters(&device_id_str).await?;
-
-                // Filter for quick access parameters FIRST to reduce fetch volume
-                let relevant_descriptors: Vec<_> = descriptors
-                    .into_iter()
-                    .filter(|d| {
-                        let name_lower = d.name.to_lowercase();
-                        QUICK_ACCESS_PARAMS
-                            .iter()
-                            .any(|&keyword| name_lower.contains(keyword))
-                    })
-                    .collect();
-
-                // Parallel fetch of relevant parameter values
-                let fetch_futures: Vec<_> = relevant_descriptors
-                    .iter()
-                    .map(|desc| {
-                        let mut client = client.clone();
-                        let device_id = device_id_str.clone();
-                        let param_name = desc.name.clone();
-                        async move {
-                            let value = client.get_parameter(&device_id, &param_name).await;
-                            (param_name, value)
-                        }
-                    })
-                    .collect();
-
-                let fetch_results = futures::future::join_all(fetch_futures).await;
-
-                // Combine descriptors with fetched values
-                let mut params = Vec::new();
-                let mut load_errors = Vec::new();
-
-                for (desc, (param_name, value_result)) in
-                    relevant_descriptors.into_iter().zip(fetch_results)
-                {
-                    match value_result {
-                        Ok(v) => {
-                            params.push(ParameterCache::new(desc, v.value));
-                        }
-                        Err(e) => {
-                            load_errors.push((param_name, e.to_string()));
-                            params.push(ParameterCache::new(desc, String::new()));
-                        }
-                    }
-                }
-
-                Ok::<_, anyhow::Error>(ParamLoadResult {
-                    device_id: device_id_str,
-                    params,
-                    errors: load_errors,
-                })
-            }
-            .await;
-
-            match result {
-                Ok(load_result) => {
-                    let _ = tx.send(load_result);
-                }
-                Err(e) => {
-                    let _ = tx.send(ParamLoadResult {
-                        device_id: device_id_for_error,
-                        params: Vec::new(),
-                        errors: vec![("_load".to_string(), e.to_string())],
-                    });
-                }
-            }
-        });
-    }
-
-    /// Set a camera parameter value
-    fn set_camera_parameter(
-        &mut self,
-        client: &mut DaqClient,
-        runtime: &Runtime,
-        device_id: &str,
-        name: &str,
-        value: &str,
-    ) {
-        let mut client = client.clone();
-        let device_id_str = device_id.to_string();
-        let name_str = name.to_string();
-        let value_str = value.to_string();
-        let buffer_key = (device_id_str.clone(), name_str.clone());
-        tracing::debug!(
-            device_id = %device_id,
-            param = %name,
-            value = %value,
-            "set_camera_parameter: sending parameter update"
-        );
-
-        // Clear any previous error
-        self.param_errors.remove(&buffer_key);
-        // Mark as setting
-        self.setting_params.insert(buffer_key);
-
-        // Clone the persistent sender - this preserves all in-flight responses
-        let tx = self.param_set_tx.clone();
-
-        runtime.spawn(async move {
-            let result = client
-                .set_parameter(&device_id_str, &name_str, &value_str)
-                .await;
-
-            let set_result = match result {
-                Ok(response) => ParamSetResult {
-                    device_id: device_id_str,
-                    param_name: name_str,
-                    success: response.success,
-                    actual_value: response.actual_value,
-                    error: if response.success {
-                        None
-                    } else {
-                        Some(response.error_message)
-                    },
-                },
-                Err(e) => ParamSetResult {
-                    device_id: device_id_str,
-                    param_name: name_str,
-                    success: false,
-                    actual_value: String::new(),
-                    error: Some(e.to_string()),
-                },
-            };
-
-            let _ = tx.send(set_result);
-        });
-    }
-
-    /// Poll for parameter async results
-    fn poll_param_results(&mut self, ctx: &egui::Context) {
-        // Poll loads
-        if let Some(rx) = &self.param_load_rx {
-            if let Ok(result) = rx.try_recv() {
-                // If this result matches our current device, update
-                if Some(&result.device_id) == self.device_id.as_ref() {
-                    self.camera_params = result.params;
-                    self.loading_params_device = None;
-
-                    for (name, err) in result.errors {
-                        self.param_errors
-                            .insert((result.device_id.clone(), name), err);
-                    }
-                }
-                self.param_load_rx = None; // One-shot load
-                ctx.request_repaint();
-            }
-        }
-
-        // Poll sets (persistent channel - drain all available)
-        while let Ok(result) = self.param_set_rx.try_recv() {
-            let key = (result.device_id.clone(), result.param_name.clone());
-            self.setting_params.remove(&key);
-            tracing::debug!(
-                device_id = %result.device_id,
-                param = %result.param_name,
-                success = result.success,
-                actual_value = ?result.actual_value,
-                error = ?result.error,
-                "poll_param_results: received ParamSetResult"
-            );
-
-            if result.success {
-                // Update cache if device matches
-                if Some(&result.device_id) == self.device_id.as_ref() {
-                    if let Some(param) = self
-                        .camera_params
-                        .iter_mut()
-                        .find(|p| p.descriptor.name == result.param_name)
-                    {
-                        param.update_value(result.actual_value.clone());
-                    }
-                }
-                // Update buffer
-                let unquoted = result.actual_value.trim_matches('"').to_string();
-                self.param_edit_buffers.insert(key.clone(), unquoted);
-                self.param_errors.remove(&key);
-            } else if let Some(err) = result.error {
-                self.param_errors.insert(key, err);
-            }
-            ctx.request_repaint();
-        }
-
-        // Request repaint if we're waiting for parameter set results
-        if !self.setting_params.is_empty() {
-            ctx.request_repaint();
-        }
-    }
-
-    /// Render a single camera parameter control
-    #[allow(clippy::cast_possible_truncation)]
-    fn render_camera_control(&mut self, ui: &mut egui::Ui, device_id: &str, param_idx: usize) {
-        ui.set_max_width(ui.available_width());
-
-        // Safe access to parameter to avoid borrowing self for the whole method
-        let param = &self.camera_params[param_idx];
-        let desc = &param.descriptor;
-        let buffer_key = (device_id.to_string(), desc.name.clone());
-
-        // Check if setting
-        if self.setting_params.contains(&buffer_key) {
-            ui.horizontal_wrapped(|ui| {
-                ui.spinner();
-                ui.label(&desc.name);
-            });
-            return;
-        }
-
-        // Read-only
-        if !desc.writable {
-            ui.vertical(|ui| {
-                ui.label(&desc.name);
-                let mut value = param.current_value.clone();
-                if !desc.units.is_empty() {
-                    value.push(' ');
-                    value.push_str(&desc.units);
-                }
-                ui.add(egui::Label::new(value).wrap());
-            });
-            return;
-        }
-
-        let mut pending_update: Option<String> = None;
-
-        // Enums
-        if !desc.enum_values.is_empty() {
-            let current = param.current_value.trim_matches('"').to_string();
-            let mut selected = current.clone();
-
-            ui.horizontal_wrapped(|ui| {
-                ui.label(&desc.name);
-                let id = egui::Id::new("cam_ctrl").with(device_id).with(&desc.name);
-                egui::ComboBox::from_id_salt(id)
-                    .selected_text(&selected)
-                    .show_ui(ui, |ui| {
-                        for val in &desc.enum_values {
-                            ui.selectable_value(&mut selected, val.clone(), val);
-                        }
-                    });
-            });
-
-            if selected != current {
-                pending_update = Some(format!("\"{}\"", selected));
-            }
-        }
-        // Boolean
-        else if desc.dtype == "bool" {
-            let mut val = param.current_value.parse::<bool>().unwrap_or(false);
-            if ui.checkbox(&mut val, &desc.name).changed() {
-                pending_update = Some(val.to_string());
-            }
-        }
-        // Integer
-        else if desc.dtype == "int" {
-            // Get edit buffer or init from current
-            let buffer = self
-                .param_edit_buffers
-                .entry(buffer_key.clone())
-                .or_insert_with(|| param.current_value.clone());
-
-            let mut val: i64 = buffer.parse().unwrap_or(0);
-            let original = val;
-
-            ui.horizontal_wrapped(|ui| {
-                ui.label(&desc.name);
-                let mut drag = egui::DragValue::new(&mut val).speed(1);
-                if let Some(min) = desc.min_value {
-                    drag = drag.range(min as i64..=i64::MAX);
-                }
-                if let Some(max) = desc.max_value {
-                    drag = drag.range(i64::MIN..=max as i64);
-                }
-
-                let response = ui.add(drag);
-                if !desc.units.is_empty() {
-                    ui.weak(&desc.units);
-                }
-
-                // Update buffer immediately for visual feedback
-                if val != original {
-                    self.param_edit_buffers
-                        .insert(buffer_key.clone(), val.to_string());
-                }
-
-                // Commit on drag stop, focus loss, Enter, or step-button click.
-                let commit_now = (response.changed()
-                    && !response.dragged()
-                    && ui.input(|i| i.pointer.any_released() || i.key_pressed(egui::Key::Enter)))
-                    || response.drag_stopped()
-                    || response.lost_focus();
-
-                if commit_now && val != param.current_value.parse().unwrap_or(0) {
-                    pending_update = Some(val.to_string());
-                }
-            });
-        }
-        // Float
-        else if desc.dtype == "float" {
-            let buffer = self
-                .param_edit_buffers
-                .entry(buffer_key.clone())
-                .or_insert_with(|| param.current_value.clone());
-
-            let mut val: f64 = buffer.parse().unwrap_or(0.0);
-            let original = val;
-
-            // Check if this is an exposure parameter
-            let is_exposure = desc.name.to_lowercase().contains("exposure");
-
-            ui.horizontal_wrapped(|ui| {
-                ui.label(&desc.name);
-                let mut drag = egui::DragValue::new(&mut val).speed(0.1);
-                if let Some(min) = desc.min_value {
-                    drag = drag.range(min..=f64::MAX);
-                }
-                if let Some(max) = desc.max_value {
-                    drag = drag.range(f64::MIN..=max);
-                }
-
-                let response = ui.add(drag);
-                if !desc.units.is_empty() {
-                    ui.weak(&desc.units);
-                }
-
-                // Live toggle for exposure parameters
-                if is_exposure {
-                    ui.checkbox(&mut self.live_exposure, "Live");
-                }
-
-                if (val - original).abs() > f64::EPSILON {
-                    self.param_edit_buffers
-                        .insert(buffer_key.clone(), val.to_string());
-                }
-
-                let current_float: f64 = param.current_value.parse().unwrap_or(0.0);
-                let value_changed = (val - current_float).abs() > f64::EPSILON;
-
-                // Live exposure: send during drag with debounce
-                if is_exposure && self.live_exposure && response.dragged() && value_changed {
-                    let now = Instant::now();
-                    let should_send = self
-                        .exposure_last_sent
-                        .map(|t| now.duration_since(t) >= EXPOSURE_DEBOUNCE)
-                        .unwrap_or(true);
-
-                    if should_send {
-                        pending_update = Some(val.to_string());
-                        self.exposure_last_sent = Some(now);
-                    }
-                }
-
-                // Always send on drag stop/focus loss, and also on Enter/step-button changes.
-                let commit_now = (response.changed()
-                    && !response.dragged()
-                    && ui.input(|i| i.pointer.any_released() || i.key_pressed(egui::Key::Enter)))
-                    || response.drag_stopped()
-                    || response.lost_focus();
-
-                if commit_now && value_changed {
-                    pending_update = Some(val.to_string());
-                    if is_exposure {
-                        self.exposure_last_sent = Some(Instant::now());
-                    }
-                }
-            });
-        }
-        // String
-        else if desc.dtype == "string" {
-            let buffer = self
-                .param_edit_buffers
-                .entry(buffer_key.clone())
-                .or_insert_with(|| param.current_value.clone());
-
-            ui.horizontal_wrapped(|ui| {
-                ui.label(&desc.name);
-                let response = ui.text_edit_singleline(buffer);
-
-                if response.lost_focus() && buffer != &param.current_value {
-                    pending_update = Some(format!("\"{}\"", buffer));
-                }
-            });
-        }
-        // Fallback
-        else {
-            ui.horizontal_wrapped(|ui| {
-                ui.label(&desc.name);
-                ui.label(&param.current_value);
-            });
-        }
-
-        // Show error
-        if let Some(err) = self.param_errors.get(&buffer_key) {
-            ui.colored_label(egui::Color32::RED, err);
-        }
-
-        // Apply update if needed
-        if let Some(val) = pending_update {
-            self.pending_param_updates
-                .push((device_id.to_string(), desc.name.clone(), val));
         }
     }
 
@@ -4753,6 +2068,31 @@ impl ImageViewerPanel {
                 if self.histogram_position.is_visible() {
                     ui.checkbox(&mut self.histogram.log_scale, "Log");
                 }
+
+                // === Spectrum View Mode (bd-alxb) ===
+                if self.echelle_profile_cache.profile().is_some() || self.echelle_preview.is_some()
+                {
+                    ui.separator();
+                    ui.label("View:");
+                    ui.selectable_value(
+                        &mut self.spectrum_view_mode,
+                        SpectrumViewMode::Echellogram,
+                        "2D",
+                    )
+                    .on_hover_text("2D echellogram");
+                    ui.selectable_value(
+                        &mut self.spectrum_view_mode,
+                        SpectrumViewMode::Spectrum,
+                        "1D",
+                    )
+                    .on_hover_text("1D spectrum (full width)");
+                    ui.selectable_value(
+                        &mut self.spectrum_view_mode,
+                        SpectrumViewMode::Split,
+                        "Split",
+                    )
+                    .on_hover_text("Split: 2D echellogram + 1D spectrum");
+                }
             });
         });
 
@@ -4923,6 +2263,25 @@ impl ImageViewerPanel {
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
             .show_inside(ui, |ui| {
+                // bd-alxb: Spectrum-only mode — full-width spectrum plot, skip image
+                if self.spectrum_view_mode == SpectrumViewMode::Spectrum {
+                    self.render_spectrum_plot_area(ui, true);
+                    return;
+                }
+
+                // bd-alxb: Split mode — reserve bottom for spectrum plot
+                if self.spectrum_view_mode == SpectrumViewMode::Split {
+                    egui::TopBottomPanel::bottom("spectrum_split_panel")
+                        .resizable(true)
+                        .default_height(200.0)
+                        .min_height(100.0)
+                        .show_inside(ui, |ui| {
+                            self.render_spectrum_plot_area(ui, true);
+                        });
+                }
+
+                // Remaining space: 2D echellogram (Echellogram mode uses full area,
+                // Split mode uses whatever's left after the bottom panel)
                 let available_size = ui.available_size();
 
                 if let Some(texture) = &self.texture {
@@ -5663,620 +3022,6 @@ impl ImageViewerPanel {
             });
     }
 
-    /// Queue a parameter update to reset hardware ROI to the full sensor.
-    fn queue_clear_hardware_roi(&mut self) {
-        if let Some(dev_id) = self.device_id.clone() {
-            if self.subscription.is_some() {
-                self.param_errors.insert(
-                    (dev_id, "acquisition.roi".to_string()),
-                    "Stop streaming before clearing hardware ROI".to_string(),
-                );
-            } else if let Some((full_w, full_h)) = self.camera_full_frame_dims.get(&dev_id).copied()
-            {
-                let roi_json = serde_json::json!({
-                    "type": "rectangle",
-                    "x": 0,
-                    "y": 0,
-                    "width": full_w,
-                    "height": full_h
-                });
-                self.pending_param_updates.push((
-                    dev_id.clone(),
-                    "acquisition.roi".to_string(),
-                    roi_json.to_string(),
-                ));
-                self.param_errors
-                    .remove(&(dev_id, "acquisition.roi".to_string()));
-            } else {
-                self.param_errors.insert(
-                    (dev_id, "acquisition.roi".to_string()),
-                    "Unknown full-frame size; refresh camera list and retry".to_string(),
-                );
-            }
-        }
-    }
-
-    /// Render the stats/controls side panel content (Camera Settings, ROI, Histogram, Calibration)
-    fn render_stats_side_panel(
-        &mut self,
-        ui: &mut egui::Ui,
-        has_controls_panel: bool,
-        has_roi_panel: bool,
-        has_histogram_panel: bool,
-        has_echelle_panel: bool,
-        has_pixel_stats: bool,
-    ) {
-        ui.set_max_width(ui.available_width());
-        egui::ScrollArea::vertical()
-            .scroll([false, true])
-            .auto_shrink([true, false])
-            .id_salt("side_panel_scroll")
-            .show(ui, |ui| {
-                if has_controls_panel {
-                    layout::card_frame(ui).show(ui, |ui| {
-                        egui::CollapsingHeader::new(format!(
-                            "{} Camera Settings",
-                            icons::action::SETTINGS
-                        ))
-                        .default_open(true)
-                        .show(ui, |ui| {
-                            if let Some(device_id_ref) = &self.device_id {
-                                let device_id = device_id_ref.clone();
-                                for i in 0..self.camera_params.len() {
-                                    self.render_camera_control(ui, &device_id, i);
-                                    if i < self.camera_params.len() - 1 {
-                                        ui.add_space(4.0);
-                                    }
-                                }
-                            }
-                        });
-                    });
-                    ui.add_space(layout::SECTION_SPACING);
-                }
-
-                if has_echelle_panel {
-                    layout::card_frame(ui).show(ui, |ui| {
-                        egui::CollapsingHeader::new("Echelle Spectrum (MVP Preview)")
-                            .default_open(true)
-                            .show(ui, |ui| {
-                                self.render_echelle_preview_panel(ui);
-                            });
-                    });
-                    ui.add_space(layout::SECTION_SPACING);
-                }
-
-                if has_roi_panel {
-                    layout::card_frame(ui).show(ui, |ui| {
-                        egui::CollapsingHeader::new("ROI Statistics")
-                            .default_open(true)
-                            .show(ui, |ui| {
-                                self.roi_selector.show_statistics_panel(ui);
-
-                                ui.add_space(4.0);
-                                ui.horizontal(|ui| {
-                                    if ui
-                                        .button("Apply as Hardware ROI")
-                                        .on_hover_text(
-                                            "Update camera acquisition ROI (requires stream stopped)",
-                                        )
-                                        .clicked()
-                                    {
-                                        if self.subscription.is_some() {
-                                            if let Some(dev_id) = self.device_id.clone() {
-                                                self.param_errors.insert(
-                                                    (dev_id, "acquisition.roi".to_string()),
-                                                    "Stop streaming before applying hardware ROI"
-                                                        .to_string(),
-                                                );
-                                            }
-                                        } else if let Some(roi) = self.roi_selector.roi() {
-                                            if let Some(dev_id) = self.device_id.clone() {
-                                                use crate::widgets::roi_selector::RoiShape;
-                                                let roi_json = match roi {
-                                                    RoiShape::Rectangle {
-                                                        x,
-                                                        y,
-                                                        width,
-                                                        height,
-                                                    } => {
-                                                        serde_json::json!({
-                                                            "type": "rectangle",
-                                                            "x": x,
-                                                            "y": y,
-                                                            "width": width,
-                                                            "height": height
-                                                        })
-                                                    }
-                                                    RoiShape::Polygon { .. } => {
-                                                        // For hardware ROI, convert polygon to bounding box
-                                                        let (min_x, min_y, max_x, max_y) =
-                                                            roi.bounding_box();
-                                                        serde_json::json!({
-                                                            "type": "rectangle",
-                                                            "x": min_x,
-                                                            "y": min_y,
-                                                            "width": max_x.saturating_sub(min_x),
-                                                            "height": max_y.saturating_sub(min_y)
-                                                        })
-                                                    }
-                                                };
-                                                self.pending_param_updates.push((
-                                                    dev_id,
-                                                    "acquisition.roi".to_string(),
-                                                    roi_json.to_string(),
-                                                ));
-                                            }
-                                        }
-                                    }
-
-                                    if ui
-                                        .button("Clear Hardware ROI")
-                                        .on_hover_text(
-                                            "Reset hardware ROI to full sensor (requires stream stopped)",
-                                        )
-                                        .clicked()
-                                    {
-                                        self.queue_clear_hardware_roi();
-                                    }
-                                });
-                            });
-                    });
-                    ui.add_space(layout::SECTION_SPACING);
-                }
-
-                if has_pixel_stats {
-                    layout::card_frame(ui).show(ui, |ui| {
-                        egui::CollapsingHeader::new("Pixel Statistics")
-                            .default_open(true)
-                            .show(ui, |ui| {
-                                if let Some(stats) = &self.pixel_statistics {
-                                    egui::Grid::new("pixel_stats_grid")
-                                        .num_columns(2)
-                                        .spacing([8.0, 2.0])
-                                        .show(ui, |ui| {
-                                            ui.label("Count:");
-                                            ui.label(format!("{}", stats.count));
-                                            ui.end_row();
-
-                                            ui.label("Min:");
-                                            ui.label(format!("{:.1}", stats.min));
-                                            ui.end_row();
-
-                                            ui.label("Max:");
-                                            ui.label(format!("{:.1}", stats.max));
-                                            ui.end_row();
-
-                                            ui.label("Mean:");
-                                            ui.label(format!("{:.2}", stats.mean));
-                                            ui.end_row();
-
-                                            ui.label("Std Dev:");
-                                            ui.label(format!("{:.2}", stats.std_dev));
-                                            ui.end_row();
-
-                                            ui.label("Median:");
-                                            ui.label(format!("{:.1}", stats.median));
-                                            ui.end_row();
-
-                                            ui.label("Sum:");
-                                            ui.label(format!("{:.0}", stats.sum));
-                                            ui.end_row();
-                                        });
-
-                                    ui.separator();
-                                    ui.label("Percentiles");
-                                    egui::Grid::new("pixel_stats_percentiles_grid")
-                                        .num_columns(2)
-                                        .spacing([8.0, 2.0])
-                                        .show(ui, |ui| {
-                                            ui.label("P1:");
-                                            ui.label(format!("{:.1}", stats.p1));
-                                            ui.end_row();
-
-                                            ui.label("P5:");
-                                            ui.label(format!("{:.1}", stats.p5));
-                                            ui.end_row();
-
-                                            ui.label("P25 (Q1):");
-                                            ui.label(format!("{:.1}", stats.p25));
-                                            ui.end_row();
-
-                                            ui.label("P50:");
-                                            ui.label(format!("{:.1}", stats.p50));
-                                            ui.end_row();
-
-                                            ui.label("P75 (Q3):");
-                                            ui.label(format!("{:.1}", stats.p75));
-                                            ui.end_row();
-
-                                            ui.label("P95:");
-                                            ui.label(format!("{:.1}", stats.p95));
-                                            ui.end_row();
-
-                                            ui.label("P99:");
-                                            ui.label(format!("{:.1}", stats.p99));
-                                            ui.end_row();
-                                        });
-
-                                    ui.add_space(4.0);
-                                    if ui
-                                        .button("Copy to Clipboard")
-                                        .on_hover_text(
-                                            "Copy pixel statistics as formatted text",
-                                        )
-                                        .clicked()
-                                    {
-                                        ui.ctx().copy_text(stats.to_clipboard_text());
-                                    }
-                                } else {
-                                    ui.label("No frame data available");
-                                }
-                            });
-                    });
-                    ui.add_space(layout::SECTION_SPACING);
-                }
-
-                if has_histogram_panel {
-                    layout::card_frame(ui).show(ui, |ui| {
-                        egui::CollapsingHeader::new("Histogram")
-                            .default_open(true)
-                            .show(ui, |ui| {
-                                self.histogram.show_panel(ui);
-                            });
-
-                        // Physical coordinate calibration UI (bd-4088.6)
-                        egui::CollapsingHeader::new("Calibration")
-                            .default_open(false)
-                            .show(ui, |ui| {
-                                ui.label("Pixel to Physical Unit Conversion");
-                                ui.separator();
-
-                                ui.horizontal(|ui| {
-                                    ui.label("X Scale:");
-                                    let mut scale_x_str = self
-                                        .pixel_scale_x
-                                        .map(|v| format!("{:.4}", v))
-                                        .unwrap_or_default();
-                                    if ui.text_edit_singleline(&mut scale_x_str).changed() {
-                                        self.pixel_scale_x = scale_x_str.parse().ok();
-                                    }
-                                    ui.label("units/pixel");
-                                });
-
-                                ui.horizontal(|ui| {
-                                    ui.label("Y Scale:");
-                                    let mut scale_y_str = self
-                                        .pixel_scale_y
-                                        .map(|v| format!("{:.4}", v))
-                                        .unwrap_or_default();
-                                    if ui.text_edit_singleline(&mut scale_y_str).changed() {
-                                        self.pixel_scale_y = scale_y_str.parse().ok();
-                                    }
-                                    ui.label("units/pixel");
-                                });
-
-                                ui.horizontal(|ui| {
-                                    ui.label("Unit:");
-                                    egui::ComboBox::from_id_salt("scale_unit")
-                                        .selected_text(&self.scale_unit)
-                                        .show_ui(ui, |ui| {
-                                            ui.selectable_value(
-                                                &mut self.scale_unit,
-                                                "µm".to_string(),
-                                                "µm",
-                                            );
-                                            ui.selectable_value(
-                                                &mut self.scale_unit,
-                                                "mm".to_string(),
-                                                "mm",
-                                            );
-                                            ui.selectable_value(
-                                                &mut self.scale_unit,
-                                                "nm".to_string(),
-                                                "nm",
-                                            );
-                                        });
-                                });
-
-                                if ui.button("Clear Calibration").clicked() {
-                                    self.pixel_scale_x = None;
-                                    self.pixel_scale_y = None;
-                                }
-                            });
-                    });
-                }
-            });
-    }
-
-    #[allow(clippy::cast_precision_loss)]
-    fn render_echelle_preview_panel(&mut self, ui: &mut egui::Ui) {
-        self.render_echelle_calibration_workspace(ui);
-        ui.separator();
-
-        if self.echelle_profile_cache.profile().is_none() {
-            ui.weak("No active echelle calibration profile loaded for live extraction preview.");
-            ui.weak("Use the calibration workspace above to load/save+activate a profile path.");
-            if self.echelle_preview.is_none() {
-                return;
-            }
-        }
-
-        ui.horizontal_wrapped(|ui| {
-            ui.checkbox(&mut self.echelle_extraction_enabled, "Enabled");
-            ui.add(
-                egui::DragValue::new(&mut self.echelle_extract_every_n_frames)
-                    .range(1..=120)
-                    .prefix("Every ")
-                    .suffix(" frames"),
-            );
-            ui.checkbox(&mut self.echelle_show_merged_plot, "Merged");
-            ui.separator();
-            ui.label("X:");
-            ui.selectable_value(
-                &mut self.echelle_plot_x_axis_mode,
-                EchellePlotXAxisMode::Wavelength,
-                "Wavelength",
-            );
-            ui.selectable_value(
-                &mut self.echelle_plot_x_axis_mode,
-                EchellePlotXAxisMode::SampleIndex,
-                "Sample",
-            );
-            ui.separator();
-            ui.add(
-                egui::DragValue::new(&mut self.echelle_plot_smoothing_window)
-                    .range(1..=25)
-                    .prefix("Smooth ")
-                    .suffix(" px"),
-            );
-        });
-
-        if let Some(profile) = self.echelle_profile_cache.profile() {
-            egui::Frame::group(ui.style()).show(ui, |ui| {
-                ui.small("Calibration Profile");
-                ui.small(format!(
-                    "{}{}",
-                    profile.display_name,
-                    profile
-                        .profile_id
-                        .as_ref()
-                        .map(|id| format!(" ({id})"))
-                        .unwrap_or_default()
-                ));
-                ui.small(format!(
-                    "Schema {}.{}.{} | Frame {}x{} | ROI ({}, {}) | Bin {}x{}",
-                    profile.schema_version.major,
-                    profile.schema_version.minor,
-                    profile.schema_version.patch,
-                    profile.compatibility.frame_width,
-                    profile.compatibility.frame_height,
-                    profile.compatibility.roi_x,
-                    profile.compatibility.roi_y,
-                    profile.compatibility.binning_x,
-                    profile.compatibility.binning_y
-                ));
-                ui.small(format!(
-                    "Created by {}{} at {}",
-                    profile.provenance.creator_tool,
-                    profile
-                        .provenance
-                        .creator_version
-                        .as_ref()
-                        .map(|v| format!("@{v}"))
-                        .unwrap_or_default(),
-                    profile.provenance.created_at_utc
-                ));
-                if let Some(path) = self.echelle_profile_cache.path() {
-                    ui.small(format!("Path: {}", path.display()));
-                }
-            });
-        }
-
-        if let Some(err) = &self.echelle_preview_error {
-            ui.colored_label(colors::ERROR, err);
-        }
-
-        let Some(preview) = &self.echelle_preview else {
-            ui.weak("Waiting for extracted spectrum preview...");
-            return;
-        };
-
-        ui.small(format!(
-            "Profile: {} | Frame {} | Orders: {}",
-            preview.profile_display_name,
-            preview.frame_number,
-            preview.orders.len()
-        ));
-
-        if !preview.orders.is_empty() {
-            let selected_text = preview
-                .orders
-                .get(self.echelle_selected_order_plot)
-                .map(|o| match o.physical_order_number {
-                    Some(m) => format!("Order {} (m={})", o.relative_index, m),
-                    None => format!("Order {}", o.relative_index),
-                })
-                .unwrap_or_else(|| "Order 0".to_string());
-
-            egui::ComboBox::from_id_salt("echelle_order_plot_selector")
-                .selected_text(selected_text)
-                .show_ui(ui, |ui| {
-                    for (idx, order) in preview.orders.iter().enumerate() {
-                        let label = match order.physical_order_number {
-                            Some(m) => format!("Order {} (m={})", order.relative_index, m),
-                            None => format!("Order {}", order.relative_index),
-                        };
-                        ui.selectable_value(&mut self.echelle_selected_order_plot, idx, label);
-                    }
-                });
-        }
-
-        let mut plot_label = "Order";
-        let (mut xs, ys, unit) = if self.echelle_show_merged_plot {
-            if let Some(merged) = &preview.merged {
-                plot_label = "Merged";
-                (
-                    merged.wavelengths.clone(),
-                    &merged.flux,
-                    merged.wavelength_unit.as_str(),
-                )
-            } else if let Some(order) = preview.orders.get(self.echelle_selected_order_plot) {
-                (
-                    order.wavelengths.clone(),
-                    &order.flux,
-                    order.wavelength_unit.as_str(),
-                )
-            } else {
-                ui.weak("No order spectra available.");
-                return;
-            }
-        } else if let Some(order) = preview.orders.get(self.echelle_selected_order_plot) {
-            (
-                order.wavelengths.clone(),
-                &order.flux,
-                order.wavelength_unit.as_str(),
-            )
-        } else {
-            ui.weak("No order spectra available.");
-            return;
-        };
-
-        if xs.is_empty() || ys.is_empty() {
-            ui.weak("Extracted spectrum is empty.");
-            return;
-        }
-
-        if self.echelle_plot_x_axis_mode == EchellePlotXAxisMode::SampleIndex {
-            xs = (0..ys.len()).map(|i| i as f64).collect();
-        }
-        let display_flux = if self.echelle_plot_smoothing_window > 1 {
-            smooth_display_series(ys, self.echelle_plot_smoothing_window as usize)
-        } else {
-            ys.clone()
-        };
-
-        let points: Vec<[f64; 2]> = xs
-            .iter()
-            .copied()
-            .zip(display_flux.iter().copied())
-            .map(|(x, y)| [x, y])
-            .collect();
-        let line = Line::new(format!("{plot_label} flux"), PlotPoints::new(points));
-        let selected_order_for_hover = if self.echelle_show_merged_plot {
-            None
-        } else {
-            preview.orders.get(self.echelle_selected_order_plot)
-        };
-        let wavelength_lookup_for_hover = if self.echelle_show_merged_plot {
-            None
-        } else {
-            preview
-                .orders
-                .get(self.echelle_selected_order_plot)
-                .map(|o| o.wavelengths.as_slice())
-        };
-        let flux_lookup_for_hover = if self.echelle_show_merged_plot {
-            None
-        } else {
-            preview
-                .orders
-                .get(self.echelle_selected_order_plot)
-                .map(|o| o.flux.as_slice())
-        };
-        let mut hover_link = None;
-
-        Plot::new("image_viewer_echelle_preview_plot")
-            .height(180.0)
-            .allow_scroll(false)
-            .allow_drag(true)
-            .allow_zoom(true)
-            .x_axis_label(match self.echelle_plot_x_axis_mode {
-                EchellePlotXAxisMode::Wavelength => unit,
-                EchellePlotXAxisMode::SampleIndex => "sample",
-            })
-            .y_axis_label("counts")
-            .show(ui, |plot_ui| {
-                plot_ui.line(line);
-                if let (Some(order), Some(w_lookup), Some(f_lookup)) = (
-                    selected_order_for_hover,
-                    wavelength_lookup_for_hover,
-                    flux_lookup_for_hover,
-                ) {
-                    if let Some(pointer) = plot_ui.pointer_coordinate() {
-                        let idx = match self.echelle_plot_x_axis_mode {
-                            EchellePlotXAxisMode::SampleIndex => {
-                                #[allow(
-                                    clippy::cast_possible_truncation,
-                                    clippy::cast_possible_wrap,
-                                    clippy::cast_sign_loss
-                                )]
-                                let idx = pointer.x.round() as isize;
-                                #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
-                                let clamped = idx
-                                    .clamp(0, (f_lookup.len().saturating_sub(1)) as isize)
-                                    as usize;
-                                clamped
-                            }
-                            EchellePlotXAxisMode::Wavelength => nearest_index_by_x(&xs, pointer.x),
-                        };
-                        if idx < w_lookup.len() && idx < f_lookup.len() {
-                            hover_link = Some(EchellePlotHoverLink {
-                                relative_index: order.relative_index,
-                                sample_index: idx,
-                                wavelength: w_lookup[idx],
-                                flux: f_lookup[idx],
-                            });
-                        }
-                    }
-                }
-            });
-        self.echelle_plot_hover_link = hover_link;
-
-        if let Some(order) = preview.orders.get(self.echelle_selected_order_plot) {
-            #[allow(clippy::cast_precision_loss)]
-            let mean_valid = if order.valid_fraction.is_empty() {
-                0.0
-            } else {
-                order
-                    .valid_fraction
-                    .iter()
-                    .map(|&v| f64::from(v))
-                    .sum::<f64>()
-                    / order.valid_fraction.len() as f64
-            };
-            ui.small(format!(
-                "Coverage: {}/{} samples | mean valid frac: {:.2} | saturated samples: {}",
-                order.covered_samples, order.total_samples, mean_valid, order.saturated_samples
-            ));
-            if let Some(link) = self.echelle_plot_hover_link {
-                if link.relative_index == order.relative_index {
-                    ui.small(format!(
-                        "Hover: sample {} | λ={:.6} {} | flux={:.2}",
-                        link.sample_index, link.wavelength, order.wavelength_unit, link.flux
-                    ));
-                }
-            }
-        }
-
-        egui::CollapsingHeader::new("Diagnostics")
-            .default_open(false)
-            .show(ui, |ui| {
-                ui.small(format!("extract runs: {}", self.echelle_extract_runs));
-                ui.small(format!("extract errors: {}", self.echelle_extract_errors));
-                ui.small(format!(
-                    "decimation skips: {}",
-                    self.echelle_extract_skipped_frames
-                ));
-                if let Some(ms) = self.echelle_last_extract_ms {
-                    ui.small(format!("last extract: {:.2} ms", ms));
-                }
-                ui.small(format!(
-                    "preview spectra objects: {}",
-                    self.echelle_preview_measurements.len()
-                ));
-            });
-    }
-
     // =========================================================================
     // Public API for programmatic control
     // =========================================================================
@@ -6303,498 +3048,6 @@ impl ImageViewerPanel {
     #[allow(dead_code)]
     pub fn device_id(&self) -> Option<&str> {
         self.device_id.as_deref()
-    }
-}
-
-fn smooth_display_series(values: &[f64], window: usize) -> Vec<f64> {
-    if values.is_empty() || window <= 1 {
-        return values.to_vec();
-    }
-    let radius = window / 2;
-    let mut out = Vec::with_capacity(values.len());
-    for i in 0..values.len() {
-        let start = i.saturating_sub(radius);
-        let end = (i + radius + 1).min(values.len());
-        let sum: f64 = values[start..end].iter().sum();
-        #[allow(clippy::cast_precision_loss)]
-        let avg = sum / (end - start) as f64;
-        out.push(avg);
-    }
-    out
-}
-
-fn nearest_index_by_x(xs: &[f64], target: f64) -> usize {
-    let mut best_idx = 0usize;
-    let mut best_dist = f64::INFINITY;
-    for (i, &x) in xs.iter().enumerate() {
-        let d = (x - target).abs();
-        if d < best_dist {
-            best_dist = d;
-            best_idx = i;
-        }
-    }
-    best_idx
-}
-
-fn compute_wavelength_fit_residuals_for_order(
-    order: &EchelleOrderCalibration,
-    points: &[EchelleCalibrationPointUi],
-) -> Vec<(f64, f64)> {
-    let mut residuals = Vec::new();
-    for point in points
-        .iter()
-        .filter(|p| p.enabled && p.order_relative_index == order.relative_index)
-    {
-        let predicted = match &order.wavelength {
-            EchelleWavelengthModel::Polynomial {
-                basis,
-                coefficients,
-                domain_start,
-                domain_end,
-                ..
-            } => eval_polynomial_for_ui(
-                *basis,
-                coefficients,
-                *domain_start,
-                *domain_end,
-                point.x_sample,
-            ),
-            EchelleWavelengthModel::Sampled { wavelengths, .. } => {
-                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-                let idx = point.x_sample.round().clamp(0.0, f64::MAX) as usize;
-                wavelengths.get(idx).copied()
-            }
-        };
-        if let Some(predicted) = predicted {
-            residuals.push((point.x_sample, point.wavelength - predicted));
-        }
-    }
-    residuals
-}
-
-fn fit_wavelength_model_for_order_from_points(
-    order: &mut EchelleOrderCalibration,
-    points: &[EchelleCalibrationPointUi],
-) -> Result<String, String> {
-    let enabled_points: Vec<&EchelleCalibrationPointUi> = points
-        .iter()
-        .filter(|p| p.enabled && p.order_relative_index == order.relative_index)
-        .collect();
-    if enabled_points.len() < 2 {
-        return Err(format!(
-            "Need at least 2 enabled calibration points for order {}",
-            order.relative_index
-        ));
-    }
-
-    match &mut order.wavelength {
-        EchelleWavelengthModel::Polynomial {
-            basis,
-            coefficients,
-            domain_start,
-            domain_end,
-            unit,
-        } => {
-            if coefficients.is_empty() {
-                return Err(format!(
-                    "Order {} has an empty polynomial (no coefficients) — cannot fit",
-                    order.relative_index
-                ));
-            }
-            let degree = coefficients.len().saturating_sub(1);
-            if enabled_points.len() < coefficients.len() {
-                return Err(format!(
-                    "Need at least {} enabled points to fit degree {} polynomial for order {}",
-                    coefficients.len(),
-                    degree,
-                    order.relative_index
-                ));
-            }
-            let xs: Vec<f64> = enabled_points.iter().map(|p| p.x_sample).collect();
-            let ys: Vec<f64> = enabled_points.iter().map(|p| p.wavelength).collect();
-            let fitted = fit_polynomial_basis_least_squares_ui(
-                *basis,
-                degree,
-                *domain_start,
-                *domain_end,
-                &xs,
-                &ys,
-            )?;
-            *coefficients = fitted;
-            Ok(format!(
-                "Fitted order {} wavelength polynomial (degree {}, {} points, unit {})",
-                order.relative_index,
-                degree,
-                enabled_points.len(),
-                unit
-            ))
-        }
-        EchelleWavelengthModel::Sampled { .. } => Err(format!(
-            "Selected order {} uses sampled wavelengths; sampled refit UI not implemented yet",
-            order.relative_index
-        )),
-    }
-}
-
-fn eval_polynomial_for_ui(
-    basis: PolynomialBasis,
-    coefficients: &[f64],
-    domain_start: f64,
-    domain_end: f64,
-    x: f64,
-) -> Option<f64> {
-    if coefficients.is_empty()
-        || !x.is_finite()
-        || !domain_start.is_finite()
-        || !domain_end.is_finite()
-        || domain_start >= domain_end
-    {
-        return None;
-    }
-    let value = match basis {
-        PolynomialBasis::Monomial => {
-            let mut acc = 0.0f64;
-            for &c in coefficients.iter().rev() {
-                acc = acc * x + c;
-            }
-            acc
-        }
-        PolynomialBasis::Chebyshev => {
-            let t = ((2.0 * (x - domain_start)) / (domain_end - domain_start)) - 1.0;
-            if coefficients.len() == 1 {
-                coefficients[0]
-            } else {
-                let mut t0 = 1.0f64;
-                let mut t1 = t;
-                let mut acc = coefficients[0] * t0 + coefficients[1] * t1;
-                for &c in coefficients.iter().skip(2) {
-                    let tn = 2.0 * t * t1 - t0;
-                    acc += c * tn;
-                    t0 = t1;
-                    t1 = tn;
-                }
-                acc
-            }
-        }
-    };
-    value.is_finite().then_some(value)
-}
-
-fn fit_polynomial_basis_least_squares_ui(
-    basis: PolynomialBasis,
-    degree: usize,
-    domain_start: f64,
-    domain_end: f64,
-    xs: &[f64],
-    ys: &[f64],
-) -> Result<Vec<f64>, String> {
-    if xs.len() != ys.len() || xs.is_empty() {
-        return Err("xs/ys must be non-empty and same length".to_string());
-    }
-    let n_coeff = degree + 1;
-    let mut ata = vec![vec![0.0f64; n_coeff]; n_coeff];
-    let mut aty = vec![0.0f64; n_coeff];
-
-    for (&x, &y) in xs.iter().zip(ys) {
-        let terms = basis_terms_for_ui(basis, degree, domain_start, domain_end, x)
-            .ok_or_else(|| "invalid polynomial basis/domain/input while fitting".to_string())?;
-        for i in 0..n_coeff {
-            aty[i] += terms[i] * y;
-            for j in 0..n_coeff {
-                ata[i][j] += terms[i] * terms[j];
-            }
-        }
-    }
-
-    solve_linear_system_gaussian(ata, aty)
-        .ok_or_else(|| "least-squares solve failed (singular/ill-conditioned matrix)".to_string())
-}
-
-fn basis_terms_for_ui(
-    basis: PolynomialBasis,
-    degree: usize,
-    domain_start: f64,
-    domain_end: f64,
-    x: f64,
-) -> Option<Vec<f64>> {
-    if !x.is_finite()
-        || !domain_start.is_finite()
-        || !domain_end.is_finite()
-        || domain_start >= domain_end
-    {
-        return None;
-    }
-    let mut out = vec![0.0; degree + 1];
-    match basis {
-        PolynomialBasis::Monomial => {
-            let mut p = 1.0;
-            for term in &mut out {
-                *term = p;
-                p *= x;
-            }
-        }
-        PolynomialBasis::Chebyshev => {
-            let t = ((2.0 * (x - domain_start)) / (domain_end - domain_start)) - 1.0;
-            out[0] = 1.0;
-            if degree >= 1 {
-                out[1] = t;
-            }
-            for n in 2..=degree {
-                out[n] = 2.0 * t * out[n - 1] - out[n - 2];
-            }
-        }
-    }
-    Some(out)
-}
-
-#[allow(clippy::needless_range_loop)]
-fn solve_linear_system_gaussian(mut a: Vec<Vec<f64>>, mut b: Vec<f64>) -> Option<Vec<f64>> {
-    let n = a.len();
-    if n == 0 || b.len() != n || a.iter().any(|row| row.len() != n) {
-        return None;
-    }
-
-    for col in 0..n {
-        let mut pivot = col;
-        let mut best = a[col][col].abs();
-        for row in (col + 1)..n {
-            let v = a[row][col].abs();
-            if v > best {
-                best = v;
-                pivot = row;
-            }
-        }
-        if best <= 1e-12 || !best.is_finite() {
-            return None;
-        }
-        if pivot != col {
-            a.swap(pivot, col);
-            b.swap(pivot, col);
-        }
-
-        let pivot_val = a[col][col];
-        for j in col..n {
-            a[col][j] /= pivot_val;
-        }
-        b[col] /= pivot_val;
-
-        for row in 0..n {
-            if row == col {
-                continue;
-            }
-            let factor = a[row][col];
-            if factor == 0.0 {
-                continue;
-            }
-            for j in col..n {
-                a[row][j] -= factor * a[col][j];
-            }
-            b[row] -= factor * b[col];
-        }
-    }
-
-    if b.iter().all(|v| v.is_finite()) {
-        Some(b)
-    } else {
-        None
-    }
-}
-
-#[allow(clippy::too_many_arguments, clippy::needless_range_loop)]
-#[allow(clippy::cast_possible_wrap)]
-fn detect_cross_dispersion_peaks_from_frame(
-    data: &[u8],
-    width: u32,
-    height: u32,
-    bit_depth: u32,
-    dispersion_axis: DetectorAxis,
-    min_separation_px: u32,
-    max_peaks: usize,
-    threshold_fraction: f64,
-) -> Result<Vec<f64>, String> {
-    if width == 0 || height == 0 {
-        return Err("Frame dimensions must be non-zero".to_string());
-    }
-    if max_peaks == 0 {
-        return Ok(Vec::new());
-    }
-
-    let cross_len = match dispersion_axis {
-        DetectorAxis::X => height as usize,
-        DetectorAxis::Y => width as usize,
-    };
-    let disp_len = match dispersion_axis {
-        DetectorAxis::X => width as usize,
-        DetectorAxis::Y => height as usize,
-    };
-    let mut profile = vec![0.0f64; cross_len];
-
-    for cross in 0..cross_len {
-        #[allow(clippy::cast_precision_loss)]
-        let mut sum = 0.0f64;
-        for disp in 0..disp_len {
-            #[allow(clippy::cast_possible_truncation)]
-            let (x, y) = match dispersion_axis {
-                DetectorAxis::X => (disp as u32, cross as u32),
-                DetectorAxis::Y => (cross as u32, disp as u32),
-            };
-            let px =
-                get_pixel_value_inline(data, x, y, width, height, bit_depth).ok_or_else(|| {
-                    "Failed to read pixel while auto-detecting trace seeds".to_string()
-                })?;
-            sum += f64::from(px);
-        }
-        #[allow(clippy::cast_precision_loss)]
-        let avg = sum / disp_len.max(1) as f64;
-        profile[cross] = avg;
-    }
-
-    let mut sorted = profile.clone();
-    sorted.sort_by(|a, b| a.total_cmp(b));
-    let median = sorted[sorted.len() / 2];
-    let max_value = profile
-        .iter()
-        .copied()
-        .fold(f64::NEG_INFINITY, f64::max)
-        .max(median);
-    let threshold = median + (max_value - median) * threshold_fraction.clamp(0.0, 1.0);
-
-    let mut candidates: Vec<(usize, f64)> = Vec::new();
-    for i in 1..profile.len().saturating_sub(1) {
-        let v = profile[i];
-        if v >= threshold && v > profile[i - 1] && v >= profile[i + 1] {
-            candidates.push((i, v));
-        }
-    }
-    candidates.sort_by(|a, b| b.1.total_cmp(&a.1));
-
-    #[allow(clippy::cast_possible_wrap)]
-    let min_sep = min_separation_px as isize;
-    #[allow(clippy::cast_precision_loss)]
-    let mut selected: Vec<usize> = Vec::new();
-    for (idx, _v) in candidates {
-        if selected
-            .iter()
-            .all(|&keep| (keep as isize - idx as isize).abs() >= min_sep)
-        {
-            selected.push(idx);
-            if selected.len() >= max_peaks {
-                break;
-            }
-        }
-    }
-    selected.sort_unstable();
-
-    #[allow(clippy::cast_precision_loss)]
-    let result: Vec<f64> = selected.into_iter().map(|i| i as f64).collect();
-    Ok(result)
-}
-
-#[cfg(test)]
-mod echelle_calibration_ui_helper_tests {
-    use super::*;
-
-    #[test]
-    fn eval_polynomial_for_ui_monomial_and_chebyshev() {
-        let mono = eval_polynomial_for_ui(PolynomialBasis::Monomial, &[2.0, 3.0], 0.0, 10.0, 4.0);
-        assert_eq!(mono, Some(14.0));
-
-        let cheb = eval_polynomial_for_ui(PolynomialBasis::Chebyshev, &[5.0, 2.0], 0.0, 10.0, 10.0);
-        // At x=10 => normalized t=1, so 5 + 2*T1 = 7
-        assert_eq!(cheb, Some(7.0));
-    }
-
-    #[test]
-    fn compute_wavelength_fit_residuals_filters_by_order_and_enabled_flag() {
-        let order = EchelleOrderCalibration {
-            relative_index: 3,
-            physical_order_number: Some(77),
-            sample_start: 0,
-            sample_end: 100,
-            trace: EchelleTraceModel::Polynomial {
-                basis: PolynomialBasis::Monomial,
-                coefficients: vec![10.0],
-                domain_start: 0.0,
-                domain_end: 101.0,
-            },
-            wavelength: EchelleWavelengthModel::Polynomial {
-                basis: PolynomialBasis::Monomial,
-                coefficients: vec![500.0, 0.1],
-                domain_start: 0.0,
-                domain_end: 101.0,
-                unit: "nm".to_string(),
-            },
-            aperture_half_width_px: Some(4.0),
-            enabled: true,
-            notes: None,
-        };
-
-        let points = vec![
-            EchelleCalibrationPointUi {
-                enabled: true,
-                order_relative_index: 3,
-                x_sample: 10.0,
-                y_pixel: 0.0,
-                wavelength: 501.2, // predicted 501.0 => residual 0.2
-                note: String::new(),
-            },
-            EchelleCalibrationPointUi {
-                enabled: false,
-                order_relative_index: 3,
-                x_sample: 20.0,
-                y_pixel: 0.0,
-                wavelength: 503.0,
-                note: String::new(),
-            },
-            EchelleCalibrationPointUi {
-                enabled: true,
-                order_relative_index: 4,
-                x_sample: 10.0,
-                y_pixel: 0.0,
-                wavelength: 999.0,
-                note: String::new(),
-            },
-        ];
-
-        let residuals = compute_wavelength_fit_residuals_for_order(&order, &points);
-        assert_eq!(residuals.len(), 1);
-        assert!((residuals[0].0 - 10.0).abs() < 1e-9);
-        assert!((residuals[0].1 - 0.2).abs() < 1e-9);
-    }
-
-    #[test]
-    fn fit_polynomial_basis_least_squares_ui_recovers_linear_coefficients() {
-        let xs = [0.0, 1.0, 2.0, 3.0, 4.0];
-        let ys: Vec<f64> = xs.iter().map(|x| 10.0 + 0.5 * x).collect();
-        let coeffs =
-            fit_polynomial_basis_least_squares_ui(PolynomialBasis::Monomial, 1, 0.0, 5.0, &xs, &ys)
-                .unwrap();
-        assert_eq!(coeffs.len(), 2);
-        assert!((coeffs[0] - 10.0).abs() < 1e-9);
-        assert!((coeffs[1] - 0.5).abs() < 1e-9);
-    }
-
-    #[test]
-    fn detect_cross_dispersion_peaks_from_frame_finds_bright_rows() {
-        let width = 8u32;
-        let height = 12u32;
-        let mut data = vec![1u8; (width * height) as usize];
-        for x in 0..width {
-            data[(3 * width + x) as usize] = 50;
-            data[(8 * width + x) as usize] = 80;
-        }
-        let peaks = detect_cross_dispersion_peaks_from_frame(
-            &data,
-            width,
-            height,
-            8,
-            DetectorAxis::X,
-            2,
-            8,
-            0.2,
-        )
-        .unwrap();
-        assert_eq!(peaks, vec![3.0, 8.0]);
     }
 }
 

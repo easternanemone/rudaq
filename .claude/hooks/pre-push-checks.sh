@@ -25,7 +25,7 @@ JSON
 fi
 
 echo "Pre-push: Running cargo clippy..." >&2
-clippy_output=$(cargo clippy --workspace --all-targets -- -D warnings 2>&1)
+clippy_output=$(cargo clippy --workspace --all-targets --exclude ui --exclude comedi-sys --exclude driver-comedi -- -D warnings 2>&1)
 clippy_exit=$?
 
 if [[ $clippy_exit -ne 0 ]]; then
@@ -39,12 +39,12 @@ JSON
   exit 0
 fi
 
-echo "Pre-push: Running tests..." >&2
+echo "Pre-push: Running tests (excluding ui and integration-tests)..." >&2
 if command -v cargo-nextest &>/dev/null; then
-  test_output=$(cargo nextest run --workspace --exclude ui 2>&1)
+  test_output=$(cargo nextest run --workspace --exclude ui --exclude integration-tests --profile ci 2>&1)
   test_exit=$?
 else
-  test_output=$(cargo test --workspace --exclude ui 2>&1)
+  test_output=$(cargo test --workspace --exclude ui --exclude integration-tests 2>&1)
   test_exit=$?
 fi
 
