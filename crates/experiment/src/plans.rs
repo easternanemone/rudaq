@@ -132,6 +132,19 @@ pub enum PlanCommand {
         /// Maximum time to wait in seconds
         timeout_seconds: f64,
     },
+    /// Repeat commands while a condition is true (bd-up05)
+    ///
+    /// Evaluates `condition` before each iteration. If true, executes `body`
+    /// commands and increments the iteration counter. Terminates when the
+    /// condition becomes false or `max_iterations` is reached.
+    RepeatWhile {
+        /// Condition to evaluate each iteration
+        condition: EvalCondition,
+        /// Commands to execute each iteration
+        body: Vec<PlanCommand>,
+        /// Safety cap on iterations (prevents runaway loops)
+        max_iterations: u32,
+    },
 }
 
 /// Plan trait - all plans implement this to generate commands

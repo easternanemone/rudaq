@@ -47,6 +47,7 @@ mod mock_power_meter;
 mod mock_rotator;
 mod mock_stage;
 mod pattern;
+pub mod scenario;
 
 // Re-export common types
 pub use common::{ErrorConfig, ErrorScenario, MockMode, MockRng, TimingConfig};
@@ -63,6 +64,7 @@ pub use mock_stage::{MockStage, MockStageFactory};
 
 // Re-export for convenience
 pub use pattern::generate_test_pattern;
+pub use scenario::{ScenarioConfig, ScenarioDeviceConfig};
 
 /// Force the linker to include this crate's driver factory registrations.
 ///

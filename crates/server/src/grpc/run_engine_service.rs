@@ -50,6 +50,11 @@ pub struct RunEngineServiceImpl {
     plan_registry: Arc<PlanRegistry>,
     /// Persists documents to HDF5 (bd-jwsc)
     document_writer: Arc<DocumentWriter>,
+    /// Prometheus metrics for observability (bd-2r60, bd-4de1)
+    /// TODO(bd-4de1): Engine state is currently updated opportunistically on status polls.
+    /// Wire a push-based state-change subscription when RunEngine supports it.
+    #[cfg(feature = "metrics")]
+    metrics: Option<Arc<crate::grpc::metrics_service::DaqMetrics>>,
     /// Optional SurrealDB handle for plan storage (bd-yz1w)
     #[cfg(feature = "db-surreal")]
     db: Option<db::DaqDb>,
@@ -60,7 +65,13 @@ impl RunEngineServiceImpl {
     ///
     /// Spawns a background task that converts domain documents to proto and broadcasts
     /// them to all gRPC clients. This ensures O(M) conversions instead of O(N×M).
-    pub fn new(engine: Arc<RunEngine>) -> Self {
+    ///
+    /// When the `metrics` feature is enabled, pass a `DaqMetrics` instance to wire
+    /// stream lifecycle and document counters to Prometheus gauges (bd-2r60, bd-4de1).
+    pub fn new(
+        engine: Arc<RunEngine>,
+        #[cfg(feature = "metrics")] metrics: Option<Arc<crate::grpc::metrics_service::DaqMetrics>>,
+    ) -> Self {
         // Create proto document broadcast channel
         let (proto_doc_sender, _) = tokio::sync::broadcast::channel(1024);
 
@@ -103,6 +114,8 @@ impl RunEngineServiceImpl {
         // Spawn converter task that subscribes to domain stream and broadcasts proto
         let engine_clone = engine.clone();
         let proto_sender_clone = proto_doc_sender.clone();
+        #[cfg(feature = "metrics")]
+        let metrics_converter = metrics.clone();
         tokio::spawn(async move {
             let mut domain_rx = engine_clone.subscribe();
             let mut total_converted = 0u64;
@@ -116,6 +129,12 @@ impl RunEngineServiceImpl {
                             Ok(Some(proto_doc)) => {
                                 let conversion_micros = start.elapsed().as_micros();
                                 total_converted += 1;
+
+                                // Prometheus: record document sent (bd-4de1)
+                                #[cfg(feature = "metrics")]
+                                if let Some(ref m) = metrics_converter {
+                                    m.document_sent();
+                                }
 
                                 // Broadcast Arc to avoid cloning the proto doc for each client
                                 let subscriber_count = proto_sender_clone.receiver_count();
@@ -178,6 +197,8 @@ impl RunEngineServiceImpl {
             active_streams,
             plan_registry,
             document_writer,
+            #[cfg(feature = "metrics")]
+            metrics,
             #[cfg(feature = "db-surreal")]
             db: None,
         }
@@ -199,6 +220,8 @@ impl Clone for RunEngineServiceImpl {
             active_streams: self.active_streams.clone(),
             plan_registry: self.plan_registry.clone(),
             document_writer: self.document_writer.clone(),
+            #[cfg(feature = "metrics")]
+            metrics: self.metrics.clone(),
             #[cfg(feature = "db-surreal")]
             db: self.db.clone(),
         }
@@ -558,6 +581,19 @@ impl RunEngineService for RunEngineServiceImpl {
             DomainEngineState::Aborting => ProtoEngineState::EngineAborting,
         };
 
+        // Prometheus: opportunistically update engine state gauge on status poll (bd-4de1)
+        #[cfg(feature = "metrics")]
+        if let Some(ref m) = self.metrics {
+            use crate::grpc::metrics_service::EngineState as MetricsEngineState;
+            let metrics_state = match domain_state {
+                DomainEngineState::Idle => MetricsEngineState::Idle,
+                DomainEngineState::Running => MetricsEngineState::Running,
+                DomainEngineState::Paused => MetricsEngineState::Paused,
+                DomainEngineState::Aborting => MetricsEngineState::Error,
+            };
+            m.set_engine_state(metrics_state);
+        }
+
         // Get run timing information
         let run_start_ns = self.engine.current_run_start_ns().await.unwrap_or(0);
         let elapsed_ns = if run_start_ns > 0 {
@@ -879,6 +915,11 @@ impl RunEngineService for RunEngineServiceImpl {
         // Observability: Track active streams (bd-f9hn)
         let active_streams = self.active_streams.clone();
         let stream_count = active_streams.fetch_add(1, Ordering::Relaxed) + 1;
+        // Prometheus: mirror stream start to gauge (bd-2r60)
+        #[cfg(feature = "metrics")]
+        if let Some(ref m) = self.metrics {
+            m.stream_started();
+        }
         tracing::info!(
             active_streams = stream_count,
             run_uid_filter = ?run_uid_filter,
@@ -897,8 +938,12 @@ impl RunEngineService for RunEngineServiceImpl {
         let docs_sent_outer = docs_sent.clone();
         let docs_filtered_outer = docs_filtered.clone();
         let lag_events_outer = lag_events.clone();
+        #[cfg(feature = "metrics")]
+        let metrics_stream = self.metrics.clone();
 
         // Apply client-specific filters to the shared proto stream
+        #[cfg(feature = "metrics")]
+        let metrics_lag = metrics_stream.clone();
         let stream = BroadcastStream::new(proto_rx).filter_map(move |result| {
             let run_uid_filter = run_uid_filter.clone();
             let doc_types_filter = doc_types_filter.clone(); // Arc clone, cheap
@@ -907,6 +952,8 @@ impl RunEngineService for RunEngineServiceImpl {
             let docs_filtered = docs_filtered.clone();
             let docs_sent = docs_sent.clone();
             let lag_events = lag_events.clone();
+            #[cfg(feature = "metrics")]
+            let metrics_lag = metrics_lag.clone();
 
             async move {
                 match result {
@@ -988,6 +1035,11 @@ impl RunEngineService for RunEngineServiceImpl {
                     Err(BroadcastStreamRecvError::Lagged(skipped)) => {
                         // Receiver fell behind - log and continue without terminating stream
                         let lag_count = lag_events.fetch_add(1, Ordering::Relaxed) + 1;
+                        // Prometheus: mirror lag event to counter (bd-2r60)
+                        #[cfg(feature = "metrics")]
+                        if let Some(ref m) = metrics_lag {
+                            m.lag_occurred();
+                        }
                         let received = docs_received.load(Ordering::Relaxed);
                         let sent = docs_sent.load(Ordering::Relaxed);
                         tracing::warn!(
@@ -1015,6 +1067,8 @@ impl RunEngineService for RunEngineServiceImpl {
             docs_sent: docs_sent_outer,
             docs_filtered: docs_filtered_outer,
             lag_events: lag_events_outer,
+            #[cfg(feature = "metrics")]
+            metrics: metrics_stream,
         };
 
         Ok(Response::new(Box::pin(wrapped_stream)))
@@ -1029,11 +1083,19 @@ struct StreamWithCleanup<S> {
     docs_sent: Arc<AtomicU64>,
     docs_filtered: Arc<AtomicU64>,
     lag_events: Arc<AtomicU64>,
+    /// Prometheus metrics for stream lifecycle (bd-2r60)
+    #[cfg(feature = "metrics")]
+    metrics: Option<Arc<crate::grpc::metrics_service::DaqMetrics>>,
 }
 
 impl<S> Drop for StreamWithCleanup<S> {
     fn drop(&mut self) {
         let remaining = self.active_streams.fetch_sub(1, Ordering::Relaxed) - 1;
+        // Prometheus: mirror stream end to gauge (bd-2r60)
+        #[cfg(feature = "metrics")]
+        if let Some(ref m) = self.metrics {
+            m.stream_ended();
+        }
         let received = self.docs_received.load(Ordering::Relaxed);
         let sent = self.docs_sent.load(Ordering::Relaxed);
         let filtered = self.docs_filtered.load(Ordering::Relaxed);

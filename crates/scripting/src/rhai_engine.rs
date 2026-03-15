@@ -260,6 +260,9 @@ impl RhaiEngine {
         // Register yield bindings (bd-94zq.4)
         crate::yield_bindings::register_yield_bindings(&mut engine);
 
+        // Register coordinator bindings (bd-u32r)
+        crate::coordinator_bindings::register_coordinator(&mut engine);
+
         Ok(Self {
             engine: Arc::new(engine),
             scope: Arc::new(Mutex::new(Scope::new())),
@@ -378,6 +381,9 @@ impl RhaiEngine {
 
         // Register plan bindings (bd-w14j.1)
         crate::plan_bindings::register_plans(&mut engine);
+
+        // Register coordinator bindings (bd-u32r)
+        crate::coordinator_bindings::register_coordinator(&mut engine);
 
         Ok(Self {
             engine: Arc::new(engine),

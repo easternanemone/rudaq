@@ -44,6 +44,7 @@
 //! ```
 
 pub mod coordinator;
+pub mod feedback;
 pub mod lifecycle;
 pub mod plans;
 pub mod plans_daq;
@@ -55,6 +56,7 @@ pub use common::experiment::document::{
     DataKey, DescriptorDoc, Document, EventDoc, ExperimentManifest, StartDoc, StopDoc,
 };
 pub use coordinator::AcquisitionCoordinator;
+pub use feedback::FeedbackEvent;
 pub use lifecycle::RunLifecycleHook;
 pub use plans::{EvalCondition, Plan, PlanCommand, PlanRegistry};
 pub use plans_daq::{

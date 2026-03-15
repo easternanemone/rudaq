@@ -85,6 +85,8 @@
 
 pub mod borrow_guard;
 pub mod buffer_pool;
+#[cfg(feature = "dlpack")]
+pub mod dlpack;
 pub mod foreign_view;
 pub mod frame_data;
 
@@ -93,6 +95,10 @@ pub use buffer_pool::{BufferPool, PooledBuffer};
 
 // Re-export borrow guard types for zero-copy FFI safety
 pub use borrow_guard::{BorrowCount, BorrowGuard};
+
+// Re-export DLPack descriptor for tensor interop
+#[cfg(feature = "dlpack")]
+pub use dlpack::DlPackDescriptor;
 
 // Re-export foreign view trait for external consumers
 pub use foreign_view::ForeignView;

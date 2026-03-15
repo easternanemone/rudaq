@@ -15,10 +15,13 @@
 #[cfg(feature = "storage_hdf5")]
 use anyhow::anyhow;
 use anyhow::Result;
+use async_trait::async_trait;
 use common::experiment::document::Document;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+
+use crate::document_sink::DocumentSink;
 
 /// HDF5 Writer for RunEngine Documents
 pub struct DocumentWriter {
@@ -281,6 +284,24 @@ impl DocumentWriter {
 
     #[cfg(not(feature = "storage_hdf5"))]
     pub async fn write(&self, _doc: Document) -> Result<()> {
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl DocumentSink for DocumentWriter {
+    fn name(&self) -> &'static str {
+        "hdf5_document_writer"
+    }
+
+    async fn on_document(&mut self, doc: &Document) -> Result<()> {
+        // Delegate to the existing write method which uses interior
+        // mutability (Arc<Mutex<..>>) so taking &self is sufficient.
+        self.write(doc.clone()).await
+    }
+
+    async fn flush(&mut self) -> Result<()> {
+        // HDF5 writes are flushed per-document; nothing buffered.
         Ok(())
     }
 }

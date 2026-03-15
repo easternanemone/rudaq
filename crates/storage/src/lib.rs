@@ -63,6 +63,7 @@
 pub mod arrow_writer;
 pub mod comedi_writer;
 pub mod config;
+pub mod document_sink;
 pub mod document_writer;
 #[cfg(feature = "storage_hdf5")]
 pub mod hdf5_annotation;
@@ -76,6 +77,8 @@ pub mod tap_registry;
 #[cfg(feature = "storage_tiff")]
 pub mod tiff_writer;
 #[cfg(feature = "storage_zarr")]
+pub mod zarr_sink;
+#[cfg(feature = "storage_zarr")]
 pub mod zarr_writer;
 
 pub use comedi_writer::{
@@ -83,6 +86,7 @@ pub use comedi_writer::{
     CompressionType, ContinuousAcquisitionSession, StorageFormat, StreamStats,
 };
 pub use config::StorageConfig;
+pub use document_sink::DocumentSink;
 pub use document_writer::DocumentWriter;
 #[cfg(feature = "storage_hdf5")]
 pub use hdf5_annotation::{add_run_annotation, read_run_annotations, RunAnnotation};
@@ -101,6 +105,8 @@ pub use arrow_writer::{
 pub use parquet_writer::{ParquetCompression, ParquetWriter, ParquetWriterConfig};
 #[cfg(feature = "storage_tiff")]
 pub use tiff_writer::{LoanedFrame, TiffWriter};
+#[cfg(feature = "storage_zarr")]
+pub use zarr_sink::ZarrSink;
 #[cfg(feature = "storage_zarr")]
 pub use zarr_writer::{ZarrArrayBuilder, ZarrWriter};
 

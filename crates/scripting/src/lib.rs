@@ -18,6 +18,7 @@
 
 pub mod bindings;
 pub mod comedi_bindings;
+pub mod coordinator_bindings;
 #[cfg(feature = "libs_scripting")]
 pub mod libs_bindings;
 pub mod path_security;
@@ -33,6 +34,7 @@ pub mod yield_handle;
 pub mod pyo3_engine;
 
 pub use bindings::{CameraHandle, ReadableHandle, ShutterHandle, SoftLimits, StageHandle};
+pub use coordinator_bindings::CoordinatorHandle;
 
 #[cfg(feature = "hdf5_scripting")]
 pub use bindings::Hdf5Handle;

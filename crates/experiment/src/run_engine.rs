@@ -53,8 +53,9 @@ use tokio::sync::{broadcast, mpsc, Mutex, RwLock};
 use tokio::time::{sleep, Duration, Instant};
 use tracing::{debug, error, info, instrument, warn};
 
+use super::feedback::FeedbackEvent;
 use super::lifecycle::RunLifecycleHook;
-use super::plans::{Plan, PlanCommand};
+use super::plans::{EvalCondition, Plan, PlanCommand};
 use chrono::{DateTime, Utc};
 use common::capabilities::{FrameObserver, ObserverHandle};
 use common::data::FrameView;
@@ -308,6 +309,12 @@ pub struct RunEngine {
 
     /// Maximum allowed calibration age by logical device type.
     calibration_max_ages: RwLock<HashMap<String, Duration>>,
+
+    /// Feedback channel sender for data-plane events (bd-7rg0).
+    feedback_tx: mpsc::Sender<FeedbackEvent>,
+
+    /// Feedback channel receiver (taken by a single consumer via `subscribe_feedback`).
+    feedback_rx: Mutex<Option<mpsc::Receiver<FeedbackEvent>>>,
 }
 
 /// Default watchdog timeout for orphaned plan detection (5 minutes).
@@ -317,6 +324,7 @@ impl RunEngine {
     /// Create a new RunEngine
     pub fn new(device_registry: Arc<DeviceRegistry>) -> Self {
         let (doc_sender, _) = broadcast::channel(1024);
+        let (feedback_tx, feedback_rx) = mpsc::channel(256);
 
         Self {
             state: RwLock::new(EngineState::Idle),
@@ -335,7 +343,18 @@ impl RunEngine {
                 "spectroscopy".to_string(),
                 Duration::from_secs(24 * 60 * 60),
             )])),
+            feedback_tx,
+            feedback_rx: Mutex::new(Some(feedback_rx)),
         }
+    }
+
+    /// Subscribe to the feedback channel for data-plane events (bd-7rg0).
+    ///
+    /// Only one consumer can subscribe; subsequent calls return `None`.
+    /// The receiver yields `FeedbackEvent` values as the engine detects
+    /// threshold crossings, stability events, and value updates.
+    pub async fn subscribe_feedback(&self) -> Option<mpsc::Receiver<FeedbackEvent>> {
+        self.feedback_rx.lock().await.take()
     }
 
     /// Set the watchdog timeout for orphaned plan detection.
@@ -1509,16 +1528,21 @@ impl RunEngine {
             PlanCommand::ConditionalBranch {
                 condition,
                 then_commands,
-                else_commands: _,
+                else_commands,
             } => {
-                warn!(
-                    ?condition,
-                    "ConditionalBranch not yet implemented, falling back to then_commands"
-                );
-                // TODO(bd-up05): Implement condition evaluation with FeedbackChannel
+                let take_then = self.evaluate_condition(&condition).await;
+                let branch_label = if take_then { "then" } else { "else" };
+                debug!(?condition, branch = %branch_label, "ConditionalBranch evaluated");
+
+                let commands = if take_then {
+                    then_commands
+                } else {
+                    else_commands
+                };
+
                 // Box::pin required because process_command is recursive here.
                 let mut emitted = false;
-                for sub_cmd in then_commands {
+                for sub_cmd in commands {
                     if Box::pin(self.process_command(sub_cmd)).await? {
                         emitted = true;
                     }
@@ -1530,14 +1554,214 @@ impl RunEngine {
                 device_id,
                 timeout_seconds,
             } => {
-                warn!(
-                    %device_id,
-                    timeout_seconds,
-                    "WaitSettled not yet implemented, falling back to timeout"
-                );
-                // TODO(bd-chkq/bd-odrz): Implement settled detection via Readable polling
-                tokio::time::sleep(std::time::Duration::from_secs_f64(timeout_seconds)).await;
+                self.touch_activity().await;
+                let deadline = Instant::now() + Duration::from_secs_f64(timeout_seconds);
+                let poll_interval = Duration::from_millis(100);
+
+                // Try to get the readable capability for active monitoring
+                if let Some(readable) = self.device_registry.get_readable(&device_id) {
+                    let mut last_value: Option<f64> = None;
+                    let mut stable_since: Option<Instant> = None;
+                    let stability_window = Duration::from_millis(500);
+                    let tolerance = 0.01; // 1% relative tolerance
+
+                    debug!(%device_id, timeout_seconds, "WaitSettled: polling for stability");
+
+                    loop {
+                        if Instant::now() >= deadline {
+                            warn!(%device_id, "WaitSettled timed out");
+                            break;
+                        }
+
+                        // Check for abort
+                        if *self.abort_requested.read().await {
+                            info!(%device_id, "WaitSettled interrupted by abort");
+                            return Ok(false);
+                        }
+
+                        match readable.read().await {
+                            Ok(value) => {
+                                // Send value update feedback
+                                let _ = self.feedback_tx.try_send(FeedbackEvent::ValueUpdate {
+                                    device_id: device_id.clone(),
+                                    field: "value".to_string(),
+                                    value,
+                                });
+
+                                if let Some(prev) = last_value {
+                                    let delta = (value - prev).abs();
+                                    let rel_delta = if prev.abs() > f64::EPSILON {
+                                        delta / prev.abs()
+                                    } else {
+                                        delta
+                                    };
+
+                                    if rel_delta < tolerance {
+                                        let now = Instant::now();
+                                        let since = stable_since.get_or_insert(now);
+                                        if now.duration_since(*since) >= stability_window {
+                                            info!(%device_id, %value, "Device settled");
+                                            let _ = self.feedback_tx.try_send(
+                                                FeedbackEvent::StabilityReached {
+                                                    device_id: device_id.clone(),
+                                                    field: "value".to_string(),
+                                                    variance: rel_delta,
+                                                },
+                                            );
+                                            break;
+                                        }
+                                    } else {
+                                        stable_since = None;
+                                    }
+                                }
+                                last_value = Some(value);
+                            }
+                            Err(e) => {
+                                warn!(%device_id, error = %e, "Read failed during WaitSettled");
+                            }
+                        }
+
+                        sleep(poll_interval).await;
+                    }
+                } else {
+                    // No readable capability - fall back to simple timeout
+                    warn!(
+                        %device_id,
+                        timeout_seconds,
+                        "No Readable capability, falling back to timeout"
+                    );
+                    sleep(Duration::from_secs_f64(timeout_seconds)).await;
+                }
                 Ok(false)
+            }
+
+            PlanCommand::RepeatWhile {
+                condition,
+                body,
+                max_iterations,
+            } => {
+                let mut iteration = 0u32;
+                let mut emitted = false;
+
+                debug!(?condition, max_iterations, "RepeatWhile: starting loop");
+
+                loop {
+                    if iteration >= max_iterations {
+                        warn!(
+                            iteration,
+                            max_iterations,
+                            "RepeatWhile: max iterations reached without condition becoming false"
+                        );
+                        break;
+                    }
+
+                    // Check for abort
+                    if *self.abort_requested.read().await {
+                        info!(iteration, "RepeatWhile interrupted by abort");
+                        return Ok(emitted);
+                    }
+
+                    // Evaluate loop condition
+                    if !self.evaluate_condition(&condition).await {
+                        debug!(iteration, "RepeatWhile: condition false, exiting loop");
+                        break;
+                    }
+
+                    debug!(iteration, "RepeatWhile: executing body");
+                    // Box::pin required because process_command is recursive here.
+                    for sub_cmd in body.clone() {
+                        if Box::pin(self.process_command(sub_cmd)).await? {
+                            emitted = true;
+                        }
+                    }
+
+                    iteration += 1;
+                }
+
+                info!(iterations = iteration, "RepeatWhile: loop complete");
+                Ok(emitted)
+            }
+        }
+    }
+
+    /// Evaluate an `EvalCondition` by reading from the device registry (bd-up05).
+    ///
+    /// Returns `true` if the condition is satisfied, `false` otherwise.
+    /// On read errors the condition evaluates to `false` and a warning is logged.
+    async fn evaluate_condition(&self, condition: &EvalCondition) -> bool {
+        match condition {
+            EvalCondition::Threshold {
+                device_id,
+                field: _,
+                threshold,
+                above,
+            } => {
+                let Some(readable) = self.device_registry.get_readable(device_id) else {
+                    warn!(%device_id, "evaluate_condition: device not readable");
+                    return false;
+                };
+                match readable.read().await {
+                    Ok(value) => {
+                        let result = if *above {
+                            value > *threshold
+                        } else {
+                            value < *threshold
+                        };
+                        // Send threshold feedback when crossed
+                        if result {
+                            let _ = self.feedback_tx.try_send(FeedbackEvent::ThresholdCrossed {
+                                device_id: device_id.clone(),
+                                field: "value".to_string(),
+                                value,
+                                threshold: *threshold,
+                            });
+                        }
+                        result
+                    }
+                    Err(e) => {
+                        warn!(%device_id, error = %e, "evaluate_condition: read failed");
+                        false
+                    }
+                }
+            }
+            EvalCondition::Comparison {
+                left_device_id,
+                left_field: _,
+                right_device_id,
+                right_field: _,
+                operator,
+            } => {
+                let left = self.device_registry.get_readable(left_device_id);
+                let right = self.device_registry.get_readable(right_device_id);
+
+                let (Some(left_r), Some(right_r)) = (left, right) else {
+                    warn!(
+                        %left_device_id,
+                        %right_device_id,
+                        "evaluate_condition: one or both devices not readable"
+                    );
+                    return false;
+                };
+
+                let (left_val, right_val) = match (left_r.read().await, right_r.read().await) {
+                    (Ok(l), Ok(r)) => (l, r),
+                    (Err(e), _) | (_, Err(e)) => {
+                        warn!(error = %e, "evaluate_condition: read failed");
+                        return false;
+                    }
+                };
+
+                match operator.as_str() {
+                    "gt" => left_val > right_val,
+                    "lt" => left_val < right_val,
+                    "gte" => left_val >= right_val,
+                    "lte" => left_val <= right_val,
+                    "eq" => (left_val - right_val).abs() < f64::EPSILON,
+                    other => {
+                        warn!(operator = %other, "evaluate_condition: unknown operator");
+                        false
+                    }
+                }
             }
         }
     }

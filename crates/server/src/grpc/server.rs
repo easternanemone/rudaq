@@ -1589,7 +1589,11 @@ pub async fn start_server(addr: std::net::SocketAddr) -> Result<(), Box<dyn std:
     #[cfg(all(not(feature = "scripting"), not(feature = "storage_hdf5")))]
     let server = DaqServer::new()?;
 
-    let run_engine = RunEngineServiceImpl::new(run_engine_instance);
+    let run_engine = RunEngineServiceImpl::new(
+        run_engine_instance,
+        #[cfg(feature = "metrics")]
+        None, // No DaqMetrics in legacy start_server path
+    );
 
     let health_service = HealthServiceImpl::new();
 
@@ -1979,8 +1983,19 @@ pub async fn start_server_with_hardware(
     }
 
     // RunEngine was already created above (bd-si2c) - shared between RunEngineService and scripts
+    // Wire DaqMetrics into RunEngineService for Prometheus observability (bd-2r60, bd-4de1)
+    #[cfg(feature = "metrics")]
+    let daq_metrics = {
+        let m = Arc::new(crate::grpc::metrics_service::DaqMetrics::new());
+        tracing::info!("DaqMetrics wired to RunEngineService for Prometheus export");
+        Some(m)
+    };
     let run_engine_server = {
-        let svc = RunEngineServiceImpl::new(run_engine.clone());
+        let svc = RunEngineServiceImpl::new(
+            run_engine.clone(),
+            #[cfg(feature = "metrics")]
+            daq_metrics,
+        );
         #[cfg(feature = "db-surreal")]
         let svc = svc.with_db(_db.clone());
         svc
