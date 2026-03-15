@@ -252,6 +252,7 @@ impl Plan for VoltageScan {
                     stream: "primary".to_string(),
                     data: HashMap::new(), // Filled by RunEngine from reads
                     positions,
+                    scan_indices: None,
                 }
             }
         };
@@ -438,6 +439,7 @@ impl Plan for TimeSeries {
                     stream: "primary".to_string(),
                     data: HashMap::new(),
                     positions,
+                    scan_indices: None,
                 }
             }
 
@@ -638,6 +640,7 @@ impl Plan for TriggeredAcquisition {
                     stream: "primary".to_string(),
                     data: HashMap::new(),
                     positions,
+                    scan_indices: None,
                 }
             }
         };

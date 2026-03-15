@@ -293,6 +293,7 @@ fn translate_node_with_snarl(
                         stream: "primary".to_string(),
                         data: HashMap::new(),
                         positions: [(actuator.clone(), pos)].into_iter().collect(),
+                        scan_indices: None,
                     });
                     events += 1;
                 }
@@ -323,6 +324,7 @@ fn translate_node_with_snarl(
                         stream: "primary".to_string(),
                         data: HashMap::new(),
                         positions: HashMap::new(),
+                        scan_indices: None,
                     });
                     events += 1;
                 }
@@ -544,13 +546,21 @@ fn translate_node_with_snarl(
 
                     // Include dimensional indices for Zarr coordinate assignment
                     // Convention: "_outer_idx", "_inner_idx" are reserved keys
+                    // TODO(bd-ih4p): Remove these once all consumers use scan_indices
                     positions.insert("_outer_idx".to_string(), f64::from(outer_idx));
                     positions.insert("_inner_idx".to_string(), f64::from(inner_idx));
+
+                    #[allow(clippy::cast_possible_truncation)]
+                    let scan_indices = Some(vec![
+                        ("outer".to_string(), outer_idx as usize),
+                        ("inner".to_string(), inner_idx as usize),
+                    ]);
 
                     commands.push(PlanCommand::EmitEvent {
                         stream: "primary".to_string(),
                         data: HashMap::new(),
                         positions,
+                        scan_indices,
                     });
                     events += 1;
                 }
@@ -604,6 +614,7 @@ fn translate_node_with_snarl(
                         stream: "primary".to_string(),
                         data: HashMap::new(),
                         positions: [(config.scan.actuator.clone(), pos)].into_iter().collect(),
+                        scan_indices: None,
                     });
                     events += 1;
                 }

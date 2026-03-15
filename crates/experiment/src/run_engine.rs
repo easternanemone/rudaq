@@ -1455,6 +1455,7 @@ impl RunEngine {
                 stream: _,
                 mut data,
                 positions,
+                scan_indices,
             } => {
                 self.touch_activity().await;
                 let mut ctx_guard = self.run_context.lock().await;
@@ -1484,6 +1485,7 @@ impl RunEngine {
                 event.data = data;
                 event.arrays = collected_arrays;
                 event.positions = all_positions;
+                event.scan_indices = scan_indices;
 
                 ctx.seq_num += 1;
 

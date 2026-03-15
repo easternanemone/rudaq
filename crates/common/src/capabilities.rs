@@ -80,6 +80,7 @@
 //! ```
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use crate::observable::{ParameterMetadata, ParameterSet};
 use anyhow::Result;
@@ -1632,6 +1633,51 @@ impl MeasurementLock {
     pub fn is_idle(&self) -> bool {
         *self == Self::Idle
     }
+}
+
+// =============================================================================
+// Composite Capabilities (bd-bog5)
+// =============================================================================
+
+/// A composite operation that coordinates multiple device capabilities.
+///
+/// Implementations combine capabilities from multiple devices into
+/// higher-level operations (e.g., synchronized acquisition, coordinated motion).
+#[async_trait]
+pub trait CompositeCapability: Send + Sync {
+    /// Human-readable name for this composite operation.
+    fn name(&self) -> &str;
+
+    /// List of (device_id, capability) pairs required for execution.
+    fn required_capabilities(&self) -> Vec<(String, crate::driver::Capability)>;
+
+    /// Execute the composite operation using capabilities from the provider.
+    async fn execute(&self, provider: &dyn CapabilityProvider) -> Result<()>;
+}
+
+/// Provides typed access to device capabilities by device ID.
+///
+/// This abstraction decouples composite operations from the concrete
+/// `DeviceRegistry`, enabling testing with mock providers.
+pub trait CapabilityProvider: Send + Sync {
+    /// Get a device's Movable capability (if supported).
+    fn get_movable(&self, id: &str) -> Option<Arc<dyn Movable>>;
+    /// Get a device's Readable capability (if supported).
+    fn get_readable(&self, id: &str) -> Option<Arc<dyn Readable>>;
+    /// Get a device's Triggerable capability (if supported).
+    fn get_triggerable(&self, id: &str) -> Option<Arc<dyn Triggerable>>;
+    /// Get a device's FrameProducer capability (if supported).
+    fn get_frame_producer(&self, id: &str) -> Option<Arc<dyn FrameProducer>>;
+    /// Get a device's ExposureControl capability (if supported).
+    fn get_exposure_control(&self, id: &str) -> Option<Arc<dyn ExposureControl>>;
+    /// Get a device's ShutterControl capability (if supported).
+    fn get_shutter_control(&self, id: &str) -> Option<Arc<dyn ShutterControl>>;
+    /// Get a device's WavelengthTunable capability (if supported).
+    fn get_wavelength_tunable(&self, id: &str) -> Option<Arc<dyn WavelengthTunable>>;
+    /// Get a device's EmissionControl capability (if supported).
+    fn get_emission_control(&self, id: &str) -> Option<Arc<dyn EmissionControl>>;
+    /// Get a device's Settable capability (if supported).
+    fn get_settable(&self, id: &str) -> Option<Arc<dyn Settable>>;
 }
 
 #[cfg(test)]

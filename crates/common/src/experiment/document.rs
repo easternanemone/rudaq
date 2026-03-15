@@ -273,6 +273,12 @@ pub struct EventDoc {
     /// Position data (axis name -> position)
     pub positions: HashMap<String, f64>,
 
+    // === Dimensional indexing (bd-ih4p) ===
+    /// Dimensional scan indices for nested scans (e.g., [("outer", 3), ("inner", 45)])
+    /// Provides typed indices instead of the `_outer_idx`/`_inner_idx` position-map hack.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scan_indices: Option<Vec<(String, usize)>>,
+
     // === Middle-data support (bd-9unn) ===
     /// String metadata (status messages, enum states, quality flags)
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
@@ -295,6 +301,7 @@ impl EventDoc {
             data: HashMap::new(),
             timestamps: HashMap::new(),
             positions: HashMap::new(),
+            scan_indices: None,
             metadata: HashMap::new(),
             arrays: HashMap::new(),
         }

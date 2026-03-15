@@ -17,6 +17,8 @@
 //! Callers must ensure the source pointer is valid and the length doesn't
 //! exceed the buffer capacity.
 
+use crate::foreign_view::ForeignView;
+
 /// Frame data stored in pool slots.
 ///
 /// Designed for zero-allocation reuse:
@@ -167,6 +169,33 @@ impl FrameData {
 
         std::ptr::copy_nonoverlapping(src, self.pixels.as_mut_ptr(), len);
         self.actual_len = len;
+    }
+}
+
+impl ForeignView for FrameData {
+    fn as_ptr(&self) -> *const u8 {
+        self.pixels.as_ptr()
+    }
+
+    fn len(&self) -> usize {
+        self.actual_len
+    }
+
+    fn shape(&self) -> (u32, u32) {
+        (self.width, self.height)
+    }
+
+    fn dtype(&self) -> &str {
+        match self.bit_depth {
+            8 => "u8",
+            16 => "u16",
+            32 => "f32",
+            _ => "u8",
+        }
+    }
+
+    fn bit_depth(&self) -> u32 {
+        self.bit_depth
     }
 }
 

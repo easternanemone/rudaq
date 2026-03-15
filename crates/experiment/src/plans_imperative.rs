@@ -256,6 +256,7 @@ impl Plan for ImperativePlan {
                 stream: "primary".to_string(),
                 data: HashMap::new(), // Data will be filled by RunEngine from reads
                 positions,
+                scan_indices: None,
             });
         }
 

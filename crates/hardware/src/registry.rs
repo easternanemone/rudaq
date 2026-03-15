@@ -66,9 +66,9 @@
 // use anyhow::{anyhow, Result}; // Removed
 // use anyhow::anyhow; // Removed
 use common::capabilities::{
-    Commandable, EmissionControl, ExposureControl, FrameProducer, GatedCamera, Movable,
-    Parameterized, Readable, Reconfigurable, Settable, ShutterControl, SpectrometerControl,
-    Stageable, StateRefreshable, Triggerable, WavelengthTunable,
+    CapabilityProvider, Commandable, EmissionControl, ExposureControl, FrameProducer, GatedCamera,
+    Movable, Parameterized, Readable, Reconfigurable, Settable, ShutterControl,
+    SpectrometerControl, Stageable, StateRefreshable, Triggerable, WavelengthTunable,
 };
 use common::data::Frame;
 use common::driver::{
@@ -1830,6 +1830,48 @@ impl DeviceRegistry {
         }
 
         snapshot
+    }
+}
+
+// =============================================================================
+// CapabilityProvider Implementation (bd-bog5)
+// =============================================================================
+
+impl CapabilityProvider for DeviceRegistry {
+    fn get_movable(&self, id: &str) -> Option<Arc<dyn Movable>> {
+        self.get_movable(id)
+    }
+
+    fn get_readable(&self, id: &str) -> Option<Arc<dyn Readable>> {
+        self.get_readable(id)
+    }
+
+    fn get_triggerable(&self, id: &str) -> Option<Arc<dyn Triggerable>> {
+        self.get_triggerable(id)
+    }
+
+    fn get_frame_producer(&self, id: &str) -> Option<Arc<dyn FrameProducer>> {
+        self.get_frame_producer(id)
+    }
+
+    fn get_exposure_control(&self, id: &str) -> Option<Arc<dyn ExposureControl>> {
+        self.get_exposure_control(id)
+    }
+
+    fn get_shutter_control(&self, id: &str) -> Option<Arc<dyn ShutterControl>> {
+        self.get_shutter_control(id)
+    }
+
+    fn get_wavelength_tunable(&self, id: &str) -> Option<Arc<dyn WavelengthTunable>> {
+        self.get_wavelength_tunable(id)
+    }
+
+    fn get_emission_control(&self, id: &str) -> Option<Arc<dyn EmissionControl>> {
+        self.get_emission_control(id)
+    }
+
+    fn get_settable(&self, id: &str) -> Option<Arc<dyn Settable>> {
+        self.get_settable(id)
     }
 }
 

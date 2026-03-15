@@ -73,6 +73,10 @@ pub enum PlanCommand {
         data: HashMap<String, f64>,
         /// Device positions at time of event
         positions: HashMap<String, f64>,
+        /// Dimensional scan indices for nested scans (e.g., [("outer", 3), ("inner", 45)])
+        /// Replaces the `_outer_idx`/`_inner_idx` position-map hack with proper typed indices.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        scan_indices: Option<Vec<(String, usize)>>,
     },
     /// Set a device parameter
     Set {
@@ -288,6 +292,7 @@ impl Plan for LineScan {
                     stream: "primary".to_string(),
                     data: HashMap::new(), // Data filled in by RunEngine from Read results
                     positions,
+                    scan_indices: None,
                 }
             }
             LineScanStep::Done => return None,
@@ -560,6 +565,7 @@ impl Plan for GridScan {
                     stream: "primary".to_string(),
                     data: HashMap::new(),
                     positions,
+                    scan_indices: None,
                 }
             }
         };
@@ -695,6 +701,7 @@ impl Plan for Count {
                     stream: "primary".to_string(),
                     data: HashMap::new(),
                     positions: HashMap::new(),
+                    scan_indices: None,
                 }
             }
             CountStep::Wait => {
@@ -1233,6 +1240,7 @@ mod tests {
                 stream: "primary".to_string(),
                 data: [("power".to_string(), 0.042)].into_iter().collect(),
                 positions: [("stage_x".to_string(), 42.5)].into_iter().collect(),
+                scan_indices: None,
             },
             PlanCommand::Set {
                 device_id: "laser".to_string(),
@@ -1290,6 +1298,7 @@ mod tests {
                 stream: "primary".to_string(),
                 data: HashMap::new(),
                 positions: [("stage".to_string(), 5.0)].into_iter().collect(),
+                scan_indices: None,
             },
             PlanCommand::MoveTo {
                 device_id: "stage".to_string(),
@@ -1299,6 +1308,7 @@ mod tests {
                 stream: "primary".to_string(),
                 data: HashMap::new(),
                 positions: [("stage".to_string(), 10.0)].into_iter().collect(),
+                scan_indices: None,
             },
         ];
 
