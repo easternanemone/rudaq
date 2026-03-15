@@ -275,9 +275,9 @@ fn test_arc_line_detection_standalone() {
 
     let mut spectrum = vec![10.0f32; n_pixels]; // background
     for &(center, amplitude) in &peaks {
-        for x in 0..n_pixels {
+        for (x, slot) in spectrum.iter_mut().enumerate() {
             let dx = x as f64 - center;
-            spectrum[x] += flux32(amplitude * (-0.5 * (dx / sigma).powi(2)).exp());
+            *slot += flux32(amplitude * (-0.5 * (dx / sigma).powi(2)).exp());
         }
     }
 
