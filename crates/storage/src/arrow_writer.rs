@@ -727,6 +727,7 @@ mod tests {
                 time_ns: 1_000_000_000 + u64::from(i) * 100_000,
                 uid: format!("event_{i}"),
                 positions: HashMap::new(),
+                scan_indices: None,
             };
             writer
                 .write(Document::Event(event))
@@ -856,6 +857,7 @@ mod tests {
                 time_ns: 3_000_000_000 + u64::from(seq) * 100_000,
                 uid: format!("ev2d_{seq}"),
                 positions: HashMap::new(),
+                scan_indices: None,
             };
             writer
                 .write(Document::Event(event))
@@ -1037,6 +1039,7 @@ mod tests {
                 time_ns: 6_000_000_000 + u64::from(seq) * 100_000,
                 uid: format!("ev3d_{seq}"),
                 positions: HashMap::new(),
+                scan_indices: None,
             };
             writer
                 .write(Document::Event(event))
@@ -1180,6 +1183,7 @@ mod tests {
             time_ns: 9_000_000_000,
             uid: "ev_u16_0".to_string(),
             positions: HashMap::new(),
+            scan_indices: None,
         };
         writer
             .write(Document::Event(event))
@@ -1317,6 +1321,7 @@ mod tests {
                 time_ns: 12_000_000_000 + u64::from(seq) * 100_000,
                 uid: format!("ev_mix_{seq}"),
                 positions: HashMap::new(),
+                scan_indices: None,
             };
             writer
                 .write(Document::Event(event))
@@ -1455,6 +1460,7 @@ mod tests {
                 time_ns: 1_000_000_000 + u64::from(i) * 100_000,
                 uid: format!("event_{i}"),
                 positions: HashMap::new(),
+                scan_indices: None,
             };
             writer
                 .write(Document::Event(event))

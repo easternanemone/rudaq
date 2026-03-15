@@ -19,9 +19,26 @@ use common::echelle_wavelength_fitting::{
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
+/// Clamp a float to a non-negative usize pixel index.
+fn px(v: f64) -> usize {
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    {
+        v.max(0.0) as usize
+    }
+}
+
+/// Narrowing f64→f32 for synthetic pixel flux values.
+fn flux32(v: f64) -> f32 {
+    #[allow(clippy::cast_possible_truncation)]
+    {
+        v as f32
+    }
+}
+
 /// Build a synthetic arc frame with Gaussian emission lines placed at known
 /// wavelengths within each order. This mirrors the pipeline's own test helper
 /// but lives at integration scope to verify the public API.
+#[allow(clippy::cast_precision_loss)] // pixel indices ≤ 300 — exact in f64
 fn synthetic_arc_frame(
     width: usize,
     height: usize,
@@ -37,13 +54,13 @@ fn synthetic_arc_frame(
     // can find them via the spatial profile collapse.
     let continuum_flux = 50.0f64;
     for &(center_y, _lam_start, _lam_end) in orders {
-        let y_lo = (center_y - 4.0 * sigma_spatial).max(0.0) as usize;
-        let y_hi = ((center_y + 4.0 * sigma_spatial) as usize + 1).min(height);
+        let y_lo = px(center_y - 4.0 * sigma_spatial);
+        let y_hi = (px(center_y + 4.0 * sigma_spatial) + 1).min(height);
         for y in y_lo..y_hi {
             let dy = y as f64 - center_y;
             let spatial_weight = (-0.5 * (dy / sigma_spatial).powi(2)).exp();
             for x in 0..width {
-                frame[y * width + x] += (continuum_flux * spatial_weight) as f32;
+                frame[y * width + x] += flux32(continuum_flux * spatial_weight);
             }
         }
     }
@@ -59,10 +76,10 @@ fn synthetic_arc_frame(
             let center_x = frac * (width as f64 - 1.0);
 
             // Stamp a 2D Gaussian (spectral x spatial).
-            let x_lo = (center_x - 4.0 * sigma_spectral).max(0.0) as usize;
-            let x_hi = ((center_x + 4.0 * sigma_spectral) as usize + 1).min(width);
-            let y_lo = (center_y - 4.0 * sigma_spatial).max(0.0) as usize;
-            let y_hi = ((center_y + 4.0 * sigma_spatial) as usize + 1).min(height);
+            let x_lo = px(center_x - 4.0 * sigma_spectral);
+            let x_hi = (px(center_x + 4.0 * sigma_spectral) + 1).min(width);
+            let y_lo = px(center_y - 4.0 * sigma_spatial);
+            let y_hi = (px(center_y + 4.0 * sigma_spatial) + 1).min(height);
 
             for y in y_lo..y_hi {
                 let dy = y as f64 - center_y;
@@ -70,7 +87,7 @@ fn synthetic_arc_frame(
                 for x in x_lo..x_hi {
                     let dx = x as f64 - center_x;
                     let spectral_weight = (-0.5 * (dx / sigma_spectral).powi(2)).exp();
-                    frame[y * width + x] += (peak_flux * spatial_weight * spectral_weight) as f32;
+                    frame[y * width + x] += flux32(peak_flux * spatial_weight * spectral_weight);
                 }
             }
         }
@@ -83,6 +100,7 @@ fn synthetic_arc_frame(
 
 /// Full pipeline: synthetic arc → calibration profile → validate → evaluate wavelengths.
 #[test]
+#[allow(clippy::cast_precision_loss)] // pixel indices ≤ 300 — exact in f64
 fn test_calibration_pipeline_produces_valid_profile() {
     let width = 200;
     let height = 300;
@@ -101,12 +119,13 @@ fn test_calibration_pipeline_produces_valid_profile() {
     let mut anchors = Vec::new();
     for (oi, &(_, lam_start, lam_end)) in orders.iter().enumerate() {
         anchors.push(SeedAnchor {
-            order_index: oi as u32,
+            order_index: u32::try_from(oi).unwrap(),
             pixel: 0.0,
             wavelength_nm: lam_start,
         });
         anchors.push(SeedAnchor {
-            order_index: oi as u32,
+            order_index: u32::try_from(oi).unwrap(),
+            #[allow(clippy::cast_precision_loss)]
             pixel: (width - 1) as f64,
             wavelength_nm: lam_end,
         });
@@ -134,10 +153,10 @@ fn test_calibration_pipeline_produces_valid_profile() {
         atlas: atlas.clone(),
         seed: WavelengthSeed::Anchors(anchors),
         frame_compat: EchelleFrameCompatibility {
-            sensor_width: width as u32,
-            sensor_height: height as u32,
-            frame_width: width as u32,
-            frame_height: height as u32,
+            sensor_width: u32::try_from(width).unwrap(),
+            sensor_height: u32::try_from(height).unwrap(),
+            frame_width: u32::try_from(width).unwrap(),
+            frame_height: u32::try_from(height).unwrap(),
             roi_x: 0,
             roi_y: 0,
             binning_x: 1,
@@ -155,8 +174,13 @@ fn test_calibration_pipeline_produces_valid_profile() {
         ..Default::default()
     };
 
-    let result = run_calibration_pipeline(&frame, width as u32, height as u32, &config)
-        .expect("pipeline should succeed on synthetic arc");
+    let result = run_calibration_pipeline(
+        &frame,
+        u32::try_from(width).unwrap(),
+        u32::try_from(height).unwrap(),
+        &config,
+    )
+    .expect("pipeline should succeed on synthetic arc");
 
     // Basic sanity: detected 3 orders.
     assert_eq!(result.n_orders_detected, 3);
@@ -242,6 +266,7 @@ fn test_hgar_atlas_contains_known_lines() {
 
 /// Arc line detection should find peaks in a simple synthetic spectrum.
 #[test]
+#[allow(clippy::cast_precision_loss)] // pixel indices ≤ 500 — exact in f64
 fn test_arc_line_detection_standalone() {
     // Create a 1D spectrum with 3 Gaussian peaks at known pixel positions.
     let n_pixels = 500;
@@ -252,7 +277,7 @@ fn test_arc_line_detection_standalone() {
     for &(center, amplitude) in &peaks {
         for x in 0..n_pixels {
             let dx = x as f64 - center;
-            spectrum[x] += (amplitude * (-0.5 * (dx / sigma).powi(2)).exp()) as f32;
+            spectrum[x] += flux32(amplitude * (-0.5 * (dx / sigma).powi(2)).exp());
         }
     }
 

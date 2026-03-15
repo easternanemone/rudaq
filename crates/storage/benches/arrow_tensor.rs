@@ -116,6 +116,7 @@ fn bench_scalar_baseline(c: &mut Criterion) {
                         time_ns: 1_000_000_000 + u64::from(i) * 100_000,
                         uid: format!("ev_{run_counter}_{i}"),
                         positions: HashMap::new(),
+                        scan_indices: None,
                     }
                 })
                 .collect();
@@ -187,6 +188,7 @@ fn bench_tensor_2d(c: &mut Criterion) {
                             time_ns: 1_000_000_000 + u64::from(i) * 100_000,
                             uid: format!("ev_{run_counter}_{i}"),
                             positions: HashMap::new(),
+                            scan_indices: None,
                         }
                     })
                     .collect();
@@ -259,6 +261,7 @@ fn bench_tensor_3d(c: &mut Criterion) {
                     time_ns: 1_000_000_000,
                     uid: format!("ev_{run_counter}_0"),
                     positions: HashMap::new(),
+                    scan_indices: None,
                 }];
 
                 rt.block_on(write_run(&writer, &run_id, data_keys, events));

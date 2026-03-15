@@ -436,6 +436,7 @@ mod tests {
             time_ns: 1_000_000_000,
             uid: "event_1".to_string(),
             positions: HashMap::new(),
+            scan_indices: None,
         };
         writer.write(Document::Event(event)).await.unwrap();
 
