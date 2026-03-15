@@ -26,7 +26,7 @@ The project is structured as a Cargo workspace with 26 crates organized by layer
 *   **`client`**: gRPC client library for connecting to the daemon. Provides a typed API for remote hardware control, streaming, and device management.
 
 ### 2. Domain Logic
-*   **`experiment`**: The orchestration engine ("RunEngine"). Executes declarative plans and manages the experiment state machine.
+*   **`experiment`**: The orchestration engine ("RunEngine"). Executes declarative plans and manages the experiment state machine. Includes `AcquisitionCoordinator` for multi-device workflows, `FeedbackEvent` channel for adaptive scans, and `execute_adaptive()` for feedback-driven plan execution.
 *   **`scripting`**: Embeds the **Rhai** scripting engine. Provides a safe sandbox for user scripts to control hardware (10k operation limit, timeout protection). Optional Python bindings via PyO3.
 *   **`server`**: The network interface. Implements a gRPC server (`tonic`) exposing hardware control, script execution, and data streaming. Includes token-based authentication and CORS configuration.
 *   **`daq-modules`**: Experiment modules and plugin system. Provides a modular framework for composing experiment workflows with runtime module assignment.
@@ -53,11 +53,11 @@ Each driver lives in its own crate for independent compilation, testing, and opt
 
 #### Manifest-Driven & Testing
 *   **`driver-universal`**: Universal config-driven driver (schema v3). Define new instruments via TOML files without writing Rust code. Supports serial, TCP, and SCPI transports with MiniJinja templates, tiered response parsing, and evalexpr formula evaluation. Always compiled. Devices in `config/devices/`: ELL14 rotators, ESP300/ESP301 stages, Newport 1830-C power meter, MaiTai laser, Red Pitaya PID, IPG laser, Thorlabs PM400, and more.
-*   **`driver-mock`**: Mock hardware drivers for testing, simulation, and demo mode. Always compiled.
+*   **`driver-mock`**: Mock hardware drivers for testing, simulation, and demo mode. Always compiled. `MockCameraProfile`/`MockStageProfile` select fidelity levels (Fast, Realistic, Noisy, Faulty). `ScenarioConfig` groups devices with a shared RNG seed for deterministic multi-device tests.
 
 ### 5. Infrastructure
-*   **`pool`**: Zero-allocation object pool for high-performance frame handling. Provides `Pool<T>` for generic objects and `BufferPool` for byte buffers with `bytes::Bytes` integration. Critical for high-FPS camera streaming where per-frame allocations cause latency.
-*   **`storage`**: Handles data persistence. Implements the "Mullet Strategy": fast **Arrow IPC** ring buffer in the front, reliable **HDF5** writer in the back. Also supports **Parquet**, **Tiff**, and **Zarr** formats.
+*   **`pool`**: Zero-allocation object pool for high-performance frame handling. Provides `Pool<T>` for generic objects and `BufferPool` for byte buffers with `bytes::Bytes` integration. Critical for high-FPS camera streaming where per-frame allocations cause latency. `ForeignView` trait enables zero-copy access from Python/C++/GPU consumers. `BorrowGuard`/`BorrowCount` prevent slot reclamation while foreign code holds references. `DlPackDescriptor` (feature `dlpack`) provides tensor metadata for NumPy/PyTorch interop.
+*   **`storage`**: Handles data persistence. Implements the "Mullet Strategy": fast **Arrow IPC** ring buffer in the front, reliable **HDF5** writer in the back. Also supports **Parquet**, **Tiff**, and **Zarr** formats. The `DocumentSink` trait decouples document production (RunEngine) from consumption -- implementations include HDF5, Arrow, and `ZarrSink` (feature `storage_zarr`) which maps `scan_indices` to Zarr chunk coordinates.
 *   **`protocol`**: Defines the wire protocol (Protobuf) for all network communication. Includes domain↔proto conversion utilities.
 *   **`db`**: Embedded SurrealDB control-plane database. Uses in-memory engine (`kv-mem`) for tests and RocksDB (`kv-rocksdb`) for production persistence. Manages device/experiment metadata with a two-plane model: SurrealDB as control plane (desired state), DashMap DeviceRegistry as data plane (observed state).
 
@@ -163,6 +163,7 @@ Hardware is modeled by **Capabilities**, not identities. A device is defined by 
 *   `PulseGenerator`: Pulse/waveform generation.
 *   `SafetyInterlock`: Safety monitoring and interlock control.
 *   `Reconfigurable`: Runtime reconfiguration of device settings.
+*   `CompositeCapability`: Orchestrates multi-device operations (e.g., move+trigger+read). Paired with `CapabilityProvider` for typed device lookups.
 
 This allows generic experiment scripts to work with any compatible hardware (e.g., `scan(movable, triggerable)`).
 

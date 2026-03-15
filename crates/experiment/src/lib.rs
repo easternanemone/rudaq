@@ -58,7 +58,7 @@ pub use common::experiment::document::{
 pub use coordinator::AcquisitionCoordinator;
 pub use feedback::FeedbackEvent;
 pub use lifecycle::RunLifecycleHook;
-pub use plans::{EvalCondition, Plan, PlanCommand, PlanRegistry};
+pub use plans::{ComparisonOp, EvalCondition, Plan, PlanCommand, PlanRegistry};
 pub use plans_daq::{
     TimeSeries, TimeSeriesBuilder, TriggeredAcquisition, TriggeredAcquisitionBuilder, VoltageScan,
     VoltageScanBuilder,

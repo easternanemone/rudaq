@@ -503,4 +503,58 @@ mod tests {
         assert_eq!(coord.trigger_id(), "t1");
         assert_eq!(coord.frame_producer_id(), "fp1");
     }
+
+    #[tokio::test]
+    async fn test_acquire_scan_empty_positions() {
+        let provider = MockProvider::new();
+        let coord = AcquisitionCoordinator::new("stage", "camera", "camera");
+
+        // Empty positions should succeed with zero moves and zero triggers
+        coord.acquire_scan(&provider, &[]).await.unwrap();
+
+        assert_eq!(provider.stage.move_count.load(Ordering::Relaxed), 0);
+        assert_eq!(provider.camera.trigger_count.load(Ordering::Relaxed), 0);
+    }
+
+    #[tokio::test]
+    async fn test_acquire_at_missing_stage_returns_error() {
+        let provider = MockProvider::new();
+        // Stage ID does not exist in provider
+        let coord = AcquisitionCoordinator::new("nonexistent", "camera", "camera");
+
+        let err = coord.acquire_at(&provider, 1.0).await.unwrap_err();
+        assert!(
+            err.to_string().contains("nonexistent"),
+            "error should mention missing stage device: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_acquire_at_missing_trigger_returns_error() {
+        let provider = MockProvider::new();
+        // Trigger ID does not exist in provider
+        let coord = AcquisitionCoordinator::new("stage", "nonexistent", "camera");
+
+        let err = coord.acquire_at(&provider, 1.0).await.unwrap_err();
+        // Stage move succeeds but trigger lookup fails
+        assert!(
+            err.to_string().contains("nonexistent"),
+            "error should mention missing trigger device: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_acquire_scan_fails_validation_missing_device() {
+        let provider = MockProvider::new();
+        let coord = AcquisitionCoordinator::new("nonexistent", "camera", "camera");
+
+        let err = coord
+            .acquire_scan(&provider, &[1.0, 2.0])
+            .await
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("pre-validation"),
+            "scan should fail at pre-validation: {err}"
+        );
+    }
 }

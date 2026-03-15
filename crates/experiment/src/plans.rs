@@ -12,7 +12,11 @@
 //! - `Trigger` - Trigger a device (e.g., start acquisition)
 //! - `Wait` - Wait for a duration
 //! - `Checkpoint` - Mark a pause/resume point
-//! - `EmitEvent` - Record data in an EventDoc
+//! - `EmitEvent` - Record data in an EventDoc (with optional `scan_indices` for dimensional coordinates)
+//! - `Set` - Set a device parameter by name
+//! - `ConditionalBranch` - Evaluate an `EvalCondition` and dispatch to then/else command lists
+//! - `WaitSettled` - Block until a device reports settled/stable (with timeout)
+//! - `RepeatWhile` - Loop a command body while a condition holds (with iteration safety cap)
 //!
 //! # Example Plan
 //!
@@ -34,6 +38,35 @@
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
+
+/// Comparison operators for device reading comparisons.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ComparisonOp {
+    /// Greater than (>)
+    Gt,
+    /// Less than (<)
+    Lt,
+    /// Equal (==, within f64 epsilon)
+    Eq,
+    /// Greater than or equal (>=)
+    Gte,
+    /// Less than or equal (<=)
+    Lte,
+}
+
+impl ComparisonOp {
+    /// Evaluate this comparison operator on two f64 values.
+    pub fn evaluate(self, left: f64, right: f64) -> bool {
+        match self {
+            Self::Gt => left > right,
+            Self::Lt => left < right,
+            Self::Eq => (left - right).abs() < f64::EPSILON,
+            Self::Gte => left >= right,
+            Self::Lte => left <= right,
+        }
+    }
+}
 
 /// Condition types for evaluating scan data at runtime
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -59,8 +92,8 @@ pub enum EvalCondition {
         right_device_id: String,
         /// Right field name
         right_field: String,
-        /// Comparison operator as string: "gt", "lt", "eq", "gte", "lte"
-        operator: String,
+        /// Comparison operator
+        operator: ComparisonOp,
     },
 }
 
@@ -1406,5 +1439,133 @@ mod tests {
             CommandReplayPlan::new(Vec::new(), "Empty".to_string(), Vec::new(), Vec::new());
         assert_eq!(plan.num_points(), 0);
         assert!(plan.next_command().is_none());
+    }
+
+    #[test]
+    fn test_serde_round_trip_conditional_branch() {
+        let cmd = PlanCommand::ConditionalBranch {
+            condition: EvalCondition::Threshold {
+                device_id: "detector".to_string(),
+                field: "intensity".to_string(),
+                threshold: 100.0,
+                above: true,
+            },
+            then_commands: vec![PlanCommand::MoveTo {
+                device_id: "stage".to_string(),
+                position: 5.0,
+            }],
+            else_commands: vec![PlanCommand::Wait { seconds: 1.0 }],
+        };
+
+        let json = serde_json::to_value(&cmd).expect("serialize ConditionalBranch");
+        let deserialized: PlanCommand =
+            serde_json::from_value(json.clone()).expect("deserialize ConditionalBranch");
+        let json2 = serde_json::to_value(&deserialized).expect("re-serialize ConditionalBranch");
+        assert_eq!(
+            json, json2,
+            "ConditionalBranch should round-trip through serde"
+        );
+    }
+
+    #[test]
+    fn test_serde_round_trip_wait_settled() {
+        let cmd = PlanCommand::WaitSettled {
+            device_id: "stage_x".to_string(),
+            timeout_seconds: 5.0,
+        };
+
+        let json = serde_json::to_value(&cmd).expect("serialize WaitSettled");
+        let deserialized: PlanCommand =
+            serde_json::from_value(json.clone()).expect("deserialize WaitSettled");
+        let json2 = serde_json::to_value(&deserialized).expect("re-serialize WaitSettled");
+        assert_eq!(json, json2, "WaitSettled should round-trip through serde");
+    }
+
+    #[test]
+    fn test_serde_round_trip_repeat_while() {
+        let cmd = PlanCommand::RepeatWhile {
+            condition: EvalCondition::Comparison {
+                left_device_id: "sensor_a".to_string(),
+                left_field: "value".to_string(),
+                right_device_id: "sensor_b".to_string(),
+                right_field: "value".to_string(),
+                operator: ComparisonOp::Lt,
+            },
+            body: vec![
+                PlanCommand::Read {
+                    device_id: "sensor_a".to_string(),
+                },
+                PlanCommand::Wait { seconds: 0.5 },
+            ],
+            max_iterations: 100,
+        };
+
+        let json = serde_json::to_value(&cmd).expect("serialize RepeatWhile");
+        let deserialized: PlanCommand =
+            serde_json::from_value(json.clone()).expect("deserialize RepeatWhile");
+        let json2 = serde_json::to_value(&deserialized).expect("re-serialize RepeatWhile");
+        assert_eq!(json, json2, "RepeatWhile should round-trip through serde");
+    }
+
+    #[test]
+    fn test_serde_round_trip_eval_condition_variants() {
+        let threshold = EvalCondition::Threshold {
+            device_id: "det".to_string(),
+            field: "intensity".to_string(),
+            threshold: 42.0,
+            above: false,
+        };
+        let json = serde_json::to_value(&threshold).expect("serialize Threshold");
+        let rt: EvalCondition = serde_json::from_value(json.clone()).expect("deserialize");
+        assert_eq!(
+            serde_json::to_value(&rt).unwrap(),
+            json,
+            "EvalCondition::Threshold round-trip"
+        );
+
+        let comparison = EvalCondition::Comparison {
+            left_device_id: "a".to_string(),
+            left_field: "val".to_string(),
+            right_device_id: "b".to_string(),
+            right_field: "val".to_string(),
+            operator: ComparisonOp::Gte,
+        };
+        let json = serde_json::to_value(&comparison).expect("serialize Comparison");
+        let rt: EvalCondition = serde_json::from_value(json.clone()).expect("deserialize");
+        assert_eq!(
+            serde_json::to_value(&rt).unwrap(),
+            json,
+            "EvalCondition::Comparison round-trip"
+        );
+    }
+
+    #[test]
+    fn test_serde_round_trip_emit_event_with_scan_indices() {
+        let cmd = PlanCommand::EmitEvent {
+            stream: "primary".to_string(),
+            data: [("intensity".to_string(), 99.5)].into_iter().collect(),
+            positions: [("x".to_string(), 1.0), ("y".to_string(), 2.0)]
+                .into_iter()
+                .collect(),
+            scan_indices: Some(vec![("outer".to_string(), 3), ("inner".to_string(), 7)]),
+        };
+
+        let json = serde_json::to_value(&cmd).expect("serialize EmitEvent with scan_indices");
+        let deserialized: PlanCommand = serde_json::from_value(json.clone()).expect("deserialize");
+        let json2 = serde_json::to_value(&deserialized).expect("re-serialize");
+        assert_eq!(json, json2, "EmitEvent with scan_indices should round-trip");
+
+        // Also verify scan_indices is absent when None (skip_serializing_if)
+        let cmd_no_idx = PlanCommand::EmitEvent {
+            stream: "primary".to_string(),
+            data: HashMap::new(),
+            positions: HashMap::new(),
+            scan_indices: None,
+        };
+        let json_no_idx = serde_json::to_value(&cmd_no_idx).expect("serialize");
+        assert!(
+            json_no_idx.get("scan_indices").is_none(),
+            "scan_indices should be absent when None"
+        );
     }
 }

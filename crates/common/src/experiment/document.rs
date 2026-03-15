@@ -762,4 +762,55 @@ mod tests {
         assert!(parsed.graph_hash.is_none());
         assert!(parsed.graph_file.is_none());
     }
+
+    #[test]
+    fn test_event_doc_serde_round_trip_with_scan_indices() {
+        let run_uid = new_uid();
+        let desc_uid = new_uid();
+        let event = EventDoc::new(&run_uid, &desc_uid, 7)
+            .with_datum("intensity", 123.4)
+            .with_position("x", 10.0)
+            .with_position("y", 20.0);
+        // Manually set scan_indices since there is no builder method
+        let mut event = event;
+        event.scan_indices = Some(vec![
+            ("outer".to_string(), 3),
+            ("middle".to_string(), 5),
+            ("inner".to_string(), 12),
+        ]);
+
+        let json = serde_json::to_value(&event).expect("serialize EventDoc with scan_indices");
+        let deserialized: EventDoc =
+            serde_json::from_value(json.clone()).expect("deserialize EventDoc");
+
+        assert_eq!(deserialized.run_uid, run_uid);
+        assert_eq!(deserialized.descriptor_uid, desc_uid);
+        assert_eq!(deserialized.seq_num, 7);
+        assert_eq!(deserialized.data.get("intensity"), Some(&123.4));
+        assert_eq!(deserialized.positions.get("x"), Some(&10.0));
+        assert_eq!(deserialized.positions.get("y"), Some(&20.0));
+
+        let indices = deserialized
+            .scan_indices
+            .expect("scan_indices should survive round-trip");
+        assert_eq!(indices.len(), 3);
+        assert_eq!(indices[0], ("outer".to_string(), 3));
+        assert_eq!(indices[1], ("middle".to_string(), 5));
+        assert_eq!(indices[2], ("inner".to_string(), 12));
+    }
+
+    #[test]
+    fn test_event_doc_serde_omits_scan_indices_when_none() {
+        let event = EventDoc::new("run1", "desc1", 0);
+        let json = serde_json::to_value(&event).expect("serialize EventDoc");
+        assert!(
+            json.get("scan_indices").is_none(),
+            "scan_indices should be absent (skip_serializing_if) when None"
+        );
+
+        // Deserializing JSON without scan_indices should yield None
+        let deserialized: EventDoc =
+            serde_json::from_value(json).expect("deserialize EventDoc without scan_indices");
+        assert!(deserialized.scan_indices.is_none());
+    }
 }

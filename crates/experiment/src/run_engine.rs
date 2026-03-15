@@ -1623,11 +1623,15 @@ impl RunEngine {
                         match readable.read().await {
                             Ok(value) => {
                                 // Send value update feedback
-                                let _ = self.feedback_tx.try_send(FeedbackEvent::ValueUpdate {
-                                    device_id: device_id.clone(),
-                                    field: "value".to_string(),
-                                    value,
-                                });
+                                if let Err(e) =
+                                    self.feedback_tx.try_send(FeedbackEvent::ValueUpdate {
+                                        device_id: device_id.clone(),
+                                        field: "value".to_string(),
+                                        value,
+                                    })
+                                {
+                                    warn!("Feedback event dropped (channel full): {e}");
+                                }
 
                                 if let Some(prev) = last_value {
                                     let delta = (value - prev).abs();
@@ -1642,13 +1646,15 @@ impl RunEngine {
                                         let since = stable_since.get_or_insert(now);
                                         if now.duration_since(*since) >= stability_window {
                                             info!(%device_id, %value, "Device settled");
-                                            let _ = self.feedback_tx.try_send(
+                                            if let Err(e) = self.feedback_tx.try_send(
                                                 FeedbackEvent::StabilityReached {
                                                     device_id: device_id.clone(),
                                                     field: "value".to_string(),
                                                     variance: rel_delta,
                                                 },
-                                            );
+                                            ) {
+                                                warn!("Feedback event dropped (channel full): {e}");
+                                            }
                                             break;
                                         }
                                     } else {
@@ -1673,6 +1679,8 @@ impl RunEngine {
                     );
                     sleep(Duration::from_secs_f64(timeout_seconds)).await;
                 }
+                // WaitSettled emits feedback events (ValueUpdate/StabilityReached)
+                // but not Event documents, so return false.
                 Ok(false)
             }
 
@@ -1710,8 +1718,8 @@ impl RunEngine {
 
                     debug!(iteration, "RepeatWhile: executing body");
                     // Box::pin required because process_command is recursive here.
-                    for sub_cmd in body.clone() {
-                        if Box::pin(self.process_command(sub_cmd)).await? {
+                    for sub_cmd in &body {
+                        if Box::pin(self.process_command(sub_cmd.clone())).await? {
                             emitted = true;
                         }
                     }
@@ -1750,12 +1758,16 @@ impl RunEngine {
                         };
                         // Send threshold feedback when crossed
                         if result {
-                            let _ = self.feedback_tx.try_send(FeedbackEvent::ThresholdCrossed {
-                                device_id: device_id.clone(),
-                                field: "value".to_string(),
-                                value,
-                                threshold: *threshold,
-                            });
+                            if let Err(e) =
+                                self.feedback_tx.try_send(FeedbackEvent::ThresholdCrossed {
+                                    device_id: device_id.clone(),
+                                    field: "value".to_string(),
+                                    value,
+                                    threshold: *threshold,
+                                })
+                            {
+                                warn!("Feedback event dropped (channel full): {e}");
+                            }
                         }
                         result
                     }
@@ -1792,17 +1804,7 @@ impl RunEngine {
                     }
                 };
 
-                match operator.as_str() {
-                    "gt" => left_val > right_val,
-                    "lt" => left_val < right_val,
-                    "gte" => left_val >= right_val,
-                    "lte" => left_val <= right_val,
-                    "eq" => (left_val - right_val).abs() < f64::EPSILON,
-                    other => {
-                        warn!(operator = %other, "evaluate_condition: unknown operator");
-                        false
-                    }
-                }
+                operator.evaluate(left_val, right_val)
             }
         }
     }
@@ -2257,7 +2259,7 @@ pub struct RunResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::plans::Count;
+    use crate::plans::{ComparisonOp, Count};
     use crate::plans_imperative::ImperativePlan;
     use async_trait::async_trait;
     use common::capabilities::{
@@ -3481,5 +3483,283 @@ mod tests {
         assert!(engine.check_feedback().is_some());
         // Now empty.
         assert!(engine.check_feedback().is_none());
+    }
+
+    // --- evaluate_condition: Threshold ---
+
+    #[tokio::test]
+    async fn test_evaluate_condition_threshold_above_true() {
+        // Device reads 42.0, threshold 10.0, above=true => 42 > 10 => true
+        let registry = make_readable_registry("sensor", 42.0).await;
+        let engine = RunEngine::new(registry);
+
+        let cond = EvalCondition::Threshold {
+            device_id: "sensor".to_string(),
+            field: "value".to_string(),
+            threshold: 10.0,
+            above: true,
+        };
+        assert!(engine.evaluate_condition(&cond).await);
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_condition_threshold_above_false() {
+        // Device reads 5.0, threshold 10.0, above=true => 5 > 10 => false
+        let registry = make_readable_registry("sensor", 5.0).await;
+        let engine = RunEngine::new(registry);
+
+        let cond = EvalCondition::Threshold {
+            device_id: "sensor".to_string(),
+            field: "value".to_string(),
+            threshold: 10.0,
+            above: true,
+        };
+        assert!(!engine.evaluate_condition(&cond).await);
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_condition_threshold_below() {
+        // Device reads 3.0, threshold 10.0, above=false => 3 < 10 => true
+        let registry = make_readable_registry("sensor", 3.0).await;
+        let engine = RunEngine::new(registry);
+
+        let cond = EvalCondition::Threshold {
+            device_id: "sensor".to_string(),
+            field: "value".to_string(),
+            threshold: 10.0,
+            above: false,
+        };
+        assert!(engine.evaluate_condition(&cond).await);
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_condition_threshold_missing_device() {
+        // Non-existent device => false
+        let registry = Arc::new(DeviceRegistry::new());
+        let engine = RunEngine::new(registry);
+
+        let cond = EvalCondition::Threshold {
+            device_id: "nonexistent".to_string(),
+            field: "value".to_string(),
+            threshold: 10.0,
+            above: true,
+        };
+        assert!(
+            !engine.evaluate_condition(&cond).await,
+            "missing device should evaluate to false"
+        );
+    }
+
+    // --- evaluate_condition: Comparison operators ---
+
+    async fn make_two_readable_registry(
+        id_a: &str,
+        val_a: f64,
+        id_b: &str,
+        val_b: f64,
+    ) -> Arc<DeviceRegistry> {
+        let registry = Arc::new(DeviceRegistry::new());
+        registry.register_factory(Box::new(FixedReadableFactory { value: val_a }));
+        registry
+            .register_from_toml(
+                id_a,
+                "Readable A",
+                "fixed_readable",
+                toml::Value::Table(Default::default()),
+            )
+            .await
+            .expect("register device A");
+
+        // Need a second factory with different value. Re-register with different value.
+        // The factory is keyed by driver_type, so we need a distinct type.
+        struct FixedReadableFactoryB {
+            value: f64,
+        }
+
+        #[async_trait]
+        impl common::capabilities::Readable for FixedReadableB {
+            async fn read(&self) -> anyhow::Result<f64> {
+                Ok(self.0)
+            }
+        }
+
+        struct FixedReadableB(f64);
+
+        impl DriverFactory for FixedReadableFactoryB {
+            fn driver_type(&self) -> &'static str {
+                "fixed_readable_b"
+            }
+            fn name(&self) -> &'static str {
+                "Fixed Readable B"
+            }
+            fn capabilities(&self) -> &'static [DeviceCapability] {
+                &[DeviceCapability::Readable]
+            }
+            fn validate(&self, _config: &toml::Value) -> anyhow::Result<()> {
+                Ok(())
+            }
+            fn build(
+                &self,
+                _config: toml::Value,
+            ) -> Pin<Box<dyn Future<Output = anyhow::Result<DeviceComponents>> + Send>>
+            {
+                let value = self.value;
+                Box::pin(async move {
+                    Ok(DeviceComponents::new()
+                        .with_category(DeviceCategory::Detector)
+                        .with_readable(Arc::new(FixedReadableB(value))))
+                })
+            }
+        }
+
+        registry.register_factory(Box::new(FixedReadableFactoryB { value: val_b }));
+        registry
+            .register_from_toml(
+                id_b,
+                "Readable B",
+                "fixed_readable_b",
+                toml::Value::Table(Default::default()),
+            )
+            .await
+            .expect("register device B");
+
+        registry
+    }
+
+    fn comparison_condition(op: ComparisonOp) -> EvalCondition {
+        EvalCondition::Comparison {
+            left_device_id: "left".to_string(),
+            left_field: "value".to_string(),
+            right_device_id: "right".to_string(),
+            right_field: "value".to_string(),
+            operator: op,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_condition_comparison_gt() {
+        let registry = make_two_readable_registry("left", 10.0, "right", 5.0).await;
+        let engine = RunEngine::new(registry);
+        assert!(
+            engine
+                .evaluate_condition(&comparison_condition(ComparisonOp::Gt))
+                .await
+        );
+
+        let registry = make_two_readable_registry("left", 5.0, "right", 10.0).await;
+        let engine = RunEngine::new(registry);
+        assert!(
+            !engine
+                .evaluate_condition(&comparison_condition(ComparisonOp::Gt))
+                .await
+        );
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_condition_comparison_lt() {
+        let registry = make_two_readable_registry("left", 3.0, "right", 7.0).await;
+        let engine = RunEngine::new(registry);
+        assert!(
+            engine
+                .evaluate_condition(&comparison_condition(ComparisonOp::Lt))
+                .await
+        );
+
+        let registry = make_two_readable_registry("left", 7.0, "right", 3.0).await;
+        let engine = RunEngine::new(registry);
+        assert!(
+            !engine
+                .evaluate_condition(&comparison_condition(ComparisonOp::Lt))
+                .await
+        );
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_condition_comparison_eq() {
+        let registry = make_two_readable_registry("left", 5.0, "right", 5.0).await;
+        let engine = RunEngine::new(registry);
+        assert!(
+            engine
+                .evaluate_condition(&comparison_condition(ComparisonOp::Eq))
+                .await
+        );
+
+        let registry = make_two_readable_registry("left", 5.0, "right", 5.1).await;
+        let engine = RunEngine::new(registry);
+        assert!(
+            !engine
+                .evaluate_condition(&comparison_condition(ComparisonOp::Eq))
+                .await
+        );
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_condition_comparison_gte() {
+        let registry = make_two_readable_registry("left", 10.0, "right", 10.0).await;
+        let engine = RunEngine::new(registry);
+        assert!(
+            engine
+                .evaluate_condition(&comparison_condition(ComparisonOp::Gte))
+                .await
+        );
+
+        let registry = make_two_readable_registry("left", 11.0, "right", 10.0).await;
+        let engine = RunEngine::new(registry);
+        assert!(
+            engine
+                .evaluate_condition(&comparison_condition(ComparisonOp::Gte))
+                .await
+        );
+
+        let registry = make_two_readable_registry("left", 9.0, "right", 10.0).await;
+        let engine = RunEngine::new(registry);
+        assert!(
+            !engine
+                .evaluate_condition(&comparison_condition(ComparisonOp::Gte))
+                .await
+        );
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_condition_comparison_lte() {
+        let registry = make_two_readable_registry("left", 10.0, "right", 10.0).await;
+        let engine = RunEngine::new(registry);
+        assert!(
+            engine
+                .evaluate_condition(&comparison_condition(ComparisonOp::Lte))
+                .await
+        );
+
+        let registry = make_two_readable_registry("left", 9.0, "right", 10.0).await;
+        let engine = RunEngine::new(registry);
+        assert!(
+            engine
+                .evaluate_condition(&comparison_condition(ComparisonOp::Lte))
+                .await
+        );
+
+        let registry = make_two_readable_registry("left", 11.0, "right", 10.0).await;
+        let engine = RunEngine::new(registry);
+        assert!(
+            !engine
+                .evaluate_condition(&comparison_condition(ComparisonOp::Lte))
+                .await
+        );
+    }
+
+    // test_evaluate_condition_comparison_unknown_operator removed:
+    // ComparisonOp enum makes invalid operators a compile-time error.
+
+    #[tokio::test]
+    async fn test_evaluate_condition_comparison_missing_device() {
+        // Only register one device -- the other is missing
+        let registry = make_readable_registry("left", 10.0).await;
+        let engine = RunEngine::new(registry);
+
+        let cond = comparison_condition(ComparisonOp::Gt);
+        assert!(
+            !engine.evaluate_condition(&cond).await,
+            "missing device in comparison should evaluate to false"
+        );
     }
 }

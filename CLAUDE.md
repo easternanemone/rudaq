@@ -40,13 +40,13 @@ source scripts/env-check.sh && cargo nextest run --profile hardware --features h
 ```
 Foundation
   common           ← Capability traits, Parameter<T>, DaqError, Frame, DriverFactory
-  pool             ← Lock-free object pool for zero-allocation frame handling
+  pool             ← Lock-free object pool for zero-allocation frame handling, ForeignView trait, BorrowGuard/BorrowCount, DlPackDescriptor (feature "dlpack")
   protocol         ← Protobuf definitions (daq.proto, experiment.proto, hardware.proto, health.proto, ni_daq.proto, storage.proto)
 
 Hardware Core
   hardware         ← HAL: DeviceRegistry (DashMap-backed), factory orchestration, plugin system
   driver-registry  ← Concrete factory registration, hardware feature gating
-  driver-mock      ← Always compiled; used for testing and demos
+  driver-mock      ← Always compiled; used for testing and demos. MockCameraProfile/MockStageProfile (Fast, Realistic, Noisy, Faulty), ScenarioConfig for multi-device test setups
   driver-universal ← TOML-manifest driver for text-protocol devices (the forward path)
 
 Native SDK Drivers (FFI-bound, irreplaceable by manifests)
@@ -56,7 +56,7 @@ Native SDK Drivers (FFI-bound, irreplaceable by manifests)
   driver-dover-motion   ← Dover/Cellino stages (+ dover-motion-sys bindgen)
 
 Engine
-  experiment       ← Bluesky-style RunEngine + Plan trait (PlanCommand yields)
+  experiment       ← Bluesky-style RunEngine + Plan trait (PlanCommand yields), AcquisitionCoordinator, FeedbackEvent, adaptive scans
   scripting        ← Rhai engine with hardware bindings, optional PyO3
   daq-modules      ← PyMoDAQ/DynExp-style module system with Bluesky lifecycle
 
@@ -74,7 +74,7 @@ Services & Storage
   server           ← gRPC services: Hardware, Scan, RunEngine, Storage, Plugin, etc.
   client           ← gRPC client library
   db               ← SurrealDB control-plane (kv-mem for tests, kv-rocksdb for prod)
-  storage          ← RingBuffer (mmap, seqlock), HDF5, Arrow IPC, Parquet, Tiff, Zarr writers
+  storage          ← RingBuffer (mmap, seqlock), HDF5, Arrow IPC, Parquet, Tiff, Zarr writers, DocumentSink trait, ZarrSink (feature "storage_zarr")
 
 Applications
   bin              ← CLI daemon (mimalloc allocator), reconciler, safety sentinel, safety heartbeat
@@ -88,13 +88,13 @@ Testing
 
 ### Key Abstractions
 
-**Capability traits** (`common/src/capabilities.rs`): `Movable`, `Readable`, `FrameProducer`, `Triggerable`, `ExposureControl`, `ShutterControl`, `WavelengthTunable`, `EmissionControl`, `Stageable`, `Settable`, `Switchable`, `Actionable`, `Loggable`, `Parameterized`, `Camera`, `Commandable`, `GatedCamera`, `SpectrometerControl`, `TriggerOnPosition`, `PulseGenerator`, `SafetyInterlock`, `Reconfigurable`, etc. All are `async_trait + Send + Sync`. Devices are defined by what they *do*, not what they *are*.
+**Capability traits** (`common/src/capabilities.rs`): `Movable`, `Readable`, `FrameProducer`, `Triggerable`, `ExposureControl`, `ShutterControl`, `WavelengthTunable`, `EmissionControl`, `Stageable`, `Settable`, `Switchable`, `Actionable`, `Loggable`, `Parameterized`, `Camera`, `Commandable`, `GatedCamera`, `SpectrometerControl`, `TriggerOnPosition`, `PulseGenerator`, `SafetyInterlock`, `Reconfigurable`, etc. All are `async_trait + Send + Sync`. Devices are defined by what they *do*, not what they *are*. **`CompositeCapability`** orchestrates multi-device operations (e.g., move+trigger+read); **`CapabilityProvider`** is the trait that supplies typed device lookups for composites (implemented by `DeviceRegistry`).
 
 **`DeviceComponents`** (`common/src/driver.rs`): Capability bag returned by `DriverFactory::build()` — one `Option<Arc<dyn Trait>>` per capability. The `DeviceRegistry` stores these and provides typed accessors (`get_movable("stage_1")`).
 
 **`Parameter<T>`** (`common/src/parameter.rs`): Reactive state inspired by QCodes/ScopeFoundry. Wraps `Observable<T>` + hardware callbacks. Flow: `set(value)` → validate constraints → call `hardware_writer` (async BoxFuture) → update internal value (notifies subscribers) → call change listeners. Use `Parameter<T>` for device state, never raw `Arc<Mutex<T>>`.
 
-**`Plan` + `RunEngine`** (`experiment/src/`): Bluesky-inspired. Plans yield `PlanCommand` variants (`MoveTo`, `Read`, `Trigger`, `Wait`, `Checkpoint`, `EmitEvent`, `Set`). RunEngine executes them as a state machine (`Idle → Running → Paused → Aborting`) and emits Bluesky-style documents (`Start`, `Descriptor`, `Event`, `Stop`, `Manifest`). `Set` variant: `Set { device_id, parameter, value }` — set a device parameter.
+**`Plan` + `RunEngine`** (`experiment/src/`): Bluesky-inspired. Plans yield `PlanCommand` variants (`MoveTo`, `Read`, `Trigger`, `Wait`, `Checkpoint`, `EmitEvent`, `Set`, `ConditionalBranch`, `WaitSettled`, `RepeatWhile`). RunEngine executes them as a state machine (`Idle → Running → Paused → Aborting`) and emits Bluesky-style documents (`Start`, `Descriptor`, `Event`, `Stop`, `Manifest`). `ConditionalBranch` evaluates an `EvalCondition` (threshold, comparison, expression) and dispatches to then/else command lists. `WaitSettled` blocks until a device reports stable. `RepeatWhile` loops a command body with a safety cap on iterations. `EmitEvent` carries optional `scan_indices: Vec<(String, usize)>` for dimensional scan coordinates (used by `ZarrSink` for chunk placement). **`AcquisitionCoordinator`** (`experiment/src/coordinator.rs`) composes move+trigger+read workflows via `CompositeCapability`. **Feedback system** (`experiment/src/feedback.rs`): `FeedbackEvent` (ThresholdCrossed, StabilityReached, ValueUpdate) feeds adaptive scans; `execute_adaptive()` on RunEngine runs plans with a feedback channel. `FeedbackRouter` (`server/src/grpc/feedback_router.rs`) bridges gRPC streams to the feedback channel.
 
 **`RingBuffer`** (`storage/src/ring_buffer.rs`): mmap-backed circular buffer with seqlock for lock-free reads. Uses Apache Arrow IPC format. "Tap" consumers receive every Nth frame via async channel for live visualization without blocking writers.
 
@@ -123,7 +123,7 @@ registry.register_from_config(DeviceConfig { id, name, driver: DriverConfig { ty
 
 ### Feature Flags
 
-**Compile-time** (Cargo features in `driver-registry/Cargo.toml`): `serial` (default), `pvcam`/`pvcam_sdk`/`pvcam_hardware`, `comedi`/`comedi_hardware`, `andor`/`andor_hardware`, `all_hardware`, `full`. Mock drivers (`driver-mock`) and `driver-universal` are always compiled. Serial/SCPI devices use `driver-universal` TOML manifests (always compiled, no feature flag needed).
+**Compile-time** (Cargo features in `driver-registry/Cargo.toml`): `serial` (default), `pvcam`/`pvcam_sdk`/`pvcam_hardware`, `comedi`/`comedi_hardware`, `andor`/`andor_hardware`, `all_hardware`, `full`. Mock drivers (`driver-mock`) and `driver-universal` are always compiled. Serial/SCPI devices use `driver-universal` TOML manifests (always compiled, no feature flag needed). Additional per-crate features: `dlpack` (pool — DLPack tensor descriptor for zero-copy NumPy/PyTorch interop), `storage_zarr` (storage — Zarr V3 sink via `DocumentSink`), `metrics` (pool/server — Prometheus counters for stream and document lifecycle).
 
 **Runtime** (`config/feature_flags.toml`): Loaded via `FeatureFlags::load()`. Toggles: `frame_pool_preallocation`, `async_ring_buffer`, `experimental_streaming`, `debug_frame_timing`, etc.
 
@@ -138,7 +138,7 @@ registry.register_from_config(DeviceConfig { id, name, driver: DriverConfig { ty
 
 - **Nextest profiles**: `default` (local, 2 retries), `ci` (3 retries, no fail-fast), `hardware` (single-threaded, 6min timeout), `libs-hardware` (inherits hardware), `coverage` (no retries).
 - **Test groups**: `serial-hardware`, `pvcam-hardware`, `andor-hardware`, `elliptec-hardware`, `daemon-e2e` — each max-threads=1 for shared resource serialization.
-- **Mock devices**: Always available without feature flags. Use `register_mock_factories(&registry)` for integration tests.
+- **Mock devices**: Always available without feature flags. Use `register_mock_factories(&registry)` for integration tests. `MockCameraProfile`/`MockStageProfile` select fidelity (Fast, Realistic, Noisy, Faulty). `ScenarioConfig` groups multiple mock devices with a shared RNG seed for deterministic multi-device tests.
 - **Timing tests**: Use `#[tokio::test(start_paused = true)]` with `tokio::time::Instant` for deterministic timing. Wall-clock tests use `TimingTolerance` helpers from `integration-tests/tests/common/`.
 - **Hardware gating**: `#[cfg(feature = "hardware_tests")]` + `#[ignore]` for real-device tests.
 

@@ -249,4 +249,44 @@ mod tests {
         assert_eq!(guard.frame().height, 32);
         assert_eq!(guard.frame().actual_len, 512);
     }
+
+    #[test]
+    fn concurrent_guard_creation_from_multiple_threads() {
+        let frame = make_test_frame();
+        let bc = Arc::new(BorrowCount::new());
+        let num_threads = 8;
+        let guards_per_thread = 100;
+
+        let barrier = Arc::new(std::sync::Barrier::new(num_threads));
+        let handles: Vec<_> = (0..num_threads)
+            .map(|_| {
+                let frame = Arc::clone(&frame);
+                let bc = Arc::clone(&bc);
+                let barrier = Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    let mut guards = Vec::new();
+                    for _ in 0..guards_per_thread {
+                        guards.push(BorrowGuard::new(Arc::clone(&frame), Arc::clone(&bc)));
+                    }
+                    // All guards alive here
+                    assert!(bc.is_borrowed());
+                    // Drop all guards
+                    drop(guards);
+                })
+            })
+            .collect();
+
+        for handle in handles {
+            handle.join().expect("thread should not panic");
+        }
+
+        // After all threads complete, borrow count must be exactly zero
+        assert_eq!(
+            bc.count(),
+            0,
+            "borrow count must be zero after all concurrent guards are dropped"
+        );
+        assert!(!bc.is_borrowed());
+    }
 }

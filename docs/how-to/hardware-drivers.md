@@ -507,6 +507,42 @@ impl RotatorDevice {
 }
 ```
 
+### CompositeCapability Trait (Multi-Device Orchestration)
+
+For workflows that coordinate multiple devices (e.g., move a stage, trigger a camera, read a sensor), implement `CompositeCapability`. The trait declares which device capabilities are required and executes the composed operation using a `CapabilityProvider` (implemented by `DeviceRegistry`).
+
+```rust
+use common::capabilities::{CompositeCapability, CapabilityProvider};
+use common::driver::Capability;
+use anyhow::Result;
+
+struct MyWorkflow {
+    stage_id: String,
+    camera_id: String,
+}
+
+impl CompositeCapability for MyWorkflow {
+    fn name(&self) -> &str { "my_workflow" }
+
+    fn required_capabilities(&self) -> Vec<(String, Capability)> {
+        vec![
+            (self.stage_id.clone(), Capability::Movable),
+            (self.camera_id.clone(), Capability::Triggerable),
+        ]
+    }
+
+    async fn execute(&self, provider: &dyn CapabilityProvider) -> Result<()> {
+        let stage = provider.get_movable(&self.stage_id).unwrap();
+        let camera = provider.get_triggerable(&self.camera_id).unwrap();
+        stage.move_abs(10.0).await?;
+        camera.trigger().await?;
+        Ok(())
+    }
+}
+```
+
+See `AcquisitionCoordinator` in `crates/experiment/src/coordinator.rs` for a production example.
+
 ---
 
 ## Serial Device Patterns
