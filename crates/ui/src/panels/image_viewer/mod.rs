@@ -2070,7 +2070,11 @@ impl ImageViewerPanel {
                 }
 
                 // === Spectrum View Mode (bd-alxb) ===
-                if self.echelle_profile_cache.profile().is_some() || self.echelle_preview.is_some()
+                // Show when any echelle context exists: active profile, extraction preview,
+                // or editor draft (which auto-creates in WASM where filesystem isn't available).
+                if self.echelle_profile_cache.profile().is_some()
+                    || self.echelle_preview.is_some()
+                    || self.echelle_cal_ui.editor_profile.is_some()
                 {
                     ui.separator();
                     ui.label("View:");
