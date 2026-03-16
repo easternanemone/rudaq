@@ -1843,7 +1843,7 @@ impl HardwareService for HardwareServiceImpl {
                     // Handle new frames from the observer channel
                     next_packet = observer_rx.recv() => {
                         match next_packet {
-                            Some(packet) => {
+                            Some(mut packet) => {
                                 // Log early frames for debugging
                                 if frames_sent < 10 {
                                     tracing::info!(
@@ -1881,20 +1881,47 @@ impl HardwareService for HardwareServiceImpl {
                                     continue;
                                 }
 
-                                // Validate frame dimensions (bd-7rk0)
-                                let bytes_per_pixel = (packet.bit_depth as usize).div_ceil(8);
-                                let expected_size = (packet.width as usize)
-                                    .saturating_mul(packet.height as usize)
-                                    .saturating_mul(bytes_per_pixel);
-                                if packet.data.len() != expected_size {
+                                // Validate frame dimensions and normalize pixel format (bd-7rk0, bd-q2n6)
+                                let pixel_count = (packet.width as usize)
+                                    .saturating_mul(packet.height as usize);
+                                let expected_u16 = pixel_count.saturating_mul(2);
+                                let expected_mono12_packed = pixel_count.saturating_mul(3) / 2;
+
+                                if packet.data.len() == expected_u16 {
+                                    // Mono16 or 12-bit-in-16-bit container — normal path
+                                } else if packet.data.len() == expected_mono12_packed
+                                    || packet.data.len() == expected_mono12_packed + (pixel_count % 2)
+                                {
+                                    // Mono12Packed: 3 bytes per 2 pixels → unpack to u16
+                                    tracing::warn!(
+                                        device_id = %device_id_clone,
+                                        actual_size = packet.data.len(),
+                                        "Unpacking Mono12 frame to u16 (camera using packed pixel encoding)"
+                                    );
+                                    let mut unpacked = Vec::with_capacity(expected_u16);
+                                    let src = &packet.data;
+                                    let mut i = 0;
+                                    while i + 2 < src.len() {
+                                        // Mono12Packed: [P0_hi, P0_lo:P1_lo, P1_hi]
+                                        let p0 = (u16::from(src[i]) << 4) | u16::from(src[i + 1] & 0x0F);
+                                        let p1 = (u16::from(src[i + 2]) << 4) | u16::from(src[i + 1] >> 4);
+                                        unpacked.extend_from_slice(&p0.to_le_bytes());
+                                        unpacked.extend_from_slice(&p1.to_le_bytes());
+                                        i += 3;
+                                    }
+                                    unpacked.truncate(expected_u16);
+                                    packet.data = unpacked;
+                                    packet.bit_depth = 16;
+                                } else {
                                     tracing::warn!(
                                         device_id = %device_id_clone,
                                         width = packet.width,
                                         height = packet.height,
                                         bit_depth = packet.bit_depth,
                                         actual_size = packet.data.len(),
-                                        expected_size = expected_size,
-                                        "Frame data size mismatch after downsampling, skipping"
+                                        expected_u16,
+                                        expected_mono12_packed,
+                                        "Frame data size does not match any known pixel format, skipping"
                                     );
                                     frames_dropped = frames_dropped.saturating_add(1);
                                     continue;
