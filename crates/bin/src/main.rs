@@ -518,8 +518,19 @@ async fn handle_simulate(
         }
         "arc" => {
             let atlas = load_hgar_atlas();
-            println!("  Source: HgAr arc lamp ({} lines)", atlas.len());
+            println!(
+                "  Source: HgAr arc lamp ({} lines, with continuum floor)",
+                atlas.len()
+            );
             config.simulate_arc(&atlas)
+        }
+        "arc-realistic" => {
+            let atlas = load_hgar_atlas();
+            println!(
+                "  Source: HgAr arc lamp ({} lines, no continuum — realistic)",
+                atlas.len()
+            );
+            config.simulate_arc_realistic(&atlas, false)
         }
         "combined" => {
             let atlas = load_hgar_atlas();
@@ -529,7 +540,9 @@ async fn handle_simulate(
             );
             config.simulate_combined(&atlas)
         }
-        other => anyhow::bail!("Unknown source type '{other}'. Use: continuum, arc, combined"),
+        other => anyhow::bail!(
+            "Unknown source type '{other}'. Use: continuum, arc, arc-realistic, combined"
+        ),
     };
 
     // Scale to u16 and write TIFF.

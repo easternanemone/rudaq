@@ -103,12 +103,22 @@ impl EchelleSimConfig {
 
     /// Compute wavelength range for a given order.
     ///
-    /// Each order covers ~80% of the free spectral range across the detector width.
+    /// The physical detector covers a fixed linear width, so the wavelength span
+    /// \Delta\lambda scales as 1/m. We assume it covers 80% of the Free Spectral Range
+    /// at the first (lowest m) order.
     fn order_wavelength_range(&self, m: i32) -> (f64, f64, f64) {
         let lambda_center = self.grating_constant_nm / f64::from(m);
-        let fsr = lambda_center / f64::from(m);
-        let coverage = 0.8;
-        let half_range = fsr * coverage / 2.0;
+
+        let m_first = f64::from(self.first_order.max(1));
+        let m_f = f64::from(m.max(1));
+
+        let fsr_first = (self.grating_constant_nm / m_first) / m_first;
+        let delta_lambda_first = fsr_first * 0.8;
+
+        // \Delta\lambda scales as 1/m (since linear dispersion d\lambda/dx \propto 1/m)
+        let delta_lambda = delta_lambda_first * (m_first / m_f);
+
+        let half_range = delta_lambda / 2.0;
         (
             lambda_center - half_range,
             lambda_center,
@@ -154,6 +164,8 @@ impl EchelleSimConfig {
                 1.0
             };
 
+            let fsr = order.lambda_center / f64::from(order.order_m);
+
             for row in 0..h {
                 let dy = row as f64 - order.y_center;
                 let spatial_weight = (-0.5 * (dy / sigma_y).powi(2)).exp();
@@ -163,8 +175,7 @@ impl EchelleSimConfig {
 
                 for col in 0..w {
                     let lambda = order.lambda_start + col as f64 * order.dispersion;
-                    let blaze =
-                        blaze_function(lambda, order.lambda_center, order.dispersion * w as f64);
+                    let blaze = blaze_function(lambda, order.lambda_center, fsr);
                     let flux = self.continuum_peak_flux * blackbody_scale * blaze * spatial_weight;
                     frame[row * w + col] += flux as f32;
                 }
@@ -178,10 +189,12 @@ impl EchelleSimConfig {
     /// Generate a synthetic arc lamp (HgAr) echelleogram.
     ///
     /// Sharp emission lines are placed at their correct pixel positions
-    /// based on the echelle equation. A faint continuum floor is added
-    /// so that `detect_orders` can find the traces via sigma-clipped mean.
+    /// based on the echelle equation. If `with_continuum` is true, a faint
+    /// continuum floor is added to all orders (useful for single-frame
+    /// calibration where trace detection needs signal in every order).
+    /// If false, only orders with emission lines are visible (realistic).
     #[must_use]
-    pub fn simulate_arc(&self, atlas: &[AtlasLine]) -> Vec<f32> {
+    pub fn simulate_arc_realistic(&self, atlas: &[AtlasLine], with_continuum: bool) -> Vec<f32> {
         let w = self.width as usize;
         let h = self.height as usize;
         let mut frame = vec![0.0_f32; w * h];
@@ -190,17 +203,20 @@ impl EchelleSimConfig {
         let line_sigma_px = 2.0; // spectral FWHM ~4.7 pixels
 
         for order in &orders {
-            // Continuum along each order (needed for trace detection).
-            // Must be well above noise floor so spatial profile peaks stand out.
-            let continuum_floor = 200.0;
-            for row in 0..h {
-                let dy = row as f64 - order.y_center;
-                let spatial_weight = (-0.5 * (dy / sigma_y).powi(2)).exp();
-                if spatial_weight < 1e-4 {
-                    continue;
-                }
-                for col in 0..w {
-                    frame[row * w + col] += (continuum_floor * spatial_weight) as f32;
+            let fsr = order.lambda_center / f64::from(order.order_m);
+
+            // Optional continuum floor along each order.
+            if with_continuum {
+                let continuum_floor = 200.0;
+                for row in 0..h {
+                    let dy = row as f64 - order.y_center;
+                    let spatial_weight = (-0.5 * (dy / sigma_y).powi(2)).exp();
+                    if spatial_weight < 1e-4 {
+                        continue;
+                    }
+                    for col in 0..w {
+                        frame[row * w + col] += (continuum_floor * spatial_weight) as f32;
+                    }
                 }
             }
 
@@ -212,11 +228,7 @@ impl EchelleSimConfig {
                 }
 
                 let pixel_x = (line.wavelength_nm - order.lambda_start) / order.dispersion;
-                let blaze = blaze_function(
-                    line.wavelength_nm,
-                    order.lambda_center,
-                    order.dispersion * w as f64,
-                );
+                let blaze = blaze_function(line.wavelength_nm, order.lambda_center, fsr);
                 let peak = self.emission_peak_flux * (line.strength / 1000.0) * blaze;
 
                 for row in 0..h {
@@ -236,6 +248,14 @@ impl EchelleSimConfig {
 
         add_noise(&mut frame, self.read_noise_adu);
         frame
+    }
+
+    /// Generate a synthetic arc lamp with continuum floor in all orders.
+    ///
+    /// Convenience wrapper — equivalent to `simulate_arc_realistic(atlas, true)`.
+    #[must_use]
+    pub fn simulate_arc(&self, atlas: &[AtlasLine]) -> Vec<f32> {
+        self.simulate_arc_realistic(atlas, true)
     }
 
     /// Generate a combined continuum + arc echelleogram.
@@ -292,7 +312,7 @@ fn planck_relative(lambda_nm: f64, temp_k: f64) -> f64 {
 
 /// Echelle blaze function: `sinc²` intensity envelope.
 ///
-/// Maximum at `lambda_blaze` (order center), falls to zero at ± FSR/2.
+/// Maximum at `lambda_blaze` (order center), falls to zero at ± FSR (and ~40% at ± FSR/2).
 fn blaze_function(lambda: f64, lambda_blaze: f64, fsr: f64) -> f64 {
     if fsr.abs() < 1e-10 {
         return 1.0;
@@ -535,7 +555,7 @@ mod tests {
             },
             wl_config: WlFitConfig {
                 poly_degree: 1,         // linear fit — needs only 2 matched lines
-                seed_tolerance_nm: 5.0, // wider tolerance for echelle equation seed
+                seed_tolerance_nm: 2.0, // tightened since physics models now align
                 ..Default::default()
             },
             rectify_config: RectifyConfig {
