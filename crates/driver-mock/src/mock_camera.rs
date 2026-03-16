@@ -1,6 +1,6 @@
 //! Mock camera implementation with trigger and streaming support.
 
-use crate::pattern::generate_test_pattern;
+use crate::pattern::{generate_frame, MockCameraPattern};
 // Import common infrastructure (bd-1gdn.2)
 use crate::common::{ErrorConfig, MockMode, MockRng, TimingConfig};
 use anyhow::{anyhow, Result};
@@ -166,6 +166,10 @@ pub struct MockCameraConfig {
     /// Named profile for timing/error/mode presets (default: fast)
     #[serde(default)]
     pub profile: MockCameraProfile,
+
+    /// Pattern mode for frame generation (default: test_pattern)
+    #[serde(default)]
+    pub pattern: MockCameraPattern,
 }
 
 fn default_width() -> u32 {
@@ -185,6 +189,7 @@ impl Default for MockCameraConfig {
             height: 1080,
             exposure_s: 0.033,
             profile: MockCameraProfile::default(),
+            pattern: MockCameraPattern::default(),
         }
     }
 }
@@ -451,6 +456,7 @@ impl MockCameraBuilder {
 #[allow(dead_code)]
 pub struct MockCamera {
     resolution: (u32, u32),
+    pattern: MockCameraPattern,
     frame_count: Arc<AtomicU64>,
     armed: Parameter<bool>,
     streaming: Parameter<bool>,
@@ -517,6 +523,7 @@ impl MockCamera {
             height: builder.height,
             exposure_s: 0.033,
             profile: MockCameraProfile::default(),
+            pattern: MockCameraPattern::default(),
         };
 
         Self::with_full_config(
@@ -610,6 +617,7 @@ impl MockCamera {
             let frame_pool_write = frame_pool.clone();
             let observers_write = observers_for_streaming.clone();
             let resolution = (config.width, config.height);
+            let pattern_for_streaming = config.pattern;
 
             // Clone these Arcs for the closure (originals kept for struct)
             let mode_for_streaming = mode;
@@ -635,6 +643,7 @@ impl MockCamera {
                 let frame_pool = frame_pool_write.clone();
                 let observers_for_task = observers_write.clone();
                 let mode = mode_for_streaming;
+                let cam_pattern = pattern_for_streaming;
                 let timing = timing_for_streaming;
                 let loss_rate = frame_loss_rate_for_streaming;
                 let error_cfg = error_config_for_streaming.clone();
@@ -696,7 +705,7 @@ impl MockCamera {
                                 }
 
                                 let (w, h) = res;
-                                let mut buffer = generate_test_pattern(w, h, frame_num);
+                                let mut buffer = generate_frame(cam_pattern, w, h, frame_num);
 
                                 // Temperature-dependent noise coupling (bd-8wt9)
                                 // Higher sensor temp = more thermal noise in frames
@@ -960,6 +969,7 @@ impl MockCamera {
 
         Self {
             resolution: (config.width, config.height),
+            pattern: config.pattern,
             frame_count,
             armed,
             streaming,
@@ -1138,7 +1148,7 @@ impl Triggerable for MockCamera {
         sleep(Duration::from_millis(33)).await;
 
         let (w, h) = self.resolution;
-        let buffer = generate_test_pattern(w, h, count);
+        let buffer = generate_frame(self.pattern, w, h, count);
         let exposure_s = self.exposure_s.get();
         let current_temp = self.temperature.lock().await.current();
 

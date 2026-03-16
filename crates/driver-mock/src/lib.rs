@@ -63,7 +63,7 @@ pub use mock_rotator::{MockRotator, MockRotatorFactory};
 pub use mock_stage::{MockStage, MockStageFactory, MockStageProfile};
 
 // Re-export for convenience
-pub use pattern::generate_test_pattern;
+pub use pattern::{generate_test_pattern, MockCameraPattern};
 pub use scenario::{ScenarioConfig, ScenarioDeviceConfig};
 
 /// Force the linker to include this crate's driver factory registrations.

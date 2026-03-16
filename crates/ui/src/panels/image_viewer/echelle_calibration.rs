@@ -139,15 +139,74 @@ impl ImageViewerPanel {
         profile
     }
 
+    #[allow(
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_possible_wrap
+    )]
+    // SAFETY: NUM_ORDERS is 10; loop index i ∈ [0,9]. All casts to f64/u32/i32 are exact.
     fn fallback_draft_profile(&self) -> EchelleCalibrationProfile {
+        // Layout contract: these constants must match driver-mock's echelle pattern
+        // generator (pattern.rs: ECHELLE_NUM_ORDERS, echelle_order_y_centers).
+        const NUM_ORDERS: usize = 10;
+        const WAVELENGTH_START_NM: f64 = 400.0;
+        const WAVELENGTH_STEP_NM: f64 = 30.0;
+        const FIRST_PHYSICAL_ORDER: i32 = 25;
+
         let frame_width = self.width.max(1);
         let frame_height = self.height.max(1);
-        let sample_end = frame_width.saturating_sub(1).min(1023);
-        let center_y = (f64::from(frame_height) / 2.0).max(1.0);
+        let sample_end = frame_width.saturating_sub(1);
+        let domain_end = f64::from(sample_end) + 1.0;
+
+        // Y centers: evenly spaced in middle 80% of frame (same formula as pattern.rs)
+        let h = f64::from(frame_height);
+        let margin = h * 0.1;
+        let spacing = if NUM_ORDERS > 1 {
+            (h * 0.8) / (NUM_ORDERS - 1) as f64
+        } else {
+            0.0
+        };
+
+        let orders: Vec<EchelleOrderCalibration> = (0..NUM_ORDERS)
+            .map(|i| {
+                let y_center = margin + i as f64 * spacing;
+                let wl_start = WAVELENGTH_START_NM + i as f64 * WAVELENGTH_STEP_NM;
+                let wl_scale = WAVELENGTH_STEP_NM / domain_end;
+
+                EchelleOrderCalibration {
+                    relative_index: i as u32,
+                    physical_order_number: Some(FIRST_PHYSICAL_ORDER - i as i32),
+                    sample_start: 0,
+                    sample_end,
+                    trace: EchelleTraceModel::Polynomial {
+                        basis: PolynomialBasis::Monomial,
+                        coefficients: vec![y_center],
+                        domain_start: 0.0,
+                        domain_end,
+                    },
+                    wavelength: EchelleWavelengthModel::Polynomial {
+                        basis: PolynomialBasis::Monomial,
+                        coefficients: vec![wl_start, wl_scale],
+                        domain_start: 0.0,
+                        domain_end,
+                        unit: "nm".to_string(),
+                    },
+                    aperture_half_width_px: Some(4.0),
+                    enabled: true,
+                    notes: Some(format!(
+                        "Synthetic order m={}, {:.0}-{:.0} nm",
+                        FIRST_PHYSICAL_ORDER - i as i32,
+                        wl_start,
+                        wl_start + WAVELENGTH_STEP_NM
+                    )),
+                }
+            })
+            .collect();
+
         EchelleCalibrationProfile {
             schema_version: EchelleSchemaVersion::v1(),
             profile_id: None,
-            display_name: format!("Mechelle Draft {}x{}", frame_width, frame_height),
+            display_name: format!("Synthetic Echelle {}x{}", frame_width, frame_height),
             compatibility: EchelleFrameCompatibility {
                 sensor_width: frame_width,
                 sensor_height: frame_height,
@@ -170,35 +229,14 @@ impl ImageViewerPanel {
                 default_aperture_half_width_px: 4.0,
                 background: None,
             },
-            orders: vec![EchelleOrderCalibration {
-                relative_index: 0,
-                physical_order_number: None,
-                sample_start: 0,
-                sample_end,
-                trace: EchelleTraceModel::Polynomial {
-                    basis: PolynomialBasis::Monomial,
-                    coefficients: vec![center_y],
-                    domain_start: 0.0,
-                    domain_end: f64::from(frame_width.saturating_sub(1)) + 1.0,
-                },
-                wavelength: EchelleWavelengthModel::Polynomial {
-                    basis: PolynomialBasis::Monomial,
-                    coefficients: vec![0.0, 1.0],
-                    domain_start: 0.0,
-                    domain_end: f64::from(frame_width.saturating_sub(1)) + 1.0,
-                    unit: "nm".to_string(),
-                },
-                aperture_half_width_px: Some(4.0),
-                enabled: true,
-                notes: Some("Fallback placeholder order".into()),
-            }],
+            orders,
             corrections: Default::default(),
             provenance: EchelleProvenance {
                 creator_tool: "rust-daq-image-viewer".to_string(),
                 creator_version: None,
                 created_at_utc: chrono::Utc::now(),
                 source_frame_ids: Vec::new(),
-                notes: Some("Fallback draft profile".to_string()),
+                notes: Some("Fallback draft profile matching mock echelle pattern".to_string()),
             },
         }
     }
