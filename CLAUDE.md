@@ -77,7 +77,7 @@ Services & Storage
   storage          ← RingBuffer (mmap, seqlock), HDF5, Arrow IPC, Parquet, Tiff, Zarr writers, DocumentSink trait, ZarrSink (feature "storage_zarr")
 
 Applications
-  bin              ← CLI daemon (mimalloc allocator), reconciler, safety sentinel, safety heartbeat
+  bin              ← CLI daemon (mimalloc allocator), reconciler, safety sentinel, safety heartbeat, snapshot + calibrate subcommands
   ui               ← Web-based user interface
 
 Testing
@@ -252,6 +252,18 @@ pub fn set_page_title(title: &str) {
 | `scripts/echelle/validate_vs_pypeit.py` | E2E validation: compare rust-daq extraction vs PypeIt reference |
 | `scripts/post-crash-forensics.sh` | Post-crash system forensics (dmesg, coredumps, journal, network) |
 
+### Echelle Calibration CLI
+
+```bash
+# Capture a single frame from a running daemon
+rust-daq-daemon snapshot <device_id> -o frame.tiff [--exposure-ms 100] [--format tiff|png|raw] [--addr http://host:50051]
+
+# Run offline echelle calibration pipeline on an arc lamp frame
+rust-daq-daemon calibrate --frame arc.tiff --config config/calibration/mechelle_5000.toml --output profile.toml
+```
+
+Calibration configs live in `config/calibration/`. The `calibrate` subcommand loads the frame, builds a `CalibrationPipelineConfig` from the TOML, calls `run_calibration_pipeline()`, and writes the output `EchelleCalibrationProfile`.
+
 ### Leabs/iSTAR Repro Commands
 
 ```bash
@@ -282,6 +294,7 @@ bash scripts/istar-stream-overnight-matrix.sh --hours 10 --batch-size 6       # 
 - Architecture deep-dive: `docs/explanation/architecture.md`
 - Hardware setup: `docs/how-to/hardware-setup.md`
 - Driver guide: `docs/how-to/hardware-drivers.md`
+- Echelle calibration config: `config/calibration/mechelle_5000.toml`
 - Build config: `.cargo/config.toml`
 - Custom commands: `.claude/commands/`
 

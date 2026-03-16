@@ -20,6 +20,8 @@ driver-mock = { path = "../driver-mock" }
 driver-comedi = { path = "../driver-comedi", optional = true }
 db = { path = "../db", optional = true }
 prometheus = { version = "0.14", optional = true }
+client = { path = "../client" }
+image = { version = "0.25", default-features = false, features = ["tiff", "png"] }
 toml.workspace = true
 anyhow.workspace = true
 futures.workspace = true

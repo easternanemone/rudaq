@@ -30,6 +30,7 @@
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
+mod calibrate;
 mod daemon_manager;
 #[cfg(feature = "db-surreal")]
 mod db_bridge;
@@ -39,6 +40,8 @@ mod reconciler;
 mod reconciler_metrics;
 mod safety_heartbeat_task;
 mod safety_sentinel;
+#[cfg(feature = "networking")]
+mod snapshot;
 #[cfg(feature = "db-surreal")]
 mod watch_reconciler;
 
@@ -152,6 +155,44 @@ enum Commands {
     #[cfg(feature = "db-surreal")]
     #[command(subcommand)]
     Config(ConfigCommands),
+
+    /// Capture a single frame from a camera on a running daemon
+    #[cfg(feature = "networking")]
+    Snapshot {
+        /// Camera device ID (e.g., "istar_camera", "mock_camera")
+        device_id: String,
+
+        /// Output file path
+        #[arg(long, short)]
+        output: PathBuf,
+
+        /// Exposure time in milliseconds (uses camera's current setting if omitted)
+        #[arg(long)]
+        exposure_ms: Option<f64>,
+
+        /// Output format
+        #[arg(long, value_enum, default_value = "tiff")]
+        format: snapshot::SnapshotFormat,
+
+        /// Daemon address
+        #[arg(long, default_value = "http://localhost:50051")]
+        addr: String,
+    },
+
+    /// Run echelle wavelength calibration on an arc lamp frame
+    Calibrate {
+        /// Path to arc lamp frame (TIFF or raw binary)
+        #[arg(long)]
+        frame: PathBuf,
+
+        /// Path to calibration config (TOML)
+        #[arg(long)]
+        config: PathBuf,
+
+        /// Output path for calibration profile (TOML)
+        #[arg(long)]
+        output: PathBuf,
+    },
 
     /// Recover data from a corrupt HDF5 file after power loss
     Recover {
@@ -394,6 +435,19 @@ async fn main() -> Result<()> {
         }
         #[cfg(feature = "networking")]
         Commands::Client(cmd) => handle_client_command(cmd).await,
+        #[cfg(feature = "networking")]
+        Commands::Snapshot {
+            device_id,
+            output,
+            exposure_ms,
+            format,
+            addr,
+        } => snapshot::handle_snapshot(device_id, output, exposure_ms, format, addr).await,
+        Commands::Calibrate {
+            frame,
+            config,
+            output,
+        } => calibrate::handle_calibrate(frame, config, output).await,
         #[cfg(feature = "db-surreal")]
         Commands::Config(cmd) => handle_config_command(cmd).await,
         Commands::Recover { input, output } => handle_recover(input, output).await,
