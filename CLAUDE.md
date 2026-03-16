@@ -167,6 +167,63 @@ Claude Code can directly interact with real DAQ hardware through the WASM GUI in
 
 WASM GUI: `http://100.117.5.12:8080`. Known reconnect bug (beefcake-48ad): must reload page to change daemon URL.
 
+### WASM DOM Interop
+
+The WASM build uses `web-sys` + `wasm-bindgen` for browser API access. Currently enabled features: `Window`, `Document`, `HtmlCanvasElement`. Additional features are verified to compile (tested March 2026):
+
+**Available with additional `web-sys` features** (add to `crates/ui/Cargo.toml` `[target.'cfg(target_arch = "wasm32")'.dependencies]`):
+
+| Feature | API | Use Case |
+|---------|-----|----------|
+| `Location` | `window().location().search()`, `.set_href()` | Read URL params (`?daemon=http://...`), redirects |
+| `Storage` | `window().local_storage()`, `.get_item()`, `.set_item()` | Persist settings across page loads (daemon URL, layout) |
+| `UrlSearchParams` | `UrlSearchParams::new_with_str(&search).get(name)` | Parse URL query parameters |
+| `HtmlElement` | `element.dyn_into::<HtmlElement>().set_inner_text()` | Modify DOM elements outside canvas |
+
+**Already works with current features** (no Cargo.toml changes needed):
+- `document.set_title("DAQ Panel - Connected")` — update browser tab title based on connection status
+- `window().set_timeout_with_callback_and_timeout_and_arguments_0()` — already used in `runtime.rs` for async sleep
+
+**Patterns** (all verified to compile for `wasm32-unknown-unknown`):
+
+```rust
+// Read URL query param (requires: Location, UrlSearchParams features)
+#[cfg(target_arch = "wasm32")]
+pub fn get_url_param(name: &str) -> Option<String> {
+    let window = web_sys::window()?;
+    let search = window.location().search().ok()?;
+    let params = web_sys::UrlSearchParams::new_with_str(&search).ok()?;
+    params.get(name)
+}
+
+// localStorage get/set (requires: Storage feature)
+#[cfg(target_arch = "wasm32")]
+pub fn local_storage_get(key: &str) -> Option<String> {
+    let storage = web_sys::window()?.local_storage().ok()??;
+    storage.get_item(key).ok()?
+}
+
+// Update browser tab title (works with existing features)
+#[cfg(target_arch = "wasm32")]
+pub fn set_page_title(title: &str) {
+    if let Some(doc) = web_sys::window().and_then(|w| w.document()) {
+        doc.set_title(title);
+    }
+}
+```
+
+**Constraints:**
+- Gemini/Trusted Types: not relevant here (applies to third-party sites, not your own WASM app)
+- All `web-sys` calls are main-thread only (WASM is single-threaded in browser)
+- Use `#[cfg(target_arch = "wasm32")]` guards — these APIs don't exist on native builds
+- Use `wasm_bindgen::JsCast` for `.dyn_into::<T>()` downcasts (e.g., `Element` → `HtmlElement`)
+- Keep `web-sys` feature list minimal — each feature increases WASM binary size
+
+**Practical applications for rust-daq:**
+- **URL-based daemon selection**: `?daemon=http://100.117.5.12:50051` — fixes reconnect bug (beefcake-48ad) by allowing bookmarkable daemon URLs
+- **Settings persistence**: Save last daemon URL, panel layout, calibration display preferences to `localStorage`
+- **Tab title**: Show "DAQ Panel — Connected (maitai)" or "DAQ Panel — DISCONNECTED" in browser tab
+
 ## Key Scripts
 
 | Script | Purpose |
