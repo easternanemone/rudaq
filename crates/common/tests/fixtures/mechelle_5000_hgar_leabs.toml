@@ -1,10 +1,11 @@
-# Mechelle 5000 + iStar sCMOS — Wavelength-Calibrated Profile
-# Auto-calibrated from HgAr arc frame, 2026-03-16T04:07:14.154895Z
-# Grating constant: 36200 nm (m × λ)
-# Physical orders: m=42 (862nm) to m=52 (696nm)
+# Mechelle 5000 + iStar sCMOS — Wavelength-Calibrated Profile (Corrected)
+# Calibrated from HgAr arc frame, 2026-03-16T15:00:02.782797Z
+# Grating constant: 36300 nm (m × λ)
+# Orientation: UV at bottom (high Y), NIR at top (low Y)
+# 6 orders calibrated (Hg + Ar), 14 lines matched
 
 schema_version = "1.0"
-display_name = "Mechelle 5000 HgAr Calibrated (leabs-dev)"
+display_name = "Mechelle 5000 HgAr Calibrated v2 (leabs-dev)"
 
 [compatibility]
 sensor_width = 2560
@@ -29,32 +30,34 @@ default_aperture_half_width_px = 5.0
 
 [provenance]
 creator_tool = "rust-daq-wavelength-calibration"
-created_at_utc = "2026-03-16T04:07:14.154895Z"
-notes = "Wavelength-calibrated from HgAr arc. Grating constant 36200nm. Polynomial fits with sigma-clipping."
+created_at_utc = "2026-03-16T15:00:02.782797Z"
+notes = "Corrected calibration: UV at bottom (high Y), NIR at top. gc=36300nm. 6 Hg+Ar orders, 14 lines. Needs HDR for full coverage."
+
 
 [[orders]]
 relative_index = 0
-physical_order_number = 52
+physical_order_number = 116
 sample_start = 0
 sample_end = 2559
 aperture_half_width_px = 5.0
 enabled = true
-notes = "m=52, 4/14 lines, RMS=0.000nm, 696.5-696.5nm"
+notes = "Hg 312.57/313.16nm, m=116"
 
 [orders.trace]
 type = "polynomial"
 basis = "monomial"
-coefficients = [209.0]
+coefficients = [435.0]
 domain_start = 0.0
 domain_end = 2560.0
 
 [orders.wavelength]
 type = "polynomial"
 basis = "monomial"
-coefficients = [696.5400000000084, -1.3052738754137445e-14, 5.1043696844261384e-18]
+coefficients = [312.0, 0.00078125]
 domain_start = 0.0
 domain_end = 2560.0
 unit = "nm"
+
 
 [[orders]]
 relative_index = 1
@@ -63,235 +66,119 @@ sample_start = 0
 sample_end = 2559
 aperture_half_width_px = 5.0
 enabled = true
-notes = "m=51, 10/12 lines, RMS=0.924nm, 702.7-718.4nm"
+notes = "Ar 706.72/714.70nm, m=51"
 
 [orders.trace]
 type = "polynomial"
 basis = "monomial"
-coefficients = [241.0]
+coefficients = [621.0]
 domain_start = 0.0
 domain_end = 2560.0
 
 [orders.wavelength]
 type = "polynomial"
 basis = "monomial"
-coefficients = [702.7337568650829, 0.005263807027524652, 3.2743000222472384e-07]
+coefficients = [704.0, 0.00546875]
 domain_start = 0.0
 domain_end = 2560.0
 unit = "nm"
+
 
 [[orders]]
 relative_index = 2
-physical_order_number = 50
-sample_start = 0
-sample_end = 2559
-aperture_half_width_px = 5.0
-enabled = true
-notes = "m=50, linear estimate (insufficient matches)"
-
-[orders.trace]
-type = "polynomial"
-basis = "monomial"
-coefficients = [398.0]
-domain_start = 0.0
-domain_end = 2560.0
-
-[orders.wavelength]
-type = "polynomial"
-basis = "monomial"
-coefficients = [716.76, 0.00565625]
-domain_start = 0.0
-domain_end = 2560.0
-unit = "nm"
-
-[[orders]]
-relative_index = 3
-physical_order_number = 49
-sample_start = 0
-sample_end = 2559
-aperture_half_width_px = 5.0
-enabled = true
-notes = "m=49, 8/11 lines, RMS=0.000nm, 738.4-738.4nm"
-
-[orders.trace]
-type = "polynomial"
-basis = "monomial"
-coefficients = [436.0]
-domain_start = 0.0
-domain_end = 2560.0
-
-[orders.wavelength]
-type = "polynomial"
-basis = "monomial"
-coefficients = [738.3900000000011, -1.877617884145679e-15, 1.200016324746718e-18]
-domain_start = 0.0
-domain_end = 2560.0
-unit = "nm"
-
-[[orders]]
-relative_index = 4
-physical_order_number = 48
-sample_start = 0
-sample_end = 2559
-aperture_half_width_px = 5.0
-enabled = true
-notes = "m=48, 2/6 lines, RMS=0.000nm, 750.4-750.4nm"
-
-[orders.trace]
-type = "polynomial"
-basis = "monomial"
-coefficients = [623.0]
-domain_start = 0.0
-domain_end = 2560.0
-
-[orders.wavelength]
-type = "polynomial"
-basis = "monomial"
-coefficients = [750.3900000000026, -2.6608787096916684e-15]
-domain_start = 0.0
-domain_end = 2560.0
-unit = "nm"
-
-[[orders]]
-relative_index = 5
-physical_order_number = 47
-sample_start = 0
-sample_end = 2559
-aperture_half_width_px = 5.0
-enabled = true
-notes = "m=47, 4/9 lines, RMS=0.092nm, 759.8-766.7nm"
-
-[orders.trace]
-type = "polynomial"
-basis = "monomial"
-coefficients = [700.0]
-domain_start = 0.0
-domain_end = 2560.0
-
-[orders.wavelength]
-type = "polynomial"
-basis = "monomial"
-coefficients = [759.765348760191, 0.016761668617557363, -5.496780402741337e-06]
-domain_start = 0.0
-domain_end = 2560.0
-unit = "nm"
-
-[[orders]]
-relative_index = 6
-physical_order_number = 46
-sample_start = 0
-sample_end = 2559
-aperture_half_width_px = 5.0
-enabled = true
-notes = "m=46, linear estimate (insufficient matches)"
-
-[orders.trace]
-type = "polynomial"
-basis = "monomial"
-coefficients = [825.0]
-domain_start = 0.0
-domain_end = 2560.0
-
-[orders.wavelength]
-type = "polynomial"
-basis = "monomial"
-coefficients = [778.4026465028355, 0.006682715028355388]
-domain_start = 0.0
-domain_end = 2560.0
-unit = "nm"
-
-[[orders]]
-relative_index = 7
-physical_order_number = 45
-sample_start = 0
-sample_end = 2559
-aperture_half_width_px = 5.0
-enabled = true
-notes = "m=45, 8/10 lines, RMS=1.127nm, 795.0-815.4nm"
-
-[orders.trace]
-type = "polynomial"
-basis = "monomial"
-coefficients = [1062.0]
-domain_start = 0.0
-domain_end = 2560.0
-
-[orders.wavelength]
-type = "polynomial"
-basis = "monomial"
-coefficients = [795.0294533763645, 0.006555575622178886, 5.444315384532742e-07]
-domain_start = 0.0
-domain_end = 2560.0
-unit = "nm"
-
-[[orders]]
-relative_index = 8
-physical_order_number = 44
-sample_start = 0
-sample_end = 2559
-aperture_half_width_px = 5.0
-enabled = true
-notes = "m=44, linear estimate (insufficient matches)"
-
-[orders.trace]
-type = "polynomial"
-basis = "monomial"
-coefficients = [1159.0]
-domain_start = 0.0
-domain_end = 2560.0
-
-[orders.wavelength]
-type = "polynomial"
-basis = "monomial"
-coefficients = [813.3780991735538, 0.007304041838842976]
-domain_start = 0.0
-domain_end = 2560.0
-unit = "nm"
-
-[[orders]]
-relative_index = 9
 physical_order_number = 43
 sample_start = 0
 sample_end = 2559
 aperture_half_width_px = 5.0
 enabled = true
-notes = "m=43, 2/3 lines, RMS=0.000nm, 842.5-842.5nm"
+notes = "Ar 840.82/852.14nm, m=43"
 
 [orders.trace]
 type = "polynomial"
 basis = "monomial"
-coefficients = [1397.0]
+coefficients = [698.0]
 domain_start = 0.0
 domain_end = 2560.0
 
 [orders.wavelength]
 type = "polynomial"
 basis = "monomial"
-coefficients = [842.4599999999937, 4.4716518806401e-15]
+coefficients = [837.0, 0.008203125]
 domain_start = 0.0
 domain_end = 2560.0
 unit = "nm"
 
+
 [[orders]]
-relative_index = 10
-physical_order_number = 42
+relative_index = 3
+physical_order_number = 45
 sample_start = 0
 sample_end = 2559
 aperture_half_width_px = 5.0
 enabled = true
-notes = "m=42, 2/2 lines, RMS=0.000nm, 852.1-870.3nm"
+notes = "Ar 801.48/810.37nm, m=45"
 
 [orders.trace]
 type = "polynomial"
 basis = "monomial"
-coefficients = [1497.0]
+coefficients = [824.0]
 domain_start = 0.0
 domain_end = 2560.0
 
 [orders.wavelength]
 type = "polynomial"
 basis = "monomial"
-coefficients = [852.0688143828959, 0.00711856171039831]
+coefficients = [797.0, 0.00625]
+domain_start = 0.0
+domain_end = 2560.0
+unit = "nm"
+
+
+[[orders]]
+relative_index = 4
+physical_order_number = 63
+sample_start = 0
+sample_end = 2559
+aperture_half_width_px = 5.0
+enabled = true
+notes = "Hg 576.96/579.07nm, m=63"
+
+[orders.trace]
+type = "polynomial"
+basis = "monomial"
+coefficients = [1061.0]
+domain_start = 0.0
+domain_end = 2560.0
+
+[orders.wavelength]
+type = "polynomial"
+basis = "monomial"
+coefficients = [573.0, 0.003515625]
+domain_start = 0.0
+domain_end = 2560.0
+unit = "nm"
+
+
+[[orders]]
+relative_index = 5
+physical_order_number = 99
+sample_start = 0
+sample_end = 2559
+aperture_half_width_px = 5.0
+enabled = true
+notes = "Hg 365.02/365.48nm, m=99"
+
+[orders.trace]
+type = "polynomial"
+basis = "monomial"
+coefficients = [1496.0]
+domain_start = 0.0
+domain_end = 2560.0
+
+[orders.wavelength]
+type = "polynomial"
+basis = "monomial"
+coefficients = [363.0, 0.0015625]
 domain_start = 0.0
 domain_end = 2560.0
 unit = "nm"
