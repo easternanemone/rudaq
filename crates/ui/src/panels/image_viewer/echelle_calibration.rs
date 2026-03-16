@@ -86,6 +86,11 @@ impl ImageViewerPanel {
                 self.echelle_profile_cache.path().map(|p| p.to_path_buf());
             return;
         }
+        // Wait for the first frame before creating a draft profile — otherwise
+        // dimensions are 0x0 which produces a useless profile.
+        if self.width == 0 || self.height == 0 {
+            return;
+        }
         self.echelle_cal_ui.editor_profile = Some(self.default_echelle_calibration_profile());
         self.echelle_cal_ui.editor_dirty = true;
         self.echelle_cal_ui.status_message =
@@ -93,6 +98,48 @@ impl ImageViewerPanel {
     }
 
     pub(super) fn default_echelle_calibration_profile(&self) -> EchelleCalibrationProfile {
+        // Try to load the embedded fixture. If the fixture's original dimensions
+        // match the current camera, use it directly (real traces + wavelength cal).
+        // Otherwise, fall back to a draft with traces at the frame center — the
+        // fixture's trace positions are calibrated for a specific sensor and would
+        // be out of bounds on a differently-sized camera.
+        const FIXTURE_TOML: &str =
+            include_str!("../../../../common/tests/fixtures/echelle_profile_v1.toml");
+
+        let frame_width = self.width.max(1);
+        let frame_height = self.height.max(1);
+
+        let mut profile =
+            if let Ok(fixture) = toml::from_str::<EchelleCalibrationProfile>(FIXTURE_TOML) {
+                // Use the fixture only if its frame dimensions are close enough
+                // that traces won't be out of bounds.
+                if fixture.compatibility.frame_height <= frame_height
+                    && fixture.compatibility.frame_width <= frame_width
+                {
+                    fixture
+                } else {
+                    self.fallback_draft_profile()
+                }
+            } else {
+                self.fallback_draft_profile()
+            };
+
+        // Patch dimensions to match the active camera stream
+        profile.display_name = format!("Mechelle Draft {}x{}", frame_width, frame_height);
+        profile.compatibility.sensor_width = frame_width;
+        profile.compatibility.sensor_height = frame_height;
+        profile.compatibility.frame_width = frame_width;
+        profile.compatibility.frame_height = frame_height;
+        profile.compatibility.bit_depth = (self.bit_depth > 0).then_some(self.bit_depth);
+        profile.provenance.creator_tool = "rust-daq-image-viewer".to_string();
+        profile.provenance.created_at_utc = chrono::Utc::now();
+        profile.provenance.notes =
+            Some("Draft created from Image Viewer calibration workspace".to_string());
+
+        profile
+    }
+
+    fn fallback_draft_profile(&self) -> EchelleCalibrationProfile {
         let frame_width = self.width.max(1);
         let frame_height = self.height.max(1);
         let sample_end = frame_width.saturating_sub(1).min(1023);
@@ -143,7 +190,7 @@ impl ImageViewerPanel {
                 },
                 aperture_half_width_px: Some(4.0),
                 enabled: true,
-                notes: Some("Draft placeholder order; replace with traced Mechelle orders".into()),
+                notes: Some("Fallback placeholder order".into()),
             }],
             corrections: Default::default(),
             provenance: EchelleProvenance {
@@ -151,7 +198,7 @@ impl ImageViewerPanel {
                 creator_version: None,
                 created_at_utc: chrono::Utc::now(),
                 source_frame_ids: Vec::new(),
-                notes: Some("Draft created from Image Viewer calibration workspace".to_string()),
+                notes: Some("Fallback draft profile".to_string()),
             },
         }
     }
@@ -422,6 +469,7 @@ impl ImageViewerPanel {
                 let mut trigger_save_editor = false;
                 let mut trigger_save_activate = false;
                 let mut trigger_activate_only = false;
+                let mut trigger_activate_editor = false;
 
                 ui.horizontal_wrapped(|ui| {
                     ui.label("Profile path:");
@@ -437,6 +485,19 @@ impl ImageViewerPanel {
                     }
                     if ui.button("Activate Path").clicked() {
                         trigger_activate_only = true;
+                    }
+                    // Activate editor profile in-memory (works in WASM without filesystem)
+                    if ui
+                        .add_enabled(
+                            self.echelle_cal_ui.editor_profile.is_some(),
+                            egui::Button::new("Activate Editor"),
+                        )
+                        .on_hover_text(
+                            "Activate the editor profile in-memory (no file save needed)",
+                        )
+                        .clicked()
+                    {
+                        trigger_activate_editor = true;
                     }
                 });
                 ui.horizontal_wrapped(|ui| {
@@ -528,6 +589,23 @@ impl ImageViewerPanel {
                     } else {
                         self.set_echelle_profile_path(std::path::PathBuf::from(path_text));
                         self.poll_echelle_profile_cache();
+                    }
+                }
+                if trigger_activate_editor {
+                    if let Some(mut profile) = self.echelle_cal_ui.editor_profile.clone() {
+                        // Patch dimensions to match active camera stream so
+                        // extraction passes validation regardless of which camera.
+                        if self.width > 0 && self.height > 0 {
+                            profile.compatibility.sensor_width = self.width;
+                            profile.compatibility.sensor_height = self.height;
+                            profile.compatibility.frame_width = self.width;
+                            profile.compatibility.frame_height = self.height;
+                        }
+                        self.echelle_profile_cache.activate_in_memory(profile);
+                        self.mark_echelle_run_engine_sync_dirty();
+                        self.echelle_cal_ui.status_message =
+                            Some("Editor profile activated in-memory".to_string());
+                        self.echelle_cal_ui.last_error = None;
                     }
                 }
 

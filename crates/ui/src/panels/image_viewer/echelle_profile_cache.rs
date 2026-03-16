@@ -36,6 +36,14 @@ impl EchelleProfileCache {
         }
     }
 
+    /// Activate a profile directly from an in-memory object (no filesystem).
+    /// Used in WASM where file I/O is unavailable.
+    pub fn activate_in_memory(&mut self, profile: EchelleCalibrationProfile) {
+        self.profile = Some(Arc::new(profile));
+        self.last_error = None;
+        // No path or mtime — this profile lives only in memory.
+    }
+
     #[allow(dead_code)] // Called from clear_echelle_profile_path, not yet wired
     pub fn clear(&mut self) -> EchelleProfileCacheEvent {
         self.path = None;
