@@ -185,6 +185,12 @@ enum Commands {
         #[arg(long)]
         frame: PathBuf,
 
+        /// Optional flat-field frame for trace detection (tungsten halogen).
+        /// When provided, order traces are found from this broadband frame
+        /// (all orders visible), while arc lines are extracted from --frame.
+        #[arg(long)]
+        flat: Option<PathBuf>,
+
         /// Path to calibration config (TOML)
         #[arg(long)]
         config: PathBuf,
@@ -464,9 +470,10 @@ async fn main() -> Result<()> {
         } => snapshot::handle_snapshot(device_id, output, exposure_ms, format, addr).await,
         Commands::Calibrate {
             frame,
+            flat,
             config,
             output,
-        } => calibrate::handle_calibrate(frame, config, output).await,
+        } => calibrate::handle_calibrate(frame, flat, config, output).await,
         Commands::Simulate {
             source,
             output,

@@ -212,6 +212,37 @@ pub fn run_calibration_pipeline(
     height: u32,
     config: &CalibrationPipelineConfig,
 ) -> Result<CalibrationResult, String> {
+    run_calibration_pipeline_impl(arc_frame, None, width, height, config)
+}
+
+/// Run the calibration pipeline with a separate flat-field frame for trace detection.
+///
+/// Uses `flat_frame` to detect order traces (all orders visible with broadband
+/// continuum), then extracts and calibrates arc lines from `arc_frame`.
+/// This two-frame approach is essential when the arc lamp only illuminates a
+/// subset of orders (e.g., HgAr with ~29 lines across ~74 orders).
+///
+/// # Errors
+///
+/// Returns `Err` if no orders are detected in the flat frame or if the seed
+/// model cannot generate wavelength estimates.
+pub fn run_calibration_pipeline_with_flat(
+    arc_frame: &[f32],
+    flat_frame: &[f32],
+    width: u32,
+    height: u32,
+    config: &CalibrationPipelineConfig,
+) -> Result<CalibrationResult, String> {
+    run_calibration_pipeline_impl(arc_frame, Some(flat_frame), width, height, config)
+}
+
+fn run_calibration_pipeline_impl(
+    arc_frame: &[f32],
+    flat_frame: Option<&[f32]>,
+    width: u32,
+    height: u32,
+    config: &CalibrationPipelineConfig,
+) -> Result<CalibrationResult, String> {
     let w = width as usize;
     let h = height as usize;
     if arc_frame.len() < w * h {
@@ -230,6 +261,19 @@ pub fn run_calibration_pipeline(
             "frame_compat dimensions ({}x{}) do not match actual frame ({}x{})",
             config.frame_compat.frame_width, config.frame_compat.frame_height, width, height
         ));
+    }
+
+    // Validate flat frame dimensions if provided.
+    if let Some(flat) = flat_frame {
+        if flat.len() < w * h {
+            return Err(format!(
+                "flat frame too small: {} pixels for {}x{} = {}",
+                flat.len(),
+                width,
+                height,
+                w * h
+            ));
+        }
     }
 
     // ── Stage 1: Scattered light subtraction (optional) ──────────────
@@ -264,9 +308,16 @@ pub fn run_calibration_pipeline(
     };
 
     // ── Stage 2: Order trace detection ───────────────────────────────
-    let traces = detect_orders(frame_ref, width, height, &config.trace_config);
+    // Use flat frame for trace detection if provided (broadband source
+    // illuminates all orders); otherwise detect from the arc frame.
+    let trace_source = flat_frame.unwrap_or(frame_ref);
+    let traces = detect_orders(trace_source, width, height, &config.trace_config);
     if traces.is_empty() {
-        return Err("no echelle orders detected in frame".to_string());
+        return Err(if flat_frame.is_some() {
+            "no echelle orders detected in flat frame".to_string()
+        } else {
+            "no echelle orders detected in frame".to_string()
+        });
     }
     let n_orders = traces.len();
 
@@ -274,6 +325,8 @@ pub fn run_calibration_pipeline(
     let seed_fns = build_seed_functions(&config.seed, n_orders, width)?;
 
     // ── Stages 3-6: Per-order processing ─────────────────────────────
+    // Always extract arc lines from the arc frame (frame_ref), using
+    // trace positions found from the flat/arc frame above.
     let mut diagnostics = Vec::with_capacity(n_orders);
     let mut order_calibrations = Vec::new();
 
@@ -633,12 +686,22 @@ fn build_echelle_seeds(
     let mut fns: Vec<Box<dyn Fn(f64) -> f64>> = Vec::with_capacity(n_orders);
     let npx = f64::from(n_pixels.max(1));
 
+    // For an echelle grating, angular dispersion dbeta/dlambda is m / (d * cos(beta)).
+    // Linear dispersion dx/dlambda across the detector is proportional to m.
+    // Therefore, the wavelength dispersion dl/dx (nm/pixel) is proportional to 1/m.
+    // We assume the detector width `n_pixels` covers exactly 1 FSR at the FIRST order
+    // to anchor the constant of proportionality.
+    let m_ref = (first_physical_order).abs().max(1) as f64;
+    let fsr_ref = grating_constant_nm / (m_ref * m_ref);
+    let disp_ref = fsr_ref / npx;
+
     for i in 0..n_orders {
         let m = (first_physical_order + order_step * i as i32).abs().max(1) as f64;
         let lambda_center = grating_constant_nm / m;
-        let fsr = grating_constant_nm / (m * m); // free spectral range
-        let lambda_start = lambda_center - fsr / 2.0;
-        let dispersion = fsr / npx; // nm per pixel
+
+        // Dispersion scales as 1/m, so disp = disp_ref * (m_ref / m).
+        let dispersion = disp_ref * (m_ref / m);
+        let lambda_start = lambda_center - dispersion * (npx / 2.0);
 
         fns.push(Box::new(move |pixel: f64| {
             lambda_start + dispersion * pixel
@@ -937,15 +1000,30 @@ mod tests {
         let width = 300;
         let height = 300;
 
-        // Simulate 3 orders of a hypothetical echelle:
-        // m=10: λ_center = 2800/10 = 280nm, FSR = 2800/100 = 28nm → 266-294nm
-        // m=9:  λ_center = 2800/9 = 311nm, FSR = 2800/81 = 34.6nm → 294-328nm
-        // m=8:  λ_center = 2800/8 = 350nm, FSR = 2800/64 = 43.75nm → 328-372nm
+        // Simulate 3 orders of a hypothetical echelle.
+        // Assuming the detector width (300px) covers 1 FSR at m=10:
+        // m=10: disp = 28 / 300 = 0.0933 nm/px. λ_center = 280nm → 266.0 - 294.0nm
+        // m=9:  disp = 0.0933 * (10/9) = 0.1037 nm/px. λ_center = 311.11nm → 295.55 - 326.67nm
+        // m=8:  disp = 0.0933 * (10/8) = 0.1166 nm/px. λ_center = 350.0nm → 332.5 - 367.5nm
         let grating_const = 2800.0;
+        let disp_ref = (grating_const / 100.0) / (width as f64);
+
+        let m10_disp = disp_ref * (10.0 / 10.0);
+        let m10_start = 2800.0 / 10.0 - m10_disp * (width as f64 / 2.0);
+        let m10_end = m10_start + m10_disp * (width as f64);
+
+        let m9_disp = disp_ref * (10.0 / 9.0);
+        let m9_start = 2800.0 / 9.0 - m9_disp * (width as f64 / 2.0);
+        let m9_end = m9_start + m9_disp * (width as f64);
+
+        let m8_disp = disp_ref * (10.0 / 8.0);
+        let m8_start = 2800.0 / 8.0 - m8_disp * (width as f64 / 2.0);
+        let m8_end = m8_start + m8_disp * (width as f64);
+
         let orders = vec![
-            (60.0, 266.0, 294.0),  // m=10
-            (150.0, 294.0, 328.0), // m=9
-            (240.0, 328.0, 372.0), // m=8
+            (60.0, m10_start, m10_end),
+            (150.0, m9_start, m9_end),
+            (240.0, m8_start, m8_end),
         ];
 
         // Use some of the HgAr Hg lines that fall in these ranges.

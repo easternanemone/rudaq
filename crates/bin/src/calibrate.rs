@@ -148,6 +148,7 @@ impl CalibrateFileConfig {
 /// Run the echelle calibration pipeline on an arc lamp frame.
 pub async fn handle_calibrate(
     frame_path: PathBuf,
+    flat_path: Option<PathBuf>,
     config_path: PathBuf,
     output_path: PathBuf,
 ) -> Result<()> {
@@ -162,10 +163,9 @@ pub async fn handle_calibrate(
     let detector_height = file_config.detector.height;
     let pipeline_config = file_config.into_pipeline_config();
 
-    // 2. Load frame
+    // 2. Load arc frame
     let f32_pixels = load_frame(&frame_path, detector_width, detector_height).await?;
 
-    // Infer dimensions from loaded data if possible
     let (width, height) =
         if f32_pixels.len() == (detector_width as usize) * (detector_height as usize) {
             (detector_width, detector_height)
@@ -180,18 +180,38 @@ pub async fn handle_calibrate(
         };
 
     println!(
-        "Loaded {width}x{height} frame from {}",
+        "Loaded {width}x{height} arc frame from {}",
         frame_path.display()
     );
+
+    // 3. Optionally load flat frame for trace detection
+    let flat_pixels = if let Some(ref flat) = flat_path {
+        let fp = load_frame(flat, detector_width, detector_height).await?;
+        println!("Loaded {width}x{height} flat frame from {}", flat.display());
+        Some(fp)
+    } else {
+        None
+    };
+
     println!("Running calibration pipeline...");
 
-    // 3. Run pipeline
-    let result = common::echelle_calibration_pipeline::run_calibration_pipeline(
-        &f32_pixels,
-        width,
-        height,
-        &pipeline_config,
-    )
+    // 4. Run pipeline (with or without flat)
+    let result = if let Some(ref flat) = flat_pixels {
+        common::echelle_calibration_pipeline::run_calibration_pipeline_with_flat(
+            &f32_pixels,
+            flat,
+            width,
+            height,
+            &pipeline_config,
+        )
+    } else {
+        common::echelle_calibration_pipeline::run_calibration_pipeline(
+            &f32_pixels,
+            width,
+            height,
+            &pipeline_config,
+        )
+    }
     .map_err(|e| anyhow::anyhow!("Pipeline failed: {e}"))?;
 
     // 4. Print diagnostics
