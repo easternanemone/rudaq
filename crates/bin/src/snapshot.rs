@@ -9,7 +9,7 @@ use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 
 use protocol::daq::{
-    hardware_service_client::HardwareServiceClient, SetParameterRequest, StartStreamRequest,
+    hardware_service_client::HardwareServiceClient, SetExposureRequest, StartStreamRequest,
     StopStreamRequest, StreamFramesRequest, StreamQuality,
 };
 
@@ -45,14 +45,13 @@ pub async fn handle_snapshot(
     let mut client =
         HardwareServiceClient::new(channel).max_decoding_message_size(MAX_MESSAGE_SIZE);
 
-    // Optionally set exposure before capture
+    // Optionally set exposure before capture via ExposureControl RPC
     if let Some(ms) = exposure_ms {
         println!("Setting exposure to {ms:.1} ms...");
         client
-            .set_parameter(SetParameterRequest {
+            .set_exposure(SetExposureRequest {
                 device_id: device_id.clone(),
-                parameter_name: "exposure_time".to_string(),
-                value: ms.to_string(),
+                exposure_ms: ms,
             })
             .await
             .context("Failed to set exposure time")?;

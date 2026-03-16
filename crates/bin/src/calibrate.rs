@@ -55,6 +55,8 @@ pub struct TuningSection {
     pub trace_min_snr: f64,
     /// Expected FWHM of order traces (pixels)
     pub trace_fwhm: f64,
+    /// Minimum peak distance in pixels for trace detection (default: 5)
+    pub trace_min_peak_distance: usize,
     /// Minimum SNR for arc line detection
     pub arc_sigdetect: f64,
     /// Minimum matched lines required per order
@@ -75,6 +77,7 @@ impl Default for TuningSection {
         Self {
             trace_min_snr: 3.0,
             trace_fwhm: 4.0,
+            trace_min_peak_distance: 5,
             arc_sigdetect: 5.0,
             min_lines_per_order: 3,
             use_optimal_extraction: false,
@@ -92,6 +95,7 @@ impl CalibrateFileConfig {
         let mut trace_config = d.trace_config;
         trace_config.min_snr = self.tuning.trace_min_snr;
         trace_config.fwhm_gaussian = self.tuning.trace_fwhm;
+        trace_config.min_peak_distance = self.tuning.trace_min_peak_distance;
 
         let mut arc_config = d.arc_config;
         arc_config.sigdetect = self.tuning.arc_sigdetect;

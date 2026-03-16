@@ -39,6 +39,17 @@ pub struct TraceFitConfig {
     pub sigma_clip_thresh: f64,
     /// Gaussian FWHM for Pass 2 weighting (default: 3.0 pixels).
     pub fwhm_gaussian: f64,
+    /// Minimum distance in pixels between detected peaks (default: 5).
+    ///
+    /// When multiple peaks are closer than this, only the tallest survives.
+    /// Set based on expected order spacing — e.g., for a Mechelle 5000 with
+    /// ~70 orders over 2160 pixels (~30 px spacing), 10 is a safe minimum.
+    #[serde(default = "default_min_peak_distance")]
+    pub min_peak_distance: usize,
+}
+
+fn default_min_peak_distance() -> usize {
+    5
 }
 
 impl Default for TraceFitConfig {
@@ -50,6 +61,7 @@ impl Default for TraceFitConfig {
             poly_degree: 4,
             sigma_clip_thresh: 5.0,
             fwhm_gaussian: 3.0,
+            min_peak_distance: default_min_peak_distance(),
         }
     }
 }
@@ -95,7 +107,7 @@ pub fn detect_orders(
         return Vec::new();
     }
     let threshold = config.min_snr * noise_rms;
-    let peak_rows = find_peaks(&spatial_profile, threshold);
+    let peak_rows = find_peaks(&spatial_profile, threshold, config.min_peak_distance);
 
     // Steps 3 & 4: Trace each peak.
     let mut traces = Vec::new();
@@ -180,31 +192,86 @@ fn sigma_clipped_mean(data: &[f64], sigma_thresh: f64) -> f64 {
     }
 }
 
-/// Estimate noise from inter-percentile range of the spatial profile.
+/// Estimate noise via MAD (Median Absolute Deviation) of the spatial profile.
+///
+/// MAD is robust to the bright order peaks that dominate sparse echelle
+/// profiles — it tracks the background noise floor even when only ~5% of
+/// rows contain real signal. The scaling factor 1.4826 converts MAD to
+/// an equivalent Gaussian sigma.
 fn estimate_noise(profile: &[f64]) -> f64 {
-    let mut sorted: Vec<f64> = profile.iter().copied().filter(|v| v.is_finite()).collect();
-    if sorted.len() < 10 {
+    let mut values: Vec<f64> = profile.iter().copied().filter(|v| v.is_finite()).collect();
+    if values.len() < 10 {
         return 0.0;
     }
-    sorted.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    let n = sorted.len();
-    (sorted[n * 84 / 100] - sorted[n * 16 / 100]) / 2.0
+    values.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let median = values[values.len() / 2];
+
+    let mut abs_devs: Vec<f64> = values.iter().map(|&v| (v - median).abs()).collect();
+    abs_devs.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let mad = abs_devs[abs_devs.len() / 2];
+
+    // MAD → sigma: for a Gaussian, sigma = 1.4826 × MAD
+    let sigma = 1.4826 * mad;
+
+    // Floor: if the profile is essentially constant (integer-quantized),
+    // MAD can be zero. Fall back to inter-percentile estimate.
+    if sigma < 1e-10 {
+        let n = values.len();
+        let iqr = (values[n * 84 / 100] - values[n * 16 / 100]) / 2.0;
+        return iqr.max(1.0);
+    }
+    sigma
 }
 
-/// Find local maxima in the profile above the threshold.
-fn find_peaks(profile: &[f64], threshold: f64) -> Vec<usize> {
+/// Find local maxima in the profile above the threshold, enforcing minimum distance.
+///
+/// When multiple peaks are closer than `min_distance`, only the tallest is kept.
+/// This prevents integer-quantization noise from producing hundreds of spurious
+/// 1-count "peaks" in low-signal frames.
+fn find_peaks(profile: &[f64], threshold: f64, min_distance: usize) -> Vec<usize> {
     let n = profile.len();
     if n < 3 {
         return Vec::new();
     }
 
-    let mut peaks = Vec::new();
+    // Collect all local maxima above threshold.
+    let mut candidates: Vec<usize> = Vec::new();
     for i in 1..n - 1 {
         if profile[i] > threshold && profile[i] > profile[i - 1] && profile[i] > profile[i + 1] {
-            peaks.push(i);
+            candidates.push(i);
         }
     }
-    peaks
+
+    if min_distance <= 1 {
+        return candidates;
+    }
+
+    // Sort by descending amplitude — greedily keep tallest, suppress neighbors.
+    candidates.sort_by(|&a, &b| {
+        profile[b]
+            .partial_cmp(&profile[a])
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    let mut kept = Vec::new();
+    let mut suppressed = vec![false; n];
+
+    for &idx in &candidates {
+        if suppressed[idx] {
+            continue;
+        }
+        kept.push(idx);
+        // Suppress neighbors within min_distance.
+        let lo = idx.saturating_sub(min_distance);
+        let hi = (idx + min_distance + 1).min(n);
+        for s in &mut suppressed[lo..hi] {
+            *s = true;
+        }
+    }
+
+    // Return in ascending position order.
+    kept.sort_unstable();
+    kept
 }
 
 /// Trace a single order starting from the peak row.

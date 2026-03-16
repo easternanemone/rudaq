@@ -42,9 +42,12 @@ wavelength_increase_with_dispersion_positive = true
 trace_min_snr = 3.0
 # Expected trace FWHM for iStar (slightly broader than research cameras)
 trace_fwhm = 4.0
-# Arc line detection: standard threshold
-arc_sigdetect = 5.0
-# Minimum matched lines per order for a valid wavelength solution
-min_lines_per_order = 3
+# Minimum peak distance (pixels) — Mechelle 5000 has ~30px order spacing,
+# so 10px prevents spurious noise peaks without merging real orders
+trace_min_peak_distance = 10
+# Arc line detection: relaxed for MCP-amplified signal (higher noise)
+arc_sigdetect = 3.0
+# Minimum matched lines per order — 2 allows initial calibration pass
+min_lines_per_order = 2
 # Simple summation extraction (optimal extraction needs flat-field)
 use_optimal_extraction = false
