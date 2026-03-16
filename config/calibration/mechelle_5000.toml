@@ -47,6 +47,10 @@ trace_fwhm = 4.0
 trace_min_peak_distance = 10
 # Arc line detection: relaxed for MCP-amplified signal (higher noise)
 arc_sigdetect = 3.0
+# Wavelength fit: linear (degree 1) for initial calibration with sparse matches
+wl_poly_degree = 1
+# Atlas matching tolerance — 5nm accounts for echelle equation approximation
+wl_seed_tolerance_nm = 5.0
 # Minimum matched lines per order — 2 allows initial calibration pass
 min_lines_per_order = 2
 # Simple summation extraction (optimal extraction needs flat-field)

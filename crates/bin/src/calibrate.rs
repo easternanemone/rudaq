@@ -59,6 +59,10 @@ pub struct TuningSection {
     pub trace_min_peak_distance: usize,
     /// Minimum SNR for arc line detection
     pub arc_sigdetect: f64,
+    /// Polynomial degree for wavelength fit (default: 2; use 1 for sparse data)
+    pub wl_poly_degree: usize,
+    /// Wavelength tolerance for atlas matching in nm (default: 2.0)
+    pub wl_seed_tolerance_nm: f64,
     /// Minimum matched lines required per order
     pub min_lines_per_order: usize,
     /// Use Horne 1986 optimal extraction (vs simple summation)
@@ -79,6 +83,8 @@ impl Default for TuningSection {
             trace_fwhm: 4.0,
             trace_min_peak_distance: 5,
             arc_sigdetect: 5.0,
+            wl_poly_degree: 2,
+            wl_seed_tolerance_nm: 2.0,
             min_lines_per_order: 3,
             use_optimal_extraction: false,
         }
@@ -100,10 +106,14 @@ impl CalibrateFileConfig {
         let mut arc_config = d.arc_config;
         arc_config.sigdetect = self.tuning.arc_sigdetect;
 
+        let mut wl_config = d.wl_config;
+        wl_config.poly_degree = self.tuning.wl_poly_degree;
+        wl_config.seed_tolerance_nm = self.tuning.wl_seed_tolerance_nm;
+
         CalibrationPipelineConfig {
             trace_config,
             arc_config,
-            wl_config: d.wl_config,
+            wl_config,
             scatter_config: d.scatter_config,
             rectify_config: d.rectify_config,
             optimal_config: d.optimal_config,
