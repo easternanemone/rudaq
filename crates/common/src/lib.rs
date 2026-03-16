@@ -59,6 +59,7 @@ pub mod echelle_calibration_pipeline;
 pub mod echelle_optimal_extraction;
 pub mod echelle_rectification;
 pub mod echelle_scattered_light;
+pub mod echelle_simulation;
 pub mod echelle_trace_fitting;
 pub mod echelle_wavelength_fitting;
 pub mod error;

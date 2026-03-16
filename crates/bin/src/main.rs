@@ -45,7 +45,7 @@ mod snapshot;
 #[cfg(feature = "db-surreal")]
 mod watch_reconciler;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use driver_mock::{MockCamera, MockStage};
 use scripting::{CameraHandle, RhaiEngine, ScriptEngine, ScriptValue, SoftLimits, StageHandle};
@@ -192,6 +192,25 @@ enum Commands {
         /// Output path for calibration profile (TOML)
         #[arg(long)]
         output: PathBuf,
+    },
+
+    /// Generate a synthetic echelle frame (continuum, arc, or combined)
+    Simulate {
+        /// Type of frame: "continuum", "arc", or "combined"
+        #[arg(long, default_value = "arc")]
+        source: String,
+
+        /// Output TIFF path
+        #[arg(long, short)]
+        output: PathBuf,
+
+        /// Grating constant in nm (default: 36300 for Mechelle 5000)
+        #[arg(long, default_value = "36300")]
+        grating_constant: f64,
+
+        /// Continuum temperature in K (default: 3200 for tungsten halogen)
+        #[arg(long, default_value = "3200")]
+        temperature: f64,
     },
 
     /// Recover data from a corrupt HDF5 file after power loss
@@ -448,10 +467,100 @@ async fn main() -> Result<()> {
             config,
             output,
         } => calibrate::handle_calibrate(frame, config, output).await,
+        Commands::Simulate {
+            source,
+            output,
+            grating_constant,
+            temperature,
+        } => handle_simulate(source, output, grating_constant, temperature).await,
         #[cfg(feature = "db-surreal")]
         Commands::Config(cmd) => handle_config_command(cmd).await,
         Commands::Recover { input, output } => handle_recover(input, output).await,
     }
+}
+
+async fn handle_simulate(
+    source: String,
+    output: PathBuf,
+    grating_constant: f64,
+    temperature: f64,
+) -> Result<()> {
+    use common::echelle_simulation::EchelleSimConfig;
+    use common::echelle_wavelength_fitting::load_hgar_atlas;
+
+    let config = EchelleSimConfig {
+        grating_constant_nm: grating_constant,
+        continuum_temperature_k: temperature,
+        ..Default::default()
+    };
+
+    println!(
+        "Generating {source} echelleogram ({} x {})...",
+        config.width, config.height
+    );
+    println!("  Grating constant: {grating_constant} nm");
+    println!(
+        "  Orders: m={} to m={}",
+        config.first_order, config.last_order
+    );
+
+    let frame = match source.as_str() {
+        "continuum" => {
+            println!("  Source: tungsten halogen ({temperature} K blackbody)");
+            config.simulate_continuum()
+        }
+        "arc" => {
+            let atlas = load_hgar_atlas();
+            println!("  Source: HgAr arc lamp ({} lines)", atlas.len());
+            config.simulate_arc(&atlas)
+        }
+        "combined" => {
+            let atlas = load_hgar_atlas();
+            println!(
+                "  Source: combined continuum + HgAr ({} lines)",
+                atlas.len()
+            );
+            config.simulate_combined(&atlas)
+        }
+        other => anyhow::bail!("Unknown source type '{other}'. Use: continuum, arc, combined"),
+    };
+
+    // Scale to u16 and write TIFF.
+    let max_val = frame.iter().cloned().fold(0.0_f32, f32::max);
+    let scale = if max_val > 0.0 {
+        60000.0 / max_val as f64
+    } else {
+        1.0
+    };
+    let u16_bytes: Vec<u8> = frame
+        .iter()
+        .flat_map(|&v| {
+            let val = ((v as f64 * scale).clamp(0.0, 65535.0)) as u16;
+            val.to_ne_bytes()
+        })
+        .collect();
+
+    let file = std::fs::File::create(&output)
+        .with_context(|| format!("Cannot create {}", output.display()))?;
+    let writer = std::io::BufWriter::new(file);
+    let encoder = image::codecs::tiff::TiffEncoder::new(writer);
+    encoder
+        .encode(
+            &u16_bytes,
+            config.width,
+            config.height,
+            image::ExtendedColorType::L16,
+        )
+        .context("TIFF encoding failed")?;
+
+    let size_kb = std::fs::metadata(&output)
+        .map(|m| m.len() / 1024)
+        .unwrap_or(0);
+    println!(
+        "Written to {} ({size_kb} KB, scale={scale:.1})",
+        output.display()
+    );
+    Ok(())
 }
 
 async fn run_script_once(script_path: PathBuf, config: Option<PathBuf>) -> Result<()> {
