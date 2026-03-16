@@ -612,7 +612,25 @@ impl AndorCamera {
 
             // Query camera info, cleanup on failure
             match Self::query_camera_info(handle) {
-                Ok(info) => Ok((handle, info)),
+                Ok(info) => {
+                    // Set Mono16 pixel encoding so the frame streaming pipeline
+                    // receives 2 bytes/pixel. The SDK may default to Mono12 which
+                    // causes a size mismatch that silently drops every frame (bd-n0bh).
+                    if info.features.pixel_encoding {
+                        let feat = to_wide_string("PixelEncoding");
+                        let val = to_wide_string("Mono16");
+                        let ret = AT_SetEnumString(handle, feat.as_ptr(), val.as_ptr());
+                        if ret != AT_SUCCESS {
+                            tracing::warn!(
+                                "Failed to set PixelEncoding=Mono16 (code {}), frames may use packed format",
+                                ret
+                            );
+                        } else {
+                            tracing::info!("Set PixelEncoding=Mono16 for reliable frame streaming");
+                        }
+                    }
+                    Ok((handle, info))
+                }
                 Err(e) => {
                     // Close handle and cleanup library on query failure
                     AT_Close(handle);
