@@ -144,6 +144,37 @@ where
         .map_err(|e| DaqError::Instrument(e.to_string()))
 }
 
+/// Pause SDK acquisition, apply a parameter change, then restart (bd-4msn).
+///
+/// Stops acquisition without flushing buffers so they remain queued for the
+/// restart. Used by hardware_writer callbacks for parameters that can't be
+/// changed while the SDK acquisition loop is active (e.g., ExposureTime on iStar).
+///
+/// The acquisition loop must tolerate the brief `AT_WaitBuffer` error this
+/// causes — see the retry logic in `acquisition_loop`.
+#[cfg(feature = "camera")]
+fn pause_apply_restart(handle: AT_H, f: impl FnOnce() -> anyhow::Result<()>) -> anyhow::Result<()> {
+    use crate::error::sdk_result;
+    // Stop acquisition (keep buffers queued)
+    unsafe {
+        let stop = to_wide_string("AcquisitionStop");
+        sdk_result(AT_Command(handle, stop.as_ptr()))?;
+    }
+
+    let result = f();
+
+    // Always restart, even if the parameter change failed
+    unsafe {
+        let start = to_wide_string("AcquisitionStart");
+        if let Err(e) = sdk_result(AT_Command(handle, start.as_ptr())) {
+            tracing::error!("Failed to restart acquisition after param change: {e}");
+            return Err(e.into());
+        }
+    }
+
+    result
+}
+
 /// Global instance counter for SDK library lifecycle management.
 ///
 /// The Andor SDK requires AT_InitialiseLibrary() to be called once before any cameras
@@ -210,7 +241,7 @@ struct AndorCameraInner {
     handle: i32,
 
     info: CameraInfo,
-    streaming: AtomicBool,
+    streaming: Arc<AtomicBool>,
     armed: AtomicBool,
     frame_count: AtomicU32,
 
@@ -446,13 +477,17 @@ impl AndorCamera {
             Parameter::new("electronic_shuttering", ElectronicShutteringMode::Rolling)
                 .with_description("Electronic shuttering mode");
 
+        // Shared streaming flag — created before callbacks so they can
+        // check acquisition state for stop-apply-restart (bd-4msn).
+        let streaming_flag = Arc::new(AtomicBool::new(false));
+
         // Connect hardware callbacks when SDK is available
         #[cfg(feature = "camera")]
         {
-            Self::attach_exposure_callback(&mut exposure_s, handle);
+            Self::attach_exposure_callback(&mut exposure_s, handle, streaming_flag.clone());
             Self::attach_trigger_mode_callback(&mut trigger_mode, handle);
             Self::attach_gate_mode_callback(&mut gate_mode, handle);
-            Self::attach_mcp_gain_callback(&mut mcp_gain, handle);
+            Self::attach_mcp_gain_callback(&mut mcp_gain, handle, streaming_flag.clone());
             Self::attach_ddg_delay_callback(&mut ddg_output_delay_ps, handle);
             Self::attach_ddg_width_callback(&mut ddg_output_width_ps, handle);
             Self::attach_temperature_reader(&mut temperature_c, handle);
@@ -506,7 +541,7 @@ impl AndorCamera {
         let inner = Arc::new(AndorCameraInner {
             handle,
             info,
-            streaming: AtomicBool::new(false),
+            streaming: streaming_flag,
             armed: AtomicBool::new(false),
             frame_count: AtomicU32::new(0),
             exposure_s,
@@ -1426,12 +1461,31 @@ impl AndorCamera {
     // =========================================================================
     // spawn_blocking moves the FFI call off the async runtime to avoid blocking.
     // It does not serialize concurrent calls.
+    //
+    // Exposure and MCP gain callbacks use pause_apply_restart (bd-4msn) to
+    // handle the case where the SDK rejects parameter changes during active
+    // acquisition (AT_ERR_COMM). The callback tries the SDK call directly first;
+    // on failure while streaming, it stops acquisition, applies the change,
+    // and restarts without flushing buffers.
 
     #[cfg(feature = "camera")]
-    fn attach_exposure_callback(param: &mut Parameter<f64>, handle: AT_H) {
+    fn attach_exposure_callback(
+        param: &mut Parameter<f64>,
+        handle: AT_H,
+        streaming: Arc<AtomicBool>,
+    ) {
         param.connect_to_hardware_write(move |val: f64| {
+            let streaming = streaming.clone();
             Box::pin(sdk_blocking(move || {
-                AndorCamera::set_float_feature(handle, "ExposureTime", val)
+                let result = AndorCamera::set_float_feature(handle, "ExposureTime", val);
+                if result.is_ok() || !streaming.load(Ordering::Relaxed) {
+                    return result;
+                }
+                // Streaming and failed — pause acquisition, apply, restart (bd-4msn)
+                tracing::info!("Pausing acquisition to change ExposureTime");
+                pause_apply_restart(handle, || {
+                    AndorCamera::set_float_feature(handle, "ExposureTime", val)
+                })
             }))
         });
     }
@@ -1464,10 +1518,23 @@ impl AndorCamera {
     }
 
     #[cfg(feature = "camera")]
-    fn attach_mcp_gain_callback(param: &mut Parameter<u32>, handle: AT_H) {
+    fn attach_mcp_gain_callback(
+        param: &mut Parameter<u32>,
+        handle: AT_H,
+        streaming: Arc<AtomicBool>,
+    ) {
         param.connect_to_hardware_write(move |gain: u32| {
+            let streaming = streaming.clone();
             Box::pin(sdk_blocking(move || {
-                AndorCamera::set_int_feature(handle, "MCPGain", gain as i64)
+                let result = AndorCamera::set_int_feature(handle, "MCPGain", gain as i64);
+                if result.is_ok() || !streaming.load(Ordering::Relaxed) {
+                    return result;
+                }
+                // Streaming and failed — pause acquisition, apply, restart (bd-4msn)
+                tracing::info!("Pausing acquisition to change MCPGain");
+                pause_apply_restart(handle, || {
+                    AndorCamera::set_int_feature(handle, "MCPGain", gain as i64)
+                })
             }))
         });
     }
@@ -2304,6 +2371,7 @@ impl AndorCamera {
     ) {
         let handle = inner.handle;
         let timeout_ms: std::os::raw::c_uint = 10_000; // 10s timeout per frame
+        let mut transient_retries: u32 = 0;
 
         while inner.streaming.load(Ordering::SeqCst) {
             // Wait for next frame from SDK (blocking FFI call).
@@ -2332,18 +2400,34 @@ impl AndorCamera {
             // Handle SDK wait result
             // Keep as usize (not *mut u8) so the future stays Send across .await points.
             let (frame_ptr_addr, frame_size) = match wait_result {
-                Ok((ptr_addr, size)) => (ptr_addr, size),
+                Ok((ptr_addr, size)) => {
+                    transient_retries = 0; // Reset on success
+                    (ptr_addr, size)
+                }
                 Err(e) if e.is_timeout() => {
                     tracing::warn!("AT_WaitBuffer timeout, retrying");
                     continue;
                 }
                 Err(e) => {
-                    if inner.streaming.load(Ordering::Relaxed) {
-                        let msg = format!("AT_WaitBuffer error: {e}");
+                    if !inner.streaming.load(Ordering::Relaxed) {
+                        break; // Normal shutdown
+                    }
+                    // Still streaming — might be a brief pause for param change (bd-4msn).
+                    // Retry a few times before giving up.
+                    transient_retries += 1;
+                    if transient_retries > 20 {
+                        let msg =
+                            format!("AT_WaitBuffer error: {e} (after {transient_retries} retries)");
                         tracing::error!("{msg}");
                         Self::set_error(&inner, msg);
+                        break;
                     }
-                    break;
+                    tracing::debug!(
+                        retries = transient_retries,
+                        "AT_WaitBuffer transient error: {e}, retrying"
+                    );
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                    continue;
                 }
             };
 
