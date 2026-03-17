@@ -370,37 +370,28 @@ impl ImageViewerPanel {
         let buffer_key = (device_id.to_string(), param_name.clone());
         let is_fav = self.param_favorites.contains(&param_name);
 
-        // Star toggle for favorite pinning (bd-4wf7)
-        let mut fav_toggled = false;
-        ui.horizontal(|ui| {
-            let star = if is_fav { "\u{2605}" } else { "\u{2606}" }; // ★ / ☆
-            if ui
-                .add(egui::Button::new(star).frame(false))
-                .on_hover_text(if is_fav {
-                    "Unpin from Quick Access"
-                } else {
-                    "Pin to Quick Access"
-                })
-                .clicked()
-            {
-                fav_toggled = true;
-            }
-        });
-        // Apply toggle outside the closure to avoid borrow conflict
-        if fav_toggled {
-            if is_fav {
-                self.param_favorites.remove(&param_name);
-            } else {
-                self.param_favorites.insert(param_name.clone());
-            }
-            // Note: immediate DB persistence for favorites requires client+runtime,
-            // not available in this render context. Favorites are loaded from DB
-            // on param load; full star-click persistence is a follow-up (bd-4wf7.2).
-        }
+        // Star button for favorite pinning (bd-4wf7) — rendered inline with param name
+        let star = if is_fav { "\u{2605}" } else { "\u{2606}" }; // ★ / ☆
+        let star_tooltip = if is_fav {
+            "Unpin from Quick Access"
+        } else {
+            "Pin to Quick Access"
+        };
 
         // Check if setting
         if self.setting_params.contains(&buffer_key) {
             ui.horizontal_wrapped(|ui| {
+                if ui
+                    .add(egui::Button::new(star).frame(false))
+                    .on_hover_text(star_tooltip)
+                    .clicked()
+                {
+                    if is_fav {
+                        self.param_favorites.remove(&param_name);
+                    } else {
+                        self.param_favorites.insert(param_name.clone());
+                    }
+                }
                 ui.spinner();
                 ui.label(&param_name);
             });
@@ -409,7 +400,18 @@ impl ImageViewerPanel {
 
         // Read-only
         if !desc.writable {
-            ui.vertical(|ui| {
+            ui.horizontal_wrapped(|ui| {
+                if ui
+                    .add(egui::Button::new(star).frame(false))
+                    .on_hover_text(star_tooltip)
+                    .clicked()
+                {
+                    if is_fav {
+                        self.param_favorites.remove(&param_name);
+                    } else {
+                        self.param_favorites.insert(param_name.clone());
+                    }
+                }
                 ui.label(&param_name);
                 let mut value = param.current_value.clone();
                 if !desc.units.is_empty() {
@@ -429,6 +431,17 @@ impl ImageViewerPanel {
             let mut selected = current.clone();
 
             ui.horizontal_wrapped(|ui| {
+                if ui
+                    .add(egui::Button::new(star).frame(false))
+                    .on_hover_text(star_tooltip)
+                    .clicked()
+                {
+                    if is_fav {
+                        self.param_favorites.remove(&param_name);
+                    } else {
+                        self.param_favorites.insert(param_name.clone());
+                    }
+                }
                 ui.label(&desc.name);
                 let id = egui::Id::new("cam_ctrl").with(device_id).with(&desc.name);
                 egui::ComboBox::from_id_salt(id)
@@ -447,6 +460,19 @@ impl ImageViewerPanel {
         // Boolean
         else if desc.dtype == "bool" {
             let mut val = param.current_value.parse::<bool>().unwrap_or(false);
+            ui.horizontal_wrapped(|ui| {
+                if ui
+                    .add(egui::Button::new(star).frame(false))
+                    .on_hover_text(star_tooltip)
+                    .clicked()
+                {
+                    if is_fav {
+                        self.param_favorites.remove(&param_name);
+                    } else {
+                        self.param_favorites.insert(param_name.clone());
+                    }
+                }
+            });
             if ui.checkbox(&mut val, &desc.name).changed() {
                 pending_update = Some(val.to_string());
             }
@@ -463,6 +489,17 @@ impl ImageViewerPanel {
             let original = val;
 
             ui.horizontal_wrapped(|ui| {
+                if ui
+                    .add(egui::Button::new(star).frame(false))
+                    .on_hover_text(star_tooltip)
+                    .clicked()
+                {
+                    if is_fav {
+                        self.param_favorites.remove(&param_name);
+                    } else {
+                        self.param_favorites.insert(param_name.clone());
+                    }
+                }
                 ui.label(&desc.name);
                 let mut drag = egui::DragValue::new(&mut val).speed(1);
                 if let Some(min) = desc.min_value {
@@ -509,6 +546,17 @@ impl ImageViewerPanel {
             let is_exposure = desc.name.to_lowercase().contains("exposure");
 
             ui.horizontal_wrapped(|ui| {
+                if ui
+                    .add(egui::Button::new(star).frame(false))
+                    .on_hover_text(star_tooltip)
+                    .clicked()
+                {
+                    if is_fav {
+                        self.param_favorites.remove(&param_name);
+                    } else {
+                        self.param_favorites.insert(param_name.clone());
+                    }
+                }
                 ui.label(&desc.name);
                 let mut drag = egui::DragValue::new(&mut val).speed(0.1);
                 if let Some(min) = desc.min_value {
