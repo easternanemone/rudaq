@@ -4,6 +4,14 @@
 //! It provides a clean abstraction between experiment logic (plans) and
 //! hardware operations.
 //!
+//! # Architecture
+//!
+//! RunEngine delegates to composed sub-components rather than owning
+//! all state directly:
+//!
+//! - [`TaskQueue`](task_queue::TaskQueue) — plan queue management (enqueue, dequeue, clear)
+//! - [`WatchdogManager`](watchdog::WatchdogManager) — orphan-plan detection (activity timestamp, timeout)
+//!
 //! # State Machine
 //!
 //! ```text
@@ -50,8 +58,10 @@ mod documents;
 mod executor;
 mod readiness;
 mod state_machine;
+pub(crate) mod task_queue;
 #[cfg(test)]
 mod tests;
+pub(crate) mod watchdog;
 
 pub use documents::RunResult;
 pub use readiness::{CalibrationFreshness, CalibrationWavelengthCoverage, RunReadinessIssue};
@@ -61,26 +71,21 @@ use bytes::Bytes;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, Mutex, RwLock};
-use tokio::time::{Duration, Instant};
+use tokio::time::Duration;
 use tracing::{info, instrument, warn};
 
 use super::feedback::FeedbackEvent;
 use super::lifecycle::RunLifecycleHook;
 use super::plans::Plan;
 use common::capabilities::ObserverHandle;
-use common::experiment::document::{new_uid, Document};
+use common::experiment::document::Document;
 use hardware::registry::DeviceRegistry;
 
 use state_machine::FrameCapture;
+use task_queue::TaskQueue;
+use watchdog::WatchdogManager;
 
-/// A queued plan waiting to be executed
-pub(crate) struct QueuedPlan {
-    pub(crate) plan: Box<dyn Plan>,
-    pub(crate) metadata: HashMap<String, String>,
-    pub(crate) run_uid: String,
-}
-
-/// Run context for the currently executing plan
+/// Run context for the currently executing plan.
 pub(crate) struct RunContext {
     pub(crate) run_uid: String,
     pub(crate) descriptor_uid: String,
@@ -94,10 +99,11 @@ pub(crate) struct RunContext {
     pub(crate) run_start_ns: u64,
 }
 
-/// Default watchdog timeout for orphaned plan detection (5 minutes).
-const DEFAULT_WATCHDOG_TIMEOUT: Duration = Duration::from_secs(300);
-
-/// The RunEngine orchestrates experiment execution
+/// The RunEngine orchestrates experiment execution.
+///
+/// Composes [`TaskQueue`] for plan queue management and
+/// [`WatchdogManager`] for orphan-plan detection, rather than
+/// owning the raw primitives directly.
 pub struct RunEngine {
     /// Current engine state
     pub(crate) state: RwLock<EngineState>,
@@ -105,8 +111,11 @@ pub struct RunEngine {
     /// Device registry for hardware operations
     pub(crate) device_registry: Arc<DeviceRegistry>,
 
-    /// Queue of plans to execute
-    pub(crate) plan_queue: Mutex<Vec<QueuedPlan>>,
+    /// Plan queue (composed component)
+    pub(crate) task_queue: TaskQueue,
+
+    /// Orphan-plan watchdog (composed component)
+    pub(crate) watchdog: WatchdogManager,
 
     /// Document broadcast channel
     pub(crate) doc_sender: broadcast::Sender<Document>,
@@ -130,16 +139,6 @@ pub struct RunEngine {
     /// reconciler to detect stale runs (crashed daemons).
     pub(crate) lifecycle_hook: Option<Arc<dyn RunLifecycleHook>>,
 
-    /// Timestamp of the last meaningful activity (command execution).
-    /// Updated on every MoveTo, Read, Trigger, EmitEvent, Set, and state
-    /// transitions (start, pause, resume). Used by the watchdog to detect
-    /// orphaned plans whose clients disconnected mid-execution.
-    pub(crate) last_activity: Arc<RwLock<Instant>>,
-
-    /// How long a plan may remain Running or Paused with no activity before
-    /// the watchdog aborts it. Default: 5 minutes.
-    pub(crate) watchdog_timeout: Duration,
-
     /// Freshness metadata for calibrations that should gate run starts.
     pub(crate) active_calibrations: RwLock<HashMap<String, readiness::CalibrationFreshness>>,
 
@@ -162,15 +161,14 @@ impl RunEngine {
         Self {
             state: RwLock::new(EngineState::Idle),
             device_registry,
-            plan_queue: Mutex::new(Vec::new()),
+            task_queue: TaskQueue::new(),
+            watchdog: WatchdogManager::new(),
             doc_sender,
             pause_requested: RwLock::new(false),
             abort_requested: RwLock::new(false),
             run_context: Mutex::new(None),
             last_checkpoint: RwLock::new(None),
             lifecycle_hook: None,
-            last_activity: Arc::new(RwLock::new(Instant::now())),
-            watchdog_timeout: DEFAULT_WATCHDOG_TIMEOUT,
             active_calibrations: RwLock::new(HashMap::new()),
             calibration_max_ages: RwLock::new(HashMap::from([(
                 "spectroscopy".to_string(),
@@ -180,6 +178,8 @@ impl RunEngine {
             feedback_rx: Mutex::new(Some(feedback_rx)),
         }
     }
+
+    // ---- Feedback channel ----
 
     /// Subscribe to the feedback channel for data-plane events (bd-7rg0).
     ///
@@ -200,13 +200,15 @@ impl RunEngine {
         self.feedback_tx.clone()
     }
 
+    // ---- Watchdog delegation ----
+
     /// Set the watchdog timeout for orphaned plan detection.
     ///
     /// If a plan has been Running or Paused with no meaningful activity
     /// (MoveTo, Read, Trigger, etc.) for longer than this duration, the
     /// watchdog will abort it automatically.
     pub fn set_watchdog_timeout(&mut self, timeout: Duration) {
-        self.watchdog_timeout = timeout;
+        self.watchdog.set_timeout(timeout);
     }
 
     /// Set the lifecycle hook for heartbeat monitoring and other events.
@@ -224,7 +226,7 @@ impl RunEngine {
     /// Also available to the gRPC layer so that external client requests
     /// (e.g. `get_engine_status`) can prove liveness.
     pub async fn touch_activity(&self) {
-        *self.last_activity.write().await = Instant::now();
+        self.watchdog.touch().await;
     }
 
     /// Spawn a background watchdog task that periodically checks for orphaned plans.
@@ -234,14 +236,13 @@ impl RunEngine {
     /// `watchdog_timeout` (default: 5 minutes).
     ///
     /// When an orphaned plan is detected, the watchdog aborts it and logs a
-    /// warning. The check interval is one-tenth of the timeout (minimum 5s).
+    /// warning. The check interval is one-tenth of the timeout (minimum 1s).
     ///
     /// The returned `JoinHandle` can be used to abort the watchdog on shutdown.
     pub fn spawn_watchdog(self: &Arc<Self>) -> tokio::task::JoinHandle<()> {
         let engine = Arc::clone(self);
-        let timeout = engine.watchdog_timeout;
-        // Check interval: 1/10 of timeout, clamped to at least 1 second
-        let check_interval = timeout.div_f64(10.0).max(Duration::from_secs(1));
+        let timeout = engine.watchdog.timeout();
+        let check_interval = engine.watchdog.check_interval();
 
         info!(
             timeout_secs = timeout.as_secs(),
@@ -257,9 +258,8 @@ impl RunEngine {
                 let state = *engine.state.read().await;
                 match state {
                     EngineState::Running | EngineState::Paused => {
-                        let last = *engine.last_activity.read().await;
-                        let elapsed = last.elapsed();
-                        if elapsed > timeout {
+                        if engine.watchdog.is_expired().await {
+                            let elapsed = engine.watchdog.elapsed().await;
                             let run_uid = engine.current_run_uid().await;
                             warn!(
                                 state = %state,
@@ -284,10 +284,14 @@ impl RunEngine {
         })
     }
 
+    // ---- Document subscription ----
+
     /// Subscribe to document stream
     pub fn subscribe(&self) -> broadcast::Receiver<Document> {
         self.doc_sender.subscribe()
     }
+
+    // ---- State queries ----
 
     /// Get current engine state
     pub async fn state(&self) -> EngineState {
@@ -303,19 +307,34 @@ impl RunEngine {
             .map(|ctx| ctx.run_start_ns)
     }
 
-    /// Get the run_uids of all queued plans
-    pub async fn queued_run_uids(&self) -> Vec<String> {
-        self.plan_queue
+    /// Get the current run UID (if running)
+    pub async fn current_run_uid(&self) -> Option<String> {
+        self.run_context
             .lock()
             .await
-            .iter()
-            .map(|q| q.run_uid.clone())
-            .collect()
+            .as_ref()
+            .map(|ctx| ctx.run_uid.clone())
+    }
+
+    /// Get current progress (events emitted so far)
+    pub async fn current_progress(&self) -> Option<u32> {
+        self.run_context
+            .lock()
+            .await
+            .as_ref()
+            .map(|ctx| ctx.seq_num)
+    }
+
+    // ---- Queue delegation ----
+
+    /// Get the run_uids of all queued plans
+    pub async fn queued_run_uids(&self) -> Vec<String> {
+        self.task_queue.run_uids().await
     }
 
     /// Queue a plan for execution
     pub async fn queue(&self, plan: Box<dyn Plan>) -> String {
-        self.queue_with_metadata(plan, HashMap::new()).await
+        self.task_queue.enqueue(plan, HashMap::new()).await
     }
 
     /// Queue a plan with user-provided metadata
@@ -324,18 +343,20 @@ impl RunEngine {
         plan: Box<dyn Plan>,
         metadata: HashMap<String, String>,
     ) -> String {
-        let run_uid = new_uid();
-        info!(run_uid = %run_uid, plan_type = %plan.plan_type(), "Queueing plan");
-
-        let mut queue = self.plan_queue.lock().await;
-        queue.push(QueuedPlan {
-            plan,
-            metadata,
-            run_uid: run_uid.clone(),
-        });
-
-        run_uid
+        self.task_queue.enqueue(plan, metadata).await
     }
+
+    /// Get the number of queued plans
+    pub async fn queue_len(&self) -> usize {
+        self.task_queue.len().await
+    }
+
+    /// Clear all queued plans
+    pub async fn clear_queue(&self) {
+        self.task_queue.clear().await;
+    }
+
+    // ---- Engine control ----
 
     /// Start executing queued plans
     #[instrument(skip(self), err)]
@@ -363,16 +384,14 @@ impl RunEngine {
         *self.abort_requested.write().await = false;
 
         // Get next plan from queue
-        let queued = {
-            let mut queue = self.plan_queue.lock().await;
-            if queue.is_empty() {
-                anyhow::bail!("No plans in queue");
-            }
-            queue.remove(0)
-        };
+        let queued = self
+            .task_queue
+            .dequeue()
+            .await
+            .ok_or_else(|| anyhow::anyhow!("No plans in queue"))?;
 
         *self.state.write().await = EngineState::Running;
-        self.touch_activity().await;
+        self.watchdog.touch().await;
         info!("Engine started");
 
         // Execute the plan
@@ -389,7 +408,7 @@ impl RunEngine {
 
         info!("Pause requested");
         *self.pause_requested.write().await = true;
-        self.touch_activity().await;
+        self.watchdog.touch().await;
         Ok(())
     }
 
@@ -404,7 +423,7 @@ impl RunEngine {
         info!("Resuming from pause");
         *self.pause_requested.write().await = false;
         *self.state.write().await = EngineState::Running;
-        self.touch_activity().await;
+        self.watchdog.touch().await;
         Ok(())
     }
 
@@ -449,9 +468,7 @@ impl RunEngine {
                 }
 
                 // Check if it matches a queued plan
-                let mut queue = self.plan_queue.lock().await;
-                if let Some(pos) = queue.iter().position(|q| q.run_uid == uid) {
-                    let removed = queue.remove(pos);
+                if let Some(removed) = self.task_queue.remove(uid).await {
                     info!(
                         run_uid = %uid,
                         plan_type = %removed.plan.plan_type(),
@@ -474,33 +491,5 @@ impl RunEngine {
         *self.state.write().await = EngineState::Aborting;
         // In a real implementation, this would also send stop commands to all hardware
         Ok(())
-    }
-
-    /// Get the number of queued plans
-    pub async fn queue_len(&self) -> usize {
-        self.plan_queue.lock().await.len()
-    }
-
-    /// Clear all queued plans
-    pub async fn clear_queue(&self) {
-        self.plan_queue.lock().await.clear();
-    }
-
-    /// Get the current run UID (if running)
-    pub async fn current_run_uid(&self) -> Option<String> {
-        self.run_context
-            .lock()
-            .await
-            .as_ref()
-            .map(|ctx| ctx.run_uid.clone())
-    }
-
-    /// Get current progress (events emitted so far)
-    pub async fn current_progress(&self) -> Option<u32> {
-        self.run_context
-            .lock()
-            .await
-            .as_ref()
-            .map(|ctx| ctx.seq_num)
     }
 }

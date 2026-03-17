@@ -195,12 +195,12 @@ impl RunEngine {
 
     /// Inspect readiness issues for the next queued plan without starting it.
     pub async fn next_plan_readiness_issues(&self) -> Vec<RunReadinessIssue> {
-        let device_ids = {
-            let queue = self.plan_queue.lock().await;
-            queue.first().map_or_else(Vec::new, |queued| {
-                Self::collect_plan_devices(queued.plan.as_ref())
+        let device_ids = self
+            .task_queue
+            .peek_first(|queued| {
+                queued.map_or_else(Vec::new, |q| Self::collect_plan_devices(q.plan.as_ref()))
             })
-        };
+            .await;
         self.readiness_issues_for_devices(&device_ids).await
     }
 

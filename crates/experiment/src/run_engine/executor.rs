@@ -16,7 +16,8 @@ use common::experiment::document::{
 };
 
 use super::state_machine::ExperimentFrameObserver;
-use super::{QueuedPlan, RunEngine};
+use super::task_queue::QueuedPlan;
+use super::RunEngine;
 use crate::feedback::FeedbackEvent;
 use crate::plans::{EvalCondition, PlanCommand};
 
@@ -321,7 +322,7 @@ impl RunEngine {
                 device_id,
                 position,
             } => {
-                self.touch_activity().await;
+                self.watchdog.touch().await;
                 self.execute_move(&device_id, position).await?;
 
                 // Update current positions in context
@@ -332,7 +333,7 @@ impl RunEngine {
             }
 
             PlanCommand::Read { device_id } => {
-                self.touch_activity().await;
+                self.watchdog.touch().await;
                 // Check if we have a frame channel for this device
                 let mut is_frame_device = false;
 
@@ -377,7 +378,7 @@ impl RunEngine {
             }
 
             PlanCommand::Trigger { device_id } => {
-                self.touch_activity().await;
+                self.watchdog.touch().await;
                 self.execute_trigger(&device_id).await?;
                 Ok(false)
             }
@@ -431,7 +432,7 @@ impl RunEngine {
                 positions,
                 scan_indices,
             } => {
-                self.touch_activity().await;
+                self.watchdog.touch().await;
                 let mut ctx_guard = self.run_context.lock().await;
                 let ctx = ctx_guard
                     .as_mut()
@@ -473,7 +474,7 @@ impl RunEngine {
                 parameter,
                 value,
             } => {
-                self.touch_activity().await;
+                self.watchdog.touch().await;
                 debug!(device = %device_id, param = %parameter, value = %value, "Setting parameter");
                 self.execute_set_parameter(&device_id, &parameter, &value)
                     .await?;
@@ -509,7 +510,7 @@ impl RunEngine {
                 device_id,
                 timeout_seconds,
             } => {
-                self.touch_activity().await;
+                self.watchdog.touch().await;
                 let deadline = Instant::now() + Duration::from_secs_f64(timeout_seconds);
                 let poll_interval = Duration::from_millis(100);
 
