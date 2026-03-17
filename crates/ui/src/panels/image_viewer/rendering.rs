@@ -665,26 +665,24 @@ impl ImageViewerPanel {
         // to create/load the first profile before any preview exists.
         let has_echelle_panel = true;
 
-        let stats_panel_width = if has_roi_panel
+        let has_side_panel = has_roi_panel
             || has_histogram_panel
             || has_controls_panel
             || has_echelle_panel
-            || has_pixel_stats
-        {
-            if has_controls_panel || has_echelle_panel {
-                320.0
-            } else {
-                200.0
-            }
+            || has_pixel_stats;
+
+        let side_panel_default_width = if has_controls_panel || has_echelle_panel {
+            380.0
         } else {
-            0.0
+            220.0
         };
 
-        // Side panel for stats/controls (fixed width, drawn first so remainder goes to image)
-        if stats_panel_width > 0.0 {
+        // Side panel for stats/controls (resizable, drawn first so remainder goes to image)
+        if has_side_panel {
             egui::SidePanel::right("image_viewer_stats_panel")
-                .exact_width(stats_panel_width)
-                .resizable(false)
+                .default_width(side_panel_default_width)
+                .width_range(200.0..=600.0)
+                .resizable(true)
                 .show_inside(ui, |ui| {
                     self.render_stats_side_panel(
                         ui,
