@@ -561,6 +561,23 @@ impl DaemonInstance {
             }
         }
 
+        // --- Phase: Restore Parameter State (bd-4wf7) ---
+        // Apply last-known parameter values from SurrealDB to devices.
+        // This restores user settings (exposure, trigger mode, etc.) across daemon restarts.
+        // Runs after reconciliation to ensure devices exist in the registry.
+        #[cfg(feature = "db-surreal")]
+        if let Some(ref db) = db {
+            match restore_parameter_state(db, &registry).await {
+                Ok(count) if count > 0 => {
+                    println!("   🔧 Restored {count} parameter(s) from database");
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "Parameter state restore failed — using device defaults");
+                }
+                _ => {}
+            }
+        }
+
         // --- Phase: Safety Hooks (CRITICAL) ---
         println!("🛡️  Installing hardware safety panic hook...");
         ShutterRegistry::install_panic_hook_with_hardware(&registry);
@@ -895,6 +912,54 @@ impl DaemonInstance {
         println!("👋 Daemon shutdown complete");
         Ok(())
     }
+}
+
+/// Restore last-known parameter values from SurrealDB to devices (bd-4wf7).
+///
+/// On daemon startup, reads `device_runtime_state` entries and applies them via
+/// `Parameter::set_json()`. If a value is rejected by the driver (e.g., constraint
+/// violation after a config change), the error is logged and the device keeps its
+/// hardware default. Returns the number of successfully restored parameters.
+#[cfg(feature = "db-surreal")]
+async fn restore_parameter_state(db: &db::DaqDb, registry: &DeviceRegistry) -> Result<usize> {
+    let mut restored = 0;
+    for device_info in registry.list_devices() {
+        let device_id = &device_info.id;
+        let states = db.get_device_state(device_id).await?;
+        if states.is_empty() {
+            continue;
+        }
+
+        let parameterized = match registry.get_parameterized(device_id) {
+            Some(p) => p,
+            None => continue,
+        };
+        let param_set = parameterized.parameters();
+
+        for state in states {
+            let param = match param_set.get(&state.param_name) {
+                Some(p) => p,
+                None => continue,
+            };
+            if let Err(e) = param.set_json(state.param_value.clone()) {
+                tracing::debug!(
+                    device = %device_id,
+                    param = %state.param_name,
+                    error = %e,
+                    "Skipped restoring parameter (driver rejected value)"
+                );
+            } else {
+                tracing::debug!(
+                    device = %device_id,
+                    param = %state.param_name,
+                    value = %state.param_value,
+                    "Restored parameter from DB"
+                );
+                restored += 1;
+            }
+        }
+    }
+    Ok(restored)
 }
 
 #[cfg(test)]

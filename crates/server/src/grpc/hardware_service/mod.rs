@@ -295,10 +295,78 @@ impl HardwareServiceImpl {
     }
 
     /// Attach a SurrealDB instance for offline device feature queries (bd-mmjc).
+    ///
+    /// Also spawns a debounced parameter state writer (bd-4wf7) that persists
+    /// writable parameter changes to the `device_runtime_state` table every 2 seconds.
     #[cfg(feature = "db-surreal")]
     pub fn with_db(mut self, db: Option<db::DaqDb>) -> Self {
+        if let Some(ref db_instance) = db {
+            self.spawn_parameter_state_writer(Arc::new(db_instance.clone()));
+        }
         self.db = db.map(Arc::new);
         self
+    }
+
+    /// Spawn a background task that debounce-writes parameter changes to SurrealDB (bd-4wf7).
+    ///
+    /// Subscribes to the `param_change_tx` broadcast channel and collects dirty parameters
+    /// into a batch. Every 2 seconds, the batch is flushed to `device_runtime_state` via
+    /// `batch_upsert_device_state()`. Only writable parameters from user/script sources
+    /// are persisted — read-only hardware telemetry is excluded.
+    #[cfg(feature = "db-surreal")]
+    fn spawn_parameter_state_writer(&self, db: Arc<db::DaqDb>) {
+        use std::collections::HashMap;
+        use tokio::sync::broadcast::error::RecvError;
+
+        let mut rx = self.param_change_tx.subscribe();
+
+        tokio::spawn(async move {
+            let mut dirty: HashMap<(String, String), serde_json::Value> = HashMap::new();
+            let flush_interval = tokio::time::Duration::from_secs(2);
+            let mut flush_timer = tokio::time::interval(flush_interval);
+            flush_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
+            loop {
+                tokio::select! {
+                    result = rx.recv() => {
+                        match result {
+                            Ok(change) => {
+                                // Only persist user/script-initiated changes to writable params
+                                if change.source == "hardware" {
+                                    continue;
+                                }
+                                // Parse value as JSON for storage
+                                let value = serde_json::from_str(&change.new_value)
+                                    .unwrap_or_else(|_| serde_json::Value::String(change.new_value.clone()));
+                                dirty.insert(
+                                    (change.device_id, change.name),
+                                    value,
+                                );
+                            }
+                            Err(RecvError::Lagged(n)) => {
+                                tracing::debug!("Parameter state writer lagged, dropped {n} messages");
+                            }
+                            Err(RecvError::Closed) => break,
+                        }
+                    }
+                    _ = flush_timer.tick() => {
+                        if dirty.is_empty() {
+                            continue;
+                        }
+                        let batch: Vec<(String, String, serde_json::Value)> = dirty
+                            .drain()
+                            .map(|((dev, name), val)| (dev, name, val))
+                            .collect();
+                        let count = batch.len();
+                        if let Err(e) = db.batch_upsert_device_state(&batch).await {
+                            tracing::warn!("Failed to persist {count} parameter states: {e}");
+                        } else {
+                            tracing::debug!("Persisted {count} parameter state(s) to DB");
+                        }
+                    }
+                }
+            }
+        });
     }
 
     /// Get a clone of the parameter change broadcast sender for external notification

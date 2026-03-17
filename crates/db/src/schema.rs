@@ -12,7 +12,7 @@
 //! - `connects_to` — instrument → instrument (physical cabling)
 
 /// Current schema version. Bump this when adding migrations.
-pub const SCHEMA_VERSION: u32 = 7;
+pub const SCHEMA_VERSION: u32 = 8;
 
 /// A single schema migration step.
 #[cfg(any(feature = "kv-mem", feature = "kv-rocksdb"))]
@@ -53,6 +53,10 @@ const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 7,
         sql: SCHEMA_V7,
+    },
+    Migration {
+        version: 8,
+        sql: SCHEMA_V8,
     },
 ];
 
@@ -215,6 +219,11 @@ DEFINE FIELD IF NOT EXISTS param_name  ON device_runtime_state TYPE string;
 DEFINE FIELD IF NOT EXISTS param_value ON device_runtime_state FLEXIBLE TYPE any;
 DEFINE FIELD IF NOT EXISTS updated_at  ON device_runtime_state TYPE datetime DEFAULT time::now();
 DEFINE INDEX IF NOT EXISTS idx_device_param ON device_runtime_state FIELDS device_id, param_name UNIQUE;
+";
+
+/// V8: Add is_favorite flag to device_runtime_state for UI quick-access pinning (bd-4wf7).
+const SCHEMA_V8: &str = r"
+DEFINE FIELD IF NOT EXISTS is_favorite ON device_runtime_state TYPE bool DEFAULT false;
 ";
 
 /// Apply the schema to the database.

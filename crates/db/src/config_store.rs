@@ -95,8 +95,8 @@ pub struct DbDeviceFeature {
 
 /// A device parameter's persisted runtime state.
 ///
-/// Stored in the `device_runtime_state` table (schema v7) for restart
-/// recovery. Keyed by `(device_id, param_name)`.
+/// Stored in the `device_runtime_state` table (schema v7+) for restart
+/// recovery and UI favorites. Keyed by `(device_id, param_name)`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct DeviceParamState {
     /// Device ID this state belongs to (e.g., "stage_1").
@@ -105,6 +105,9 @@ pub struct DeviceParamState {
     pub param_name: String,
     /// Last-known parameter value as JSON.
     pub param_value: serde_json::Value,
+    /// Whether this parameter is pinned to the UI quick-access section (bd-4wf7).
+    #[serde(default)]
+    pub is_favorite: bool,
 }
 
 /// Summary of a config import operation.
@@ -455,7 +458,7 @@ impl DaqDb {
         let mut response = self
             .client()
             .query(
-                "SELECT device_id, param_name, param_value \
+                "SELECT device_id, param_name, param_value, is_favorite \
                  FROM device_runtime_state WHERE device_id = $device_id \
                  ORDER BY param_name",
             )
@@ -463,6 +466,50 @@ impl DaqDb {
             .await?;
         let rows: Vec<DeviceParamState> = response.take(0)?;
         Ok(rows)
+    }
+
+    /// Set the `is_favorite` flag for a specific parameter (bd-4wf7).
+    ///
+    /// Creates the record if it doesn't exist (with null param_value).
+    pub async fn set_parameter_favorite(
+        &self,
+        device_id: &str,
+        param_name: &str,
+        is_favorite: bool,
+    ) -> Result<()> {
+        self.client()
+            .query(
+                "UPSERT device_runtime_state SET \
+                 device_id = $device_id, \
+                 param_name = $param_name, \
+                 is_favorite = $is_favorite, \
+                 updated_at = time::now() \
+                 WHERE device_id = $device_id AND param_name = $param_name",
+            )
+            .bind(("device_id", device_id.to_owned()))
+            .bind(("param_name", param_name.to_owned()))
+            .bind(("is_favorite", is_favorite))
+            .await?;
+        Ok(())
+    }
+
+    /// Get all favorite parameters for a device (bd-4wf7).
+    pub async fn get_favorites(&self, device_id: &str) -> Result<Vec<String>> {
+        let mut response = self
+            .client()
+            .query(
+                "SELECT param_name FROM device_runtime_state \
+                 WHERE device_id = $device_id AND is_favorite = true \
+                 ORDER BY param_name",
+            )
+            .bind(("device_id", device_id.to_owned()))
+            .await?;
+        #[derive(Deserialize)]
+        struct Row {
+            param_name: String,
+        }
+        let rows: Vec<Row> = response.take(0)?;
+        Ok(rows.into_iter().map(|r| r.param_name).collect())
     }
 
     /// Delete all persisted runtime state for a device.
