@@ -166,19 +166,11 @@ impl ImageViewerPanel {
             let result = async {
                 let descriptors = client.list_parameters(&device_id_str).await?;
 
-                // Filter for quick access parameters FIRST to reduce fetch volume
-                let relevant_descriptors: Vec<_> = descriptors
-                    .into_iter()
-                    .filter(|d| {
-                        let name_lower = d.name.to_lowercase();
-                        QUICK_ACCESS_PARAMS
-                            .iter()
-                            .any(|&keyword| name_lower.contains(keyword))
-                    })
-                    .collect();
+                // Fetch ALL parameters — the UI groups them by group_name
+                // for camera-agnostic display (bd-4wf7)
 
-                // Parallel fetch of relevant parameter values
-                let fetch_futures: Vec<_> = relevant_descriptors
+                // Parallel fetch of parameter values
+                let fetch_futures: Vec<_> = descriptors
                     .iter()
                     .map(|desc| {
                         let mut client = client.clone();
@@ -197,8 +189,7 @@ impl ImageViewerPanel {
                 let mut params = Vec::new();
                 let mut load_errors = Vec::new();
 
-                for (desc, (param_name, value_result)) in
-                    relevant_descriptors.into_iter().zip(fetch_results)
+                for (desc, (param_name, value_result)) in descriptors.into_iter().zip(fetch_results)
                 {
                     match value_result {
                         Ok(v) => {

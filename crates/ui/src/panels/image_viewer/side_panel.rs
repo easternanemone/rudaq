@@ -19,24 +19,45 @@ impl ImageViewerPanel {
             .id_salt("side_panel_scroll")
             .show(ui, |ui| {
                 if has_controls_panel {
-                    layout::card_frame(ui).show(ui, |ui| {
-                        egui::CollapsingHeader::new(format!(
-                            "{} Camera Settings",
-                            icons::action::SETTINGS
-                        ))
-                        .default_open(true)
-                        .show(ui, |ui| {
-                            if let Some(device_id_ref) = &self.device_id {
-                                let device_id = device_id_ref.clone();
-                                for i in 0..self.camera_params.len() {
-                                    self.render_camera_control(ui, &device_id, i);
-                                    if i < self.camera_params.len() - 1 {
-                                        ui.add_space(4.0);
-                                    }
-                                }
-                            }
-                        });
-                    });
+                    if let Some(device_id_ref) = &self.device_id {
+                        let device_id = device_id_ref.clone();
+
+                        // Group parameters by group_name (bd-4wf7: camera-agnostic settings)
+                        let mut groups: std::collections::BTreeMap<String, Vec<usize>> =
+                            std::collections::BTreeMap::new();
+                        for i in 0..self.camera_params.len() {
+                            let group = self.camera_params[i]
+                                .descriptor
+                                .group_name
+                                .clone()
+                                .unwrap_or_default();
+                            groups.entry(group).or_default().push(i);
+                        }
+
+                        // Render each group as a collapsible card
+                        for (group_name, indices) in &groups {
+                            let label = if group_name.is_empty() {
+                                format!("{} Camera Settings", icons::action::SETTINGS)
+                            } else {
+                                format!("{} {}", icons::action::SETTINGS, group_name)
+                            };
+                            // Open the unnamed (core) group by default
+                            let default_open = group_name.is_empty();
+                            layout::card_frame(ui).show(ui, |ui| {
+                                egui::CollapsingHeader::new(label)
+                                    .default_open(default_open)
+                                    .show(ui, |ui| {
+                                        for (j, &i) in indices.iter().enumerate() {
+                                            self.render_camera_control(ui, &device_id, i);
+                                            if j < indices.len() - 1 {
+                                                ui.add_space(4.0);
+                                            }
+                                        }
+                                    });
+                            });
+                            ui.add_space(2.0);
+                        }
+                    }
                     ui.add_space(layout::SECTION_SPACING);
                 }
 

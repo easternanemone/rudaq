@@ -659,15 +659,3 @@ fn histogram_percentile_u64(histogram: &[u64], total: u64, p: f64) -> f64 {
 
     lo_val as f64 * (1.0 - frac) + hi_val as f64 * frac
 }
-
-/// Whitelist for quick access camera parameters
-pub(super) const QUICK_ACCESS_PARAMS: &[&str] = &[
-    "exposure",    // Matches exposure_ms, exposure_mode, etc.
-    "gain",        // Matches gain_index, gain_mode
-    "speed",       // Matches speed_index, speed_mode
-    "temperature", // Matches temperature, temperature_setpoint
-    "fan",         // Matches fan_speed
-    "trigger",     // Matches trigger_mode
-    "roi",         // Matches roi (hardware)
-    "binning",     // Matches binning
-];
