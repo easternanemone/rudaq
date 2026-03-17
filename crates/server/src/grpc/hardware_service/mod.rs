@@ -38,6 +38,8 @@ use crate::grpc::{
         ListDevicesResponse,
         ListParametersRequest,
         ListParametersResponse,
+        LoadCalibrationProfileRequest,
+        LoadCalibrationProfileResponse,
         MoveRequest,
         MoveResponse,
         NodeState as ProtoNodeState,
@@ -724,6 +726,25 @@ impl HardwareService for HardwareServiceImpl {
         request: Request<GetParameterFavoritesRequest>,
     ) -> Result<Response<GetParameterFavoritesResponse>, Status> {
         parameters::get_parameter_favorites(self, request).await
+    }
+
+    async fn load_calibration_profile(
+        &self,
+        request: Request<LoadCalibrationProfileRequest>,
+    ) -> Result<Response<LoadCalibrationProfileResponse>, Status> {
+        let path = request.into_inner().path;
+        match std::fs::read_to_string(&path) {
+            Ok(content) => Ok(Response::new(LoadCalibrationProfileResponse {
+                success: true,
+                content,
+                error_message: String::new(),
+            })),
+            Err(e) => Ok(Response::new(LoadCalibrationProfileResponse {
+                success: false,
+                content: String::new(),
+                error_message: format!("Failed to read {}: {}", path, e),
+            })),
+        }
     }
 
     // =========================================================================

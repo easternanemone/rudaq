@@ -901,6 +901,20 @@ impl DaqClient {
         Ok(response.into_inner().parameter_names)
     }
 
+    /// Load a calibration profile from the daemon's filesystem.
+    pub async fn load_calibration_profile(
+        &mut self,
+        path: &str,
+    ) -> Result<protocol::daq::LoadCalibrationProfileResponse> {
+        let response = self
+            .hardware
+            .load_calibration_profile(protocol::daq::LoadCalibrationProfileRequest {
+                path: path.to_string(),
+            })
+            .await?;
+        Ok(response.into_inner())
+    }
+
     /// Execute a specialized device command
     pub async fn execute_device_command(
         &mut self,

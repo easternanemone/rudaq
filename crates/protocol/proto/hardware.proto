@@ -67,6 +67,9 @@ service HardwareService {
   rpc SetParameterFavorite(SetParameterFavoriteRequest) returns (SetParameterFavoriteResponse);
   rpc GetParameterFavorites(GetParameterFavoritesRequest) returns (GetParameterFavoritesResponse);
 
+  // Calibration Profile I/O (bd-4wf7: WASM can't read daemon filesystem)
+  rpc LoadCalibrationProfile(LoadCalibrationProfileRequest) returns (LoadCalibrationProfileResponse);
+
   // Observable Streaming (bd-qqjq)
   rpc StreamObservables(StreamObservablesRequest) returns (stream ObservableValue);
 
@@ -702,6 +705,17 @@ message GetParameterFavoritesRequest {
 
 message GetParameterFavoritesResponse {
   repeated string parameter_names = 1;  // Names of favorited parameters
+}
+
+// Calibration Profile I/O
+message LoadCalibrationProfileRequest {
+  string path = 1;  // Filesystem path on the daemon host
+}
+
+message LoadCalibrationProfileResponse {
+  bool success = 1;
+  string content = 2;       // TOML profile content
+  string error_message = 3;
 }
 
 // --------------------------------------------------------------------------
