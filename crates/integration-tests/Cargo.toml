@@ -6,6 +6,7 @@ publish = false
 
 [dependencies]
 common = { path = "../common" }
+echelle = { path = "../echelle" }
 hardware = { path = "../hardware" }
 driver-registry = { path = "../driver-registry", features = ["all_hardware"] }
 experiment = { path = "../experiment" }

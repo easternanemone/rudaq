@@ -695,11 +695,9 @@ fn build_image_measurement(device_id: &str, frame: &common::data::Frame) -> Meas
 fn load_echelle_profile_for_device(
     registry: &hardware::registry::DeviceRegistry,
     device_id: &str,
-) -> Option<Arc<common::echelle::EchelleCalibrationProfile>> {
+) -> Option<Arc<echelle::EchelleCalibrationProfile>> {
     let profile_path = registry.get_driver_config_string(device_id, "echelle_profile_path")?;
-    match common::echelle::EchelleCalibrationProfile::load_from_path(std::path::Path::new(
-        &profile_path,
-    )) {
+    match echelle::EchelleCalibrationProfile::load_from_path(std::path::Path::new(&profile_path)) {
         Ok(profile) => Some(Arc::new(profile)),
         Err(error) => {
             tracing::warn!(
@@ -1854,7 +1852,7 @@ pub async fn start_server_with_hardware(
                                 continue;
                             };
 
-                            match common::echelle::extract_preview_with_u16_scratch(
+                            match echelle::extract_preview_with_u16_scratch(
                                 extraction_profile.as_ref(),
                                 &frame.data,
                                 frame.width,

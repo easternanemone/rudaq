@@ -3,7 +3,7 @@
 //! Keeps the last-good profile loaded while capturing reload errors, enabling
 //! hot-reload-safe behavior during iterative calibration editing.
 
-use common::echelle::EchelleCalibrationProfile;
+use echelle::EchelleCalibrationProfile;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

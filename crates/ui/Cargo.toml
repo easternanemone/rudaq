@@ -58,6 +58,7 @@ find_peaks = "0.1"
 ordered-float = "4.5"
 web-time = "1"
 common = { path = "../common" }
+echelle = { path = "../echelle" }
 
 # --- Native-only dependencies ---
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

@@ -1,0 +1,67 @@
+schema_version = { major = 1, minor = 0, patch = 0 }
+profile_id = "mechelle-demo-v1"
+display_name = "Mechelle Demo Calibration (Fixture)"
+
+[compatibility]
+sensor_width = 2048
+sensor_height = 2048
+frame_width = 1024
+frame_height = 512
+roi_x = 128
+roi_y = 256
+binning_x = 1
+binning_y = 1
+bit_depth = 16
+
+[orientation]
+dispersion_axis = "x"
+cross_dispersion_axis = "y"
+order_number_increase_direction = "negative"
+wavelength_increase_with_dispersion_positive = true
+
+[extraction]
+summation_mode = "simple_sum"
+default_aperture_half_width_px = 4.0
+
+[extraction.background]
+enabled = true
+inter_order_gap_min_px = 5
+baseline_window_px = 15
+
+[[orders]]
+relative_index = 0
+physical_order_number = 45
+sample_start = 0
+sample_end = 15
+aperture_half_width_px = 3.5
+enabled = true
+trace = { type = "polynomial", basis = "monomial", coefficients = [250.0, 0.0, 0.0005], domain_start = 0.0, domain_end = 1023.0 }
+wavelength = { type = "sampled", wavelengths = [400.0, 400.02, 400.04, 400.06, 400.08, 400.1, 400.12, 400.14, 400.16, 400.18, 400.2, 400.22, 400.24, 400.26, 400.28, 400.3], unit = "nm" }
+
+[[orders]]
+relative_index = 1
+physical_order_number = 44
+sample_start = 10
+sample_end = 31
+enabled = true
+notes = "reference order"
+trace = { type = "polynomial", basis = "chebyshev", coefficients = [300.0, 0.1, -0.02], domain_start = 0.0, domain_end = 1023.0 }
+wavelength = { type = "polynomial", basis = "chebyshev", coefficients = [450.0, 0.03, -1e-6], domain_start = 0.0, domain_end = 1023.0, unit = "nm" }
+
+[corrections.blaze]
+path = "calib/blaze_mechelle_demo.npz"
+sha256 = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+format = "npz"
+
+[[corrections.excluded_regions]]
+x = 10
+y = 10
+width = 3
+height = 4
+
+[provenance]
+creator_tool = "rust-daq-fixture"
+creator_version = "0.1.0"
+created_at_utc = "2026-02-25T00:00:00Z"
+source_frame_ids = ["flat_0001", "arc_0007"]
+notes = "Fixture for schema/validator tests"

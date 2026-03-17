@@ -4,17 +4,17 @@
 //! wavelength calibration to profile validation — the same flow a user
 //! would trigger from the calibration workspace GUI.
 
-use common::echelle::{
-    AxisDirection, DetectorAxis, EchelleFrameCompatibility, EchelleOrientation,
-    EchelleWavelengthModel, PolynomialBasis,
-};
-use common::echelle_calibration_pipeline::{
+use echelle::calibration_pipeline::{
     run_calibration_pipeline, CalibrationPipelineConfig, SeedAnchor, WavelengthSeed,
 };
-use common::echelle_trace_fitting::TraceFitConfig;
-use common::echelle_wavelength_fitting::{
+use echelle::trace_fitting::TraceFitConfig;
+use echelle::wavelength_fitting::{
     detect_arc_lines, fit_order_wavelength, load_hgar_atlas, match_lines_to_atlas, ArcDetectConfig,
     WlFitConfig,
+};
+use echelle::{
+    AxisDirection, DetectorAxis, EchelleFrameCompatibility, EchelleOrientation,
+    EchelleWavelengthModel, PolynomialBasis,
 };
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -311,27 +311,27 @@ fn test_arc_line_detection_standalone() {
 fn test_wavelength_fitting_recovers_linear_dispersion() {
     // Simulate a linear dispersion: wavelength = 500 + 0.05 * pixel.
     let atlas = vec![
-        common::echelle_wavelength_fitting::AtlasLine {
+        echelle::wavelength_fitting::AtlasLine {
             wavelength_nm: 500.0,
             species: "test".into(),
             strength: 100.0,
         },
-        common::echelle_wavelength_fitting::AtlasLine {
+        echelle::wavelength_fitting::AtlasLine {
             wavelength_nm: 505.0,
             species: "test".into(),
             strength: 100.0,
         },
-        common::echelle_wavelength_fitting::AtlasLine {
+        echelle::wavelength_fitting::AtlasLine {
             wavelength_nm: 510.0,
             species: "test".into(),
             strength: 100.0,
         },
-        common::echelle_wavelength_fitting::AtlasLine {
+        echelle::wavelength_fitting::AtlasLine {
             wavelength_nm: 515.0,
             species: "test".into(),
             strength: 100.0,
         },
-        common::echelle_wavelength_fitting::AtlasLine {
+        echelle::wavelength_fitting::AtlasLine {
             wavelength_nm: 520.0,
             species: "test".into(),
             strength: 100.0,
@@ -339,11 +339,11 @@ fn test_wavelength_fitting_recovers_linear_dispersion() {
     ];
 
     // Known pixel positions for each atlas line (from linear model).
-    let lines: Vec<common::echelle_wavelength_fitting::ArcLine> = atlas
+    let lines: Vec<echelle::wavelength_fitting::ArcLine> = atlas
         .iter()
         .map(|a| {
             let pixel = (a.wavelength_nm - 500.0) / 0.05;
-            common::echelle_wavelength_fitting::ArcLine {
+            echelle::wavelength_fitting::ArcLine {
                 order: 0,
                 pixel_center: pixel,
                 pixel_sigma: 2.12, // FWHM ~5.0 / 2.355

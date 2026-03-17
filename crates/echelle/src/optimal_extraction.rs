@@ -16,7 +16,7 @@
     clippy::cast_sign_loss
 )]
 
-use crate::echelle_rectification::RectifiedOrder;
+use crate::rectification::RectifiedOrder;
 
 /// Configuration for optimal extraction.
 #[derive(Debug, Clone)]
@@ -321,11 +321,11 @@ fn reject_cosmic_rays(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::echelle::PolynomialBasis;
-    use crate::echelle_rectification::{rectify_order, OrderSpec, RectifyConfig};
+    use crate::rectification::{rectify_order, OrderSpec, RectifyConfig};
+    use crate::types::PolynomialBasis;
 
-    fn flat_trace(center: f64) -> crate::echelle::EchelleTraceModel {
-        crate::echelle::EchelleTraceModel::Polynomial {
+    fn flat_trace(center: f64) -> crate::types::EchelleTraceModel {
+        crate::types::EchelleTraceModel::Polynomial {
             basis: PolynomialBasis::Monomial,
             coefficients: vec![center],
             domain_start: 0.0,

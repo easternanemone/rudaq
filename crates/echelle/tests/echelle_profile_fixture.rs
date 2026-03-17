@@ -1,4 +1,4 @@
-use common::echelle::{EchelleCalibrationProfile, EchelleFrameContext};
+use echelle::{EchelleCalibrationProfile, EchelleFrameContext};
 
 #[test]
 fn fixture_profile_loads_and_validates() {

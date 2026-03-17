@@ -26,17 +26,17 @@
 
 use chrono::Utc;
 
-use crate::echelle::{
+use crate::optimal_extraction::{optimal_extract, OptimalExtractionConfig};
+use crate::rectification::{rectify_order, OrderSpec, RectifyConfig};
+use crate::scattered_light::{subtract_scattered_light, ScatteredLightConfig, TraceInfo};
+use crate::trace_fitting::{detect_orders, OrderTrace, TraceFitConfig};
+use crate::types::{
     AxisDirection, DetectorAxis, EchelleCalibrationProfile, EchelleCorrections,
     EchelleExtractionConfig, EchelleFrameCompatibility, EchelleOrderCalibration,
     EchelleOrientation, EchelleProvenance, EchelleSchemaVersion, EchelleSummationMode,
     EchelleWavelengthModel, PolynomialBasis,
 };
-use crate::echelle_optimal_extraction::{optimal_extract, OptimalExtractionConfig};
-use crate::echelle_rectification::{rectify_order, OrderSpec, RectifyConfig};
-use crate::echelle_scattered_light::{subtract_scattered_light, ScatteredLightConfig, TraceInfo};
-use crate::echelle_trace_fitting::{detect_orders, OrderTrace, TraceFitConfig};
-use crate::echelle_wavelength_fitting::{
+use crate::wavelength_fitting::{
     detect_arc_lines, fit_order_wavelength, match_lines_to_atlas, ArcDetectConfig, ArcLine,
     AtlasLine, OrderWlSolution, WlFitConfig,
 };
@@ -535,7 +535,7 @@ fn process_single_order(
 }
 
 /// Simple aperture-weighted summation extraction.
-fn simple_sum_extract(rect: &crate::echelle_rectification::RectifiedOrder) -> Vec<f64> {
+fn simple_sum_extract(rect: &crate::rectification::RectifiedOrder) -> Vec<f64> {
     let mut flux = vec![0.0f64; rect.n_dispersion];
     for (col, f) in flux.iter_mut().enumerate() {
         for row in 0..rect.n_cross {
@@ -799,7 +799,7 @@ pub fn check_echelle_consistency(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::echelle_wavelength_fitting::load_hgar_atlas;
+    use crate::wavelength_fitting::load_hgar_atlas;
 
     /// Create a synthetic echelle frame with horizontal order traces
     /// containing known emission lines at specified wavelengths.

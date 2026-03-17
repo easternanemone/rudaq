@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 common = { path = "../common" }
+echelle = { path = "../echelle" }
 hardware = { path = "../hardware" }
 bytes = "1"
 anyhow.workspace = true

@@ -1,0 +1,35 @@
+[package]
+name = "echelle"
+version = "0.1.0"
+edition = "2021"
+description = "Echelle spectroscopy calibration, extraction, and simulation for rust-daq"
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+chrono = { workspace = true, features = ["serde"] }
+tracing.workspace = true
+toml.workspace = true
+sha2 = "0.10"
+
+# Dependency on common for Measurement type
+common = { path = "../common" }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+rayon.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+criterion.workspace = true
+
+[[bench]]
+name = "echelle_benchmarks"
+harness = false
+
+[features]
+fits = []  # Gate for TIFF save helper in simulation (requires image + bytemuck at call site)
+
+[lints]
+workspace = true

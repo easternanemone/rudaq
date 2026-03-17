@@ -49,7 +49,7 @@ pub(super) struct EchelleExtractionRequest {
     pub(super) bit_depth: u32,
     pub(super) frame_number: u64,
     /// Calibration profile (Arc for zero-copy sharing)
-    pub(super) profile: Arc<common::echelle::EchelleCalibrationProfile>,
+    pub(super) profile: Arc<echelle::EchelleCalibrationProfile>,
 }
 
 /// Result of background echelle extraction (bd-fwyp)

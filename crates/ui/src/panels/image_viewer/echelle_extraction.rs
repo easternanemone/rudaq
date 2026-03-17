@@ -7,7 +7,7 @@
 
 use chrono::Utc;
 use common::core::Measurement;
-use common::echelle::{
+use echelle::{
     BadPixelMask, DetectorAxis, EchelleCalibrationProfile, EchelleFrameContext,
     EchelleOrderCalibration, EchelleSummationMode, EchelleTraceModel, EchelleWavelengthModel,
     PixelRegion, PolynomialBasis,
@@ -722,7 +722,7 @@ mod tests {
     use crate::panels::image_viewer::echelle_sidecar::EchelleSidecarRunner;
     use crate::panels::image_viewer::processing::get_pixel_value_inline;
     use chrono::Utc;
-    use common::echelle::{
+    use echelle::{
         AxisDirection, DetectorAxis, EchelleBackgroundConfig, EchelleCorrections,
         EchelleExtractionConfig, EchelleFrameCompatibility, EchelleOrientation, EchelleProvenance,
         EchelleSchemaVersion, EchelleTraceModel, EchelleWavelengthModel,

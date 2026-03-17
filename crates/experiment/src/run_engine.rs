@@ -60,10 +60,10 @@ use chrono::{DateTime, Utc};
 use common::capabilities::{FrameObserver, ObserverHandle};
 use common::data::FrameView;
 use common::driver::Capability;
-use common::echelle::EchelleFrameCompatibility;
 use common::experiment::document::{
     new_uid, DataKey, DescriptorDoc, Document, EventDoc, ExperimentManifest, StartDoc, StopDoc,
 };
+use echelle::EchelleFrameCompatibility;
 use hardware::registry::DeviceRegistry;
 
 /// Engine state

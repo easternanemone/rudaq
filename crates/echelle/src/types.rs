@@ -3,8 +3,8 @@
 //! This module defines the canonical, versioned calibration profile format used
 //! by rust-daq for echellegram-to-spectrum extraction workflows.
 
-use crate::core::Measurement;
 use chrono::{DateTime, Utc};
+use common::core::Measurement;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashSet;

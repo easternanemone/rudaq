@@ -282,18 +282,17 @@ fn proto_snapshot_to_domain(
         bit_depth,
     }) = proto.echelle_frame_compatibility
     {
-        snapshot =
-            snapshot.with_echelle_frame_compatibility(common::echelle::EchelleFrameCompatibility {
-                sensor_width,
-                sensor_height,
-                frame_width,
-                frame_height,
-                roi_x,
-                roi_y,
-                binning_x,
-                binning_y,
-                bit_depth,
-            });
+        snapshot = snapshot.with_echelle_frame_compatibility(echelle::EchelleFrameCompatibility {
+            sensor_width,
+            sensor_height,
+            frame_width,
+            frame_height,
+            roi_x,
+            roi_y,
+            binning_x,
+            binning_y,
+            bit_depth,
+        });
     }
 
     Ok(snapshot)

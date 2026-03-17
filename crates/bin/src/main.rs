@@ -492,8 +492,8 @@ async fn handle_simulate(
     grating_constant: f64,
     temperature: f64,
 ) -> Result<()> {
-    use common::echelle_simulation::EchelleSimConfig;
-    use common::echelle_wavelength_fitting::load_hgar_atlas;
+    use echelle::simulation::EchelleSimConfig;
+    use echelle::wavelength_fitting::load_hgar_atlas;
 
     let config = EchelleSimConfig {
         grating_constant_nm: grating_constant,

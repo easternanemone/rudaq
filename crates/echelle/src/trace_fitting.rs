@@ -22,7 +22,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::echelle::{EchelleTraceModel, PolynomialBasis};
+use crate::types::{EchelleTraceModel, PolynomialBasis};
 
 /// Configuration for trace detection.
 #[derive(Debug, Clone, Serialize, Deserialize)]

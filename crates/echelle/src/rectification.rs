@@ -18,7 +18,7 @@
     clippy::cast_possible_wrap
 )]
 
-use crate::echelle::EchelleTraceModel;
+use crate::types::EchelleTraceModel;
 
 /// A rectified order sub-image with aperture mask.
 ///
@@ -255,14 +255,14 @@ fn eval_trace_safe(trace: &EchelleTraceModel, x: f64) -> Option<f64> {
             }
 
             let result = match basis {
-                crate::echelle::PolynomialBasis::Monomial => {
+                crate::types::PolynomialBasis::Monomial => {
                     let mut acc = 0.0f64;
                     for &c in coefficients.iter().rev() {
                         acc = acc * x + c;
                     }
                     acc
                 }
-                crate::echelle::PolynomialBasis::Chebyshev => {
+                crate::types::PolynomialBasis::Chebyshev => {
                     let t = (2.0 * (x - domain_start)) / (domain_end - domain_start) - 1.0;
                     if coefficients.len() == 1 {
                         return Some(coefficients[0]);
@@ -292,7 +292,7 @@ fn eval_trace_safe(trace: &EchelleTraceModel, x: f64) -> Option<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::echelle::PolynomialBasis;
+    use crate::types::PolynomialBasis;
 
     /// Create a flat trace (constant cross-dispersion position).
     fn flat_trace(center: f64) -> EchelleTraceModel {

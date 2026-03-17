@@ -13,6 +13,7 @@ hardware = { path = "../hardware", features = ["serial"] }
 driver-registry = { path = "../driver-registry" }
 protocol = { path = "../protocol" }
 common = { path = "../common" }
+echelle = { path = "../echelle" }
 storage = { path = "../storage" }
 scripting = { path = "../scripting" }
 daq-modules = { path = "../daq-modules", optional = true }

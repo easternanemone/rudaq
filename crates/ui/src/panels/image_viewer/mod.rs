@@ -46,15 +46,15 @@ use crate::layout::{self, colors};
 use crate::widgets::{Histogram, HistogramPosition, ParameterCache, RoiSelector};
 use client::DaqClient;
 use common::core::Measurement;
-use common::echelle::{
+use echelle::wavelength_fitting::{
+    detect_arc_lines, fit_order_wavelength, load_hgar_atlas, match_lines_to_atlas, ArcDetectConfig,
+    ArcLine, OrderWlSolution, WlFitConfig,
+};
+use echelle::{
     AxisDirection, DetectorAxis, EchelleArtifactRef, EchelleCalibrationProfile,
     EchelleExtractionConfig, EchelleFrameCompatibility, EchelleOrderCalibration,
     EchelleOrientation, EchelleProvenance, EchelleSchemaVersion, EchelleSummationMode,
     EchelleTraceModel, EchelleWavelengthModel, PolynomialBasis,
-};
-use common::echelle_wavelength_fitting::{
-    detect_arc_lines, fit_order_wavelength, load_hgar_atlas, match_lines_to_atlas, ArcDetectConfig,
-    ArcLine, OrderWlSolution, WlFitConfig,
 };
 use protocol::compression::decompress_frame_into;
 use protocol::daq::StreamQuality;

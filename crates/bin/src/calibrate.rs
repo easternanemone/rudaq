@@ -8,9 +8,9 @@ use anyhow::{Context, Result};
 use serde::Deserialize;
 use std::path::PathBuf;
 
-use common::echelle::{EchelleFrameCompatibility, EchelleOrientation};
-use common::echelle_calibration_pipeline::{CalibrationPipelineConfig, WavelengthSeed};
-use common::echelle_wavelength_fitting::load_hgar_atlas;
+use echelle::calibration_pipeline::{CalibrationPipelineConfig, WavelengthSeed};
+use echelle::wavelength_fitting::load_hgar_atlas;
+use echelle::{EchelleFrameCompatibility, EchelleOrientation};
 
 // ─── Config TOML types ──────────────────────────────────────────────────────
 
@@ -197,7 +197,7 @@ pub async fn handle_calibrate(
 
     // 4. Run pipeline (with or without flat)
     let result = if let Some(ref flat) = flat_pixels {
-        common::echelle_calibration_pipeline::run_calibration_pipeline_with_flat(
+        echelle::calibration_pipeline::run_calibration_pipeline_with_flat(
             &f32_pixels,
             flat,
             width,
@@ -205,7 +205,7 @@ pub async fn handle_calibrate(
             &pipeline_config,
         )
     } else {
-        common::echelle_calibration_pipeline::run_calibration_pipeline(
+        echelle::calibration_pipeline::run_calibration_pipeline(
             &f32_pixels,
             width,
             height,

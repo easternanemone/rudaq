@@ -15,12 +15,12 @@
     clippy::cast_lossless
 )]
 
-use common::echelle::{AxisDirection, DetectorAxis, EchelleFrameCompatibility, EchelleOrientation};
-use common::echelle_calibration_pipeline::{
+use echelle::calibration_pipeline::{
     run_calibration_pipeline, CalibrationPipelineConfig, WavelengthSeed,
 };
-use common::echelle_trace_fitting::TraceFitConfig;
-use common::echelle_wavelength_fitting::{load_hgar_atlas, ArcDetectConfig, WlFitConfig};
+use echelle::trace_fitting::TraceFitConfig;
+use echelle::wavelength_fitting::{load_hgar_atlas, ArcDetectConfig, WlFitConfig};
+use echelle::{AxisDirection, DetectorAxis, EchelleFrameCompatibility, EchelleOrientation};
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 

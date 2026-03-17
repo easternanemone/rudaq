@@ -18,7 +18,7 @@
     clippy::cast_sign_loss
 )]
 
-use crate::echelle_wavelength_fitting::AtlasLine;
+use crate::wavelength_fitting::AtlasLine;
 
 /// Configuration for synthetic echelle frame generation.
 #[derive(Debug, Clone)]
@@ -357,7 +357,7 @@ pub fn save_simulated_frame_tiff(
     height: u32,
     path: &std::path::Path,
 ) -> Result<f64, String> {
-    let max_val = frame.iter().cloned().fold(0.0_f32, f32::max);
+    let max_val = frame.iter().copied().fold(0.0_f32, f32::max);
     let scale = if max_val > 0.0 {
         60000.0 / max_val as f64 // leave headroom below u16::MAX
     } else {
@@ -404,7 +404,7 @@ fn pseudo_uniform(seed: u64, salt: u64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::echelle_wavelength_fitting::load_hgar_atlas;
+    use crate::wavelength_fitting::load_hgar_atlas;
 
     #[test]
     fn test_order_geometries_are_sane() {
@@ -462,7 +462,7 @@ mod tests {
         assert_eq!(frame.len(), 2560 * 2160);
 
         // Frame should have significant dynamic range.
-        let max = frame.iter().cloned().fold(0.0_f32, f32::max);
+        let max = frame.iter().copied().fold(0.0_f32, f32::max);
         let mean: f32 = frame.iter().sum::<f32>() / frame.len() as f32;
         assert!(max > 500.0, "max pixel should be bright: {max}");
         assert!(
@@ -482,7 +482,7 @@ mod tests {
 
         assert_eq!(frame.len(), 2560 * 2160);
 
-        let max = frame.iter().cloned().fold(0.0_f32, f32::max);
+        let max = frame.iter().copied().fold(0.0_f32, f32::max);
         assert!(
             max > 1000.0,
             "brightest emission line should be prominent: {max}"
@@ -519,15 +519,15 @@ mod tests {
     /// order-to-wavelength mapping.
     #[test]
     fn test_pipeline_on_simulated_arc() {
-        use crate::echelle::{
-            AxisDirection, DetectorAxis, EchelleFrameCompatibility, EchelleOrientation,
-        };
-        use crate::echelle_calibration_pipeline::{
+        use crate::calibration_pipeline::{
             run_calibration_pipeline, CalibrationPipelineConfig, WavelengthSeed,
         };
-        use crate::echelle_rectification::RectifyConfig;
-        use crate::echelle_trace_fitting::TraceFitConfig;
-        use crate::echelle_wavelength_fitting::{ArcDetectConfig, WlFitConfig};
+        use crate::rectification::RectifyConfig;
+        use crate::trace_fitting::TraceFitConfig;
+        use crate::types::{
+            AxisDirection, DetectorAxis, EchelleFrameCompatibility, EchelleOrientation,
+        };
+        use crate::wavelength_fitting::{ArcDetectConfig, WlFitConfig};
 
         let sim_config = EchelleSimConfig {
             read_noise_adu: 2.0, // light noise for realism

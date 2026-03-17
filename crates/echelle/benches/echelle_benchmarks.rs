@@ -13,10 +13,10 @@
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 
-use common::echelle::{EchelleTraceModel, PolynomialBasis};
-use common::echelle_optimal_extraction::{optimal_extract, OptimalExtractionConfig};
-use common::echelle_rectification::{rectify_all_orders, rectify_order, OrderSpec, RectifyConfig};
-use common::echelle_scattered_light::{subtract_scattered_light, ScatteredLightConfig, TraceInfo};
+use echelle::optimal_extraction::{optimal_extract, OptimalExtractionConfig};
+use echelle::rectification::{rectify_all_orders, rectify_order, OrderSpec, RectifyConfig};
+use echelle::scattered_light::{subtract_scattered_light, ScatteredLightConfig, TraceInfo};
+use echelle::types::{EchelleTraceModel, PolynomialBasis};
 
 // ── Synthetic data builders ─────────────────────────────────────────────────
 
