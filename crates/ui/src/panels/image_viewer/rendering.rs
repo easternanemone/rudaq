@@ -10,6 +10,7 @@ impl ImageViewerPanel {
         self.poll_actions();
         self.poll_param_results(ui.ctx());
         self.poll_echelle_profile_cache();
+        self.poll_remote_profile_load();
         self.sync_echelle_profile_to_run_engine(client.as_deref_mut(), runtime);
 
         // Drain pending frame updates
@@ -566,6 +567,26 @@ impl ImageViewerPanel {
             for (dev, name, val) in &updates {
                 tracing::debug!(device_id = %dev, param = %name, value = %val, "flushing pending param update");
                 self.set_camera_parameter(client_val, runtime, dev, name, val);
+            }
+
+            // Handle pending remote profile load (bd-nss7)
+            if let Some(path) = self.pending_remote_profile_load.take() {
+                let mut client_clone = client_val.clone();
+                let (tx, rx) = std::sync::mpsc::channel();
+                self.remote_profile_load_rx = Some(rx);
+                runtime.spawn(async move {
+                    match client_clone.load_calibration_profile(&path).await {
+                        Ok(resp) if resp.success => {
+                            let _ = tx.send(Ok(resp.content));
+                        }
+                        Ok(resp) => {
+                            let _ = tx.send(Err(resp.error_message));
+                        }
+                        Err(e) => {
+                            let _ = tx.send(Err(format!("gRPC error: {e}")));
+                        }
+                    }
+                });
             }
 
             Some(client_val)

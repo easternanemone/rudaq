@@ -4,6 +4,42 @@ use super::super::*;
 use super::rendering::detect_cross_dispersion_peaks_from_frame;
 
 impl ImageViewerPanel {
+    /// Poll for remote profile load results (bd-nss7).
+    pub(in crate::panels::image_viewer) fn poll_remote_profile_load(&mut self) {
+        let result = match &self.remote_profile_load_rx {
+            Some(rx) => rx.try_recv().ok(),
+            None => None,
+        };
+        if let Some(result) = result {
+            self.remote_profile_load_rx = None;
+            match result {
+                Ok(toml_content) => {
+                    match toml::from_str::<echelle::EchelleCalibrationProfile>(&toml_content) {
+                        Ok(profile) => {
+                            let name = profile.display_name.clone();
+                            // Load into editor AND activate
+                            self.echelle_cal_ui.editor_profile = Some(profile.clone());
+                            self.echelle_cal_ui.editor_dirty = false;
+                            self.echelle_cal_ui.status_message =
+                                Some(format!("Loaded profile from daemon: {name}"));
+                            self.echelle_cal_ui.last_error = None;
+                            // Also activate it
+                            self.echelle_profile_cache.activate_in_memory(profile);
+                            self.mark_echelle_run_engine_sync_dirty();
+                        }
+                        Err(e) => {
+                            self.echelle_cal_ui.last_error =
+                                Some(format!("Failed to parse profile TOML: {e}"));
+                        }
+                    }
+                }
+                Err(e) => {
+                    self.echelle_cal_ui.last_error = Some(e);
+                }
+            }
+        }
+    }
+
     pub(in crate::panels::image_viewer) fn mark_echelle_run_engine_sync_dirty(&mut self) {
         self.echelle_run_engine_sync_dirty = true;
     }

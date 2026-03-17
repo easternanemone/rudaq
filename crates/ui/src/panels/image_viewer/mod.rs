@@ -310,6 +310,11 @@ pub struct ImageViewerPanel {
     pub(super) echelle_plot_hover_link: Option<EchellePlotHoverLink>,
     /// Calibration authoring workspace state (bd-2kla.8 scaffolding).
     pub(in crate::panels::image_viewer) echelle_cal_ui: EchelleCalibrationUiState,
+    /// Pending remote profile load request — path on daemon filesystem (bd-nss7).
+    /// Set by calibration workspace UI, processed in ui() where client is available.
+    pub(super) pending_remote_profile_load: Option<String>,
+    /// Receiver for async remote profile load result (bd-nss7).
+    pub(super) remote_profile_load_rx: Option<std::sync::mpsc::Receiver<Result<String, String>>>,
     /// True when the active echelle profile snapshot should be resynced into RunEngine state.
     pub(super) echelle_run_engine_sync_dirty: bool,
     /// True while an async echelle snapshot sync request is in flight.
@@ -451,6 +456,8 @@ impl Default for ImageViewerPanel {
             echelle_last_extract_ms: None,
             echelle_plot_hover_link: None,
             echelle_cal_ui: EchelleCalibrationUiState::with_defaults(),
+            pending_remote_profile_load: None,
+            remote_profile_load_rx: None,
             echelle_run_engine_sync_dirty: false,
             echelle_run_engine_sync_in_flight: false,
 

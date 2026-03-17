@@ -119,27 +119,16 @@ impl ImageViewerPanel {
                 });
 
                 if trigger_load_editor {
-                    let path = std::path::PathBuf::from(self.echelle_cal_ui.save_as_path_text.trim());
-                    if self.echelle_cal_ui.save_as_path_text.trim().is_empty() {
+                    let path_text = self.echelle_cal_ui.save_as_path_text.trim().to_string();
+                    if path_text.is_empty() {
                         self.echelle_cal_ui.last_error =
                             Some("Enter a profile path before loading".to_string());
                     } else {
-                        match EchelleCalibrationProfile::load_from_path(&path) {
-                            Ok(profile) => {
-                                self.echelle_cal_ui.editor_profile = Some(profile);
-                                self.echelle_cal_ui.editor_dirty = false;
-                                self.echelle_cal_ui.editor_last_loaded_path = Some(path.clone());
-                                self.echelle_cal_ui.status_message =
-                                    Some(format!("Loaded editor profile from {}", path.display()));
-                                self.echelle_cal_ui.last_error = None;
-                            }
-                            Err(err) => {
-                                self.echelle_cal_ui.last_error = Some(format!(
-                                    "Failed to load editor profile {}: {err}",
-                                    path.display()
-                                ));
-                            }
-                        }
+                        // Request remote load via gRPC (works in WASM) — bd-nss7
+                        self.pending_remote_profile_load = Some(path_text.clone());
+                        self.echelle_cal_ui.status_message =
+                            Some(format!("Loading profile from daemon: {path_text}..."));
+                        self.echelle_cal_ui.last_error = None;
                     }
                 }
                 if trigger_save_editor {
@@ -153,13 +142,17 @@ impl ImageViewerPanel {
                     }
                 }
                 if trigger_activate_only {
-                    let path_text = self.echelle_cal_ui.save_as_path_text.trim();
+                    let path_text = self.echelle_cal_ui.save_as_path_text.trim().to_string();
                     if path_text.is_empty() {
                         self.echelle_cal_ui.last_error =
                             Some("Enter a profile path before activation".to_string());
                     } else {
-                        self.set_echelle_profile_path(std::path::PathBuf::from(path_text));
-                        self.poll_echelle_profile_cache();
+                        // Load remotely and activate — bd-nss7
+                        // We reuse the load path; activation happens when the result arrives
+                        self.pending_remote_profile_load = Some(path_text.clone());
+                        self.echelle_cal_ui.status_message =
+                            Some(format!("Loading + activating from daemon: {path_text}..."));
+                        self.echelle_cal_ui.last_error = None;
                     }
                 }
                 if trigger_activate_editor {
