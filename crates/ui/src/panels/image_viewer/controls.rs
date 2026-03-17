@@ -202,10 +202,17 @@ impl ImageViewerPanel {
                     }
                 }
 
+                // Fetch favorites (non-fatal if it fails)
+                let favorites = client
+                    .get_parameter_favorites(&device_id_str)
+                    .await
+                    .unwrap_or_default();
+
                 Ok::<_, anyhow::Error>(ParamLoadResult {
                     device_id: device_id_str,
                     params,
                     errors: load_errors,
+                    favorites,
                 })
             }
             .await;
@@ -219,6 +226,7 @@ impl ImageViewerPanel {
                         device_id: device_id_for_error,
                         params: Vec::new(),
                         errors: vec![("_load".to_string(), e.to_string())],
+                        favorites: Vec::new(),
                     });
                 }
             }
@@ -292,6 +300,7 @@ impl ImageViewerPanel {
                 // If this result matches our current device, update
                 if Some(&result.device_id) == self.device_id.as_ref() {
                     self.camera_params = result.params;
+                    self.param_favorites = result.favorites.into_iter().collect();
                     self.loading_params_device = None;
 
                     for (name, err) in result.errors {
@@ -357,13 +366,43 @@ impl ImageViewerPanel {
         // Safe access to parameter to avoid borrowing self for the whole method
         let param = &self.camera_params[param_idx];
         let desc = &param.descriptor;
-        let buffer_key = (device_id.to_string(), desc.name.clone());
+        let param_name = desc.name.clone();
+        let buffer_key = (device_id.to_string(), param_name.clone());
+        let is_fav = self.param_favorites.contains(&param_name);
+
+        // Star toggle for favorite pinning (bd-4wf7)
+        let mut fav_toggled = false;
+        ui.horizontal(|ui| {
+            let star = if is_fav { "\u{2605}" } else { "\u{2606}" }; // ★ / ☆
+            if ui
+                .add(egui::Button::new(star).frame(false))
+                .on_hover_text(if is_fav {
+                    "Unpin from Quick Access"
+                } else {
+                    "Pin to Quick Access"
+                })
+                .clicked()
+            {
+                fav_toggled = true;
+            }
+        });
+        // Apply toggle outside the closure to avoid borrow conflict
+        if fav_toggled {
+            if is_fav {
+                self.param_favorites.remove(&param_name);
+            } else {
+                self.param_favorites.insert(param_name.clone());
+            }
+            // Note: immediate DB persistence for favorites requires client+runtime,
+            // not available in this render context. Favorites are loaded from DB
+            // on param load; full star-click persistence is a follow-up (bd-4wf7.2).
+        }
 
         // Check if setting
         if self.setting_params.contains(&buffer_key) {
             ui.horizontal_wrapped(|ui| {
                 ui.spinner();
-                ui.label(&desc.name);
+                ui.label(&param_name);
             });
             return;
         }
@@ -371,7 +410,7 @@ impl ImageViewerPanel {
         // Read-only
         if !desc.writable {
             ui.vertical(|ui| {
-                ui.label(&desc.name);
+                ui.label(&param_name);
                 let mut value = param.current_value.clone();
                 if !desc.units.is_empty() {
                     value.push(' ');

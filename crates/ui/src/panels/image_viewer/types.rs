@@ -83,6 +83,7 @@ pub struct ParamLoadResult {
     pub device_id: String,
     pub params: Vec<ParameterCache>,
     pub errors: Vec<(String, String)>, // (param_name, error)
+    pub favorites: Vec<String>,        // favorited parameter names (bd-4wf7)
 }
 
 /// Result of an async parameter set operation

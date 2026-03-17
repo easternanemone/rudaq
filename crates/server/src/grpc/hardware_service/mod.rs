@@ -27,6 +27,8 @@ use crate::grpc::{
         GetEmissionResponse,
         GetExposureRequest,
         GetExposureResponse,
+        GetParameterFavoritesRequest,
+        GetParameterFavoritesResponse,
         GetParameterRequest,
         GetShutterRequest,
         GetShutterResponse,
@@ -52,6 +54,8 @@ use crate::grpc::{
         SetEmissionResponse,
         SetExposureRequest,
         SetExposureResponse,
+        SetParameterFavoriteRequest,
+        SetParameterFavoriteResponse,
         SetParameterRequest,
         SetParameterResponse,
         // Laser control types (bd-pwjo)
@@ -706,6 +710,20 @@ impl HardwareService for HardwareServiceImpl {
         request: Request<StreamParameterChangesRequest>,
     ) -> Result<Response<Self::StreamParameterChangesStream>, Status> {
         parameters::stream_parameter_changes(self, request)
+    }
+
+    async fn set_parameter_favorite(
+        &self,
+        request: Request<SetParameterFavoriteRequest>,
+    ) -> Result<Response<SetParameterFavoriteResponse>, Status> {
+        parameters::set_parameter_favorite(self, request).await
+    }
+
+    async fn get_parameter_favorites(
+        &self,
+        request: Request<GetParameterFavoritesRequest>,
+    ) -> Result<Response<GetParameterFavoritesResponse>, Status> {
+        parameters::get_parameter_favorites(self, request).await
     }
 
     // =========================================================================

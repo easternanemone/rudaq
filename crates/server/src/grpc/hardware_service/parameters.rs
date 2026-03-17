@@ -540,3 +540,49 @@ fn snapshot_to_proto(snapshot: SystemStateSnapshot) -> ProtoSystemState {
         tick_rate_hz: snapshot.tick_rate_hz,
     }
 }
+
+/// Set or clear the favorite flag for a parameter (bd-4wf7).
+pub(super) async fn set_parameter_favorite(
+    svc: &HardwareServiceImpl,
+    request: Request<SetParameterFavoriteRequest>,
+) -> Result<Response<SetParameterFavoriteResponse>, Status> {
+    let req = request.into_inner();
+
+    #[cfg(feature = "db-surreal")]
+    if let Some(ref db) = svc.db {
+        db.set_parameter_favorite(&req.device_id, &req.parameter_name, req.is_favorite)
+            .await
+            .map_err(|e| Status::internal(format!("DB error: {e}")))?;
+        return Ok(Response::new(SetParameterFavoriteResponse {
+            success: true,
+        }));
+    }
+
+    // No DB available — favorites are not persisted
+    Ok(Response::new(SetParameterFavoriteResponse {
+        success: false,
+    }))
+}
+
+/// Get all favorited parameter names for a device (bd-4wf7).
+pub(super) async fn get_parameter_favorites(
+    svc: &HardwareServiceImpl,
+    request: Request<GetParameterFavoritesRequest>,
+) -> Result<Response<GetParameterFavoritesResponse>, Status> {
+    let req = request.into_inner();
+
+    #[cfg(feature = "db-surreal")]
+    if let Some(ref db) = svc.db {
+        let names = db
+            .get_favorites(&req.device_id)
+            .await
+            .map_err(|e| Status::internal(format!("DB error: {e}")))?;
+        return Ok(Response::new(GetParameterFavoritesResponse {
+            parameter_names: names,
+        }));
+    }
+
+    Ok(Response::new(GetParameterFavoritesResponse {
+        parameter_names: vec![],
+    }))
+}

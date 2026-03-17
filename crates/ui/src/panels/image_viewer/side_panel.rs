@@ -22,7 +22,32 @@ impl ImageViewerPanel {
                     if let Some(device_id_ref) = &self.device_id {
                         let device_id = device_id_ref.clone();
 
-                        // Group parameters by group_name (bd-4wf7: camera-agnostic settings)
+                        // Collect favorite indices (bd-4wf7)
+                        let fav_indices: Vec<usize> = (0..self.camera_params.len())
+                            .filter(|&i| {
+                                self.param_favorites
+                                    .contains(&self.camera_params[i].descriptor.name)
+                            })
+                            .collect();
+
+                        // Render favorites section at the top if any exist
+                        if !fav_indices.is_empty() {
+                            layout::card_frame(ui).show(ui, |ui| {
+                                egui::CollapsingHeader::new("\u{2605} Quick Access")
+                                .default_open(true)
+                                .show(ui, |ui| {
+                                    for (j, &i) in fav_indices.iter().enumerate() {
+                                        self.render_camera_control(ui, &device_id, i);
+                                        if j < fav_indices.len() - 1 {
+                                            ui.add_space(4.0);
+                                        }
+                                    }
+                                });
+                            });
+                            ui.add_space(2.0);
+                        }
+
+                        // Group remaining parameters by group_name (bd-4wf7)
                         let mut groups: std::collections::BTreeMap<String, Vec<usize>> =
                             std::collections::BTreeMap::new();
                         for i in 0..self.camera_params.len() {

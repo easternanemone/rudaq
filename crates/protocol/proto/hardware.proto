@@ -63,6 +63,10 @@ service HardwareService {
   rpc SetParameter(SetParameterRequest) returns (SetParameterResponse);
   rpc StreamParameterChanges(StreamParameterChangesRequest) returns (stream ParameterChange);
 
+  // Parameter Favorites (bd-4wf7: UI quick-access pinning)
+  rpc SetParameterFavorite(SetParameterFavoriteRequest) returns (SetParameterFavoriteResponse);
+  rpc GetParameterFavorites(GetParameterFavoritesRequest) returns (GetParameterFavoritesResponse);
+
   // Observable Streaming (bd-qqjq)
   rpc StreamObservables(StreamObservablesRequest) returns (stream ObservableValue);
 
@@ -679,6 +683,25 @@ message ParameterChange {
   string units = 5;
   uint64 timestamp_ns = 6;
   string source = 7;            // "user", "hardware", "script"
+}
+
+// Parameter Favorites (bd-4wf7)
+message SetParameterFavoriteRequest {
+  string device_id = 1;
+  string parameter_name = 2;
+  bool is_favorite = 3;
+}
+
+message SetParameterFavoriteResponse {
+  bool success = 1;
+}
+
+message GetParameterFavoritesRequest {
+  string device_id = 1;
+}
+
+message GetParameterFavoritesResponse {
+  repeated string parameter_names = 1;  // Names of favorited parameters
 }
 
 // --------------------------------------------------------------------------

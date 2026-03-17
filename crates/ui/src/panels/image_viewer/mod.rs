@@ -167,6 +167,8 @@ pub struct ImageViewerPanel {
     // -- Camera Control Fields --
     /// Camera parameters (cached)
     pub(super) camera_params: Vec<ParameterCache>,
+    /// Favorited parameter names for the current device (bd-4wf7)
+    pub(super) param_favorites: std::collections::HashSet<String>,
     /// Parameter edit buffers (device_id, param_name) -> value
     pub(super) param_edit_buffers: std::collections::HashMap<(String, String), String>,
     /// Parameter errors (device_id, param_name) -> error
@@ -364,6 +366,7 @@ impl Default for ImageViewerPanel {
             stream_generation: Arc::new(AtomicU64::new(0)),
 
             camera_params: Vec::new(),
+            param_favorites: std::collections::HashSet::new(),
             param_edit_buffers: std::collections::HashMap::new(),
             param_errors: std::collections::HashMap::new(),
             show_controls: true,

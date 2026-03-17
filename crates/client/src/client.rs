@@ -872,6 +872,35 @@ impl DaqClient {
         Ok(response.into_inner())
     }
 
+    /// Set or clear the favorite flag for a parameter (bd-4wf7).
+    pub async fn set_parameter_favorite(
+        &mut self,
+        device_id: &str,
+        parameter_name: &str,
+        is_favorite: bool,
+    ) -> Result<bool> {
+        let response = self
+            .hardware
+            .set_parameter_favorite(protocol::daq::SetParameterFavoriteRequest {
+                device_id: device_id.to_string(),
+                parameter_name: parameter_name.to_string(),
+                is_favorite,
+            })
+            .await?;
+        Ok(response.into_inner().success)
+    }
+
+    /// Get all favorited parameter names for a device (bd-4wf7).
+    pub async fn get_parameter_favorites(&mut self, device_id: &str) -> Result<Vec<String>> {
+        let response = self
+            .hardware
+            .get_parameter_favorites(protocol::daq::GetParameterFavoritesRequest {
+                device_id: device_id.to_string(),
+            })
+            .await?;
+        Ok(response.into_inner().parameter_names)
+    }
+
     /// Execute a specialized device command
     pub async fn execute_device_command(
         &mut self,
