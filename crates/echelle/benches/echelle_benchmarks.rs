@@ -2,9 +2,9 @@
 //!
 //! Run with:
 //! ```bash
-//! cargo bench -p common --bench echelle_benchmarks
+//! cargo bench -p echelle --bench echelle_benchmarks
 //! # Specific group:
-//! cargo bench -p common --bench echelle_benchmarks -- optimal_extraction
+//! cargo bench -p echelle --bench echelle_benchmarks -- optimal_extraction
 //! ```
 //!
 //! HTML reports are written to `target/criterion/`.

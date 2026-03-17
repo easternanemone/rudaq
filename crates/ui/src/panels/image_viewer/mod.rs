@@ -114,7 +114,7 @@ pub struct ImageViewerPanel {
     /// Active stream subscription
     pub(super) subscription: Option<FrameStreamSubscription>,
     /// FPS counter
-    pub(super) fps_counter: FpsCounter,
+    pub(in crate::panels::image_viewer) fps_counter: FpsCounter,
     /// Auto-fit zoom on next frame
     pub(super) auto_fit: bool,
     /// Error message
@@ -154,9 +154,9 @@ pub struct ImageViewerPanel {
     /// High percentile for auto-percentile mode (0.0-100.0) (bd-j6xm)
     pub(super) percentile_high: f32,
     /// Async action receiver
-    pub(super) action_rx: std::sync::mpsc::Receiver<ImageViewerAction>,
+    pub(in crate::panels::image_viewer) action_rx: std::sync::mpsc::Receiver<ImageViewerAction>,
     /// Async action sender
-    pub(super) action_tx: std::sync::mpsc::Sender<ImageViewerAction>,
+    pub(in crate::panels::image_viewer) action_tx: std::sync::mpsc::Sender<ImageViewerAction>,
     /// Last refresh time
     pub(super) last_refresh: Option<Instant>,
     /// Stream generation counter — incremented on each start_stream() call.
@@ -230,11 +230,13 @@ pub struct ImageViewerPanel {
 
     // -- Background RGBA Conversion (bd-xifj: move CPU work off UI thread) --
     /// Receiver for completed RGBA conversions from background thread
-    pub(super) rgba_rx: Option<std::sync::mpsc::Receiver<RgbaConversionResult>>,
+    pub(in crate::panels::image_viewer) rgba_rx:
+        Option<std::sync::mpsc::Receiver<RgbaConversionResult>>,
     /// Sender for RGBA conversion requests (cloned to background thread)
-    pub(super) rgba_request_tx: Option<std::sync::mpsc::SyncSender<RgbaConversionRequest>>,
+    pub(in crate::panels::image_viewer) rgba_request_tx:
+        Option<std::sync::mpsc::SyncSender<RgbaConversionRequest>>,
     /// Pending RGBA data ready to be applied to texture
-    pub(super) pending_rgba: Option<RgbaConversionResult>,
+    pub(in crate::panels::image_viewer) pending_rgba: Option<RgbaConversionResult>,
     /// Sender to recycle used buffers back to the converter thread (bd-wdx3)
     pub(super) rgba_recycle_tx: Option<std::sync::mpsc::Sender<Vec<u8>>>,
     /// True when thread spawn failed (e.g., WASM); skip retry and convert synchronously
@@ -242,11 +244,13 @@ pub struct ImageViewerPanel {
 
     // -- Background Echelle Extraction (bd-fwyp: move extraction off UI thread) --
     /// Receiver for completed echelle extractions from background thread
-    pub(super) echelle_extract_rx: Option<std::sync::mpsc::Receiver<EchelleExtractionResult>>,
+    pub(in crate::panels::image_viewer) echelle_extract_rx:
+        Option<std::sync::mpsc::Receiver<EchelleExtractionResult>>,
     /// Sender for echelle extraction requests
-    pub(super) echelle_extract_tx: Option<std::sync::mpsc::SyncSender<EchelleExtractionRequest>>,
+    pub(in crate::panels::image_viewer) echelle_extract_tx:
+        Option<std::sync::mpsc::SyncSender<EchelleExtractionRequest>>,
     /// Pending echelle extraction result ready to be applied
-    pub(super) pending_echelle: Option<EchelleExtractionResult>,
+    pub(in crate::panels::image_viewer) pending_echelle: Option<EchelleExtractionResult>,
     /// True when thread spawn failed (e.g., WASM); extract synchronously
     pub(super) echelle_sync_mode: bool,
 
@@ -276,7 +280,7 @@ pub struct ImageViewerPanel {
     /// Optional cached echelle calibration profile with hot-reload-safe semantics.
     pub(super) echelle_profile_cache: EchelleProfileCache,
     /// Last extracted echelle spectrum preview (MVP local extraction path).
-    pub(super) echelle_preview: Option<EchelleExtractionPreview>,
+    pub(in crate::panels::image_viewer) echelle_preview: Option<EchelleExtractionPreview>,
     /// Most recent extraction error (kept separate from general panel errors).
     pub(super) echelle_preview_error: Option<String>,
     /// Extract every Nth frame to bound CPU cost on UI path.
@@ -303,7 +307,7 @@ pub struct ImageViewerPanel {
     /// Hover cross-link from spectrum plot to image sample marker.
     pub(super) echelle_plot_hover_link: Option<EchellePlotHoverLink>,
     /// Calibration authoring workspace state (bd-2kla.8 scaffolding).
-    pub(super) echelle_cal_ui: EchelleCalibrationUiState,
+    pub(in crate::panels::image_viewer) echelle_cal_ui: EchelleCalibrationUiState,
     /// True when the active echelle profile snapshot should be resynced into RunEngine state.
     pub(super) echelle_run_engine_sync_dirty: bool,
     /// True while an async echelle snapshot sync request is in flight.
