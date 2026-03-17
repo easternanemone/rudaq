@@ -198,7 +198,7 @@ const ANDOR_RECOVERY_PREFIXES: &[&str] = &[
 
 /// Bridge between the C FFI callback thread and the async parameter update task.
 #[cfg(feature = "camera")]
-struct FeatureCallbackBridge {
+pub(crate) struct FeatureCallbackBridge {
     tx: tokio::sync::mpsc::UnboundedSender<String>,
 }
 
