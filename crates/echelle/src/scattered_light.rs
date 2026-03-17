@@ -337,13 +337,14 @@ fn solve_linear_system(mat: &mut [Vec<f64>], rhs: &mut [f64]) -> Option<Vec<f64>
         }
 
         let pivot = mat[col][col];
+        let pivot_row: Vec<f64> = mat[col][col..dim].to_vec();
+        let pivot_rhs = rhs[col];
         for row in col + 1..dim {
             let factor = mat[row][col] / pivot;
-            let pivot_row: Vec<f64> = mat[col][col..dim].to_vec();
             for (dest, &src) in mat[row][col..dim].iter_mut().zip(&pivot_row) {
                 *dest -= factor * src;
             }
-            rhs[row] -= factor * rhs[col];
+            rhs[row] -= factor * pivot_rhs;
         }
     }
 

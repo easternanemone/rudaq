@@ -106,6 +106,7 @@ pub fn optimal_extract(
             &mut flux,
             &mut variance,
             &mut frac_use,
+            iteration == 0,
         );
 
         if iteration == config.max_cr_iterations {
@@ -225,6 +226,7 @@ fn extract_with_profile(
     flux: &mut [f64],
     variance: &mut [f64],
     frac_use: &mut [f64],
+    is_first_iteration: bool,
 ) {
     let n_disp = rect.n_dispersion;
     let n_cross = rect.n_cross;
@@ -235,6 +237,8 @@ fn extract_with_profile(
         let mut denom = 0.0f64;
         let mut p_used = 0.0f64;
         let mut p_total = 0.0f64;
+
+        let prev_flux = flux[col];
 
         for row in 0..n_cross {
             let idx = row * n_disp + col;
@@ -250,7 +254,12 @@ fn extract_with_profile(
 
             // Variance model: V = read_noise^2 + max(sky + flux_est * P, 0) / gain
             // For first iteration, use D as flux estimate.
-            let v = rn2 + (s + (d - s).max(0.0)).max(0.0) / config.gain;
+            let v = if is_first_iteration {
+                rn2 + (s + (d - s).max(0.0)).max(0.0) / config.gain
+            } else {
+                rn2 + (s + prev_flux * p).max(0.0) / config.gain
+            };
+
             if v <= 0.0 {
                 continue;
             }
