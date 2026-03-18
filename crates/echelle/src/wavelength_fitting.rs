@@ -610,6 +610,22 @@ pub fn load_hgar_atlas() -> Vec<AtlasLine> {
             species: "Ar I".into(),
             strength: 350.0,
         },
+        // Additional Ar lines from Ocean Optics HG-2 official spec (27-MNL-WCS-2)
+        AtlasLine {
+            wavelength_nm: 866.794,
+            species: "Ar I".into(),
+            strength: 300.0,
+        },
+        AtlasLine {
+            wavelength_nm: 912.297,
+            species: "Ar I".into(),
+            strength: 400.0,
+        },
+        AtlasLine {
+            wavelength_nm: 922.450,
+            species: "Ar I".into(),
+            strength: 350.0,
+        },
     ]
 }
 
