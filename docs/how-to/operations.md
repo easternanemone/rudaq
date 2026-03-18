@@ -296,9 +296,11 @@ deployments).
 generates at most one alert per minute. Different devices and different
 alert types are tracked independently.
 
-**Discord compatibility:** Discord incoming webhooks accept the same
-`{"text": "..."}` JSON payload format as Slack. No configuration changes
-are needed — just use your Discord webhook URL.
+**Discord compatibility:** The alerting module sends `{"text": "..."}` payloads
+(Slack format). For Discord, use the Slack-compatible webhook endpoint by
+appending `/slack` to your Discord webhook URL (e.g.,
+`https://discord.com/api/webhooks/ID/TOKEN/slack`). Standard Discord webhooks
+expect `{"content": "..."}` and will not parse the `text` field.
 
 Source: `crates/server/src/alerting.rs`
 

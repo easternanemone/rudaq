@@ -381,7 +381,7 @@ Two features support unattended overnight experiments:
 
 *   **Webhook Alerting** (`crates/server/src/alerting.rs`, feature: `alerting` section in `config/config.v4.toml`) — Sends Slack/Discord-compatible webhook notifications when a device faults, exhausts restart attempts, or the RunEngine aborts a plan. Rate-limited per device key to prevent alert storms during cascading failures. All sends are fire-and-forget via `tokio::spawn`.
 
-*   **Heartbeat JSONL Log** (`crates/server/src/health/heartbeat_log.rs`) — Writes one JSON object per minute to `/tmp/rust_daq_heartbeat.jsonl` containing system vitals: CPU%, RSS, disk free, device health summary, RunEngine state, and frames acquired. Designed for post-mortem analysis of failed overnight runs without parsing full daemon logs.
+*   **Heartbeat JSONL Log** (`crates/server/src/health/heartbeat_log.rs`) — Writes one JSON object per minute to `/tmp/rust_daq_heartbeat.jsonl` containing system vitals: CPU%, RSS, disk free, device health summary, RunEngine state, and queue depth. Designed for post-mortem analysis of failed overnight runs without parsing full daemon logs.
 
 Together, these provide real-time alerting (webhooks push to your phone) and forensic breadcrumbs (JSONL provides a timeline for post-mortems).
 

@@ -35,12 +35,12 @@ fi
 # ── 1b. mdBook docs build ────────────────────────────────────────
 if command -v mdbook >/dev/null 2>&1; then
     echo -en "  Building docs...    "
-    if mdbook build docs/ 2>&1 | grep -q "^ERROR"; then
+    if mdbook build docs/ >/dev/null 2>&1; then
+        echo -e "${GREEN}ok${NC}"
+    else
         echo -e "${RED}FAILED${NC}"
         echo -e "  ${YELLOW}Fix: mdbook build docs/${NC}"
         failed=1
-    else
-        echo -e "${GREEN}ok${NC}"
     fi
 else
     echo -e "  Building docs...    ${YELLOW}skip${NC} (mdbook not installed)"

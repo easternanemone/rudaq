@@ -268,7 +268,7 @@ Schema management lives in `crates/db/src/schema.rs`. The system uses
 - **v8**: Add `is_favorite` flag to `device_runtime_state` for UI
   quick-access pinning (bd-4wf7).
 
-**`apply_schema()` algorithm** (`schema.rs:131`):
+**`apply_schema()` algorithm** (`schema.rs`):
 1. Query `schema_version:current` (fixed record ID) to get current version.
 2. If `current_version >= SCHEMA_VERSION`, return early (up to date).
 3. Iterate `MIGRATIONS`, apply each where `version > current_version`.
