@@ -207,17 +207,23 @@ Each order contains:
 - `relative_index` (`u32`)
   - zero-based order index within the profile
 - `physical_order_number` (`Option<i32>`)
-  - spectrograph/echelle physical order ID if known
+  - spectrograph/echelle physical order ID (m value for echelle equation)
+  - automatically computed by 3-pass pipeline from echelle grating constant and trace position
+  - used by physics bootstrap (Pass 3) to predict wavelengths for uncalibrated orders
 - `sample_start`, `sample_end` (`u32`, inclusive)
   - valid sample range along the dispersion axis for this order
 - `trace` (`EchelleTraceModel`)
   - maps dispersion coordinate to order-center cross-dispersion position
 - `wavelength` (`EchelleWavelengthModel`)
   - maps sample coordinate to wavelength
+  - for arc-matched orders: fitted directly from atlas line matches
+  - for bootstrapped orders: computed from 2D Chebyshev residual surface (Pass 3)
 - `aperture_half_width_px` (`Option<f64>`)
   - per-order override of extraction aperture size
 - `enabled` (`bool`, default `true`)
 - `notes` (`Option<String>`)
+  - may include flags like "arc-matched" or "bootstrapped" to indicate calibration source
+  - populated by 3-pass pipeline with metadata about fit quality and method
 
 Validation:
 

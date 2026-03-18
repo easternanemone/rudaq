@@ -49,6 +49,32 @@ Mechelle/iSTAR echellegrams into spectra in rust-daq.
   - merged wavelength-sorted preview
   - `Measurement::Spectrum` debug/export objects
 
+## Calibration Pipeline (3-Pass, 2026-03-18)
+
+Offline calibration uses a 3-pass pipeline to maximize order coverage (115/115 orders, 230–844nm):
+
+**Pass 1: Echelle Equation Seed**
+- Estimate physical order m from trace index using echelle grating constant: m = first_physical_order + order_step × trace_index
+- Compute estimated center wavelength λ_est from m
+- Match arc lines within 5nm tolerance to HgAr atlas
+- Mark orders with ≥1 matched line as "arc-matched" (42 orders)
+
+**Pass 2: Quadratic Regression Re-Seed**
+- Fit quadratic m(i) = a + b*i + c*i² from Pass 1 successes
+- Use fit to predict physical order m for failed orders
+- Re-attempt atlas matching with predicted m values
+- Typically improves coverage by anchoring marginal orders
+
+**Pass 3: Physics Bootstrap + 2D Chebyshev Residual**
+- For orders with no arc lines: assign physical_order_number via quadratic interpolation
+- Compute physics baseline: λ_base(x,m) = gc/m + disp(m)*(x - w/2)
+  - dispersion scales as 1/m (echelle physics)
+- Fit 2D Chebyshev tensor-product surface (degree 4×3, 20 coefficients) to residuals δλ from calibrated orders
+- Apply baseline + residual correction to predict wavelengths for all uncalibrated orders
+- Mark as "bootstrapped" (no arc line verification; relies on physical model)
+
+**Result**: 115/115 orders calibrated (42 arc-matched + 73 bootstrapped), full Mechelle 5000 range (m=43 to m=158)
+
 ## Why the MVP Lives in the UI (for now)
 
 - Fastest path to a visible, testable result

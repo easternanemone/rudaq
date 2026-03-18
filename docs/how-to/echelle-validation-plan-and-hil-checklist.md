@@ -81,12 +81,17 @@ The repository now includes a dataset-backed regression harness for the
 - inputs:
   - `testdata/echelle/leabs-dev/2026-02-25-hg2/reference/comparison_tolerances.json`
   - `testdata/echelle/leabs-dev/2026-02-25-hg2/reference/capture_diagnostics.json`
+  - calibration profile with 3-pass pipeline results (42 arc-matched + 73 bootstrapped orders)
   - `*_reference_summary.json` and dataset frame summaries
 
-This harness currently validates transport/decompression and numeric regression
-properties for a **diagnostic-ramp-like** fixture (not spectroscopic truth).
-Once a real Hg-Ar echellegram fixture is captured, extend the same harness to
-assert per-order and merged spectral tolerances against calibrated golden outputs.
+This harness validates:
+- per-order extraction consistency (arc-matched orders: <0.5nm RMS; bootstrapped orders: physics model accuracy)
+- trace alignment and wavelength coverage (230–844nm for Mechelle 5000)
+- numeric regression properties across extraction kernel variants
+
+Expected tolerances for 3-pass output:
+- Arc-matched orders (42): RMS wavelength residual <0.2nm
+- Bootstrapped orders (73): wavelength prediction accuracy ±0.3–0.5nm
 
 ## Current Benchmark Harness (Committed)
 
@@ -120,8 +125,11 @@ Use this checklist before treating echelle preview output as lab-ready.
 - Camera cooling at target temperature and stable
 - Spectrograph configuration recorded (slit/grating/order settings)
 - ROI/binning/bit depth confirmed and documented
-- Correct calibration profile loaded (ID, schema version, provenance checked)
-- Arc/flat sources available and stable
+- Calibration profile generated via 3-pass pipeline (verify provenance: Pass 1/2/3 success counts)
+  - Check that all 115 orders are populated (or close to target range)
+  - Verify `physical_order_number` is sequential and matches echelle equation
+  - Check notes for arc-matched vs bootstrapped breakdown
+- Arc/flat sources available and stable (flat frame should have been used for trace detection)
 
 ## Live Functional Checks (Image Viewer)
 
@@ -136,17 +144,21 @@ Use this checklist before treating echelle preview output as lab-ready.
 
 ## Calibration Consistency Checks
 
-- Order traces visually align with echelle orders across field
-- Wavelength axis units and range are plausible
-- Arc features land at expected approximate wavelengths
+- Order traces visually align with echelle orders across field (from flat frame trace detection)
+- Wavelength axis units and range cover full spectrum (230–844nm for Mechelle 5000)
+- Arc features land at expected approximate wavelengths:
+  - Arc-matched orders: match HgAr atlas within <0.5nm
+  - Bootstrapped orders: match physical model predictions within ±0.3–0.5nm
 - Saturation warnings align with visibly saturated regions
 - Excluded regions/masks do not remove valid signal unexpectedly
+- Bootstrapped order wavelengths follow smooth progression from neighbors (physics model consistency)
 
 ## Robustness Checks
 
 - Profile hot reload recovers after temporary invalid edit (last-good preserved)
 - ROI or binning change triggers compatibility/extraction error (no silent misuse)
 - Returning to matching mode restores extraction preview
+- Switching between arc-matched and bootstrapped orders shows consistent wavelength alignment
 
 ## Snapshot / Evidence Capture
 

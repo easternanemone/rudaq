@@ -264,11 +264,24 @@ pub fn set_page_title(title: &str) {
 # Capture a single frame from a running daemon
 rust-daq-daemon snapshot <device_id> -o frame.tiff [--exposure-ms 100] [--format tiff|png|raw] [--addr http://host:50051]
 
-# Run offline echelle calibration pipeline on an arc lamp frame
+# Run offline echelle 3-pass calibration pipeline on arc + flat frames (recommended)
+rust-daq-daemon calibrate \
+  --frame arc_hgar.tiff \
+  --flat flat_dh3p.tiff \
+  --config config/calibration/mechelle_5000.toml \
+  --output calibrated_profile.toml
+
+# Single-frame calibration (arc only, fewer traces detected)
 rust-daq-daemon calibrate --frame arc.tiff --config config/calibration/mechelle_5000.toml --output profile.toml
 ```
 
-Calibration configs live in `config/calibration/`. The `calibrate` subcommand loads the frame, builds a `CalibrationPipelineConfig` from the TOML, calls `run_calibration_pipeline()`, and writes the output `EchelleCalibrationProfile`.
+Calibration configs live in `config/calibration/`. The `calibrate` subcommand loads frame(s), builds a `CalibrationPipelineConfig` from the TOML, and executes the 3-pass calibration pipeline:
+
+1. **Pass 1: Echelle equation seed** — atlas matching within 5nm tolerance using physical order estimates
+2. **Pass 2: Quadratic regression re-seed** — fit m(i) from successful matches, re-seed failed orders with predicted m
+3. **Pass 3: Physics bootstrap** — for uncalibrated orders, use 2D Chebyshev residual surface to predict wavelengths
+
+Output: `EchelleCalibrationProfile` with all 115 orders calibrated (42 arc-matched + 73 bootstrapped), covering 230–844nm.
 
 ### Leabs/iSTAR Repro Commands
 

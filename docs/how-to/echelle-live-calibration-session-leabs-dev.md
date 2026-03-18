@@ -15,19 +15,19 @@ the GUI (Image Viewer side panel).
 Minimum acceptable outcomes for one session:
 
 - confirm live stream is a real echellegram (not the prior ramp-pattern failure)
-- capture a reproducible flat frame set and Hg-Ar arc frame set
-- create or refine a calibration profile draft in the Image Viewer
-- trace visible orders (auto-seed + manual refinement)
-- enter/import a starter line list and manual calibration points
-- fit at least one order wavelength solution in the GUI
-- save and activate a versioned calibration profile
-- export evidence (screenshots, JSON/CSV preview, profile file)
+- capture a reproducible flat frame set (continuum source) and Hg-Ar arc frame set
+- run the offline 3-pass calibration pipeline to generate a full calibration profile
+- load the generated profile in the Image Viewer for visual validation
+- verify trace overlays align with visible echelle orders
+- verify wavelength solution is plausibly calibrated
+- save and export evidence (screenshots, profile file, extracted preview)
 
 Stretch goals:
 
-- fit multiple orders
-- generate blaze preview CSV artifact from a flat-derived preview
+- manually refine the 3-pass output profile in the GUI (trace/wavelength tweaks)
+- generate blaze preview CSV artifact from flat-derived preview
 - curate a new golden dataset for repo regression
+- compare against external reference tool output (within agreed tolerance)
 
 ## Known Andor SDK Caveats (Read First)
 
@@ -250,98 +250,95 @@ Notes:
 - `FrameData.data` may be LZ4-compressed and base64-encoded in `grpcurl` output.
 - For calibration work, the GUI Image Viewer is the primary interface.
 
-## GUI Workflow: Image Viewer Calibration Workspace
+## Offline Calibration Pipeline (Automated)
+
+Before opening the GUI, run the 3-pass calibration pipeline:
+
+```bash
+rust-daq-daemon calibrate \
+  --frame arc_hg2_capture.tiff \
+  --flat flat_dh3p_capture.tiff \
+  --config config/calibration/mechelle_5000.toml \
+  --output session_calibration_profile.toml
+```
+
+This automatically:
+1. Detects traces from the flat frame
+2. Performs echelle equation seeding + atlas matching (Pass 1)
+3. Re-seeds failed orders via quadratic regression (Pass 2)
+4. Bootstraps uncalibrated orders via physics model (Pass 3)
+
+Expected result: 115/115 orders calibrated (42 arc-matched + 73 bootstrapped), covering 230–844nm.
+
+## GUI Workflow: Image Viewer Calibration Workspace (Validation + Refinement)
 
 Open the Image Viewer for `istar_camera` and use the `Echelle Spectrum (MVP Preview)`
-side panel.
+side panel to validate and optionally refine the auto-generated profile.
 
-### 1. Profile Setup (Profile tab)
+### 1. Load Generated Profile (Profile tab)
 
-- If you already have a draft profile path:
-  - enter path in `Profile path`
-  - click `Load Editor`
-- If starting fresh:
-  - click `New Draft From Frame`
-  - set `display_name` and `profile_id`
-  - review frame compatibility fields (`frame_w`, `frame_h`, ROI/binning)
-- Save early:
-  - click `Save` (draft only), then `Save + Activate` when ready to preview
+- Click `Load Editor`
+- Enter path to the auto-generated profile from the pipeline
+- Click `Load`
+- Review provenance (should show `creator_tool`, timestamp, source frames)
 
 Recommended file path:
 
 ```text
-<lab-data-root>/echelle/leabs-dev/YYYY-MM-DD-hg2-session-01/profile_draft_v1.toml
+<lab-data-root>/echelle/leabs-dev/YYYY-MM-DD-hg2-session-01/session_calibration_profile.toml
 ```
 
-### 2. Trace Seeding and Editing (Trace tab)
+### 2. Validate Traces (Trace tab)
 
-With a flat frame (preferred) or bright arc frame visible:
+With the arc or flat frame visible:
 
-- enable `Show trace overlays on image`
-- click `Auto-Detect Trace Seeds From Current Frame`
-  - this creates constant-trace seeds from cross-dispersion peaks
-- inspect overlays on the image
-- select each order and refine:
+- Enable `Show trace overlays on image`
+- Inspect overlays visually
+- Verify overlays follow the visible order centers across the field
+- Optional: select individual orders to refine centerline or sample range if needed
   - `sample_start` / `sample_end`
-  - polynomial basis/domain
   - trace coefficients (`c0`, `c1`, ...)
   - `Nudge +/-Y` for quick centerline shifts
-- clone/remove orders as needed
 
-Target outcome:
+### 3. Inspect Wavelength Solution (Wavelength Fit tab)
 
-- overlays follow the visible order centers across the field
+- Review any notes or metadata about which orders are arc-matched vs bootstrapped
+- For arc-matched orders (42 of them):
+  - wavelength comes directly from atlas matching
+  - residuals should be < 0.5nm
+- For bootstrapped orders (73 of them):
+  - wavelength predicted from physics model + 2D Chebyshev residual surface
+  - marked as "bootstrapped" in order notes
+  - expected accuracy ±0.3–0.5nm within each order family
 
-### 3. Arc Picks and Line List (Arc/Points tab)
+### 4. Preview and Validate (Extraction panel + plot)
 
-Line list input options:
+After profile loads:
 
-- manual entry in `line list` table
-- import JSON via `Line list JSON` path + `Import Line List`
+- Confirm live extracted preview renders without errors
+- Compare selected-order and merged views
+- Use hover cross-link to verify plotted sample maps to the expected image order location
+- Wavelength axis should span 230–844nm (full Mechelle 5000 range)
 
-Calibration points:
+### 5. Optional GUI Refinement (Arc/Points + Wavelength Fit tabs)
 
-- use the extracted preview plot hover to identify order/sample context
-- add points in `calibration points` table (`order`, `x`, `y`, `wavelength`)
-- import/export JSON for offline iteration
+If manual refinement is desired:
 
-Practical approach:
-
-- start with a few strong, isolated HG-2 lines on one order
-- use official Ocean Optics HG-2 documentation as the wavelength source:
-  - [HG-2 product page](https://www.oceanoptics.com/products/spectrometers/spectrometer-accessories/calibration-light-sources/hg-2-calibration-sources/)
-  - [Wavelength calibration products PDF](https://www.oceanoptics.com/wp-content/uploads/2025/06/Wavelength-Calibration-Products-072425.pdf)
-
-### 4. Wavelength Fit (Wavelength Fit tab)
-
-- confirm the selected order has enough enabled calibration points
-- click `Fit Selected Order (LSQ)`
-- inspect:
-  - residual plot
-  - RMS
-  - outlier count (configured by `outlier σ`)
-  - global residual summary
-- refine points / trace and repeat until residuals are acceptable
+- Add manual calibration points to individual orders if needed
+- Click `Fit Selected Order (LSQ)` to improve specific order wavelength fits
+- Re-save the profile with `Save + Activate`
 
 Current GUI fit scope:
 
 - selected-order polynomial least-squares refit (manual points)
-- sampled wavelength models and automated global fitting are future work
-
-### 5. Preview and Validate (Extraction panel + plot)
-
-After `Save + Activate`:
-
-- confirm live extracted preview renders without errors
-- compare selected-order and merged views
-- use hover cross-link to verify plotted sample maps to the expected image order location
+- full global re-fitting across all orders is a future enhancement
 
 ### 6. Blaze / Flat (Blaze/Flat tab)
 
 With a suitable flat-derived preview visible:
 
-- compare `Uncorrected` vs `Preview corrected` curves
-- optionally generate a normalized preview artifact:
+- Compare `Uncorrected` vs `Preview corrected` curves
+- Optionally generate a normalized preview artifact:
   - set `Blaze export CSV` path
   - click `Generate From Selected Order Preview`
 

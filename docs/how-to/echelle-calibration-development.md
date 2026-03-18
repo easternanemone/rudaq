@@ -33,8 +33,34 @@ If any of these materially change, create a new profile (do not silently reuse).
 
 ## Calibration Authoring Workflow (Current)
 
-1. Capture representative frames for the target mode.
-2. Load or create a draft profile in the Image Viewer calibration workspace:
+Two approaches are now available:
+
+### Automated 3-Pass Pipeline (Recommended)
+
+1. Capture representative frames for the target mode:
+   - **Flat frame** (continuum source, e.g. DH-3P lamp) for trace detection
+   - **Arc frame** (HgAr lamp) for wavelength calibration
+2. Run the offline calibration CLI:
+   ```bash
+   rust-daq-daemon calibrate \
+     --frame arc_hgar.tiff \
+     --flat flat_dh3p.tiff \
+     --config config/calibration/mechelle_5000.toml \
+     --output calibrated_profile.toml
+   ```
+3. The 3-pass pipeline automatically:
+   - detects 115 traces from flat frame
+   - performs echelle equation seed + atlas matching (Pass 1)
+   - re-seeds failed orders via quadratic regression (Pass 2)
+   - bootstraps remaining uncalibrated orders via 2D Chebyshev physics model (Pass 3)
+4. Inspect the output profile:
+   - verify `physical_order_number` values are sequential
+   - check that `bootstrapped` flags (in notes) indicate which orders used physics model
+5. Load the generated profile in the Image Viewer for visual validation
+
+### Manual GUI Workflow (For Refinement)
+
+1. Load or create a draft profile in the Image Viewer calibration workspace:
    - `Echelle Spectrum (MVP Preview)` side panel -> `Calibration Workspace`
    - tabs currently implemented:
      - `Profile` (create/load/save/save+activate, version/provenance edits)
@@ -42,16 +68,16 @@ If any of these materially change, create a new profile (do not silently reuse).
      - `Arc/Points` (manual point table + line list import/export JSON)
      - `Wavelength Fit` (selected-order polynomial least-squares fit from manual points, residual plot, RMS/outlier controls, threshold checks, global residual summary)
      - `Blaze/Flat` (preview overlay for corrected vs uncorrected spectrum, artifact refs, selected-order blaze-preview CSV artifact export)
-3. Build/fit traces and wavelength solution in external tooling (or manual process), or use the manual GUI tables for iterative editing.
-4. Export/translate into rust-daq echelle profile schema:
+2. Refine traces and wavelength solution iteratively using GUI or external tooling
+3. Export/translate into rust-daq echelle profile schema:
    - `docs/reference/echelle-calibration-profile-schema.md`
-5. Activate the profile in the Image Viewer (`Save + Activate` or `Activate Path`).
-6. Validate:
+4. Activate the profile in the Image Viewer (`Save + Activate` or `Activate Path`)
+5. Validate:
    - profile loads
    - extraction preview renders
    - order traces align visually
    - wavelength mapping looks plausible
-7. Save snapshot exports (`JSON` / merged `CSV`) for comparison records.
+6. Save snapshot exports (`JSON` / merged `CSV`) for comparison records
 
 ## Current GUI Limits (Important)
 
