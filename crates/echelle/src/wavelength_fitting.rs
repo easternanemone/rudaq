@@ -714,8 +714,10 @@ pub fn match_lines_to_atlas(
 /// When only 1 atlas match is available, we can't fit a polynomial.
 /// Instead, we construct a linear model by:
 /// 1. Using the matched line as an absolute wavelength anchor
-/// 2. Estimating the dispersion (nm/pixel) from the echelle equation:
-///    dλ/dp ≈ -λ / n_pixels (the free spectral range spans the detector)
+/// 2. Estimating the dispersion from the seed tolerance as a proxy for FSR:
+///    The tolerance (nm) roughly indicates the expected wavelength range per order.
+///    For echelle spectrographs, the free spectral range (FSR ≈ λ/m) is typically
+///    10-30nm, spread across ~2560 pixels → dispersion ≈ 0.004-0.012 nm/pixel.
 ///
 /// This gives a first-order wavelength solution good enough for order
 /// identification and approximate wavelength assignment.
@@ -730,11 +732,12 @@ fn fit_single_line_fallback(
     let anchor_pixel = lines[li].pixel_center;
     let anchor_wl = atlas[ai].wavelength_nm;
 
-    // Estimate dispersion from the free spectral range.
-    // For an echelle, FSR ≈ λ/m, spread across ~n_pixels.
-    // Use pixel_range from config or default to 2560.
-    let n_pixels = config.seed_tolerance_nm.max(1.0) * 512.0; // rough estimate
-    let dispersion = -anchor_wl / n_pixels; // nm/pixel (negative = wavelength decreases with pixel)
+    // Estimate dispersion from the seed tolerance as a proxy for order width.
+    // The tolerance (typically 5-15nm) is roughly half the free spectral range.
+    // FSR ≈ 2 * tolerance, spread across the detector width.
+    let n_pixels = 2560.0_f64;
+    let estimated_fsr = config.seed_tolerance_nm.max(5.0) * 2.0;
+    let dispersion = -estimated_fsr / n_pixels; // nm/pixel (negative = wavelength decreases with pixel)
 
     // Build linear Chebyshev coefficients on [0, n_pixels-1].
     // λ(p) = anchor_wl + dispersion * (p - anchor_pixel)
