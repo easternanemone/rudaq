@@ -3,6 +3,7 @@
 //! Contains the `EngineState` enum, its `Display` impl, and the
 //! `ExperimentFrameObserver` used for secondary frame capture during runs.
 
+use bytes::Bytes;
 use common::capabilities::FrameObserver;
 use common::data::FrameView;
 use tokio::sync::mpsc;
@@ -31,10 +32,12 @@ impl std::fmt::Display for EngineState {
     }
 }
 
-/// Frame capture data for experiment persistence
+/// Frame capture data for experiment persistence (bd-nctn: uses Bytes instead of Vec<u8>).
 pub(crate) struct FrameCapture {
     pub device_id: String,
-    pub data: Vec<u8>,
+    /// Pixel data as `Bytes` — avoids an intermediate `Vec<u8>` allocation
+    /// when the data is later inserted into `collected_frames` (which stores `Bytes`).
+    pub data: Bytes,
     pub width: u32,
     pub height: u32,
     pub frame_number: u64,
@@ -50,7 +53,7 @@ impl FrameObserver for ExperimentFrameObserver {
     fn on_frame(&self, frame: &FrameView<'_>) {
         let capture = FrameCapture {
             device_id: self.device_id.clone(),
-            data: frame.pixels().to_vec(),
+            data: Bytes::copy_from_slice(frame.pixels()),
             width: frame.width,
             height: frame.height,
             frame_number: frame.frame_number,

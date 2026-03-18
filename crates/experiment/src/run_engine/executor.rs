@@ -6,7 +6,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use bytes::Bytes;
 use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration, Instant};
 use tracing::{debug, error, info, warn};
@@ -15,6 +14,7 @@ use common::experiment::document::{
     DataKey, DescriptorDoc, Document, EventDoc, ExperimentManifest, StartDoc, StopDoc,
 };
 
+use super::context::RunContext;
 use super::state_machine::ExperimentFrameObserver;
 use super::task_queue::QueuedPlan;
 use super::RunEngine;
@@ -130,7 +130,7 @@ impl RunEngine {
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_nanos() as u64)
                 .unwrap_or(0);
-            *ctx = Some(super::RunContext {
+            *ctx = Some(RunContext {
                 run_uid: run_uid.clone(),
                 descriptor_uid,
                 seq_num: 0,
@@ -348,8 +348,7 @@ impl RunEngine {
                                 Some(capture) => {
                                     let data_len = capture.data.len();
                                     let frame_num = capture.frame_number;
-                                    ctx.collected_frames
-                                        .insert(device_id.clone(), Bytes::from(capture.data));
+                                    ctx.collected_frames.insert(device_id.clone(), capture.data);
                                     debug!(
                                         device = %device_id,
                                         size = %data_len,
