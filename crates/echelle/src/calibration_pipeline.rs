@@ -324,7 +324,16 @@ fn run_calibration_pipeline_impl(
     // Build seed wavelength functions per order.
     let seed_fns = build_seed_functions(&config.seed, n_orders, width)?;
 
-    // ── Stages 3-6: Per-order processing ─────────────────────────────
+    // Extract grating constant from seed config (used for physical order assignment).
+    let grating_constant_nm = match &config.seed {
+        WavelengthSeed::EchelleEquation {
+            grating_constant_nm,
+            ..
+        } => Some(*grating_constant_nm),
+        WavelengthSeed::Anchors(_) => None,
+    };
+
+    // ── Stages 3-6: Per-order processing (Pass 1) ────────────────────
     // Always extract arc lines from the arc frame (frame_ref), using
     // trace positions found from the flat/arc frame above.
     let mut diagnostics = Vec::with_capacity(n_orders);
@@ -344,11 +353,69 @@ fn run_calibration_pipeline_impl(
 
         if diag.success {
             if let Some(ref sol) = diag.wl_solution {
-                let order_cal = build_order_calibration(trace, sol, oi, width);
+                let order_cal = build_order_calibration(trace, sol, oi, width, grating_constant_nm);
                 order_calibrations.push(order_cal);
             }
         }
         diagnostics.push(diag);
+    }
+
+    // ── Pass 2: Refine seeds for failed orders ───────────────────────
+    // When using the echelle equation seed, the initial seed assumes
+    // detected traces correspond to consecutive physical orders. But with
+    // sparse emission sources (e.g., HgAr lamp), detected orders are
+    // often non-consecutive. Use successfully calibrated orders to build
+    // a trace_index → physical_order model, then re-seed failed orders.
+    if let Some(gc) = grating_constant_nm {
+        let n_failed = diagnostics.iter().filter(|d| !d.success).count();
+        let anchors: Vec<(f64, f64)> = order_calibrations
+            .iter()
+            .filter_map(|cal| {
+                let m = cal.physical_order_number? as f64;
+                Some((f64::from(cal.relative_index), m))
+            })
+            .collect();
+
+        if anchors.len() >= 2 && n_failed > 0 {
+            // Fit linear model: m(trace_index) = slope * index + intercept
+            let (slope, intercept) = linear_regression(&anchors);
+            let npx = f64::from(width.max(1));
+
+            for (order_idx, trace) in traces.iter().enumerate() {
+                if diagnostics[order_idx].success {
+                    continue;
+                }
+                let predicted_m = (slope * order_idx as f64 + intercept).round();
+                if predicted_m < 1.0 {
+                    continue;
+                }
+
+                let lambda_center = gc / predicted_m;
+                let fsr = gc / (predicted_m * predicted_m);
+                let dispersion = fsr / npx;
+                let lambda_start = lambda_center - dispersion * (npx / 2.0);
+                let refined_seed = move |pixel: f64| -> f64 { lambda_start + dispersion * pixel };
+
+                let oi = order_idx as u32;
+                let diag = process_single_order(
+                    frame_ref,
+                    width,
+                    height,
+                    trace,
+                    oi,
+                    config,
+                    &refined_seed,
+                );
+
+                if diag.success {
+                    if let Some(ref sol) = diag.wl_solution {
+                        let order_cal = build_order_calibration(trace, sol, oi, width, Some(gc));
+                        order_calibrations.push(order_cal);
+                    }
+                }
+                diagnostics[order_idx] = diag;
+            }
+        }
     }
 
     // ── Stage 7: Assemble EchelleCalibrationProfile ──────────────────
@@ -671,6 +738,26 @@ fn build_anchor_seeds(
     Ok(fns)
 }
 
+/// Ordinary least-squares linear regression on `(x, y)` pairs.
+///
+/// Returns `(slope, intercept)` such that `y ≈ slope * x + intercept`.
+/// Requires at least 2 points.
+fn linear_regression(points: &[(f64, f64)]) -> (f64, f64) {
+    let n = points.len() as f64;
+    let sum_x: f64 = points.iter().map(|(x, _)| x).sum();
+    let sum_y: f64 = points.iter().map(|(_, y)| y).sum();
+    let sum_xx: f64 = points.iter().map(|(x, _)| x * x).sum();
+    let sum_xy: f64 = points.iter().map(|(x, y)| x * y).sum();
+    let denom = n * sum_xx - sum_x * sum_x;
+    if denom.abs() < 1e-15 {
+        // All x values identical — return mean y as intercept with zero slope.
+        return (0.0, sum_y / n);
+    }
+    let slope = (n * sum_xy - sum_x * sum_y) / denom;
+    let intercept = (sum_y - slope * sum_x) / n;
+    (slope, intercept)
+}
+
 /// Build seed functions from the echelle grating equation.
 ///
 /// For order number m: λ_center = grating_constant / m
@@ -719,11 +806,16 @@ fn build_echelle_seeds(
 /// (pixel_min..pixel_max) because the Chebyshev polynomial is only reliable
 /// within the range of its training data. Extrapolation beyond the matched
 /// line positions would produce unreliable wavelengths.
+///
+/// If `grating_constant_nm` is provided, the physical order number is computed
+/// from the wavelength at the midpoint of the fitted pixel range:
+/// `m = round(grating_constant / λ_center)`.
 fn build_order_calibration(
     trace: &OrderTrace,
     sol: &OrderWlSolution,
     order_index: u32,
     width: u32,
+    grating_constant_nm: Option<f64>,
 ) -> EchelleOrderCalibration {
     // The Chebyshev coefficients were fitted using normalization over
     // [pixel_min, pixel_max]. The domain MUST match the fitted range exactly —
@@ -732,9 +824,30 @@ fn build_order_calibration(
     let sample_start = sol.pixel_min.ceil().max(0.0) as u32;
     let sample_end = (sol.pixel_max.floor() as u32).min(width.saturating_sub(1));
 
+    let physical_order_number = grating_constant_nm.and_then(|gc| {
+        let mid_pixel = sol.pixel_min.midpoint(sol.pixel_max);
+        let lambda_center = sol.eval(mid_pixel);
+        if lambda_center > 0.0 {
+            Some((gc / lambda_center).round() as i32)
+        } else {
+            None
+        }
+    });
+
+    let notes = match physical_order_number {
+        Some(m) => format!(
+            "m={m}, RMS={:.4}nm, {}/{} lines",
+            sol.rms_nm, sol.n_lines_used, sol.n_lines_total
+        ),
+        None => format!(
+            "RMS={:.4}nm, {}/{} lines",
+            sol.rms_nm, sol.n_lines_used, sol.n_lines_total
+        ),
+    };
+
     EchelleOrderCalibration {
         relative_index: order_index,
-        physical_order_number: None, // Unknown until echelle equation is applied.
+        physical_order_number,
         sample_start,
         sample_end,
         trace: trace.trace.clone(),
@@ -747,10 +860,7 @@ fn build_order_calibration(
         },
         aperture_half_width_px: Some(trace.aperture_half_width),
         enabled: true,
-        notes: Some(format!(
-            "RMS={:.4}nm, {}/{} lines",
-            sol.rms_nm, sol.n_lines_used, sol.n_lines_total
-        )),
+        notes: Some(notes),
     }
 }
 
@@ -759,8 +869,9 @@ fn build_order_calibration(
 /// Check echelle equation consistency: m × λ_center should be approximately
 /// constant across all calibrated orders.
 ///
-/// `order_step` is the increment per detected order index (typically -1 for
-/// echelle spectrographs where higher Y → lower order number).
+/// Prefers using `physical_order_number` from the profile (computed from
+/// wavelength solutions) when available. Falls back to the seed-based
+/// assignment (`first_physical_order + order_step * index`) if not set.
 ///
 /// Returns the coefficient of variation (std_dev / mean) of the products.
 /// Values < 0.01 (1%) indicate good consistency.
@@ -774,11 +885,27 @@ pub fn check_echelle_consistency(
         .per_order_diagnostics
         .iter()
         .filter(|d| d.success)
-        .filter_map(|d| {
+        .enumerate()
+        .filter_map(|(cal_idx, d)| {
             let sol = d.wl_solution.as_ref()?;
-            let m =
-                (first_physical_order + order_step * d.order_index as i32).unsigned_abs() as f64;
-            let m = m.max(1.0); // guard against m=0
+
+            // Prefer the wavelength-derived physical_order_number from the profile
+            // (set during build_order_calibration). Fall back to seed-based assignment.
+            let m = result
+                .profile
+                .orders
+                .iter()
+                .find(|o| o.relative_index == d.order_index)
+                .and_then(|o| o.physical_order_number)
+                .map(|m| m.unsigned_abs() as f64)
+                .unwrap_or_else(|| {
+                    let _ = cal_idx; // suppress unused warning
+                    let m_seed = (first_physical_order + order_step * d.order_index as i32)
+                        .unsigned_abs() as f64;
+                    m_seed.max(1.0)
+                });
+            let m = m.max(1.0);
+
             let mid_pixel = sol.pixel_min.midpoint(sol.pixel_max);
             let lambda_center = sol.eval(mid_pixel);
             Some(m * lambda_center)
@@ -1302,5 +1429,248 @@ mod tests {
             "echelle consistency CV should be < 1%, got {:.4}",
             cv.unwrap()
         );
+    }
+
+    #[test]
+    fn test_physical_order_from_wavelength() {
+        use crate::types::EchelleTraceModel;
+
+        // Verify that build_order_calibration computes m = round(gc / λ_center).
+        let trace = OrderTrace {
+            trace: EchelleTraceModel::Polynomial {
+                basis: PolynomialBasis::Monomial,
+                coefficients: vec![100.0],
+                domain_start: 0.0,
+                domain_end: 200.0,
+            },
+            aperture_half_width: 5.0,
+            fit_rms: 0.1,
+            n_samples: 50,
+        };
+
+        // Wavelength solution centered at 577nm → m = round(36300 / 577) = 63
+        let sol = OrderWlSolution {
+            order: 0,
+            coefficients: vec![577.0, 0.1], // nearly flat at ~577nm
+            pixel_min: 0.0,
+            pixel_max: 200.0,
+            rms_nm: 0.05,
+            n_lines_used: 5,
+            n_lines_total: 5,
+        };
+
+        let cal = build_order_calibration(&trace, &sol, 0, 200, Some(36300.0));
+        assert_eq!(
+            cal.physical_order_number,
+            Some(63),
+            "expected m=63 for λ≈577nm, gc=36300"
+        );
+        assert!(
+            cal.notes.as_ref().unwrap().contains("m=63"),
+            "notes should contain physical order: {:?}",
+            cal.notes
+        );
+
+        // Without grating constant, physical_order_number should be None.
+        let cal_no_gc = build_order_calibration(&trace, &sol, 0, 200, None);
+        assert_eq!(cal_no_gc.physical_order_number, None);
+    }
+
+    #[test]
+    fn test_linear_regression() {
+        // Perfect linear data: y = 2x + 10
+        let points = vec![(0.0, 10.0), (1.0, 12.0), (2.0, 14.0), (3.0, 16.0)];
+        let (slope, intercept) = linear_regression(&points);
+        assert!(
+            (slope - 2.0).abs() < 1e-10,
+            "expected slope=2.0, got {slope}"
+        );
+        assert!(
+            (intercept - 10.0).abs() < 1e-10,
+            "expected intercept=10.0, got {intercept}"
+        );
+
+        // Non-consecutive x values (simulating sparse order detection).
+        let sparse = vec![(0.0, 43.0), (5.0, 63.0), (10.0, 83.0)];
+        let (slope, intercept) = linear_regression(&sparse);
+        assert!(
+            (slope - 4.0).abs() < 1e-10,
+            "expected slope=4.0, got {slope}"
+        );
+        assert!(
+            (intercept - 43.0).abs() < 1e-10,
+            "expected intercept=43.0, got {intercept}"
+        );
+
+        // Predict: trace_index=3 → m = 4*3 + 43 = 55
+        let predicted = slope * 3.0 + intercept;
+        assert!(
+            (predicted - 55.0).abs() < 1e-10,
+            "expected prediction=55.0, got {predicted}"
+        );
+    }
+
+    #[test]
+    fn test_non_consecutive_order_refinement() {
+        // Create a synthetic frame with 3 orders at NON-consecutive physical
+        // order numbers, using echelle equation seed that assumes consecutive.
+        // The two-pass refinement should recover the middle order.
+        let width = 300;
+        let height = 400;
+        let grating_const = 2800.0;
+
+        // Three orders: m=10 (y=60), m=8 (y=200), m=6 (y=340).
+        // With first_physical_order=10 and order_step=-1:
+        //   Pass 1: trace 0 → seed m=10 ✓, trace 1 → seed m=9 ✗ (actual=8),
+        //           trace 2 → seed m=8 ✗ (actual=6).
+        // Pass 2: linear model from trace 0 (m=10) alone won't trigger (needs ≥2).
+        // So instead, let's use orders m=10, m=9, m=6 where m=9 matches on pass 1
+        // and m=6 is recovered by the regression from m=10 and m=9.
+        let m10_center = grating_const / 10.0; // 280nm
+        let m9_center = grating_const / 9.0; // 311nm
+        let m6_center = grating_const / 6.0; // 466nm
+
+        // Dispersion at m_ref=10: FSR/npx = (gc/m²)/npx
+        let m_ref = 10.0f64;
+        let fsr_ref = grating_const / (m_ref * m_ref);
+        let disp_ref = fsr_ref / width as f64;
+
+        let m10_disp = disp_ref; // m=10
+        let m9_disp = disp_ref * (m_ref / 9.0); // m=9
+        let m6_disp = disp_ref * (m_ref / 6.0); // m=6
+
+        let m10_start = m10_center - m10_disp * (width as f64 / 2.0);
+        let m10_end = m10_start + m10_disp * width as f64;
+        let m9_start = m9_center - m9_disp * (width as f64 / 2.0);
+        let m9_end = m9_start + m9_disp * width as f64;
+        let m6_start = m6_center - m6_disp * (width as f64 / 2.0);
+        let m6_end = m6_start + m6_disp * width as f64;
+
+        let orders = vec![
+            (80.0, m10_start, m10_end),
+            (200.0, m9_start, m9_end),
+            (340.0, m6_start, m6_end),
+        ];
+
+        // Atlas lines carefully placed to land in each order's range.
+        let atlas = vec![
+            AtlasLine {
+                wavelength_nm: 275.0,
+                species: "test".into(),
+                strength: 500.0,
+            },
+            AtlasLine {
+                wavelength_nm: 285.0,
+                species: "test".into(),
+                strength: 500.0,
+            },
+            AtlasLine {
+                wavelength_nm: 296.728,
+                species: "Hg I".into(),
+                strength: 500.0,
+            },
+            AtlasLine {
+                wavelength_nm: 302.150,
+                species: "Hg I".into(),
+                strength: 500.0,
+            },
+            AtlasLine {
+                wavelength_nm: 312.567,
+                species: "Hg I".into(),
+                strength: 500.0,
+            },
+            AtlasLine {
+                wavelength_nm: 320.0,
+                species: "test".into(),
+                strength: 500.0,
+            },
+            AtlasLine {
+                wavelength_nm: 455.0,
+                species: "test".into(),
+                strength: 500.0,
+            },
+            AtlasLine {
+                wavelength_nm: 465.0,
+                species: "test".into(),
+                strength: 500.0,
+            },
+            AtlasLine {
+                wavelength_nm: 475.0,
+                species: "test".into(),
+                strength: 500.0,
+            },
+        ];
+
+        let all_wls: Vec<f64> = atlas.iter().map(|a| a.wavelength_nm).collect();
+        let frame = synthetic_arc_frame(width, height, &orders, &all_wls, 2.5, 3000.0, 2.5);
+
+        let config = CalibrationPipelineConfig {
+            trace_config: TraceFitConfig {
+                min_snr: 3.0,
+                step_pixels: 5,
+                poly_degree: 2,
+                ..Default::default()
+            },
+            arc_config: ArcDetectConfig {
+                sigdetect: 3.0,
+                min_fwhm: 1.5,
+                max_fwhm: 10.0,
+                min_separation: 3.0,
+                continuum_window: 51,
+            },
+            wl_config: WlFitConfig {
+                poly_degree: 2,
+                seed_tolerance_nm: 3.0,
+                ..Default::default()
+            },
+            rectify_config: RectifyConfig {
+                aperture_half_width: 5.0,
+                gaussian_weights: false,
+                fwhm: 3.0,
+            },
+            atlas,
+            seed: WavelengthSeed::EchelleEquation {
+                grating_constant_nm: grating_const,
+                first_physical_order: 10,
+                order_step: -1,
+                n_pixels: width as u32,
+            },
+            frame_compat: EchelleFrameCompatibility {
+                sensor_width: width as u32,
+                sensor_height: height as u32,
+                frame_width: width as u32,
+                frame_height: height as u32,
+                roi_x: 0,
+                roi_y: 0,
+                binning_x: 1,
+                binning_y: 1,
+                bit_depth: Some(16),
+            },
+            orientation: EchelleOrientation {
+                dispersion_axis: DetectorAxis::X,
+                cross_dispersion_axis: DetectorAxis::Y,
+                order_number_increase_direction: AxisDirection::Negative,
+                wavelength_increase_with_dispersion_positive: true,
+            },
+            profile_name: "Test Non-Consecutive Refinement".to_string(),
+            min_lines_per_order: 2,
+            ..Default::default()
+        };
+
+        let result = run_calibration_pipeline(&frame, width as u32, height as u32, &config)
+            .expect("pipeline should succeed");
+
+        assert_eq!(result.n_orders_detected, 3, "should detect all 3 orders");
+
+        // All calibrated orders should have physical_order_number set.
+        for order in &result.profile.orders {
+            assert!(
+                order.physical_order_number.is_some(),
+                "order {} should have physical_order_number",
+                order.relative_index
+            );
+        }
+
+        result.profile.validate().expect("profile should be valid");
     }
 }

@@ -742,9 +742,9 @@ fn fit_single_line_fallback(
     // Build linear Chebyshev coefficients on [0, n_pixels-1].
     // λ(p) = anchor_wl + dispersion * (p - anchor_pixel)
     //      = (anchor_wl - dispersion * anchor_pixel) + dispersion * p
-    let pixel_min = 0.0;
-    let pixel_max = 2559.0; // standard detector width
-    let mid = (pixel_min + pixel_max) / 2.0;
+    let pixel_min: f64 = 0.0;
+    let pixel_max: f64 = 2559.0; // standard detector width
+    let mid = pixel_min.midpoint(pixel_max);
     let half_range = (pixel_max - pixel_min) / 2.0;
 
     // Chebyshev T0 = 1, T1 = x on [-1, 1]
