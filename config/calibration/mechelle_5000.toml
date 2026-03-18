@@ -54,7 +54,8 @@ arc_sigdetect = 3.0
 wl_poly_degree = 1
 # Atlas matching tolerance — 5nm accounts for echelle equation approximation
 wl_seed_tolerance_nm = 5.0
-# Minimum matched lines per order — 2 allows initial calibration pass
-min_lines_per_order = 2
+# Minimum matched lines per order — 1 enables single-line fallback (bd-3hlp)
+# which anchors the echelle equation to a single matched line
+min_lines_per_order = 1
 # Simple summation extraction (optimal extraction needs flat-field)
 use_optimal_extraction = false
