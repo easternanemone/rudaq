@@ -693,6 +693,60 @@ pub fn match_lines_to_atlas(
 /// Takes detected lines with `wavelength_hint` filled in (from atlas matching)
 /// and fits a Chebyshev polynomial mapping pixel → wavelength (nm).
 /// Uses iterative sigma-clipping to reject outliers.
+/// Single-line wavelength calibration fallback (bd-3hlp).
+///
+/// When only 1 atlas match is available, we can't fit a polynomial.
+/// Instead, we construct a linear model by:
+/// 1. Using the matched line as an absolute wavelength anchor
+/// 2. Estimating the dispersion (nm/pixel) from the echelle equation:
+///    dλ/dp ≈ -λ / n_pixels (the free spectral range spans the detector)
+///
+/// This gives a first-order wavelength solution good enough for order
+/// identification and approximate wavelength assignment.
+fn fit_single_line_fallback(
+    lines: &[ArcLine],
+    atlas: &[AtlasLine],
+    matches: &[(usize, usize)],
+    order: u32,
+    config: &WlFitConfig,
+) -> Option<OrderWlSolution> {
+    let (li, ai) = matches[0];
+    let anchor_pixel = lines[li].pixel_center;
+    let anchor_wl = atlas[ai].wavelength_nm;
+
+    // Estimate dispersion from the free spectral range.
+    // For an echelle, FSR ≈ λ/m, spread across ~n_pixels.
+    // Use pixel_range from config or default to 2560.
+    let n_pixels = config.seed_tolerance_nm.max(1.0) * 512.0; // rough estimate
+    let dispersion = -anchor_wl / n_pixels; // nm/pixel (negative = wavelength decreases with pixel)
+
+    // Build linear Chebyshev coefficients on [0, n_pixels-1].
+    // λ(p) = anchor_wl + dispersion * (p - anchor_pixel)
+    //      = (anchor_wl - dispersion * anchor_pixel) + dispersion * p
+    let pixel_min = 0.0;
+    let pixel_max = 2559.0; // standard detector width
+    let mid = (pixel_min + pixel_max) / 2.0;
+    let half_range = (pixel_max - pixel_min) / 2.0;
+
+    // Chebyshev T0 = 1, T1 = x on [-1, 1]
+    // λ(x) = c0 + c1 * x where x = (p - mid) / half_range
+    // λ(p) = c0 + c1 * (p - mid) / half_range
+    // At anchor_pixel: anchor_wl = c0 + c1 * (anchor_pixel - mid) / half_range
+    // dispersion = c1 / half_range → c1 = dispersion * half_range
+    let c1 = dispersion * half_range;
+    let c0 = anchor_wl - c1 * (anchor_pixel - mid) / half_range;
+
+    Some(OrderWlSolution {
+        order,
+        coefficients: vec![c0, c1],
+        pixel_min,
+        pixel_max,
+        rms_nm: 0.0,
+        n_lines_used: 1,
+        n_lines_total: 1,
+    })
+}
+
 pub fn fit_order_wavelength(
     lines: &[ArcLine],
     atlas: &[AtlasLine],
@@ -700,7 +754,17 @@ pub fn fit_order_wavelength(
     order: u32,
     config: &WlFitConfig,
 ) -> Option<OrderWlSolution> {
+    if matches.is_empty() {
+        return None;
+    }
     if matches.len() <= config.poly_degree {
+        // Single-line fallback: with only 1 match and poly_degree <= 1,
+        // use the echelle equation as a prior and anchor to the matched line.
+        // This gives a reasonable linear solution when the echelle equation
+        // provides a good dispersion estimate. (bd-3hlp)
+        if matches.len() == 1 && config.poly_degree <= 1 {
+            return fit_single_line_fallback(lines, atlas, matches, order, config);
+        }
         return None;
     }
 
