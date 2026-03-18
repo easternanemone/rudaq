@@ -353,6 +353,72 @@ impl ImageViewerPanel {
         }
     }
 
+    /// Build a tooltip string from parameter descriptor metadata.
+    fn param_tooltip(desc: &protocol::daq::ParameterDescriptor) -> String {
+        use std::fmt::Write;
+        let mut tip = desc.description.clone();
+        if !desc.units.is_empty() {
+            if !tip.is_empty() {
+                tip.push('\n');
+            }
+            let _ = write!(tip, "Unit: {}", desc.units);
+        }
+        if let (Some(min), Some(max)) = (desc.min_value, desc.max_value) {
+            if !tip.is_empty() {
+                tip.push('\n');
+            }
+            let _ = write!(tip, "Range: {min} \u{2013} {max}");
+        }
+        tip
+    }
+
+    /// Format a read-only value for display, handling special cases like PVCAM
+    /// temperature (reported in hundredths of a degree Celsius).
+    fn format_readonly_value(desc: &protocol::daq::ParameterDescriptor, raw: &str) -> String {
+        // PVCAM reports temperature in hundredths of °C (e.g., -3500 = -35.00°C)
+        let is_temp = desc.name.to_lowercase().contains("temperature");
+        let is_hundredths = desc.units == "hundredths_degC" || desc.units == "0.01°C";
+
+        if is_temp && is_hundredths {
+            if let Ok(hundredths) = raw.parse::<f64>() {
+                return format!("{:.2} \u{b0}C", hundredths / 100.0);
+            }
+        }
+
+        let mut value = raw.to_string();
+        if !desc.units.is_empty() && !is_hundredths {
+            value.push(' ');
+            value.push_str(&desc.units);
+        }
+        value
+    }
+
+    /// Render the star favorite toggle button and handle click (toggles favorite set).
+    fn render_star_button(
+        ui: &mut egui::Ui,
+        is_fav: bool,
+        param_favorites: &mut std::collections::HashSet<String>,
+        param_name: &str,
+    ) {
+        let star = if is_fav { "\u{2605}" } else { "\u{2606}" };
+        let star_tooltip = if is_fav {
+            "Unpin from Quick Access"
+        } else {
+            "Pin to Quick Access"
+        };
+        if ui
+            .add(egui::Button::new(star).frame(false))
+            .on_hover_text(star_tooltip)
+            .clicked()
+        {
+            if is_fav {
+                param_favorites.remove(param_name);
+            } else {
+                param_favorites.insert(param_name.to_string());
+            }
+        }
+    }
+
     /// Render a single camera parameter control
     #[allow(clippy::cast_possible_truncation)]
     pub(super) fn render_camera_control(
@@ -369,29 +435,12 @@ impl ImageViewerPanel {
         let param_name = desc.name.clone();
         let buffer_key = (device_id.to_string(), param_name.clone());
         let is_fav = self.param_favorites.contains(&param_name);
-
-        // Star button for favorite pinning (bd-4wf7) — rendered inline with param name
-        let star = if is_fav { "\u{2605}" } else { "\u{2606}" }; // ★ / ☆
-        let star_tooltip = if is_fav {
-            "Unpin from Quick Access"
-        } else {
-            "Pin to Quick Access"
-        };
+        let tooltip = Self::param_tooltip(desc);
 
         // Check if setting
         if self.setting_params.contains(&buffer_key) {
             ui.horizontal_wrapped(|ui| {
-                if ui
-                    .add(egui::Button::new(star).frame(false))
-                    .on_hover_text(star_tooltip)
-                    .clicked()
-                {
-                    if is_fav {
-                        self.param_favorites.remove(&param_name);
-                    } else {
-                        self.param_favorites.insert(param_name.clone());
-                    }
-                }
+                Self::render_star_button(ui, is_fav, &mut self.param_favorites, &param_name);
                 ui.spinner();
                 ui.label(&param_name);
             });
@@ -401,24 +450,13 @@ impl ImageViewerPanel {
         // Read-only
         if !desc.writable {
             ui.horizontal_wrapped(|ui| {
-                if ui
-                    .add(egui::Button::new(star).frame(false))
-                    .on_hover_text(star_tooltip)
-                    .clicked()
-                {
-                    if is_fav {
-                        self.param_favorites.remove(&param_name);
-                    } else {
-                        self.param_favorites.insert(param_name.clone());
-                    }
+                Self::render_star_button(ui, is_fav, &mut self.param_favorites, &param_name);
+                let label_response = ui.label(&param_name);
+                if !tooltip.is_empty() {
+                    label_response.on_hover_text(&tooltip);
                 }
-                ui.label(&param_name);
-                let mut value = param.current_value.clone();
-                if !desc.units.is_empty() {
-                    value.push(' ');
-                    value.push_str(&desc.units);
-                }
-                ui.add(egui::Label::new(value).wrap());
+                let formatted = Self::format_readonly_value(desc, &param.current_value);
+                ui.add(egui::Label::new(formatted).wrap());
             });
             return;
         }
@@ -431,18 +469,11 @@ impl ImageViewerPanel {
             let mut selected = current.clone();
 
             ui.horizontal_wrapped(|ui| {
-                if ui
-                    .add(egui::Button::new(star).frame(false))
-                    .on_hover_text(star_tooltip)
-                    .clicked()
-                {
-                    if is_fav {
-                        self.param_favorites.remove(&param_name);
-                    } else {
-                        self.param_favorites.insert(param_name.clone());
-                    }
+                Self::render_star_button(ui, is_fav, &mut self.param_favorites, &param_name);
+                let label_response = ui.label(&desc.name);
+                if !tooltip.is_empty() {
+                    label_response.on_hover_text(&tooltip);
                 }
-                ui.label(&desc.name);
                 let id = egui::Id::new("cam_ctrl").with(device_id).with(&desc.name);
                 egui::ComboBox::from_id_salt(id)
                     .selected_text(&selected)
@@ -461,21 +492,16 @@ impl ImageViewerPanel {
         else if desc.dtype == "bool" {
             let mut val = param.current_value.parse::<bool>().unwrap_or(false);
             ui.horizontal_wrapped(|ui| {
-                if ui
-                    .add(egui::Button::new(star).frame(false))
-                    .on_hover_text(star_tooltip)
-                    .clicked()
-                {
-                    if is_fav {
-                        self.param_favorites.remove(&param_name);
-                    } else {
-                        self.param_favorites.insert(param_name.clone());
-                    }
+                Self::render_star_button(ui, is_fav, &mut self.param_favorites, &param_name);
+                let cb_response = ui.checkbox(&mut val, &desc.name);
+                let changed = cb_response.changed();
+                if !tooltip.is_empty() {
+                    cb_response.on_hover_text(&tooltip);
+                }
+                if changed {
+                    pending_update = Some(val.to_string());
                 }
             });
-            if ui.checkbox(&mut val, &desc.name).changed() {
-                pending_update = Some(val.to_string());
-            }
         }
         // Integer
         else if desc.dtype == "int" {
@@ -489,27 +515,40 @@ impl ImageViewerPanel {
             let original = val;
 
             ui.horizontal_wrapped(|ui| {
-                if ui
-                    .add(egui::Button::new(star).frame(false))
-                    .on_hover_text(star_tooltip)
-                    .clicked()
-                {
-                    if is_fav {
-                        self.param_favorites.remove(&param_name);
-                    } else {
-                        self.param_favorites.insert(param_name.clone());
-                    }
-                }
-                ui.label(&desc.name);
-                let mut drag = egui::DragValue::new(&mut val).speed(1);
-                if let Some(min) = desc.min_value {
-                    drag = drag.range(min as i64..=i64::MAX);
-                }
-                if let Some(max) = desc.max_value {
-                    drag = drag.range(i64::MIN..=max as i64);
+                Self::render_star_button(ui, is_fav, &mut self.param_favorites, &param_name);
+                let label_response = ui.label(&desc.name);
+                if !tooltip.is_empty() {
+                    label_response.on_hover_text(&tooltip);
                 }
 
-                let response = ui.add(drag);
+                // Use Slider when both bounds are available for visual range feedback
+                let response = if let (Some(min), Some(max)) = (desc.min_value, desc.max_value) {
+                    #[allow(clippy::cast_possible_truncation)]
+                    let min_i = min as i64;
+                    #[allow(clippy::cast_possible_truncation)]
+                    let max_i = max as i64;
+                    ui.add(egui::Slider::new(&mut val, min_i..=max_i))
+                } else {
+                    // Fallback to DragValue — single range call with both bounds
+                    let min_i = desc.min_value.map_or(i64::MIN, |v| v as i64);
+                    let max_i = desc.max_value.map_or(i64::MAX, |v| v as i64);
+                    // Smart speed: only compute from range when both bounds are
+                    // present — otherwise max_i - min_i overflows and produces
+                    // an unusably large speed value.
+                    let speed = if desc.min_value.is_some() && desc.max_value.is_some() {
+                        #[allow(clippy::cast_precision_loss)]
+                        let s = ((max_i.saturating_sub(min_i)) / 200).max(1) as f64;
+                        s
+                    } else {
+                        1.0
+                    };
+                    ui.add(
+                        egui::DragValue::new(&mut val)
+                            .speed(speed)
+                            .range(min_i..=max_i),
+                    )
+                };
+
                 if !desc.units.is_empty() {
                     ui.weak(&desc.units);
                 }
@@ -546,27 +585,32 @@ impl ImageViewerPanel {
             let is_exposure = desc.name.to_lowercase().contains("exposure");
 
             ui.horizontal_wrapped(|ui| {
-                if ui
-                    .add(egui::Button::new(star).frame(false))
-                    .on_hover_text(star_tooltip)
-                    .clicked()
-                {
-                    if is_fav {
-                        self.param_favorites.remove(&param_name);
-                    } else {
-                        self.param_favorites.insert(param_name.clone());
-                    }
-                }
-                ui.label(&desc.name);
-                let mut drag = egui::DragValue::new(&mut val).speed(0.1);
-                if let Some(min) = desc.min_value {
-                    drag = drag.range(min..=f64::MAX);
-                }
-                if let Some(max) = desc.max_value {
-                    drag = drag.range(f64::MIN..=max);
+                Self::render_star_button(ui, is_fav, &mut self.param_favorites, &param_name);
+                let label_response = ui.label(&desc.name);
+                if !tooltip.is_empty() {
+                    label_response.on_hover_text(&tooltip);
                 }
 
-                let response = ui.add(drag);
+                // Use Slider when both bounds are available for visual range feedback
+                let response = if let (Some(min), Some(max)) = (desc.min_value, desc.max_value) {
+                    ui.add(egui::Slider::new(&mut val, min..=max))
+                } else {
+                    // Fallback to DragValue — single range call with both bounds
+                    let min_f = desc.min_value.unwrap_or(f64::MIN);
+                    let max_f = desc.max_value.unwrap_or(f64::MAX);
+                    // Smart speed: scale to range if known
+                    let speed = if let (Some(lo), Some(hi)) = (desc.min_value, desc.max_value) {
+                        ((hi - lo) / 200.0).max(0.001)
+                    } else {
+                        0.1
+                    };
+                    ui.add(
+                        egui::DragValue::new(&mut val)
+                            .speed(speed)
+                            .range(min_f..=max_f),
+                    )
+                };
+
                 if !desc.units.is_empty() {
                     ui.weak(&desc.units);
                 }
@@ -621,7 +665,11 @@ impl ImageViewerPanel {
                 .or_insert_with(|| param.current_value.clone());
 
             ui.horizontal_wrapped(|ui| {
-                ui.label(&desc.name);
+                Self::render_star_button(ui, is_fav, &mut self.param_favorites, &param_name);
+                let label_response = ui.label(&desc.name);
+                if !tooltip.is_empty() {
+                    label_response.on_hover_text(&tooltip);
+                }
                 let response = ui.text_edit_singleline(buffer);
 
                 if response.lost_focus() && buffer != &param.current_value {
@@ -632,7 +680,11 @@ impl ImageViewerPanel {
         // Fallback
         else {
             ui.horizontal_wrapped(|ui| {
-                ui.label(&desc.name);
+                Self::render_star_button(ui, is_fav, &mut self.param_favorites, &param_name);
+                let label_response = ui.label(&desc.name);
+                if !tooltip.is_empty() {
+                    label_response.on_hover_text(&tooltip);
+                }
                 ui.label(&param.current_value);
             });
         }

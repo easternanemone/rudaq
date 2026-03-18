@@ -19,8 +19,43 @@ impl ImageViewerPanel {
             .id_salt("side_panel_scroll")
             .show(ui, |ui| {
                 if has_controls_panel {
+                    // Loading indicator
+                    if self.loading_params_device.is_some() {
+                        layout::card_frame(ui).show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.spinner();
+                                ui.label("Loading parameters\u{2026}");
+                            });
+                        });
+                        ui.add_space(2.0);
+                    }
+
                     if let Some(device_id_ref) = &self.device_id {
                         let device_id = device_id_ref.clone();
+
+                        // Refresh button header
+                        ui.horizontal(|ui| {
+                            ui.strong(format!(
+                                "{} {}",
+                                icons::action::SETTINGS,
+                                device_id
+                            ));
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if ui
+                                        .button(icons::action::REFRESH)
+                                        .on_hover_text("Reload parameters from device")
+                                        .clicked()
+                                    {
+                                        // Clear params to trigger auto-reload in rendering.rs
+                                        self.camera_params.clear();
+                                        self.loading_params_device = None;
+                                    }
+                                },
+                            );
+                        });
+                        ui.add_space(2.0);
 
                         // Collect favorite indices (bd-4wf7)
                         let fav_indices: Vec<usize> = (0..self.camera_params.len())
