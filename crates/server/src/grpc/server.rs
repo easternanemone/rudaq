@@ -2003,6 +2003,22 @@ pub async fn start_server_with_hardware(
     // Detects plans stuck in Running/Paused with no client activity and aborts them.
     let _watchdog_handle = run_engine.spawn_watchdog();
 
+    // Spawn webhook alerting task if configured (bd-kctc)
+    #[cfg(feature = "alerting")]
+    if let Some(notifier) = crate::alerting::WebhookNotifier::new(config.alerting.clone()) {
+        let notifier = std::sync::Arc::new(notifier);
+        let health_rx = registry.subscribe_health_changes();
+        let doc_rx = run_engine.subscribe();
+        let alert_cancel = shutdown_token.clone();
+        tokio::spawn(crate::alerting::run_alerting_task(
+            notifier,
+            health_rx,
+            doc_rx,
+            alert_cancel,
+        ));
+        tracing::info!("Webhook alerting enabled");
+    }
+
     // Pause the engine if disk or process RSS crosses danger thresholds (bd-102j).
     tokio::spawn(
         crate::health::sys_monitor::ResourceGuard::new(

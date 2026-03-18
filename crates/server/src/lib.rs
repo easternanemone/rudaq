@@ -39,6 +39,8 @@
 //!
 //! [`DaqServer`]: grpc::server::DaqServer
 
+#[cfg(feature = "alerting")]
+pub mod alerting;
 pub mod config;
 pub mod grpc;
 pub mod health;

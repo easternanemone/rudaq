@@ -17,6 +17,44 @@ pub struct ServerConfig {
     pub grpc: GrpcSettings,
     #[serde(default)]
     pub storage: StorageSettings,
+    /// Webhook alerting for device faults and plan aborts.
+    #[serde(default)]
+    pub alerting: AlertingConfig,
+}
+
+/// Configuration for webhook alerting on device faults and plan aborts.
+///
+/// Supports Slack-style incoming webhooks (also compatible with Discord).
+/// All fields are optional — the system works without this section.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AlertingConfig {
+    /// Webhook URL for Slack/Discord notifications (empty = disabled).
+    pub webhook_url: Option<String>,
+    /// Minimum seconds between alerts for the same device (rate limiting).
+    pub rate_limit_secs: u64,
+    /// Whether to alert when a device transitions to Faulted.
+    pub alert_on_fault: bool,
+    /// Whether to alert when a device hits max restart attempts.
+    pub alert_on_restart_limit: bool,
+    /// Whether to alert when RunEngine aborts a plan.
+    pub alert_on_plan_abort: bool,
+    /// Max restart attempts threshold for "giving up" alerts.
+    /// Should match `SupervisorConfig::max_restart_attempts`.
+    pub max_restart_attempts: u32,
+}
+
+impl Default for AlertingConfig {
+    fn default() -> Self {
+        Self {
+            webhook_url: None,
+            rate_limit_secs: 60,
+            alert_on_fault: true,
+            alert_on_restart_limit: true,
+            alert_on_plan_abort: true,
+            max_restart_attempts: 5,
+        }
+    }
 }
 
 fn default_config_version() -> u32 {
@@ -110,6 +148,7 @@ impl ServerConfig {
             config_version: default_config_version(),
             grpc: GrpcSettings::default(),
             storage: StorageSettings::default(),
+            alerting: AlertingConfig::default(),
         }))
         .merge(Env::prefixed("RUSTDAQ_").split("__"));
 

@@ -50,6 +50,8 @@ bincode = "1.3"
 rerun = { version = "0.27.3", features = ["server"], optional = true }
 experiment = { version = "0.1.0", path = "../experiment" }
 db = { path = "../db", optional = true }
+reqwest = { workspace = true, optional = true }
+dashmap = "6.1"
 
 # Metrics and monitoring (bd-v299)
 prometheus = { version = "0.14", optional = true }
@@ -57,7 +59,8 @@ hyper = { version = "0.14", features = ["server", "http1", "tcp"], optional = tr
 
 [features]
 # Simplified feature flags (bd-0aqw)
-default = ["modules", "server", "networking", "scripting"]
+default = ["modules", "server", "networking", "scripting", "alerting"]
+alerting = ["dep:reqwest"]
 server = ["dep:tonic-web", "dep:tower-http", "dep:tower-layer", "dep:tower-service"]
 modules = ["dep:daq-modules"]
 modules_scripting = ["modules", "daq-modules/scripting"]

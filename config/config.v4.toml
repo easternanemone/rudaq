@@ -40,3 +40,14 @@ allowed_origins = ["*"]
 
 # Tap channel size (frames buffered per tap consumer).
 # tap_channel_size = 32
+
+# [alerting]
+# Webhook alerting for device faults and plan aborts.
+# Supports Slack-style incoming webhooks (also compatible with Discord).
+#
+# webhook_url = "https://hooks.slack.com/services/T.../B.../..."
+# rate_limit_secs = 60
+# alert_on_fault = true
+# alert_on_restart_limit = true
+# alert_on_plan_abort = true
+# max_restart_attempts = 5
