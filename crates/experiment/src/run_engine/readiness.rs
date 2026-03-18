@@ -245,19 +245,30 @@ impl ReadinessManager {
             return Vec::new();
         }
 
-        let active_calibrations = self.active_calibrations.read().await;
-        let max_ages = self.calibration_max_ages.read().await;
+        // Clone calibration data into locals and drop the RwLock guards
+        // *before* any .await. This avoids holding read guards across
+        // hardware I/O in config_match_issues_for_devices.
+        let calibrations_snapshot: Vec<(String, CalibrationFreshness, Option<Duration>)> = {
+            let active_calibrations = self.active_calibrations.read().await;
+            let max_ages = self.calibration_max_ages.read().await;
+            device_types
+                .into_iter()
+                .filter_map(|dt| {
+                    let snapshot = active_calibrations.get(&dt)?.clone();
+                    let max_age = max_ages.get(&dt).copied();
+                    Some((dt, snapshot, max_age))
+                })
+                .collect()
+            // Guards dropped here
+        };
+
         let now = Utc::now();
         let mut issues = Vec::new();
 
-        for device_type in device_types {
-            let Some(snapshot) = active_calibrations.get(&device_type).cloned() else {
-                continue;
-            };
-            if let (Some(calibration_timestamp), Some(max_age)) = (
-                snapshot.calibration_timestamp,
-                max_ages.get(&device_type).copied(),
-            ) {
+        for (device_type, snapshot, max_age) in calibrations_snapshot {
+            if let (Some(calibration_timestamp), Some(max_age)) =
+                (snapshot.calibration_timestamp, max_age)
+            {
                 let age = now
                     .signed_duration_since(calibration_timestamp)
                     .to_std()
