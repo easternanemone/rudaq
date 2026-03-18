@@ -9,7 +9,7 @@ use serde::Deserialize;
 use std::path::PathBuf;
 
 use echelle::calibration_pipeline::{CalibrationPipelineConfig, WavelengthSeed};
-use echelle::wavelength_fitting::load_hgar_atlas;
+use echelle::wavelength_fitting::{load_hg_atlas, load_hgar_atlas};
 use echelle::{EchelleFrameCompatibility, EchelleOrientation};
 
 // ─── Config TOML types ──────────────────────────────────────────────────────
@@ -67,6 +67,14 @@ pub struct TuningSection {
     pub min_lines_per_order: usize,
     /// Use Horne 1986 optimal extraction (vs simple summation)
     pub use_optimal_extraction: bool,
+    /// Calibration lamp type: "hg" (pure mercury, e.g. HG-2), "hgar" (mercury-argon).
+    /// Default: "hg" for best compatibility with OceanInsight HG-2 lamps.
+    #[serde(default = "default_lamp")]
+    pub lamp: String,
+}
+
+fn default_lamp() -> String {
+    "hg".to_string()
 }
 
 fn default_order_step() -> i32 {
@@ -87,6 +95,7 @@ impl Default for TuningSection {
             wl_seed_tolerance_nm: 2.0,
             min_lines_per_order: 3,
             use_optimal_extraction: false,
+            lamp: default_lamp(),
         }
     }
 }
@@ -118,7 +127,14 @@ impl CalibrateFileConfig {
             rectify_config: d.rectify_config,
             optimal_config: d.optimal_config,
             use_optimal_extraction: self.tuning.use_optimal_extraction,
-            atlas: load_hgar_atlas(),
+            atlas: match self.tuning.lamp.as_str() {
+                "hg" | "hg2" | "mercury" => load_hg_atlas(),
+                "hgar" | "hg-ar" => load_hgar_atlas(),
+                other => {
+                    tracing::warn!("Unknown lamp type '{other}', using pure Hg atlas");
+                    load_hg_atlas()
+                }
+            },
             seed: WavelengthSeed::EchelleEquation {
                 grating_constant_nm: self.instrument.grating_constant_nm,
                 first_physical_order: self.instrument.first_physical_order,

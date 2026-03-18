@@ -1,0 +1,166 @@
+profile_id = "cal-20260317-222812-4"
+display_name = "Mechelle 5000 HgAr (leabs-dev)"
+
+[schema_version]
+major = 1
+minor = 0
+patch = 0
+
+[compatibility]
+sensor_width = 2560
+sensor_height = 2160
+frame_width = 2560
+frame_height = 2160
+roi_x = 0
+roi_y = 0
+binning_x = 1
+binning_y = 1
+bit_depth = 16
+
+[orientation]
+dispersion_axis = "x"
+cross_dispersion_axis = "y"
+order_number_increase_direction = "positive"
+wavelength_increase_with_dispersion_positive = true
+
+[extraction]
+summation_mode = "simple_sum"
+default_aperture_half_width_px = 4.0
+
+[[orders]]
+relative_index = 2
+sample_start = 600
+sample_end = 1298
+aperture_half_width_px = 4.0
+enabled = true
+notes = "RMS=0.0000nm, 2/2 lines"
+
+[orders.trace]
+type = "polynomial"
+basis = "monomial"
+coefficients = [
+    248.85456129750793,
+    0.0009949607455022936,
+    -0.000001361014069534996,
+    0.0000000006124084989031067,
+    -0.00000000000008506974114383202,
+]
+domain_start = 0.0
+domain_end = 2559.0
+
+[orders.wavelength]
+type = "polynomial"
+basis = "chebyshev"
+coefficients = [
+    805.924,
+    4.444999999999993,
+]
+domain_start = 599.8987608554909
+domain_end = 1298.6406677026032
+unit = "nm"
+
+[[orders]]
+relative_index = 5
+sample_start = 950
+sample_end = 2144
+aperture_half_width_px = 4.0
+enabled = true
+notes = "RMS=0.0000nm, 2/2 lines"
+
+[orders.trace]
+type = "polynomial"
+basis = "monomial"
+coefficients = [
+    440.17035749683515,
+    -0.000741593795198544,
+    0.0000010116511091570956,
+    -0.0000000005438644990135048,
+    0.00000000000009877220087630925,
+]
+domain_start = 0.0
+domain_end = 2559.0
+
+[orders.wavelength]
+type = "polynomial"
+basis = "chebyshev"
+coefficients = [
+    757.488,
+    6.022999999999968,
+]
+domain_start = 949.0577900297244
+domain_end = 2144.841515428047
+unit = "nm"
+
+[[orders]]
+relative_index = 7
+sample_start = 247
+sample_end = 1405
+aperture_half_width_px = 4.0
+enabled = true
+notes = "RMS=0.0000nm, 2/2 lines"
+
+[orders.trace]
+type = "polynomial"
+basis = "monomial"
+coefficients = [
+    469.2001611786478,
+    -0.0009546612134943757,
+    0.0000013121053966793816,
+    -0.0000000007142130369914705,
+    0.0000000000001328356273677327,
+]
+domain_start = 0.0
+domain_end = 2559.0
+
+[orders.wavelength]
+type = "polynomial"
+basis = "chebyshev"
+coefficients = [
+    720.999,
+    6.295000000000016,
+]
+domain_start = 246.0864138665192
+domain_end = 1405.1634933845016
+unit = "nm"
+
+[[orders]]
+relative_index = 8
+sample_start = 424
+sample_end = 1516
+aperture_half_width_px = 4.0
+enabled = true
+notes = "RMS=0.0000nm, 2/2 lines"
+
+[orders.trace]
+type = "polynomial"
+basis = "monomial"
+coefficients = [
+    513.071579509692,
+    -0.00019454039118666064,
+    0.000000023409236733123484,
+    0.00000000008915403661408457,
+    -0.00000000000002977623795114788,
+]
+domain_start = 0.0
+domain_end = 2559.0
+
+[orders.wavelength]
+type = "polynomial"
+basis = "chebyshev"
+coefficients = [
+    710.713,
+    3.9909999999999854,
+]
+domain_start = 423.74912785155743
+domain_end = 1516.3740633670714
+unit = "nm"
+
+[corrections]
+excluded_regions = []
+
+[provenance]
+creator_tool = "rust-daq echelle_calibration_pipeline"
+creator_version = "0.1.0"
+created_at_utc = "2026-03-17T22:28:12.917088947Z"
+source_frame_ids = []
+notes = "Calibrated 4/13 orders, overall RMS = 0.0000 nm"

@@ -389,11 +389,77 @@ pub struct AtlasLine {
     pub strength: f64,
 }
 
+/// Load a pure Mercury (Hg I) reference atlas for HG-2 type lamps.
+///
+/// Contains ~35 Hg I lines from the NIST Atomic Spectra Database covering
+/// 253-1014nm. Suitable for the OceanInsight HG-2 (pure mercury, no argon
+/// fill gas). Many more lines than the 11 "strongest" list — essential for
+/// echelle calibration where each order covers only ~20-30nm and needs
+/// at least 2 matches.
+#[must_use]
+pub fn load_hg_atlas() -> Vec<AtlasLine> {
+    vec![
+        // NIST Hg I air wavelengths, ordered by wavelength.
+        // Source: NIST ASD (https://physics.nist.gov/PhysRefData/ASD/lines_form.html)
+        // Strengths are NIST relative intensities (approximate).
+        a(253.652, "Hg I", 10000.0), // UV resonance line
+        a(265.204, "Hg I", 80.0),
+        a(275.278, "Hg I", 50.0),
+        a(280.346, "Hg I", 30.0),
+        a(289.360, "Hg I", 40.0),
+        a(292.541, "Hg I", 30.0),
+        a(296.728, "Hg I", 2000.0),
+        a(302.150, "Hg I", 1500.0),
+        a(312.567, "Hg I", 1800.0),
+        a(313.155, "Hg I", 1200.0), // close doublet with 312.567
+        a(313.184, "Hg I", 800.0),
+        a(334.148, "Hg I", 3000.0),
+        a(365.015, "Hg I", 8000.0), // strong UV triplet member
+        a(365.484, "Hg I", 2000.0), // triplet
+        a(366.289, "Hg I", 600.0),  // triplet
+        a(390.644, "Hg I", 100.0),
+        a(398.393, "Hg I", 60.0),
+        a(404.656, "Hg I", 6000.0), // violet line (h)
+        a(407.783, "Hg I", 80.0),
+        a(433.922, "Hg I", 50.0),
+        a(435.833, "Hg I", 9000.0), // blue line (g)
+        a(491.607, "Hg I", 100.0),
+        a(496.027, "Hg I", 40.0),
+        a(502.564, "Hg I", 60.0),
+        a(546.074, "Hg I", 10000.0), // green line (e)
+        a(567.581, "Hg I", 60.0),
+        a(576.960, "Hg I", 4000.0), // yellow doublet
+        a(579.066, "Hg I", 3500.0), // yellow doublet
+        a(580.378, "Hg I", 30.0),
+        a(585.924, "Hg I", 20.0),
+        a(587.086, "Hg I", 20.0),
+        a(607.278, "Hg I", 20.0),
+        a(612.327, "Hg I", 20.0),
+        a(623.440, "Hg I", 30.0),
+        a(671.643, "Hg I", 50.0),
+        a(690.752, "Hg I", 30.0),
+        a(708.190, "Hg I", 20.0),
+        a(709.187, "Hg I", 20.0),
+        a(773.669, "Hg I", 20.0),
+        a(871.685, "Hg I", 10.0),
+        a(1013.975, "Hg I", 80.0), // NIR line
+    ]
+}
+
+/// Convenience constructor for `AtlasLine`.
+fn a(wavelength_nm: f64, species: &str, strength: f64) -> AtlasLine {
+    AtlasLine {
+        wavelength_nm,
+        species: species.into(),
+        strength,
+    }
+}
+
 /// Load the HgAr (Mercury-Argon) reference emission line atlas.
 ///
 /// Returns the ~30 strongest Hg I and Ar I lines in the 200-900nm range,
-/// suitable for calibrating the Mechelle 5000 echelle spectrograph with an
-/// Ocean Optics HG-2 calibration lamp. Wavelengths are NIST air wavelengths.
+/// suitable for calibrating with an HgAr hollow cathode lamp.
+/// For the OceanInsight HG-2 (pure mercury), use [`load_hg_atlas`] instead.
 #[must_use]
 pub fn load_hgar_atlas() -> Vec<AtlasLine> {
     vec![

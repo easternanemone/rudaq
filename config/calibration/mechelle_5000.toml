@@ -38,6 +38,9 @@ order_number_increase_direction = "positive"
 wavelength_increase_with_dispersion_positive = true
 
 [tuning]
+# Calibration lamp type: "hg" for OceanInsight HG-2 (pure mercury, ~40 lines)
+# Use "hgar" for mercury-argon hollow cathode lamps
+lamp = "hg"
 # Trace detection: lower SNR threshold for faint UV orders
 trace_min_snr = 3.0
 # Expected trace FWHM for iStar (slightly broader than research cameras)

@@ -34,5 +34,5 @@
 {"key":"kv.memory.slint-eval-conditional-go-slint-7-60-10","value":"Slint eval CONDITIONAL-GO: Slint 7.60/10 vs egui 8.55/10. E4 performance PASS: 1080p camera 163fps ceiling, bridge 134ns, idle CPU \u003c0.1% vs egui 2-5%, WASM ~2.1MB gzip estimated. 3 conditions before migration: (1) gRPC-web runtime browser test, (2) floating-window UX lab validation, (3) license decision. Migration plan: 24 person-weeks 5 phases, MIGRATION_PLAN.md on eval/slint-gui-comparison branch."}
 {"key":"kv.memory.slint-eval-result-conditional-go-2026-03-07","value":"slint-eval-result: CONDITIONAL-GO (2026-03-07) — WASM PASS (Slint 1.15.1, 6.2MB, gRPC-web via tonic-web-wasm-client), Perf PASS (560fps native, 3.4x egui 163fps), Docking CONDITIONAL-PASS (splitter+MDI hybrid ~300-400 LOC). Remaining gate: Slint license review."}
 {"key":"kv.memory.wasm-gui-access","value":"WASM GUI served on maitai at http://100.117.5.12:8080 — Claude Code can interact with real hardware through Chrome browser automation (claude-in-chrome MCP)"}
-{"key":"schema_version","value":"6"}
+{"key":"schema_version","value":"7"}
 {"key":"types.custom","value":"molecule,gate,convoy,merge-request,slot,agent,role,rig,message"}
