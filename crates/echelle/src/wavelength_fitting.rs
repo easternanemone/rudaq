@@ -1018,6 +1018,160 @@ fn solve_linear_system(mat: &mut [Vec<f64>], rhs: &mut [f64]) -> Option<Vec<f64>
     Some(solution)
 }
 
+// ─── 2D Chebyshev tensor-product basis (bd-hpzi.1) ────────────────────────────
+
+/// Result of a 2D Chebyshev surface fit.
+#[derive(Debug, Clone)]
+pub struct Chebyshev2DSurface {
+    /// Flattened coefficient matrix c[i * (j_max+1) + j] for T_i(x) × T_j(m).
+    pub coefficients: Vec<f64>,
+    /// Maximum degree in x (pixel) direction.
+    pub degree_x: usize,
+    /// Maximum degree in m (order) direction.
+    pub degree_m: usize,
+    /// Normalization: x_norm = (x - x_center) / x_scale
+    pub x_center: f64,
+    pub x_scale: f64,
+    /// Normalization: m_norm = (m - m_center) / m_scale
+    pub m_center: f64,
+    pub m_scale: f64,
+}
+
+impl Chebyshev2DSurface {
+    /// Evaluate the 2D surface at a given (x, m) point.
+    #[must_use]
+    pub fn eval(&self, x: f64, m: f64) -> f64 {
+        let x_norm = (x - self.x_center) / self.x_scale;
+        let m_norm = (m - self.m_center) / self.m_scale;
+        chebyshev_eval_2d(
+            &self.coefficients,
+            self.degree_x,
+            self.degree_m,
+            x_norm,
+            m_norm,
+        )
+    }
+}
+
+/// Evaluate a 2D Chebyshev tensor-product surface at normalized coordinates.
+///
+/// coeffs[i * (degree_m + 1) + j] is the coefficient for T_i(x) × T_j(m).
+fn chebyshev_eval_2d(
+    coeffs: &[f64],
+    degree_x: usize,
+    degree_m: usize,
+    x_norm: f64,
+    m_norm: f64,
+) -> f64 {
+    let nx = degree_x + 1;
+    let nm = degree_m + 1;
+
+    // Precompute T_i(x) and T_j(m) via recurrence
+    let tx = chebyshev_basis(x_norm, nx);
+    let tm = chebyshev_basis(m_norm, nm);
+
+    let mut result = 0.0;
+    for i in 0..nx {
+        for j in 0..nm {
+            result += coeffs[i * nm + j] * tx[i] * tm[j];
+        }
+    }
+    result
+}
+
+/// Compute Chebyshev basis values T_0(x)..T_n-1(x) via the recurrence relation.
+fn chebyshev_basis(x: f64, n: usize) -> Vec<f64> {
+    let mut t = vec![0.0; n];
+    if n == 0 {
+        return t;
+    }
+    t[0] = 1.0; // T_0
+    if n == 1 {
+        return t;
+    }
+    t[1] = x; // T_1
+    for k in 2..n {
+        t[k] = 2.0 * x * t[k - 1] - t[k - 2];
+    }
+    t
+}
+
+/// Fit a 2D Chebyshev tensor-product surface to scattered data points.
+///
+/// Takes `(x, m, value)` data and fits coefficients c_ij such that:
+/// `value ≈ Σ c_ij × T_i(x_norm) × T_j(m_norm)`
+///
+/// Normalization maps x to [-1, 1] using `(x - x_center) / x_scale` and
+/// similarly for m.
+///
+/// Returns `None` if there are fewer data points than coefficients.
+#[allow(clippy::many_single_char_names)]
+pub fn chebyshev_fit_2d(
+    data: &[(f64, f64, f64)], // (x, m, value)
+    degree_x: usize,
+    degree_m: usize,
+    x_center: f64,
+    x_scale: f64,
+    m_center: f64,
+    m_scale: f64,
+) -> Option<Chebyshev2DSurface> {
+    let nx = degree_x + 1;
+    let nm = degree_m + 1;
+    let n_coeffs = nx * nm;
+    let n_pts = data.len();
+
+    if n_pts < n_coeffs {
+        return None;
+    }
+
+    // Build Vandermonde-like matrix: V[row, i*nm+j] = T_i(x_norm) * T_j(m_norm)
+    let mut vandermonde = vec![vec![0.0; n_coeffs]; n_pts];
+    let mut y_vals = vec![0.0; n_pts];
+
+    for (row, &(x, m, val)) in data.iter().enumerate() {
+        let x_norm = (x - x_center) / x_scale;
+        let m_norm = (m - m_center) / m_scale;
+        let tx = chebyshev_basis(x_norm, nx);
+        let tm = chebyshev_basis(m_norm, nm);
+
+        for i in 0..nx {
+            for j in 0..nm {
+                vandermonde[row][i * nm + j] = tx[i] * tm[j];
+            }
+        }
+        y_vals[row] = val;
+    }
+
+    // Form normal equations: A = V^T × V, rhs = V^T × y
+    let mut normal = vec![vec![0.0; n_coeffs]; n_coeffs];
+    let mut rhs = vec![0.0; n_coeffs];
+
+    for c1 in 0..n_coeffs {
+        for c2 in 0..n_coeffs {
+            let sum: f64 = vandermonde.iter().map(|row| row[c1] * row[c2]).sum();
+            normal[c1][c2] = sum;
+        }
+        let sum: f64 = vandermonde
+            .iter()
+            .zip(&y_vals)
+            .map(|(row, &y)| row[c1] * y)
+            .sum();
+        rhs[c1] = sum;
+    }
+
+    let coefficients = solve_linear_system(&mut normal, &mut rhs)?;
+
+    Some(Chebyshev2DSurface {
+        coefficients,
+        degree_x,
+        degree_m,
+        x_center,
+        x_scale,
+        m_center,
+        m_scale,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1453,5 +1607,65 @@ mod tests {
         assert!((sol.eval(1000.0) - 500.0).abs() < 1e-10);
         // At pixel_max (2000): x_norm = 1 → λ = 510
         assert!((sol.eval(2000.0) - 510.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_chebyshev_2d_fit_linear_surface() {
+        // Fit a simple 2D plane: z = 3.0 + 2.0*x + 1.5*m
+        let mut data = Vec::new();
+        for ix in 0..10 {
+            for im in 0..8 {
+                let x = ix as f64 * 256.0;
+                let m = 43.0 + im as f64 * 10.0;
+                let z = 3.0 + 2.0 * x / 1280.0 + 1.5 * m / 80.0;
+                data.push((x, m, z));
+            }
+        }
+
+        let surface = chebyshev_fit_2d(
+            &data, 2, 2,      // degree_x=2, degree_m=2
+            1280.0, // x_center
+            1280.0, // x_scale
+            83.0,   // m_center
+            40.0,   // m_scale
+        )
+        .expect("fit should succeed");
+
+        // Check a few evaluation points
+        let z_mid = surface.eval(1280.0, 83.0);
+        let z_expected = 3.0 + 2.0 * 1280.0 / 1280.0 + 1.5 * 83.0 / 80.0;
+        assert!(
+            (z_mid - z_expected).abs() < 1e-8,
+            "midpoint: got {z_mid}, expected {z_expected}"
+        );
+
+        // Check an edge point
+        let z_edge = surface.eval(0.0, 43.0);
+        let z_exp2 = 3.0 + 2.0 * 0.0 / 1280.0 + 1.5 * 43.0 / 80.0;
+        assert!(
+            (z_edge - z_exp2).abs() < 1e-8,
+            "edge: got {z_edge}, expected {z_exp2}"
+        );
+    }
+
+    #[test]
+    fn test_chebyshev_2d_fit_quadratic() {
+        // Fit z = x² + m (quadratic in x, linear in m)
+        let mut data = Vec::new();
+        for ix in 0..20 {
+            for im in 0..10 {
+                let x = (ix as f64 - 10.0) / 10.0; // [-1, 1] already normalized
+                let m = (im as f64 - 5.0) / 5.0; // [-1, 1]
+                let z = x * x + m;
+                data.push((x, m, z));
+            }
+        }
+
+        let surface =
+            chebyshev_fit_2d(&data, 3, 2, 0.0, 1.0, 0.0, 1.0).expect("fit should succeed");
+
+        // x²+m at (0.5, 0.3) = 0.25 + 0.3 = 0.55
+        let z = surface.eval(0.5, 0.3);
+        assert!((z - 0.55).abs() < 1e-6, "quadratic: got {z}, expected 0.55");
     }
 }

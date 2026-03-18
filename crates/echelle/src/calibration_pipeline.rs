@@ -421,6 +421,29 @@ fn run_calibration_pipeline_impl(
         }
     }
 
+    // ── Pass 3: Physics baseline + 2D residual bootstrap (bd-hpzi) ───
+    // For orders that still failed (no HgAr lines at all), use the
+    // grating equation as a rigid physical baseline and a 2D Chebyshev
+    // residual surface fit from calibrated orders to predict wavelengths.
+    if let Some(gc) = grating_constant_nm {
+        let n_still_failed = diagnostics.iter().filter(|d| !d.success).count();
+        if order_calibrations.len() >= 6 && n_still_failed > 0 {
+            let bootstrapped = bootstrap_uncalibrated_orders(
+                gc,
+                width,
+                &traces,
+                &mut order_calibrations,
+                &mut diagnostics,
+            );
+            if bootstrapped > 0 {
+                tracing::info!(
+                    bootstrapped,
+                    "Pass 3: bootstrapped orders via physics + 2D residual"
+                );
+            }
+        }
+    }
+
     // ── Stage 7: Assemble EchelleCalibrationProfile ──────────────────
     let n_calibrated = order_calibrations.len();
     if n_calibrated == 0 {
@@ -826,6 +849,205 @@ fn quadratic_regression(points: &[(f64, f64)]) -> (f64, f64, f64) {
     let c = det([[n, s[1], t[0]], [s[1], s[2], t[1]], [s[2], s[3], t[2]]]) / d;
 
     (a, b, c)
+}
+
+/// Bootstrap uncalibrated orders using physics baseline + 2D residual correction.
+///
+/// For each uncalibrated order:
+/// 1. Assign physical order m via quadratic interpolation from calibrated anchors
+/// 2. Compute physics baseline: λ_base(x, m) = gc/m + disp(m) × (x - w/2)
+/// 3. Correct with 2D Chebyshev residual surface fit from calibrated orders
+/// 4. Create an EchelleOrderCalibration with the predicted wavelength solution
+///
+/// Returns the number of newly bootstrapped orders.
+fn bootstrap_uncalibrated_orders(
+    gc: f64,
+    width: u32,
+    traces: &[crate::trace_fitting::OrderTrace],
+    order_calibrations: &mut Vec<EchelleOrderCalibration>,
+    diagnostics: &mut [OrderDiagnostic],
+) -> usize {
+    use crate::wavelength_fitting::chebyshev_fit_2d;
+
+    let npx = f64::from(width.max(1));
+    let half_w = npx / 2.0;
+
+    // Collect calibrated anchor data: (trace_index, physical_order_m)
+    let anchors: Vec<(f64, f64)> = order_calibrations
+        .iter()
+        .filter_map(|cal| {
+            let m = cal.physical_order_number? as f64;
+            Some((f64::from(cal.relative_index), m))
+        })
+        .collect();
+
+    if anchors.len() < 3 {
+        return 0;
+    }
+
+    // Step 1: Assign m to all traces via quadratic interpolation
+    let (a, b, c) = quadratic_regression(&anchors);
+
+    // Step 2: Compute physics baseline dispersion model.
+    // Fit the actual dispersion (nm/pixel) vs m from calibrated orders.
+    // Dispersion theoretically scales as gc/m²/npx. We fit a scale factor.
+    let mut disp_products: Vec<f64> = Vec::new();
+    for diag in diagnostics.iter() {
+        if !diag.success {
+            continue;
+        }
+        if let Some(ref sol) = diag.wl_solution {
+            let mid = sol.pixel_min.midpoint(sol.pixel_max);
+            let lambda_center = sol.eval(mid);
+            let m = (gc / lambda_center).round();
+            if m < 1.0 {
+                continue;
+            }
+            // Compute actual dispersion from the Chebyshev solution
+            let p_lo = sol.pixel_min + 10.0;
+            let p_hi = sol.pixel_max - 10.0;
+            if p_hi <= p_lo {
+                continue;
+            }
+            let actual_disp = (sol.eval(p_hi) - sol.eval(p_lo)) / (p_hi - p_lo);
+            let theoretical_disp = gc / (m * m * npx);
+            if theoretical_disp.abs() > 1e-15 {
+                disp_products.push(actual_disp / theoretical_disp);
+            }
+        }
+    }
+    let disp_scale = if disp_products.is_empty() {
+        1.0
+    } else {
+        disp_products.iter().sum::<f64>() / disp_products.len() as f64
+    };
+
+    // Step 3: Collect (pixel, m, δλ) residuals from calibrated orders
+    let m_values: Vec<f64> = anchors.iter().map(|(_, m)| *m).collect();
+    let m_min = m_values.iter().copied().fold(f64::INFINITY, f64::min);
+    let m_max = m_values.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    let m_center = (m_min + m_max) / 2.0;
+    let m_scale = ((m_max - m_min) / 2.0).max(1.0);
+    let x_center = half_w;
+    let x_scale = half_w.max(1.0);
+
+    let mut residual_data: Vec<(f64, f64, f64)> = Vec::new();
+    for diag in diagnostics.iter() {
+        if !diag.success {
+            continue;
+        }
+        if let Some(ref sol) = diag.wl_solution {
+            let mid = sol.pixel_min.midpoint(sol.pixel_max);
+            let lambda_center_actual = sol.eval(mid);
+            let mf = (gc / lambda_center_actual).round();
+            if mf < 1.0 {
+                continue;
+            }
+            let theoretical_disp = disp_scale * gc / (mf * mf * npx);
+            let lambda_center = gc / mf;
+
+            // Sample the calibrated wavelength solution at several pixel positions
+            // and compute residuals vs the physics baseline
+            for px_frac in [0.1, 0.25, 0.5, 0.75, 0.9] {
+                let px = sol.pixel_min + (sol.pixel_max - sol.pixel_min) * px_frac;
+                let wl_actual = sol.eval(px);
+                let wl_base = lambda_center + theoretical_disp * (px - half_w);
+                let residual = wl_actual - wl_base;
+                residual_data.push((px, mf, residual));
+            }
+        }
+    }
+
+    if residual_data.len() < 20 {
+        // Not enough data for a 4×3 fit (20 coefficients)
+        return 0;
+    }
+
+    // Step 4: Fit 2D Chebyshev residual surface (degree 4 in pixel, 3 in order)
+    let surface = match chebyshev_fit_2d(
+        &residual_data,
+        4, // degree_x (pixel)
+        3, // degree_m (order)
+        x_center,
+        x_scale,
+        m_center,
+        m_scale,
+    ) {
+        Some(s) => s,
+        None => return 0,
+    };
+
+    // Step 5: Bootstrap uncalibrated orders
+    let mut bootstrapped = 0;
+    for (order_idx, _trace) in traces.iter().enumerate() {
+        if diagnostics[order_idx].success {
+            continue;
+        }
+
+        let i = order_idx as f64;
+        let predicted_m = (a + b * i + c * i * i).round();
+        if predicted_m < 1.0 {
+            continue;
+        }
+        let mf = predicted_m;
+        let m_int = mf as i32;
+
+        let lambda_center = gc / mf;
+        let theoretical_disp = disp_scale * gc / (mf * mf * npx);
+
+        // Build the predicted wavelength as: baseline + 2D residual correction
+        // We store it as a monomial polynomial for the EchelleOrderCalibration
+        // Evaluate at 5 points and fit a low-order polynomial
+        let mut px_wl: Vec<(f64, f64)> = Vec::new();
+        for px_i in 0..10 {
+            let px = npx * (px_i as f64 + 0.5) / 10.0;
+            let wl_base = lambda_center + theoretical_disp * (px - half_w);
+            let wl_correction = surface.eval(px, mf);
+            px_wl.push((px, wl_base + wl_correction));
+        }
+
+        // Fit a linear monomial: λ(px) = intercept + slope * px
+        if px_wl.len() < 2 {
+            continue;
+        }
+        let wl_start = px_wl.first().map(|(_, w)| *w).unwrap_or(0.0);
+        let wl_end = px_wl.last().map(|(_, w)| *w).unwrap_or(0.0);
+        let px_start = px_wl.first().map(|(p, _)| *p).unwrap_or(0.0);
+        let px_end = px_wl.last().map(|(p, _)| *p).unwrap_or(npx);
+        let slope = if (px_end - px_start).abs() > 1e-10 {
+            (wl_end - wl_start) / (px_end - px_start)
+        } else {
+            0.0
+        };
+        let intercept = wl_start - slope * px_start;
+
+        let order_cal = EchelleOrderCalibration {
+            relative_index: order_idx as u32,
+            physical_order_number: Some(m_int),
+            sample_start: 0,
+            sample_end: width.saturating_sub(1),
+            trace: traces[order_idx].trace.clone(),
+            wavelength: EchelleWavelengthModel::Polynomial {
+                basis: PolynomialBasis::Monomial,
+                coefficients: vec![intercept, slope],
+                domain_start: 0.0,
+                domain_end: npx,
+                unit: "nm".to_string(),
+            },
+            aperture_half_width_px: Some(traces[order_idx].aperture_half_width),
+            enabled: true,
+            notes: Some(format!(
+                "m={m_int}, bootstrapped (physics+2D residual, no arc lines)"
+            )),
+        };
+
+        order_calibrations.push(order_cal);
+        diagnostics[order_idx].success = true;
+        diagnostics[order_idx].failure_reason = None;
+        bootstrapped += 1;
+    }
+
+    bootstrapped
 }
 
 /// Build seed functions from the echelle grating equation.
