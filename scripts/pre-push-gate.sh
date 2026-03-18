@@ -32,6 +32,20 @@ else
     failed=1
 fi
 
+# ── 1b. mdBook docs build ────────────────────────────────────────
+if command -v mdbook >/dev/null 2>&1; then
+    echo -en "  Building docs...    "
+    if mdbook build docs/ 2>&1 | grep -q "^ERROR"; then
+        echo -e "${RED}FAILED${NC}"
+        echo -e "  ${YELLOW}Fix: mdbook build docs/${NC}"
+        failed=1
+    else
+        echo -e "${GREEN}ok${NC}"
+    fi
+else
+    echo -e "  Building docs...    ${YELLOW}skip${NC} (mdbook not installed)"
+fi
+
 # ── 2. Clippy ────────────────────────────────────────────────────
 echo -en "  Running clippy...   "
 # Match CI: workspace scope, exclude ui + comedi crates, deny warnings

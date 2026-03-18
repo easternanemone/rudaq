@@ -1,0 +1,21 @@
+[book]
+title = "rust-daq Documentation"
+authors = ["rust-daq contributors"]
+language = "en"
+src = "."
+
+[build]
+build-dir = "book"
+create-missing = false
+
+[output.html]
+default-theme = "navy"
+preferred-dark-theme = "navy"
+git-repository-url = "https://github.com/squiresb/rust-daq"
+edit-url-template = "https://github.com/squiresb/rust-daq/edit/main/docs/{path}"
+
+[output.html.search]
+enable = true
+limit-results = 30
+boost-title = 2
+boost-hierarchy = 2

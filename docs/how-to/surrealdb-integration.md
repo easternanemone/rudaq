@@ -240,7 +240,7 @@ Schema management lives in `crates/db/src/schema.rs`. The system uses
 **forward-only, idempotent migrations**.
 
 **Key constants**:
-- `SCHEMA_VERSION = 3` (`schema.rs:18`)
+- `SCHEMA_VERSION = 8` (`schema.rs:15`)
 - `MIGRATIONS`: Array of `Migration { version, sql }` structs.
 
 **Migration chain**:
@@ -248,7 +248,25 @@ Schema management lives in `crates/db/src/schema.rs`. The system uses
   `experiment`) plus relation tables (`instance_of`, `connects_to`).
   All using `DEFINE TABLE IF NOT EXISTS` for idempotency.
 - **v2**: No-op structural migration (establishes the chain pattern).
-- **v3**: Topology graph tables (`process`, `stream`) with indexes.
+- **v3**: Extend `experiment` table with `experiment_id` key. (Topology
+  tables were removed as dead code — version number preserved for RocksDB
+  database compatibility.)
+- **v4**: Add `commands` array field to `driver` for DB-backed command
+  introspection in universal/TOML drivers.
+- **v5**: Experiment plan storage (`experiment_plan`) and run history
+  (`run_record`). Graph edges: `executed_from` (run→plan) and
+  `uses_instrument` (plan→instrument).
+- **v6**: Device feature metadata cache (`device_feature`) for offline UI
+  parameter rendering.
+- **v7**: Heartbeat monitoring and device runtime state persistence.
+  Adds `heartbeat_at` field to `run_record` for crash detection (stale
+  heartbeat indicates a daemon crash mid-experiment). Adds
+  `device_runtime_state` table for persisting last-known parameter values
+  across restarts. Also fixes `commands` field on `driver` to have
+  `DEFAULT []` (v4 omitted this, causing silent CREATE failures on
+  SCHEMAFULL tables in SurrealDB 2.x).
+- **v8**: Add `is_favorite` flag to `device_runtime_state` for UI
+  quick-access pinning (bd-4wf7).
 
 **`apply_schema()` algorithm** (`schema.rs:131`):
 1. Query `schema_version:current` (fixed record ID) to get current version.
@@ -334,6 +352,57 @@ SurrealDB's JSON storage.
 
 `From<surrealdb::Error>` is implemented for `DbError`, but only when a
 storage engine feature is enabled (`error.rs:43`).
+
+### 2.8 Parameter State Persistence (bd-4wf7)
+
+The `device_runtime_state` table (added in schema v7) persists last-known
+parameter values across daemon restarts. This enables a "pick up where you
+left off" experience — when the daemon restarts, devices are restored to
+their previous positions, exposure times, wavelengths, etc.
+
+**Schema** (`schema.rs`, v7 + v8 migrations):
+
+```sql
+DEFINE TABLE device_runtime_state SCHEMAFULL;
+DEFINE FIELD device_id   ON device_runtime_state TYPE string;
+DEFINE FIELD param_name  ON device_runtime_state TYPE string;
+DEFINE FIELD param_value ON device_runtime_state FLEXIBLE TYPE any;
+DEFINE FIELD updated_at  ON device_runtime_state TYPE datetime DEFAULT time::now();
+DEFINE FIELD is_favorite ON device_runtime_state TYPE bool DEFAULT false;  -- v8
+DEFINE INDEX idx_device_param ON device_runtime_state FIELDS device_id, param_name UNIQUE;
+```
+
+**Write path — debounced writer** (`crates/server/src/grpc/hardware_service/mod.rs`):
+
+When a `HardwareServiceImpl` is created with `with_db()`, it spawns a
+background task that subscribes to parameter change events via a broadcast
+channel. The writer collects dirty parameters into a batch and flushes to
+`device_runtime_state` via `batch_upsert_device_state()` every 2 seconds.
+
+Only **writable** parameters from **user/script** sources are persisted —
+read-only hardware telemetry (e.g., temperature readings) is excluded to
+avoid unnecessary DB churn.
+
+**Read path — startup restore** (`crates/bin/src/daemon_manager.rs`):
+
+On daemon startup, after the initial reconciliation populates the
+DeviceRegistry, `restore_parameter_state()` reads all `device_runtime_state`
+entries and applies them to devices via `Parameter::set_json()`. If a value
+is rejected by the driver (e.g., a constraint violation after a config
+change), the error is logged and the device keeps its hardware default.
+
+The startup sequence is:
+1. Parse TOML → create devices in DeviceRegistry
+2. Shadow-write to SurrealDB
+3. Initial reconcile
+4. **`restore_parameter_state()`** — read `device_runtime_state`, call
+   `Parameter::set_json()` on each device
+
+**Favorites** (schema v8, bd-4wf7):
+
+The `is_favorite` boolean field allows the UI to "pin" frequently-used
+parameters for quick access. This state is persisted in the same
+`device_runtime_state` table alongside parameter values.
 
 ---
 

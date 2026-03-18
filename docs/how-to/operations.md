@@ -263,6 +263,125 @@ The Rust client library (`crates/client`) includes a `ReconnectManager` with
 configurable health-check probes. For local/Tailscale connections, the default
 probes use a faster interval.
 
+## Webhook Alerting
+
+The daemon can send Slack/Discord-compatible webhook notifications for
+critical events during unattended operation. Configure via the `[alerting]`
+section in `config/config.v4.toml`:
+
+```toml
+[alerting]
+webhook_url = "https://hooks.slack.com/services/T.../B.../..."
+rate_limit_secs = 60
+alert_on_fault = true
+alert_on_restart_limit = true
+alert_on_plan_abort = true
+max_restart_attempts = 5
+```
+
+**Env var override:** Set `RUSTDAQ_ALERTING__WEBHOOK_URL` to configure the
+webhook URL without editing the config file (useful for CI or Docker
+deployments).
+
+**Alert types:**
+
+| Event | Message | Trigger |
+|-------|---------|---------|
+| Device fault | `Device Fault \| \`cam1\` faulted after 3 consecutive failures: ...` | Device transitions to `Faulted` state |
+| Restart limit | `Restart Limit Reached \| \`cam1\` failed after 5 restart attempts` | Device exhausts `max_restart_attempts` |
+| Plan abort | `Plan Aborted \| run \`abc123\` aborted after 47 events: ...` | RunEngine emits a `Stop` document with `exit_status == "abort"` |
+
+**Rate limiting:** Alerts are rate-limited per device key (e.g.,
+`fault:cam1`). The default is 60 seconds — a device that repeatedly faults
+generates at most one alert per minute. Different devices and different
+alert types are tracked independently.
+
+**Discord compatibility:** Discord incoming webhooks accept the same
+`{"text": "..."}` JSON payload format as Slack. No configuration changes
+are needed — just use your Discord webhook URL.
+
+Source: `crates/server/src/alerting.rs`
+
+---
+
+## Heartbeat JSONL Log
+
+The daemon writes a structured JSONL log every 60 seconds for overnight
+run forensics. Each line is a self-contained JSON object with system vitals:
+
+```json
+{"ts":"2026-03-17T03:14:00Z","cpu_pct":12.3,"rss_mb":847,"disk_free_gb":42.1,
+ "devices":12,"healthy":10,"faulted":1,"degraded":1,
+ "engine":"running","run_uid":"abc123","seq_num":47,"queued":0}
+```
+
+**Default location:** `/tmp/rust_daq_heartbeat.jsonl`
+
+**Field reference:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `ts` | string | ISO 8601 UTC timestamp |
+| `cpu_pct` | float | Global CPU usage percentage |
+| `rss_mb` | int | Daemon process RSS in megabytes |
+| `disk_free_gb` | float | Free disk space on storage volume (1 decimal) |
+| `devices` | int | Total registered devices |
+| `healthy` | int | Devices in Healthy state |
+| `faulted` | int | Devices in Faulted state |
+| `degraded` | int | Devices in Degraded state |
+| `engine` | string | RunEngine state: `idle`, `running`, `paused`, `aborting` |
+| `run_uid` | string? | Current run UID (omitted when idle) |
+| `seq_num` | int? | Current event sequence number (omitted when idle) |
+| `queued` | int | Number of plans queued |
+
+### Post-mortem analysis with jq
+
+```bash
+# Show timeline of engine state changes
+jq -r '[.ts, .engine, .run_uid // "–"] | @tsv' /tmp/rust_daq_heartbeat.jsonl
+
+# Find when a device faulted
+jq 'select(.faulted > 0)' /tmp/rust_daq_heartbeat.jsonl
+
+# Show memory growth over time
+jq -r '[.ts, .rss_mb] | @tsv' /tmp/rust_daq_heartbeat.jsonl
+
+# Find disk space drops
+jq 'select(.disk_free_gb < 10)' /tmp/rust_daq_heartbeat.jsonl
+
+# Last entry before a crash (tail the file)
+tail -1 /tmp/rust_daq_heartbeat.jsonl | jq .
+```
+
+Source: `crates/server/src/health/heartbeat_log.rs`
+
+---
+
+## Overnight Run Monitoring
+
+For unattended experiments (e.g., overnight spectral scans), combine
+webhook alerting and the heartbeat log for complete coverage:
+
+1. **Real-time alerts** — Configure a Slack/Discord webhook to get push
+   notifications on your phone if a device faults or a plan aborts.
+2. **Forensic breadcrumbs** — The heartbeat JSONL provides a minute-by-minute
+   timeline of system health. After an overnight failure, use `jq` queries
+   to reconstruct what happened.
+3. **Crash detection** — The RunEngine updates `heartbeat_at` on the
+   `run_record` in SurrealDB every ~10 seconds during plan execution. If
+   the daemon crashes, the reconciler on restart detects stale heartbeats
+   and marks the run as `crashed`.
+
+**Recommended checklist before overnight runs:**
+
+- [ ] Verify webhook URL is configured (`grep webhook_url config/config.v4.toml`)
+- [ ] Confirm test alert arrives (`curl -X POST -H 'Content-Type: application/json' -d '{"text":"test"}' <webhook_url>`)
+- [ ] Check available disk space (`df -h /tmp`)
+- [ ] Start the daemon and verify all devices are healthy
+- [ ] Queue the plan and confirm `engine: running` in the heartbeat log
+
+---
+
 ## Log Management
 
 Logging uses the `tracing` / `tracing-subscriber` stack with the standard

@@ -22,6 +22,9 @@ For background on ADRs, see [Michael Nygard's original article](https://cognitop
 | 012 | [Mechelle Echelle MVP Extraction Location](012-mechelle-echelle-mvp-extraction-location.md) | Proposed | 2026-02-25 | Phase-1 decision to implement echelle extraction locally in `ImageViewerPanel` before protocol-native spectrum streaming. |
 | 013 | [Mechelle Calibration Profile Ownership, Versioning, and Compatibility Policy](013-mechelle-calibration-profile-ownership-and-compatibility.md) | Proposed | 2026-02-25 | Define rust-daq-owned canonical calibration profile schema policy with strict compatibility validation and versioning. |
 | 014 | [Frame Streaming Buffer Reuse](014-frame-streaming-buffer-reuse.md) | Implemented | 2026-03-07 | Eliminate 3-4 per-frame heap allocations in the camera streaming pipeline via buffer reuse, dedicated compression thread, and Arc layout optimization. |
+| 015 | [Hybrid Persistence Architecture](015-hybrid-persistence-architecture.md) | Accepted | 2026-03-17 | Three-tier persistence model (TOML/SurrealDB/specialized writers) with reconciliation loop. |
+| — | [UI Slint Role](ui-slint-role.md) | Accepted | 2026-03-13 | egui is primary production UI; Slint is evaluation/prototype only. |
+| — | [Runtime Driver Policy](runtime-driver-policy.md) | Accepted | 2026-02-19 | Universal vs native vs SurrealDB driver policy with runtime mode precedence. |
 | — | [PVCAM Performance Gap Analysis](analysis-pvcam-performance-gap.md) | Analysis Complete | 2026-01-11 | Root-cause analysis of the 10x FPS gap (4.4 vs 50) traced to per-frame heap allocation. |
 
 ## Creating a New ADR

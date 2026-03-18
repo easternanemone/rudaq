@@ -102,6 +102,12 @@ Testing
 
 **Frame streaming compression** (`protocol/src/compression.rs`): LZ4 compression for camera frame data. Use the buffer-reuse variants (`compress_frame_into`, `decompress_frame_into`) on hot paths — they write into pre-allocated `Vec<u8>` buffers via `std::mem::swap`, eliminating per-frame heap allocations. The server runs a dedicated `std::thread` per stream for compression; the client reuses a decompression buffer in its streaming loop. See [ADR-014](docs/adr/014-frame-streaming-buffer-reuse.md).
 
+**Webhook Alerting** (`server/src/alerting.rs`): Sends Slack/Discord-compatible webhook notifications when a device faults, exhausts restart attempts, or the RunEngine aborts a plan. Configured via `[alerting]` in `config/config.v4.toml` or `RUSTDAQ_ALERTING__WEBHOOK_URL` env var. Rate-limited per device key; fire-and-forget via `tokio::spawn`.
+
+**Heartbeat JSONL Log** (`server/src/health/heartbeat_log.rs`): Writes one JSON object per minute to `/tmp/rust_daq_heartbeat.jsonl` with system vitals (CPU%, RSS, disk free, device health, RunEngine state). Designed for post-mortem analysis of overnight run failures.
+
+**Hybrid Persistence** — Three-tier model: TOML (design-time, git-tracked), SurrealDB (runtime control plane, optional), specialized writers (science data: HDF5, Arrow, Zarr). See [ADR-015](docs/adr/015-hybrid-persistence-architecture.md).
+
 ### DriverFactory Pattern
 
 > **For serial/TCP/SCPI devices**, prefer writing a `config/devices/*.toml` manifest for `driver-universal` over implementing `DriverFactory` directly. The pattern below is for native SDK drivers that need custom FFI bindings.
@@ -123,7 +129,7 @@ registry.register_from_config(DeviceConfig { id, name, driver: DriverConfig { ty
 
 ### Feature Flags
 
-**Compile-time** (Cargo features in `driver-registry/Cargo.toml`): `serial` (default), `pvcam`/`pvcam_sdk`/`pvcam_hardware`, `comedi`/`comedi_hardware`, `andor`/`andor_hardware`, `all_hardware`, `full`. Mock drivers (`driver-mock`) and `driver-universal` are always compiled. Serial/SCPI devices use `driver-universal` TOML manifests (always compiled, no feature flag needed). Additional per-crate features: `dlpack` (pool — DLPack tensor descriptor for zero-copy NumPy/PyTorch interop), `storage_zarr` (storage — Zarr V3 sink via `DocumentSink`), `metrics` (pool/server — Prometheus counters for stream and document lifecycle).
+**Compile-time** (Cargo features in `driver-registry/Cargo.toml`): `serial` (default), `pvcam`/`pvcam_sdk`/`pvcam_hardware`, `comedi`/`comedi_hardware`, `andor`/`andor_hardware`, `all_hardware`, `full`. Mock drivers (`driver-mock`) and `driver-universal` are always compiled. Serial/SCPI devices use `driver-universal` TOML manifests (always compiled, no feature flag needed). Additional per-crate features: `dlpack` (pool — DLPack tensor descriptor for zero-copy NumPy/PyTorch interop), `storage_zarr` (storage — Zarr V3 sink via `DocumentSink`), `metrics` (pool/server — Prometheus counters for stream and document lifecycle). Alerting is configured via `[alerting]` in `config/config.v4.toml` (no compile-time feature flag — always available, disabled when `webhook_url` is unset).
 
 **Runtime** (`config/feature_flags.toml`): Loaded via `FeatureFlags::load()`. Toggles: `frame_pool_preallocation`, `async_ring_buffer`, `experimental_streaming`, `debug_frame_timing`, etc.
 

@@ -348,6 +348,45 @@ See also: [ADR-014: Frame Streaming Buffer Reuse](../adr/014-frame-streaming-buf
 
 ---
 
+## Persistence & Data Architecture
+
+The system uses a **three-tier hybrid persistence model**, each tier optimized for its data category. See [ADR-015](../adr/015-hybrid-persistence-architecture.md) for the full rationale.
+
+| Tier | Technology | Data Category | Example |
+|------|-----------|---------------|---------|
+| 1 — Design-time | TOML files (git-tracked) | Hardware configs, calibration profiles, device manifests | `config/devices/ell14.toml` |
+| 2 — Runtime control plane | SurrealDB (embedded, optional) | Parameter state, run records, device features, config reconciliation | `device_runtime_state` table |
+| 3 — Science data | Specialized writers | Camera frames, scan datasets, spectral profiles | HDF5, Arrow IPC, Zarr V3 |
+
+TOML is always the authoritative source of truth for device configuration. SurrealDB is optional — the daemon degrades gracefully without it. Science data writers implement the `DocumentSink` trait, decoupling RunEngine document production from storage format.
+
+The bridge between tiers is a **Kubernetes-style reconciliation loop**: TOML configs are shadow-written to SurrealDB on startup, and a LIVE SELECT watch reconciler detects DB changes and converges the DeviceRegistry within ~300ms. See [SurrealDB Integration Guide](../how-to/surrealdb-integration.md) for details.
+
+---
+
+## RunEngine Composition
+
+The `RunEngine` (`crates/experiment/src/run_engine/mod.rs`) delegates to composed sub-components rather than owning all state directly:
+
+*   **`TaskQueue`** (`task_queue.rs`) — Plan queue management (enqueue, dequeue, inspect, clear). Wraps a `Mutex<Vec<QueuedPlan>>` with a focused API, allowing queue logic (e.g., future priority ordering) to evolve independently.
+*   **`WatchdogManager`** (`watchdog.rs`) — Orphan-plan detection. Tracks the timestamp of the last meaningful activity (MoveTo, Read, Trigger, etc.) and a configurable timeout (default: 5 minutes). A background task spawned via `RunEngine::spawn_watchdog()` periodically checks elapsed time and auto-aborts stale plans.
+
+This composition pattern keeps the RunEngine struct focused on state machine transitions while delegating queue and watchdog concerns to specialized types.
+
+---
+
+## Production Monitoring
+
+Two features support unattended overnight experiments:
+
+*   **Webhook Alerting** (`crates/server/src/alerting.rs`, feature: `alerting` section in `config/config.v4.toml`) — Sends Slack/Discord-compatible webhook notifications when a device faults, exhausts restart attempts, or the RunEngine aborts a plan. Rate-limited per device key to prevent alert storms during cascading failures. All sends are fire-and-forget via `tokio::spawn`.
+
+*   **Heartbeat JSONL Log** (`crates/server/src/health/heartbeat_log.rs`) — Writes one JSON object per minute to `/tmp/rust_daq_heartbeat.jsonl` containing system vitals: CPU%, RSS, disk free, device health summary, RunEngine state, and frames acquired. Designed for post-mortem analysis of failed overnight runs without parsing full daemon logs.
+
+Together, these provide real-time alerting (webhooks push to your phone) and forensic breadcrumbs (JSONL provides a timeline for post-mortems).
+
+---
+
 ## Legacy Migration Status
 
 The following items carry `#[deprecated(since = "...", note = "Sunset: v1.0")]`

@@ -17,7 +17,7 @@ Organized using the [Diataxis](https://diataxis.fr/) framework.
 | [Build and Run](how-to/build-and-run.md) | Build verification and setup |
 | [Windows Build](how-to/build-and-run-windows.md) | Windows-specific build instructions |
 | [Hardware Setup (Maitai)](how-to/hardware-setup.md) | Real hardware configuration |
-| [Operations](how-to/operations.md) | Daemon startup, deployment, monitoring |
+| [Operations](how-to/operations.md) | Daemon startup, deployment, monitoring, alerting |
 | [Maitai Universal+DB Signoff](how-to/maitai-universal-db-signoff.md) | Hardware validation runbook for hybrid-db mode |
 | [Legacy SCPI Deprecation](how-to/legacy-scpi-deprecation.md) | Migration and rollback policy for legacy native SCPI/TCP paths |
 | [Platform Notes](how-to/platform-notes.md) | OS-specific considerations |
@@ -44,9 +44,13 @@ Organized using the [Diataxis](https://diataxis.fr/) framework.
 | [Storage Formats](how-to/storage-formats.md) | HDF5, Arrow, Parquet, TIFF, Zarr |
 | [Zarr Acquisition](how-to/zarr-acquisition.md) | Zarr V3 storage |
 | [EOM Power Sweep](how-to/eom-power-sweep.md) | EOM power sweep workflow |
+
+### Echelle Spectroscopy
+
+| Guide | Description |
+|-------|-------------|
 | [Echelle Spectrum Preview (MVP)](how-to/echelle-spectrum-preview.md) | Load a calibration profile and view local echelle extraction previews |
-| [Live Echelle Calibration Session (leabs-dev)](how-to/echelle-live-calibration-session-leabs-dev.md) | Bench runbook for Mechelle+iSTAR+HG-2 live calibration and GUI workflow |
-| [Andor iSTAR Crash Capture & Repro](how-to/andor-istar-crash-capture-and-repro.md) | Wrapped-daemon crash capture and streaming repro harness for `leabs-dev` |
+| [Live Echelle Calibration Session](how-to/echelle-live-calibration-session-leabs-dev.md) | Bench runbook for Mechelle+iSTAR+HG-2 live calibration and GUI workflow |
 | [Echelle Calibration Development](how-to/echelle-calibration-development.md) | Developer workflow for creating profiles and maintaining golden datasets |
 | [Echelle Rollout & Troubleshooting](how-to/echelle-rollout-and-troubleshooting.md) | MVP rollout stages, runtime knobs, and failure troubleshooting |
 | [Echelle Validation Plan & HIL Checklist](how-to/echelle-validation-plan-and-hil-checklist.md) | Dataset matrix definition and lab hardware-in-loop validation checklist |
@@ -57,11 +61,13 @@ Organized using the [Diataxis](https://diataxis.fr/) framework.
 |-------|-------------|
 | [Testing](how-to/testing.md) | Test runner, profiles, hardware tests, coverage |
 | [Plugins](how-to/plugins.md) | Config-only, native Rust, and Rhai plugins |
-| [SurrealDB Integration](how-to/surrealdb-integration.md) | Embedded database setup |
+| [SurrealDB Integration](how-to/surrealdb-integration.md) | Embedded database setup, reconciler, parameter persistence |
 | [Web GUI](how-to/web-gui.md) | WASM build, deployment, and architecture |
 | [Migration/Rollback Toolkit](how-to/migration-rollback-toolkit.md) | Backup, restore, and incident rollback procedures |
 | [LEABS Universal+DB Signoff](how-to/leabs-universal-db-signoff.md) | LEABS hardware validation runbook for hybrid-db mode |
 | [LIBS Scripting](how-to/libs-scripting.md) | Rhai API for LIBS experiments |
+| [Fast Inner Loop](how-to/fast-inner-loop.md) | Development iteration tips |
+| [Andor iSTAR Crash Capture](how-to/andor-istar-crash-capture-and-repro.md) | Crash capture and streaming repro harness |
 
 ## Reference — Look up details
 
@@ -72,34 +78,29 @@ Organized using the [Diataxis](https://diataxis.fr/) framework.
 | [PVCAM SDK](reference/pvcam-sdk.md) | PVCAM API reference and error codes |
 | [Dover Motion API](reference/dover-motion-api.md) | MotionSynergyAPI reference |
 | [Feature Matrix](reference/feature-matrix.md) | Implementation status for all features |
-| [Echelle Calibration Profile Schema](reference/echelle-calibration-profile-schema.md) | Versioned profile schema for Mechelle/echelle extraction calibration |
-| [Echelle Sidecar API Contract](reference/echelle-sidecar-api-contract.md) | Design for Python sidecar extraction contract, packaging, and licensing guidance |
-| [Echelle Spectrum Streaming Protocol Design](reference/echelle-spectrum-streaming-protocol-design.md) | Design for gRPC vector-spectrum payload streaming and metadata |
+| [Driver Capability Matrix](reference/driver-capability-matrix.md) | Per-driver capability support |
+| [Streaming Policy](reference/streaming-policy.md) | Frame streaming backpressure and rate policy |
+| [Hardware Inventory](reference/inventory.md) | Physical hardware inventory across lab machines |
+| [Hardware Qualification Runner](reference/hardware-qualification-runner-plan.md) | Self-hosted CI runners for hardware tests |
+| [Echelle Calibration Profile Schema](reference/echelle-calibration-profile-schema.md) | Versioned profile schema for Mechelle/echelle extraction |
+| [Echelle Spectrum Streaming Protocol](reference/echelle-spectrum-streaming-protocol-design.md) | gRPC vector-spectrum payload streaming design |
+| [UI Workflow Costs](reference/ui-workflow-costs.md) | egui/Slint/Rerun maintenance cost analysis |
 
 ## Explanation — Understand the system
 
 | Document | Description |
 |----------|-------------|
-| [Architecture](explanation/architecture.md) | System overview, component diagrams, data flow |
+| [Architecture](explanation/architecture.md) | System overview, persistence tiers, data flow |
 | [Newcomer Guide](explanation/newcomer-guide.md) | Orientation for new contributors |
-| [Plugin Schema](explanation/plugin-schema.md) | Plugin system design |
+| [Plugin Schema](explanation/plugin-schema.md) | Plugin system design (legacy v1/v2 reference) |
 | [PVCAM Integration Map](explanation/pvcam-integration-map.md) | PVCAM driver integration points |
 | [Rerun Visualization](explanation/rerun-visualization.md) | Rerun.io visualization debugging |
-| [Echelle Extraction Architecture](explanation/echelle-extraction-architecture.md) | MVP local extractor design and planned sidecar/protocol evolution |
+| [Echelle Extraction Architecture](explanation/echelle-extraction-architecture.md) | MVP local extractor design and planned evolution |
 
 ## Architecture Decision Records
 
 See [ADR Index](adr/README.md) for all decisions with status and summaries.
 
-## Architecture Policies
+## Archive
 
-| Policy | Description |
-|--------|-------------|
-| [Runtime Driver Policy](architecture/runtime-driver-policy.md) | Universal vs native boundaries and SurrealDB role by runtime mode |
-
-## Plans — Project Roadmaps
-
-| Plan | Description |
-|------|-------------|
-| [Mechelle Echelle Spectrum Workstream A](plans/mechelle-echelle-spectrum-workstream-a.md) | Echelle extraction epic: scope, assumptions, MVP outcomes |
-| [Test Suite Overhaul](plans/test-suite-overhaul.md) | Test reorganization for hybrid-db runtime mode |
+Historical documents (completed plans, one-off handoffs, superseded analyses) are preserved in [`docs/archive/`](archive/) for reference. These are not maintained.
