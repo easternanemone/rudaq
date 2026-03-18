@@ -246,7 +246,7 @@ async fn test_register_calibration_snapshot_merges_radiance_and_echelle_fields()
         )
         .await;
 
-    let snapshots = engine.active_calibrations.read().await;
+    let snapshots = engine.readiness.active_calibrations.read().await;
     let snapshot = snapshots
         .get("spectroscopy")
         .expect("merged snapshot should exist");
@@ -297,7 +297,7 @@ async fn test_clear_echelle_snapshot_preserves_radiance_fields() {
         .clear_echelle_calibration_snapshot("spectroscopy")
         .await;
 
-    let snapshots = engine.active_calibrations.read().await;
+    let snapshots = engine.readiness.active_calibrations.read().await;
     let snapshot = snapshots
         .get("spectroscopy")
         .expect("radiance fields should remain after clearing echelle state");

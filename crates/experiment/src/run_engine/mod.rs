@@ -140,10 +140,7 @@ pub struct RunEngine {
     pub(crate) lifecycle_hook: Option<Arc<dyn RunLifecycleHook>>,
 
     /// Freshness metadata for calibrations that should gate run starts.
-    pub(crate) active_calibrations: RwLock<HashMap<String, readiness::CalibrationFreshness>>,
-
-    /// Maximum allowed calibration age by logical device type.
-    pub(crate) calibration_max_ages: RwLock<HashMap<String, Duration>>,
+    pub(crate) readiness: readiness::ReadinessManager,
 
     /// Feedback channel sender for data-plane events (bd-7rg0).
     pub(crate) feedback_tx: mpsc::Sender<FeedbackEvent>,
@@ -169,11 +166,8 @@ impl RunEngine {
             run_context: Mutex::new(None),
             last_checkpoint: RwLock::new(None),
             lifecycle_hook: None,
-            active_calibrations: RwLock::new(HashMap::new()),
-            calibration_max_ages: RwLock::new(HashMap::from([(
-                "spectroscopy".to_string(),
-                Duration::from_secs(24 * 60 * 60),
-            )])),
+            readiness: readiness::ReadinessManager::new(),
+
             feedback_tx,
             feedback_rx: Mutex::new(Some(feedback_rx)),
         }

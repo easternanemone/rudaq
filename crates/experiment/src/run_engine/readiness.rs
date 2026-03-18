@@ -9,6 +9,7 @@ use chrono::{DateTime, Utc};
 use common::capabilities::Parameterized;
 use common::driver::Capability;
 use echelle::EchelleFrameCompatibility;
+use tokio::sync::RwLock;
 use tokio::time::Duration;
 
 use super::RunEngine;
@@ -112,6 +113,85 @@ impl CalibrationFreshness {
     }
 }
 
+/// Composed component that owns calibration freshness state.
+pub(crate) struct ReadinessManager {
+    /// Active calibration snapshots keyed by device_type (lowercase).
+    pub(crate) active_calibrations: RwLock<HashMap<String, CalibrationFreshness>>,
+    /// Maximum allowed calibration age per device type.
+    pub(crate) calibration_max_ages: RwLock<HashMap<String, Duration>>,
+}
+
+impl ReadinessManager {
+    pub(crate) fn new() -> Self {
+        Self {
+            active_calibrations: RwLock::new(HashMap::new()),
+            calibration_max_ages: RwLock::new(HashMap::from([(
+                "spectroscopy".to_string(),
+                Duration::from_secs(24 * 60 * 60),
+            )])),
+        }
+    }
+
+    /// Register the freshest known calibration for a logical device type.
+    pub(crate) async fn register_calibration_snapshot(&self, snapshot: CalibrationFreshness) {
+        let mut snapshot = snapshot;
+        snapshot.device_type = snapshot.device_type.to_ascii_lowercase();
+        let device_type = snapshot.device_type.clone();
+        let mut active_calibrations = self.active_calibrations.write().await;
+        if let Some(existing) = active_calibrations.get_mut(&device_type) {
+            existing.merge_from(snapshot);
+        } else {
+            active_calibrations.insert(device_type, snapshot);
+        }
+    }
+
+    /// Clear the active calibration snapshot for a device type.
+    pub(crate) async fn clear_calibration_snapshot(&self, device_type: &str) {
+        self.active_calibrations
+            .write()
+            .await
+            .remove(&device_type.to_ascii_lowercase());
+    }
+
+    /// Clear only the radiance/timestamp portion of the calibration snapshot.
+    pub(crate) async fn clear_radiance_calibration_snapshot(&self, device_type: &str) {
+        let device_type = device_type.to_ascii_lowercase();
+        let mut active_calibrations = self.active_calibrations.write().await;
+        let should_remove = if let Some(snapshot) = active_calibrations.get_mut(&device_type) {
+            snapshot.clear_radiance_fields();
+            snapshot.is_empty()
+        } else {
+            false
+        };
+        if should_remove {
+            active_calibrations.remove(&device_type);
+        }
+    }
+
+    /// Clear only the echelle-compatibility portion of the calibration snapshot.
+    pub(crate) async fn clear_echelle_calibration_snapshot(&self, device_type: &str) {
+        let device_type = device_type.to_ascii_lowercase();
+        let mut active_calibrations = self.active_calibrations.write().await;
+        let should_remove = if let Some(snapshot) = active_calibrations.get_mut(&device_type) {
+            snapshot.clear_echelle_fields();
+            snapshot.is_empty()
+        } else {
+            false
+        };
+        if should_remove {
+            active_calibrations.remove(&device_type);
+        }
+    }
+
+    /// Override the maximum allowed calibration age for a device type.
+    pub(crate) async fn set_calibration_max_age(&self, device_type: &str, max_age: Duration) {
+        self.calibration_max_ages
+            .write()
+            .await
+            .insert(device_type.to_ascii_lowercase(), max_age);
+    }
+}
+
 /// Readiness issue detected before a run starts.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RunReadinessIssue {
@@ -131,66 +211,38 @@ pub struct RunReadinessIssue {
     pub max_age_hours: Option<f64>,
 }
 
-// --- Readiness impl block on RunEngine ---
+// --- Readiness delegation on RunEngine ---
 
 impl RunEngine {
     /// Register the freshest known calibration for a logical device type.
     pub async fn register_calibration_snapshot(&self, snapshot: CalibrationFreshness) {
-        let mut snapshot = snapshot;
-        snapshot.device_type = snapshot.device_type.to_ascii_lowercase();
-        let device_type = snapshot.device_type.clone();
-        let mut active_calibrations = self.active_calibrations.write().await;
-        if let Some(existing) = active_calibrations.get_mut(&device_type) {
-            existing.merge_from(snapshot);
-        } else {
-            active_calibrations.insert(device_type, snapshot);
-        }
+        self.readiness.register_calibration_snapshot(snapshot).await;
     }
 
     /// Clear the active calibration snapshot for a device type.
     pub async fn clear_calibration_snapshot(&self, device_type: &str) {
-        self.active_calibrations
-            .write()
-            .await
-            .remove(&device_type.to_ascii_lowercase());
+        self.readiness.clear_calibration_snapshot(device_type).await;
     }
 
     /// Clear only the radiance/timestamp portion of the calibration snapshot.
     pub async fn clear_radiance_calibration_snapshot(&self, device_type: &str) {
-        let device_type = device_type.to_ascii_lowercase();
-        let mut active_calibrations = self.active_calibrations.write().await;
-        let should_remove = if let Some(snapshot) = active_calibrations.get_mut(&device_type) {
-            snapshot.clear_radiance_fields();
-            snapshot.is_empty()
-        } else {
-            false
-        };
-        if should_remove {
-            active_calibrations.remove(&device_type);
-        }
+        self.readiness
+            .clear_radiance_calibration_snapshot(device_type)
+            .await;
     }
 
     /// Clear only the echelle-compatibility portion of the calibration snapshot.
     pub async fn clear_echelle_calibration_snapshot(&self, device_type: &str) {
-        let device_type = device_type.to_ascii_lowercase();
-        let mut active_calibrations = self.active_calibrations.write().await;
-        let should_remove = if let Some(snapshot) = active_calibrations.get_mut(&device_type) {
-            snapshot.clear_echelle_fields();
-            snapshot.is_empty()
-        } else {
-            false
-        };
-        if should_remove {
-            active_calibrations.remove(&device_type);
-        }
+        self.readiness
+            .clear_echelle_calibration_snapshot(device_type)
+            .await;
     }
 
     /// Override the maximum allowed calibration age for a device type.
     pub async fn set_calibration_max_age(&self, device_type: &str, max_age: Duration) {
-        self.calibration_max_ages
-            .write()
-            .await
-            .insert(device_type.to_ascii_lowercase(), max_age);
+        self.readiness
+            .set_calibration_max_age(device_type, max_age)
+            .await;
     }
 
     /// Inspect readiness issues for the next queued plan without starting it.
@@ -243,8 +295,8 @@ impl RunEngine {
             return Vec::new();
         }
 
-        let active_calibrations = self.active_calibrations.read().await;
-        let max_ages = self.calibration_max_ages.read().await;
+        let active_calibrations = self.readiness.active_calibrations.read().await;
+        let max_ages = self.readiness.calibration_max_ages.read().await;
         let now = Utc::now();
         let mut issues = Vec::new();
 
