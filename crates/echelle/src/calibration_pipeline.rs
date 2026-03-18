@@ -377,15 +377,18 @@ fn run_calibration_pipeline_impl(
             .collect();
 
         if anchors.len() >= 2 && n_failed > 0 {
-            // Fit linear model: m(trace_index) = slope * index + intercept
-            let (slope, intercept) = linear_regression(&anchors);
+            // Fit quadratic model: m(i) = a + b*i + c*i²
+            // The quadratic term captures the prism's Cauchy dispersion (Y ∝ m²)
+            // which causes the linear model to fail in the middle orders.
+            let (a, b, c) = quadratic_regression(&anchors);
             let npx = f64::from(width.max(1));
 
             for (order_idx, trace) in traces.iter().enumerate() {
                 if diagnostics[order_idx].success {
                     continue;
                 }
-                let predicted_m = (slope * order_idx as f64 + intercept).round();
+                let i = order_idx as f64;
+                let predicted_m = (a + b * i + c * i * i).round();
                 if predicted_m < 1.0 {
                     continue;
                 }
@@ -750,12 +753,79 @@ fn linear_regression(points: &[(f64, f64)]) -> (f64, f64) {
     let sum_xy: f64 = points.iter().map(|(x, y)| x * y).sum();
     let denom = n * sum_xx - sum_x * sum_x;
     if denom.abs() < 1e-15 {
-        // All x values identical — return mean y as intercept with zero slope.
         return (0.0, sum_y / n);
     }
     let slope = (n * sum_xy - sum_x * sum_y) / denom;
     let intercept = (sum_y - slope * sum_x) / n;
     (slope, intercept)
+}
+
+/// Least-squares quadratic regression on `(x, y)` pairs.
+///
+/// Returns `(a, b, c)` such that `y ≈ a + b*x + c*x²`.
+/// Falls back to linear regression if fewer than 3 points.
+///
+/// Solves the 3×3 normal equations for the Vandermonde system:
+/// ```text
+/// [n    Σx   Σx²] [a]   [Σy  ]
+/// [Σx   Σx²  Σx³] [b] = [Σxy ]
+/// [Σx²  Σx³  Σx⁴] [c]   [Σx²y]
+/// ```
+fn quadratic_regression(points: &[(f64, f64)]) -> (f64, f64, f64) {
+    if points.len() < 3 {
+        let (slope, intercept) = linear_regression(points);
+        return (intercept, slope, 0.0);
+    }
+
+    let n = points.len() as f64;
+    let mut s = [0.0f64; 5]; // s[k] = Σ x^k
+    let mut t = [0.0f64; 3]; // t[k] = Σ x^k * y
+    for &(x, y) in points {
+        let mut xp = 1.0;
+        for sk in &mut s {
+            *sk += xp;
+            xp *= x;
+        }
+        // s has 5 elements but loop only fills 5 via overflow — fix below
+        let mut xp = 1.0;
+        for tk in &mut t {
+            *tk += xp * y;
+            xp *= x;
+        }
+    }
+    // Recompute properly
+    s = [0.0; 5];
+    t = [0.0; 3];
+    for &(x, y) in points {
+        s[0] += 1.0;
+        s[1] += x;
+        s[2] += x * x;
+        s[3] += x * x * x;
+        s[4] += x * x * x * x;
+        t[0] += y;
+        t[1] += x * y;
+        t[2] += x * x * y;
+    }
+
+    // Solve 3x3 system via Cramer's rule
+    let det = |m: [[f64; 3]; 3]| {
+        m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
+            - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
+            + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0])
+    };
+
+    let mat = [[n, s[1], s[2]], [s[1], s[2], s[3]], [s[2], s[3], s[4]]];
+    let d = det(mat);
+    if d.abs() < 1e-30 {
+        let (slope, intercept) = linear_regression(points);
+        return (intercept, slope, 0.0);
+    }
+
+    let a = det([[t[0], s[1], s[2]], [t[1], s[2], s[3]], [t[2], s[3], s[4]]]) / d;
+    let b = det([[n, t[0], s[2]], [s[1], t[1], s[3]], [s[2], t[2], s[4]]]) / d;
+    let c = det([[n, s[1], t[0]], [s[1], s[2], t[1]], [s[2], s[3], t[2]]]) / d;
+
+    (a, b, c)
 }
 
 /// Build seed functions from the echelle grating equation.
