@@ -2,6 +2,10 @@
 //!
 //! Types and methods for gating run starts on calibration freshness
 //! and hardware configuration matching.
+//!
+//! [`ReadinessManager`] owns the calibration state and all check logic.
+//! [`RunEngine`] delegates through thin wrappers that also supply the
+//! `DeviceRegistry` reference.
 
 use std::collections::HashMap;
 
@@ -9,6 +13,7 @@ use chrono::{DateTime, Utc};
 use common::capabilities::Parameterized;
 use common::driver::Capability;
 use echelle::EchelleFrameCompatibility;
+use hardware::registry::DeviceRegistry;
 use tokio::sync::RwLock;
 use tokio::time::Duration;
 
@@ -113,7 +118,16 @@ impl CalibrationFreshness {
     }
 }
 
-/// Composed component that owns calibration freshness state.
+// ---------------------------------------------------------------------------
+// ReadinessManager — composed component owning calibration state + checks
+// ---------------------------------------------------------------------------
+
+/// Composed component that owns calibration freshness state and all
+/// readiness check logic.
+///
+/// Methods that need hardware state take `&DeviceRegistry` explicitly,
+/// making the dependency surface visible and the logic unit-testable
+/// without a full `RunEngine`.
 pub(crate) struct ReadinessManager {
     /// Active calibration snapshots keyed by device_type (lowercase).
     pub(crate) active_calibrations: RwLock<HashMap<String, CalibrationFreshness>>,
@@ -131,6 +145,8 @@ impl ReadinessManager {
             )])),
         }
     }
+
+    // ---- Calibration snapshot management ----
 
     /// Register the freshest known calibration for a logical device type.
     pub(crate) async fn register_calibration_snapshot(&self, snapshot: CalibrationFreshness) {
@@ -190,86 +206,18 @@ impl ReadinessManager {
             .await
             .insert(device_type.to_ascii_lowercase(), max_age);
     }
-}
 
-/// Readiness issue detected before a run starts.
-#[derive(Debug, Clone, PartialEq)]
-pub struct RunReadinessIssue {
-    /// Logical code for clients/tests.
-    pub code: String,
-    /// User-facing explanation.
-    pub message: String,
-    /// Whether this issue blocks `start()`.
-    pub blocking: bool,
-    /// Affected device type, if known.
-    pub device_type: Option<String>,
-    /// Specific device id involved in the issue, if known.
-    pub device_id: Option<String>,
-    /// Current calibration age in hours, if known.
-    pub age_hours: Option<f64>,
-    /// Maximum allowed age in hours, if known.
-    pub max_age_hours: Option<f64>,
-}
+    // ---- Readiness checks (take &DeviceRegistry explicitly) ----
 
-// --- Readiness delegation on RunEngine ---
-
-impl RunEngine {
-    /// Register the freshest known calibration for a logical device type.
-    pub async fn register_calibration_snapshot(&self, snapshot: CalibrationFreshness) {
-        self.readiness.register_calibration_snapshot(snapshot).await;
-    }
-
-    /// Clear the active calibration snapshot for a device type.
-    pub async fn clear_calibration_snapshot(&self, device_type: &str) {
-        self.readiness.clear_calibration_snapshot(device_type).await;
-    }
-
-    /// Clear only the radiance/timestamp portion of the calibration snapshot.
-    pub async fn clear_radiance_calibration_snapshot(&self, device_type: &str) {
-        self.readiness
-            .clear_radiance_calibration_snapshot(device_type)
-            .await;
-    }
-
-    /// Clear only the echelle-compatibility portion of the calibration snapshot.
-    pub async fn clear_echelle_calibration_snapshot(&self, device_type: &str) {
-        self.readiness
-            .clear_echelle_calibration_snapshot(device_type)
-            .await;
-    }
-
-    /// Override the maximum allowed calibration age for a device type.
-    pub async fn set_calibration_max_age(&self, device_type: &str, max_age: Duration) {
-        self.readiness
-            .set_calibration_max_age(device_type, max_age)
-            .await;
-    }
-
-    /// Inspect readiness issues for the next queued plan without starting it.
-    pub async fn next_plan_readiness_issues(&self) -> Vec<RunReadinessIssue> {
-        let device_ids = self
-            .task_queue
-            .peek_first(|queued| {
-                queued.map_or_else(Vec::new, |q| Self::collect_plan_devices(q.plan.as_ref()))
-            })
-            .await;
-        self.readiness_issues_for_devices(&device_ids).await
-    }
-
-    pub(crate) fn collect_plan_devices(plan: &dyn Plan) -> Vec<String> {
-        let mut seen = std::collections::HashSet::new();
-        plan.movers()
-            .into_iter()
-            .chain(plan.detectors())
-            .filter(|device_id| seen.insert(device_id.clone()))
-            .collect()
-    }
-
-    pub(crate) fn device_types_for_devices(&self, device_ids: &[String]) -> Vec<String> {
+    /// Determine which device types are relevant for readiness checks.
+    pub(crate) fn device_types_for_devices(
+        registry: &DeviceRegistry,
+        device_ids: &[String],
+    ) -> Vec<String> {
         let mut device_types = Vec::new();
 
         for device_id in device_ids {
-            let Some(info) = self.device_registry.get_device_info(device_id) else {
+            let Some(info) = registry.get_device_info(device_id) else {
                 continue;
             };
 
@@ -286,17 +234,19 @@ impl RunEngine {
         device_types
     }
 
+    /// Check all readiness issues for the given device IDs.
     pub(crate) async fn readiness_issues_for_devices(
         &self,
         device_ids: &[String],
+        registry: &DeviceRegistry,
     ) -> Vec<RunReadinessIssue> {
-        let device_types = self.device_types_for_devices(device_ids);
+        let device_types = Self::device_types_for_devices(registry, device_ids);
         if device_types.is_empty() {
             return Vec::new();
         }
 
-        let active_calibrations = self.readiness.active_calibrations.read().await;
-        let max_ages = self.readiness.calibration_max_ages.read().await;
+        let active_calibrations = self.active_calibrations.read().await;
+        let max_ages = self.calibration_max_ages.read().await;
         let now = Utc::now();
         let mut issues = Vec::new();
 
@@ -324,8 +274,13 @@ impl RunEngine {
             }
 
             issues.extend(
-                self.config_match_issues_for_devices(&device_type, &snapshot, device_ids)
-                    .await,
+                Self::config_match_issues_for_devices(
+                    registry,
+                    &device_type,
+                    &snapshot,
+                    device_ids,
+                )
+                .await,
             );
         }
 
@@ -357,7 +312,7 @@ impl RunEngine {
     }
 
     async fn config_match_issues_for_devices(
-        &self,
+        registry: &DeviceRegistry,
         device_type: &str,
         snapshot: &CalibrationFreshness,
         device_ids: &[String],
@@ -378,16 +333,16 @@ impl RunEngine {
 
             if !snapshot.grating_wavelength_coverage.is_empty() {
                 issues.extend(
-                    self.spectrometer_config_issues(device_id, device_type, snapshot)
+                    Self::spectrometer_config_issues(registry, device_id, device_type, snapshot)
                         .await,
                 );
             }
 
             if let Some(expected) = snapshot.echelle_frame_compatibility.as_ref() {
-                if let Some(info) = self.device_registry.get_device_info(device_id) {
+                if let Some(info) = registry.get_device_info(device_id) {
                     if info.capabilities.contains(&Capability::GatedCamera) {
                         if let Some(issue) =
-                            self.echelle_config_issue(device_id, device_type, expected)
+                            Self::echelle_config_issue(registry, device_id, device_type, expected)
                         {
                             issues.push(issue);
                         }
@@ -400,12 +355,12 @@ impl RunEngine {
     }
 
     async fn spectrometer_config_issues(
-        &self,
+        registry: &DeviceRegistry,
         device_id: &str,
         device_type: &str,
         snapshot: &CalibrationFreshness,
     ) -> Vec<RunReadinessIssue> {
-        let Some(spectrometer) = self.device_registry.get_spectrometer_control(device_id) else {
+        let Some(spectrometer) = registry.get_spectrometer_control(device_id) else {
             return Vec::new();
         };
 
@@ -473,12 +428,12 @@ impl RunEngine {
     }
 
     fn echelle_config_issue(
-        &self,
+        registry: &DeviceRegistry,
         device_id: &str,
         device_type: &str,
         expected: &EchelleFrameCompatibility,
     ) -> Option<RunReadinessIssue> {
-        let parameterized = self.device_registry.get_parameterized(device_id)?;
+        let parameterized = registry.get_parameterized(device_id)?;
         let Some(frame_width) =
             Self::read_u32_parameter(parameterized.as_ref(), &[("AOIWidth", 0)])
         else {
@@ -610,6 +565,8 @@ impl RunEngine {
         }
     }
 
+    // ---- Pure helpers ----
+
     pub(crate) fn config_issue(
         code: &str,
         message: String,
@@ -651,5 +608,83 @@ impl RunEngine {
             .as_u64()
             .and_then(|raw| u32::try_from(raw).ok())
             .or_else(|| value.as_i64().and_then(|raw| u32::try_from(raw).ok()))
+    }
+}
+
+/// Readiness issue detected before a run starts.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RunReadinessIssue {
+    /// Logical code for clients/tests.
+    pub code: String,
+    /// User-facing explanation.
+    pub message: String,
+    /// Whether this issue blocks `start()`.
+    pub blocking: bool,
+    /// Affected device type, if known.
+    pub device_type: Option<String>,
+    /// Specific device id involved in the issue, if known.
+    pub device_id: Option<String>,
+    /// Current calibration age in hours, if known.
+    pub age_hours: Option<f64>,
+    /// Maximum allowed age in hours, if known.
+    pub max_age_hours: Option<f64>,
+}
+
+// ---------------------------------------------------------------------------
+// RunEngine thin delegation wrappers
+// ---------------------------------------------------------------------------
+
+impl RunEngine {
+    /// Register the freshest known calibration for a logical device type.
+    pub async fn register_calibration_snapshot(&self, snapshot: CalibrationFreshness) {
+        self.readiness.register_calibration_snapshot(snapshot).await;
+    }
+
+    /// Clear the active calibration snapshot for a device type.
+    pub async fn clear_calibration_snapshot(&self, device_type: &str) {
+        self.readiness.clear_calibration_snapshot(device_type).await;
+    }
+
+    /// Clear only the radiance/timestamp portion of the calibration snapshot.
+    pub async fn clear_radiance_calibration_snapshot(&self, device_type: &str) {
+        self.readiness
+            .clear_radiance_calibration_snapshot(device_type)
+            .await;
+    }
+
+    /// Clear only the echelle-compatibility portion of the calibration snapshot.
+    pub async fn clear_echelle_calibration_snapshot(&self, device_type: &str) {
+        self.readiness
+            .clear_echelle_calibration_snapshot(device_type)
+            .await;
+    }
+
+    /// Override the maximum allowed calibration age for a device type.
+    pub async fn set_calibration_max_age(&self, device_type: &str, max_age: Duration) {
+        self.readiness
+            .set_calibration_max_age(device_type, max_age)
+            .await;
+    }
+
+    /// Inspect readiness issues for the next queued plan without starting it.
+    pub async fn next_plan_readiness_issues(&self) -> Vec<RunReadinessIssue> {
+        let device_ids = self
+            .task_queue
+            .peek_first(|queued| {
+                queued.map_or_else(Vec::new, |q| Self::collect_plan_devices(q.plan.as_ref()))
+            })
+            .await;
+        self.readiness
+            .readiness_issues_for_devices(&device_ids, &self.device_registry)
+            .await
+    }
+
+    pub(crate) fn collect_plan_devices(plan: &dyn Plan) -> Vec<String> {
+        let mut seen = std::collections::HashSet::new();
+        plan.movers()
+            .into_iter()
+            .chain(plan.detectors())
+            .filter(|device_id| seen.insert(device_id.clone()))
+            .collect()
     }
 }

@@ -54,6 +54,8 @@
 //! }
 //! ```
 
+pub(crate) mod command_dispatch;
+pub(crate) mod context;
 mod documents;
 mod executor;
 mod readiness;
@@ -67,7 +69,6 @@ pub use documents::RunResult;
 pub use readiness::{CalibrationFreshness, CalibrationWavelengthCoverage, RunReadinessIssue};
 pub use state_machine::EngineState;
 
-use bytes::Bytes;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, Mutex, RwLock};
@@ -77,27 +78,12 @@ use tracing::{info, instrument, warn};
 use super::feedback::FeedbackEvent;
 use super::lifecycle::RunLifecycleHook;
 use super::plans::Plan;
-use common::capabilities::ObserverHandle;
 use common::experiment::document::Document;
 use hardware::registry::DeviceRegistry;
 
-use state_machine::FrameCapture;
+use context::RunContext;
 use task_queue::TaskQueue;
 use watchdog::WatchdogManager;
-
-/// Run context for the currently executing plan.
-pub(crate) struct RunContext {
-    pub(crate) run_uid: String,
-    pub(crate) descriptor_uid: String,
-    pub(crate) seq_num: u32,
-    pub(crate) collected_data: HashMap<String, f64>,
-    pub(crate) collected_frames: HashMap<String, Bytes>,
-    pub(crate) current_positions: HashMap<String, f64>,
-    pub(crate) frame_observers: HashMap<String, ObserverHandle>,
-    pub(crate) frame_channels: HashMap<String, mpsc::Receiver<FrameCapture>>,
-    /// Unix timestamp in nanoseconds when the run started
-    pub(crate) run_start_ns: u64,
-}
 
 /// The RunEngine orchestrates experiment execution.
 ///
@@ -485,5 +471,19 @@ impl RunEngine {
         *self.state.write().await = EngineState::Aborting;
         // In a real implementation, this would also send stop commands to all hardware
         Ok(())
+    }
+
+    // ---- CommandDispatcher delegation ----
+
+    /// Evaluate an `EvalCondition` by reading from the device registry.
+    ///
+    /// Convenience wrapper that creates a [`CommandDispatcher`] and delegates.
+    /// Used by tests and by code that doesn't already have a dispatcher.
+    pub(crate) async fn evaluate_condition(&self, condition: &crate::plans::EvalCondition) -> bool {
+        let dispatcher = command_dispatch::CommandDispatcher {
+            registry: &self.device_registry,
+            feedback_tx: &self.feedback_tx,
+        };
+        dispatcher.evaluate_condition(condition).await
     }
 }

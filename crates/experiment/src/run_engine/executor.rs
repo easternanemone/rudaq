@@ -1,7 +1,9 @@
 //! Plan execution engine.
 //!
-//! Contains `execute_plan`, `process_command`, condition evaluation, and
-//! the individual hardware command handlers (move, read, trigger, set).
+//! Contains `execute_plan` and `process_command` — the orchestration loop
+//! that drives plan execution. Hardware command dispatch (move, read,
+//! trigger, set, evaluate condition) is delegated to
+//! [`CommandDispatcher`](super::command_dispatch::CommandDispatcher).
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -14,12 +16,13 @@ use common::experiment::document::{
     DataKey, DescriptorDoc, Document, EventDoc, ExperimentManifest, StartDoc, StopDoc,
 };
 
+use super::command_dispatch::CommandDispatcher;
 use super::context::RunContext;
 use super::state_machine::ExperimentFrameObserver;
 use super::task_queue::QueuedPlan;
 use super::RunEngine;
 use crate::feedback::FeedbackEvent;
-use crate::plans::{EvalCondition, PlanCommand};
+use crate::plans::PlanCommand;
 
 impl RunEngine {
     /// Execute a single plan
@@ -48,36 +51,28 @@ impl RunEngine {
         )
         .with_metadata(start_doc.metadata.clone());
 
-        // Log manifest creation
         info!(
             run_uid = %run_uid,
             num_devices = %manifest.parameters.len(),
             "Captured experiment manifest with hardware parameters"
         );
 
-        // Emit manifest document for persistence (bd-ib06)
-        // Storage backends (e.g., HDF5Writer) can subscribe to this document
-        // and persist the hardware state snapshot for experiment reproducibility
         self.emit_document(Document::Manifest(manifest)).await;
 
         // Setup frame observers for any FrameProducers in the plan (bd-b86g.3)
-        // Using observer pattern for secondary frame capture (experiment persistence)
         let mut frame_observers = HashMap::new();
         let mut frame_channels = HashMap::new();
 
         for det_id in plan.detectors() {
             if let Some(producer) = self.device_registry.get_frame_producer(&det_id) {
                 if producer.supports_observers() {
-                    // Create channel for frame capture
                     let (tx, rx) = mpsc::channel(16);
 
-                    // Create observer
                     let observer = Box::new(ExperimentFrameObserver {
                         tx,
                         device_id: det_id.to_string(),
                     });
 
-                    // Register observer
                     match producer.register_observer(observer).await {
                         Ok(handle) => {
                             info!("Registered frame observer for {}", det_id);
@@ -95,12 +90,9 @@ impl RunEngine {
         // Create and emit DescriptorDoc for the primary stream
         let mut descriptor = DescriptorDoc::new(&run_uid, "primary");
 
-        // Populate descriptor data keys
         for det in plan.detectors() {
             if let Some(producer) = self.device_registry.get_frame_producer(&det) {
                 let (w, h) = producer.resolution();
-                // Assume uint16 for now, or check metadata if available
-                // Assume uint16 for now, or check metadata if available
                 #[allow(clippy::cast_possible_wrap)]
                 // SAFETY: value fits in target type range
                 let mut key = DataKey::array(&det, vec![h as i32, w as i32]);
@@ -144,8 +136,6 @@ impl RunEngine {
         }
 
         // Spawn heartbeat background task if lifecycle hook is configured.
-        // The task runs every ~10s and calls on_heartbeat(run_uid) until
-        // the stop signal is sent (when the run completes/aborts).
         let (heartbeat_stop_tx, heartbeat_stop_rx) = tokio::sync::watch::channel(false);
         let _heartbeat_handle = if let Some(hook) = &self.lifecycle_hook {
             let hook = Arc::clone(hook);
@@ -153,9 +143,6 @@ impl RunEngine {
             let mut stop_rx = heartbeat_stop_rx;
             Some(tokio::spawn(async move {
                 let interval = Duration::from_secs(10);
-                // Send initial heartbeat immediately so the run is never
-                // without a timestamp (avoids false-positive stale detection
-                // during the first interval).
                 if let Err(e) = hook.on_heartbeat(&uid).await {
                     warn!(run_uid = %uid, error = %e, "initial heartbeat failed");
                 }
@@ -173,6 +160,12 @@ impl RunEngine {
             }))
         } else {
             None
+        };
+
+        // Create command dispatcher for hardware interactions
+        let dispatcher = CommandDispatcher {
+            registry: &self.device_registry,
+            feedback_tx: &self.feedback_tx,
         };
 
         // Execute plan commands
@@ -213,18 +206,13 @@ impl RunEngine {
             let cmd = match plan.next_command() {
                 Some(cmd) => cmd,
                 None => {
-                    // Plan completed successfully
                     break;
                 }
             };
 
             // ---- Adaptive feedback integration (bd-0za1) ----
-            // Between plan steps, drain the feedback channel. At adaptive
-            // checkpoints this can influence subsequent MoveTo positions by
-            // refining scan points near interesting features.
             if let PlanCommand::Checkpoint { ref label } = cmd {
                 if label.contains("adaptive") {
-                    // Extract the current planned position from context, if any.
                     let planned_pos = self
                         .run_context
                         .lock()
@@ -234,11 +222,7 @@ impl RunEngine {
                         .unwrap_or(0.0);
 
                     if let Some(adjusted) = self.drain_feedback_with_adaptation(planned_pos) {
-                        // AC-3: Record the adjustment in context so the next
-                        // EmitEvent includes the adapted position.
                         if let Some(ctx) = self.run_context.lock().await.as_mut() {
-                            // Update all tracked positions with the adjustment
-                            // ratio so downstream Event documents reflect it.
                             for pos in ctx.current_positions.values_mut() {
                                 if (*pos - planned_pos).abs() < f64::EPSILON {
                                     *pos = adjusted;
@@ -250,7 +234,7 @@ impl RunEngine {
             }
 
             // Process command
-            match self.process_command(cmd).await {
+            match self.process_command(cmd, &dispatcher).await {
                 Ok(event_emitted) => {
                     if event_emitted {
                         num_events += 1;
@@ -285,7 +269,6 @@ impl RunEngine {
                         }
                     }
                 }
-                // Clear channels
                 ctx.frame_channels.clear();
             }
         }
@@ -312,9 +295,18 @@ impl RunEngine {
         Ok(())
     }
 
-    /// Process a single plan command
-    /// Returns true if an event was emitted
-    pub(crate) async fn process_command(&self, cmd: PlanCommand) -> anyhow::Result<bool> {
+    /// Process a single plan command.
+    ///
+    /// Hardware interactions (move, read, trigger, set, condition eval) are
+    /// delegated to the [`CommandDispatcher`]. Orchestration concerns (abort,
+    /// pause, event emission, context management) stay here.
+    ///
+    /// Returns true if an event was emitted.
+    pub(crate) async fn process_command(
+        &self,
+        cmd: PlanCommand,
+        dispatcher: &CommandDispatcher<'_>,
+    ) -> anyhow::Result<bool> {
         debug!(?cmd, "Processing command");
 
         match cmd {
@@ -323,9 +315,8 @@ impl RunEngine {
                 position,
             } => {
                 self.watchdog.touch().await;
-                self.execute_move(&device_id, position).await?;
+                dispatcher.execute_move(&device_id, position).await?;
 
-                // Update current positions in context
                 if let Some(ctx) = self.run_context.lock().await.as_mut() {
                     ctx.current_positions.insert(device_id, position);
                 }
@@ -334,16 +325,13 @@ impl RunEngine {
 
             PlanCommand::Read { device_id } => {
                 self.watchdog.touch().await;
-                // Check if we have a frame channel for this device
                 let mut is_frame_device = false;
 
                 {
-                    // Scope to hold lock briefly
                     let mut ctx_guard = self.run_context.lock().await;
                     if let Some(ctx) = ctx_guard.as_mut() {
                         if let Some(rx) = ctx.frame_channels.get_mut(&device_id) {
                             is_frame_device = true;
-                            // Wait for a frame (async, non-blocking channel receive)
                             match rx.recv().await {
                                 Some(capture) => {
                                     let data_len = capture.data.len();
@@ -365,10 +353,8 @@ impl RunEngine {
                 }
 
                 if !is_frame_device {
-                    // Standard scalar read
-                    let value = self.execute_read(&device_id).await?;
+                    let value = dispatcher.execute_read(&device_id).await?;
 
-                    // Store in context for next EmitEvent
                     if let Some(ctx) = self.run_context.lock().await.as_mut() {
                         ctx.collected_data.insert(device_id, value);
                     }
@@ -378,29 +364,24 @@ impl RunEngine {
 
             PlanCommand::Trigger { device_id } => {
                 self.watchdog.touch().await;
-                self.execute_trigger(&device_id).await?;
+                dispatcher.execute_trigger(&device_id).await?;
                 Ok(false)
             }
 
             PlanCommand::Wait { seconds } => {
                 debug!(seconds = %seconds, "Waiting");
 
-                // Make wait interruptible by checking abort flag periodically (bd-lnoi)
-                // Using chunked sleep approach: check every 100ms for responsiveness
                 let total = Duration::from_secs_f64(seconds);
                 let chunk = Duration::from_millis(100);
                 let mut elapsed = Duration::ZERO;
 
                 while elapsed < total {
-                    // Check for abort before each chunk
                     if *self.abort_requested.read().await {
                         info!(
                             elapsed_ms = %elapsed.as_millis(),
                             total_ms = %total.as_millis(),
                             "Wait interrupted by abort request"
                         );
-                        // Return Ok here - the abort will be handled by the main loop
-                        // after this command returns, ensuring proper cleanup
                         return Ok(false);
                     }
 
@@ -417,7 +398,6 @@ impl RunEngine {
                 debug!(label = %label, "Checkpoint");
                 *self.last_checkpoint.write().await = Some(label);
 
-                // Check if pause was requested
                 if *self.pause_requested.read().await {
                     info!("Pausing at checkpoint");
                     *self.state.write().await = super::state_machine::EngineState::Paused;
@@ -437,10 +417,8 @@ impl RunEngine {
                     .as_mut()
                     .ok_or_else(|| anyhow::anyhow!("No active run context"))?;
 
-                // Merge collected data
                 data.extend(ctx.collected_data.drain());
 
-                // Get frames
                 let collected_arrays = if !ctx.collected_frames.is_empty() {
                     let mut frames = HashMap::new();
                     for (k, v) in ctx.collected_frames.drain() {
@@ -451,7 +429,6 @@ impl RunEngine {
                     HashMap::new()
                 };
 
-                // Merge positions
                 let mut all_positions = ctx.current_positions.clone();
                 all_positions.extend(positions);
 
@@ -475,7 +452,8 @@ impl RunEngine {
             } => {
                 self.watchdog.touch().await;
                 debug!(device = %device_id, param = %parameter, value = %value, "Setting parameter");
-                self.execute_set_parameter(&device_id, &parameter, &value)
+                dispatcher
+                    .execute_set_parameter(&device_id, &parameter, &value)
                     .await?;
                 Ok(false)
             }
@@ -485,7 +463,7 @@ impl RunEngine {
                 then_commands,
                 else_commands,
             } => {
-                let take_then = self.evaluate_condition(&condition).await;
+                let take_then = dispatcher.evaluate_condition(&condition).await;
                 let branch_label = if take_then { "then" } else { "else" };
                 debug!(?condition, branch = %branch_label, "ConditionalBranch evaluated");
 
@@ -495,10 +473,9 @@ impl RunEngine {
                     else_commands
                 };
 
-                // Box::pin required because process_command is recursive here.
                 let mut emitted = false;
                 for sub_cmd in commands {
-                    if Box::pin(self.process_command(sub_cmd)).await? {
+                    if Box::pin(self.process_command(sub_cmd, dispatcher)).await? {
                         emitted = true;
                     }
                 }
@@ -513,12 +490,11 @@ impl RunEngine {
                 let deadline = Instant::now() + Duration::from_secs_f64(timeout_seconds);
                 let poll_interval = Duration::from_millis(100);
 
-                // Try to get the readable capability for active monitoring
-                if let Some(readable) = self.device_registry.get_readable(&device_id) {
+                if let Some(readable) = dispatcher.registry.get_readable(&device_id) {
                     let mut last_value: Option<f64> = None;
                     let mut stable_since: Option<Instant> = None;
                     let stability_window = Duration::from_millis(500);
-                    let tolerance = 0.01; // 1% relative tolerance
+                    let tolerance = 0.01;
 
                     debug!(%device_id, timeout_seconds, "WaitSettled: polling for stability");
 
@@ -528,7 +504,6 @@ impl RunEngine {
                             break;
                         }
 
-                        // Check for abort
                         if *self.abort_requested.read().await {
                             info!(%device_id, "WaitSettled interrupted by abort");
                             return Ok(false);
@@ -536,9 +511,8 @@ impl RunEngine {
 
                         match readable.read().await {
                             Ok(value) => {
-                                // Send value update feedback
                                 if let Err(e) =
-                                    self.feedback_tx.try_send(FeedbackEvent::ValueUpdate {
+                                    dispatcher.feedback_tx.try_send(FeedbackEvent::ValueUpdate {
                                         device_id: device_id.clone(),
                                         field: "value".to_string(),
                                         value,
@@ -560,7 +534,7 @@ impl RunEngine {
                                         let since = stable_since.get_or_insert(now);
                                         if now.duration_since(*since) >= stability_window {
                                             info!(%device_id, %value, "Device settled");
-                                            if let Err(e) = self.feedback_tx.try_send(
+                                            if let Err(e) = dispatcher.feedback_tx.try_send(
                                                 FeedbackEvent::StabilityReached {
                                                     device_id: device_id.clone(),
                                                     field: "value".to_string(),
@@ -585,7 +559,6 @@ impl RunEngine {
                         sleep(poll_interval).await;
                     }
                 } else {
-                    // No readable capability - fall back to simple timeout
                     warn!(
                         %device_id,
                         timeout_seconds,
@@ -593,8 +566,6 @@ impl RunEngine {
                     );
                     sleep(Duration::from_secs_f64(timeout_seconds)).await;
                 }
-                // WaitSettled emits feedback events (ValueUpdate/StabilityReached)
-                // but not Event documents, so return false.
                 Ok(false)
             }
 
@@ -618,22 +589,19 @@ impl RunEngine {
                         break;
                     }
 
-                    // Check for abort
                     if *self.abort_requested.read().await {
                         info!(iteration, "RepeatWhile interrupted by abort");
                         return Ok(emitted);
                     }
 
-                    // Evaluate loop condition
-                    if !self.evaluate_condition(&condition).await {
+                    if !dispatcher.evaluate_condition(&condition).await {
                         debug!(iteration, "RepeatWhile: condition false, exiting loop");
                         break;
                     }
 
                     debug!(iteration, "RepeatWhile: executing body");
-                    // Box::pin required because process_command is recursive here.
                     for sub_cmd in &body {
-                        if Box::pin(self.process_command(sub_cmd.clone())).await? {
+                        if Box::pin(self.process_command(sub_cmd.clone(), dispatcher)).await? {
                             emitted = true;
                         }
                     }
@@ -645,181 +613,5 @@ impl RunEngine {
                 Ok(emitted)
             }
         }
-    }
-
-    /// Evaluate an `EvalCondition` by reading from the device registry (bd-up05).
-    ///
-    /// Returns `true` if the condition is satisfied, `false` otherwise.
-    /// On read errors the condition evaluates to `false` and a warning is logged.
-    pub(crate) async fn evaluate_condition(&self, condition: &EvalCondition) -> bool {
-        match condition {
-            EvalCondition::Threshold {
-                device_id,
-                field: _,
-                threshold,
-                above,
-            } => {
-                let Some(readable) = self.device_registry.get_readable(device_id) else {
-                    warn!(%device_id, "evaluate_condition: device not readable");
-                    return false;
-                };
-                match readable.read().await {
-                    Ok(value) => {
-                        let result = if *above {
-                            value > *threshold
-                        } else {
-                            value < *threshold
-                        };
-                        // Send threshold feedback when crossed
-                        if result {
-                            if let Err(e) =
-                                self.feedback_tx.try_send(FeedbackEvent::ThresholdCrossed {
-                                    device_id: device_id.clone(),
-                                    field: "value".to_string(),
-                                    value,
-                                    threshold: *threshold,
-                                })
-                            {
-                                warn!("Feedback event dropped (channel full): {e}");
-                            }
-                        }
-                        result
-                    }
-                    Err(e) => {
-                        warn!(%device_id, error = %e, "evaluate_condition: read failed");
-                        false
-                    }
-                }
-            }
-            EvalCondition::Comparison {
-                left_device_id,
-                left_field: _,
-                right_device_id,
-                right_field: _,
-                operator,
-            } => {
-                let left = self.device_registry.get_readable(left_device_id);
-                let right = self.device_registry.get_readable(right_device_id);
-
-                let (Some(left_r), Some(right_r)) = (left, right) else {
-                    warn!(
-                        %left_device_id,
-                        %right_device_id,
-                        "evaluate_condition: one or both devices not readable"
-                    );
-                    return false;
-                };
-
-                let (left_val, right_val) = match (left_r.read().await, right_r.read().await) {
-                    (Ok(l), Ok(r)) => (l, r),
-                    (Err(e), _) | (_, Err(e)) => {
-                        warn!(error = %e, "evaluate_condition: read failed");
-                        return false;
-                    }
-                };
-
-                operator.evaluate(left_val, right_val)
-            }
-        }
-    }
-
-    /// Execute a move command
-    async fn execute_move(&self, device_id: &str, position: f64) -> anyhow::Result<()> {
-        debug!(device = %device_id, position = %position, "Moving");
-
-        // Get the device from registry and move it
-        let device = self.device_registry.get_movable(device_id);
-        if let Some(device) = device {
-            device.move_abs(position).await?;
-        } else {
-            warn!(device = %device_id, "Device not found or not movable, skipping move");
-        }
-
-        Ok(())
-    }
-
-    /// Execute a read command
-    async fn execute_read(&self, device_id: &str) -> anyhow::Result<f64> {
-        debug!(device = %device_id, "Reading");
-
-        // Get the device from registry and read it
-        let device = self.device_registry.get_readable(device_id);
-        if let Some(device) = device {
-            let value = device.read().await?;
-            Ok(value)
-        } else {
-            warn!(device = %device_id, "Device not found or not readable, returning 0.0");
-            Ok(0.0)
-        }
-    }
-
-    /// Execute a trigger command
-    async fn execute_trigger(&self, device_id: &str) -> anyhow::Result<()> {
-        debug!(device = %device_id, "Triggering");
-
-        // Get the device from registry and trigger it
-        let device = self.device_registry.get_triggerable(device_id);
-        if let Some(device) = device {
-            device.trigger().await?;
-        } else {
-            debug!(device = %device_id, "Device not triggerable, skipping");
-        }
-
-        Ok(())
-    }
-
-    /// Execute a set parameter command
-    async fn execute_set_parameter(
-        &self,
-        device_id: &str,
-        parameter: &str,
-        value: &str,
-    ) -> anyhow::Result<()> {
-        debug!(device = %device_id, param = %parameter, value = %value, "Setting parameter");
-
-        // Try legacy Settable trait first (backwards compatibility)
-        let settable = self.device_registry.get_settable(device_id);
-        if let Some(settable) = settable {
-            // Parse the value string to JSON
-            let json_value: serde_json::Value = serde_json::from_str(value)
-                .or_else(|_| {
-                    // Try as raw string if JSON parsing fails
-                    Ok::<_, serde_json::Error>(serde_json::Value::String(value.to_string()))
-                })
-                .map_err(|e| anyhow::anyhow!("Invalid value format: {}", e))?;
-
-            settable.set_value(parameter, json_value).await?;
-            return Ok(());
-        }
-
-        // New path - use Parameterized trait and Parameter<T> system
-        // Parse the value string to JSON first
-        let json_value: serde_json::Value = serde_json::from_str(value)
-            .or_else(|_| {
-                // Try as raw string if JSON parsing fails
-                Ok::<_, serde_json::Error>(serde_json::Value::String(value.to_string()))
-            })
-            .map_err(|e| anyhow::anyhow!("Invalid value format: {}", e))?;
-
-        if let Some(parameterized) = self.device_registry.get_parameterized(device_id) {
-            let params = parameterized.parameters();
-            if let Some(param) = params.get(parameter) {
-                // Set the parameter (synchronous call via ParameterBase trait)
-                param.set_json(json_value)?;
-                return Ok(());
-            } else {
-                anyhow::bail!(
-                    "Parameter '{}' not found on device '{}'",
-                    parameter,
-                    device_id
-                );
-            }
-        }
-
-        // Neither Settable nor Parameterized - device not found
-        anyhow::bail!(
-            "Device '{}' not found or does not support parameter setting",
-            device_id
-        );
     }
 }
