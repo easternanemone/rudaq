@@ -52,6 +52,8 @@ use crate::grpc::{
         ReadValueRequest,
         ReadValueResponse,
         RegistrationFailure as ProtoRegistrationFailure,
+        SaveCalibrationProfileRequest,
+        SaveCalibrationProfileResponse,
         SetEmissionRequest,
         SetEmissionResponse,
         SetExposureRequest,
@@ -743,6 +745,23 @@ impl HardwareService for HardwareServiceImpl {
                 success: false,
                 content: String::new(),
                 error_message: format!("Failed to read {}: {}", path, e),
+            })),
+        }
+    }
+
+    async fn save_calibration_profile(
+        &self,
+        request: Request<SaveCalibrationProfileRequest>,
+    ) -> Result<Response<SaveCalibrationProfileResponse>, Status> {
+        let req = request.into_inner();
+        match std::fs::write(&req.path, &req.content) {
+            Ok(()) => Ok(Response::new(SaveCalibrationProfileResponse {
+                success: true,
+                error_message: String::new(),
+            })),
+            Err(e) => Ok(Response::new(SaveCalibrationProfileResponse {
+                success: false,
+                error_message: format!("Failed to write {}: {}", req.path, e),
             })),
         }
     }

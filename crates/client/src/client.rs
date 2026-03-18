@@ -915,6 +915,22 @@ impl DaqClient {
         Ok(response.into_inner())
     }
 
+    /// Save a calibration profile to the daemon's filesystem.
+    pub async fn save_calibration_profile(
+        &mut self,
+        path: &str,
+        content: &str,
+    ) -> Result<protocol::daq::SaveCalibrationProfileResponse> {
+        let response = self
+            .hardware
+            .save_calibration_profile(protocol::daq::SaveCalibrationProfileRequest {
+                path: path.to_string(),
+                content: content.to_string(),
+            })
+            .await?;
+        Ok(response.into_inner())
+    }
+
     /// Execute a specialized device command
     pub async fn execute_device_command(
         &mut self,

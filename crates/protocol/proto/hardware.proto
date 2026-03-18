@@ -69,6 +69,7 @@ service HardwareService {
 
   // Calibration Profile I/O (bd-4wf7: WASM can't read daemon filesystem)
   rpc LoadCalibrationProfile(LoadCalibrationProfileRequest) returns (LoadCalibrationProfileResponse);
+  rpc SaveCalibrationProfile(SaveCalibrationProfileRequest) returns (SaveCalibrationProfileResponse);
 
   // Observable Streaming (bd-qqjq)
   rpc StreamObservables(StreamObservablesRequest) returns (stream ObservableValue);
@@ -716,6 +717,16 @@ message LoadCalibrationProfileResponse {
   bool success = 1;
   string content = 2;       // TOML profile content
   string error_message = 3;
+}
+
+message SaveCalibrationProfileRequest {
+  string path = 1;     // Filesystem path on the daemon host
+  string content = 2;  // TOML profile content
+}
+
+message SaveCalibrationProfileResponse {
+  bool success = 1;
+  string error_message = 2;
 }
 
 // --------------------------------------------------------------------------
