@@ -2019,6 +2019,23 @@ pub async fn start_server_with_hardware(
         tracing::info!("Webhook alerting enabled");
     }
 
+    // Spawn heartbeat logger for overnight run forensics (bd-7xqd)
+    {
+        let hb_config = crate::health::heartbeat_log::HeartbeatLogConfig {
+            storage_path: storage_settings.output_directory.clone(),
+            ..Default::default()
+        };
+        let hb_registry = registry.clone();
+        let hb_engine = run_engine.clone();
+        let hb_cancel = shutdown_token.clone();
+        tokio::spawn(crate::health::heartbeat_log::run_heartbeat_log(
+            hb_registry,
+            hb_engine,
+            hb_config,
+            hb_cancel,
+        ));
+    }
+
     // Pause the engine if disk or process RSS crosses danger thresholds (bd-102j).
     tokio::spawn(
         crate::health::sys_monitor::ResourceGuard::new(
