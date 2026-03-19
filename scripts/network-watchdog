@@ -232,98 +232,112 @@ check_tailscale() {
         return 0
     fi
 
-    # --- NeedsLogin: auth key expired, needs re-authentication ---
+    # --- NeedsLogin: WantRunning=false or auth key issue ---
     if [[ "$state" == "NeedsLogin" ]]; then
         if ts_in_backoff; then
             # Silently skip during backoff (already logged entry to backoff)
             return 1
         fi
 
-        # Try auth key if available
+        # Check WantRunning — most common cause of NeedsLogin on lab machines.
+        # When WantRunning=false, tailscale is "stopped" from its perspective.
+        # Fix: run `tailscale up` to set WantRunning=true (no authkey needed
+        # for nodes with disabled key expiry and existing credentials).
+        local want_running
+        want_running=$(tailscale status --json 2>/dev/null | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+# WantRunning lives in Prefs (older) or top-level (newer)
+wr = d.get('Prefs', {}).get('WantRunning')
+if wr is None:
+    wr = d.get('WantRunning')
+print('true' if wr else 'false')
+" 2>/dev/null || echo "unknown")
+
+        if [[ "$want_running" == "false" ]]; then
+            log "WARN: tailscale NeedsLogin due to WantRunning=false, running 'tailscale up'"
+            tailscale up --accept-routes 2>&1 | while read -r line; do log "  tailscale up: $line"; done
+            sleep 5
+            state=$(tailscale status --json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('BackendState',''))" 2>/dev/null || echo "")
+            if [[ "$state" == "Running" ]]; then
+                log "RECOVERED: tailscale Running after 'tailscale up' (WantRunning was false)"
+                ts_restart_reset
+                return 0
+            fi
+            log "WARN: tailscale still '$state' after 'tailscale up', falling through to authkey"
+        fi
+
+        # Try auth key if available (for actual key expiry or re-auth needed)
         if [[ -f "$TAILSCALE_AUTHKEY_FILE" ]]; then
             local authkey
             authkey=$(cat "$TAILSCALE_AUTHKEY_FILE" 2>/dev/null | tr -d '[:space:]')
             if [[ -n "$authkey" ]]; then
                 log "WARN: tailscale NeedsLogin, attempting re-auth with authkey"
-                if tailscale up --authkey="$authkey" --accept-routes 2>&1 | while read -r line; do log "  tailscale up: $line"; done; then
-                    sleep 5
-                    state=$(tailscale status --json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('BackendState',''))" 2>/dev/null || echo "")
-                    if [[ "$state" == "Running" ]]; then
-                        log "RECOVERED: tailscale re-authenticated via authkey"
-                        ts_restart_reset
-                        return 0
-                    fi
+                tailscale up --authkey="$authkey" --accept-routes 2>&1 | while read -r line; do log "  tailscale up: $line"; done
+                sleep 5
+                state=$(tailscale status --json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('BackendState',''))" 2>/dev/null || echo "")
+                if [[ "$state" == "Running" ]]; then
+                    log "RECOVERED: tailscale re-authenticated via authkey"
+                    ts_restart_reset
+                    return 0
                 fi
                 log "ERROR: tailscale still '$state' after authkey re-auth attempt"
             fi
         fi
 
-        # No authkey or authkey failed — get the login URL for manual intervention
-        local auth_url
-        auth_url=$(tailscale status --json 2>/dev/null | python3 -c "import sys,json; u=json.load(sys.stdin).get('AuthURL',''); print(u) if u else print('')" 2>/dev/null || echo "")
-
-        # Rate-limit: don't keep restarting tailscaled for NeedsLogin — it can't help
+        # tailscale up failed — enter backoff, no point restarting tailscaled
         local count
         count=$(ts_restart_count)
+        ts_restart_increment
         if (( count >= TAILSCALE_MAX_RESTARTS )); then
             ts_enter_backoff
+            local auth_url
+            auth_url=$(tailscale status --json 2>/dev/null | python3 -c "import sys,json; u=json.load(sys.stdin).get('AuthURL',''); print(u) if u else print('')" 2>/dev/null || echo "")
             if [[ -n "$auth_url" ]]; then
                 log "ERROR: tailscale NeedsLogin — manual re-auth required: $auth_url"
             else
-                log "ERROR: tailscale NeedsLogin — manual re-auth required (run 'sudo tailscale up' on maitai)"
+                log "ERROR: tailscale NeedsLogin — manual intervention required (run 'sudo tailscale up' on maitai)"
             fi
             return 1
         fi
 
-        # First few attempts: try restart in case it's transient
-        ts_restart_increment
-        log "WARN: tailscale NeedsLogin (attempt $(( count + 1 ))/$TAILSCALE_MAX_RESTARTS), restarting tailscaled"
-        systemctl restart tailscaled 2>/dev/null || true
-        sleep 10
-        state=$(tailscale status --json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('BackendState',''))" 2>/dev/null || echo "")
-        if [[ "$state" == "Running" ]]; then
-            log "RECOVERED: tailscale BackendState is now Running"
-            ts_restart_reset
-            return 0
-        fi
-        log "ERROR: tailscale BackendState still '$state' after restart"
+        log "WARN: tailscale NeedsLogin, recovery attempt $(( count + 1 ))/$TAILSCALE_MAX_RESTARTS failed"
         return 1
     fi
 
     # --- Other non-Running states (Starting, etc.) ---
+    if [[ "$state" == "Starting" ]]; then
+        # Starting is transient — just wait for next check cycle
+        log "INFO: tailscale BackendState='Starting', will recheck next cycle"
+        return 1
+    fi
+
     if ts_in_backoff; then
         return 1
     fi
 
+    # For unknown states, try `tailscale up` first (fixes most issues),
+    # then fall back to daemon restart only as a last resort.
     local count
     count=$(ts_restart_count)
     if (( count >= TAILSCALE_MAX_RESTARTS )); then
         ts_enter_backoff
-        log "ERROR: tailscale BackendState='$state', giving up after $TAILSCALE_MAX_RESTARTS restarts"
+        log "ERROR: tailscale BackendState='$state', giving up after $TAILSCALE_MAX_RESTARTS attempts"
         return 1
     fi
 
     ts_restart_increment
-    log "WARN: tailscale BackendState='$state' (expected 'Running'), restarting tailscaled (attempt $(( count + 1 ))/$TAILSCALE_MAX_RESTARTS)"
-    systemctl restart tailscaled 2>/dev/null || true
-    sleep 10
+    log "WARN: tailscale BackendState='$state' (expected 'Running'), trying 'tailscale up' (attempt $(( count + 1 ))/$TAILSCALE_MAX_RESTARTS)"
+    tailscale up --accept-routes 2>&1 | while read -r line; do log "  tailscale up: $line"; done
+    sleep 5
     state=$(tailscale status --json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('BackendState',''))" 2>/dev/null || echo "")
     if [[ "$state" == "Running" ]]; then
         log "RECOVERED: tailscale BackendState is now Running"
         ts_restart_reset
         return 0
     fi
-    log "ERROR: tailscale BackendState still '$state' after restart"
-
-    # Check for a Tailscale IP
-    local ts_ip
-    ts_ip=$(tailscale ip -4 2>/dev/null || echo "")
-    if [[ -z "$ts_ip" ]]; then
-        log "WARN: no tailscale IPv4 address"
-        return 1
-    fi
-
-    return 0
+    log "ERROR: tailscale BackendState still '$state' after 'tailscale up'"
+    return 1
 }
 
 # --- Main ---
