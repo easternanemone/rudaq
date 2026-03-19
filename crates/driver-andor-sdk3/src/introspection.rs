@@ -301,7 +301,7 @@ const FEATURE_TABLE: &[FeatureEntry] = &[
     },
     FeatureEntry {
         name: "InsertionDelay",
-        feature_type: FeatureType::Float,
+        feature_type: FeatureType::Enum,
         group: Some("Intensifier"),
     },
     // ── DDG Timing ───────────────────────────────────────────────
@@ -784,7 +784,7 @@ pub fn introspect_mock_features() -> Vec<DiscoveredFeature> {
             "Intensifier",
         ),
         df_bool("MCPIntelligentGating", true, "Intensifier"),
-        df_float("InsertionDelay", (0.0, 1e-3), false, "Intensifier"),
+        df_enum("InsertionDelay", &["Normal", "Fast"], false, "Intensifier"),
         // ── DDG Timing ───────────────────────────────────────────
         df_float("DDGOutputDelay", (0.0, 100.0), true, "Timing"),
         df_float("DDGOutputWidth", (0.0, 100.0), true, "Timing"),
