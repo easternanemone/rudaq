@@ -11,7 +11,11 @@ impl ImageViewerPanel {
     pub(super) fn render_spectrum_plot_area(&mut self, ui: &mut egui::Ui, full_width: bool) {
         let Some(preview) = &self.echelle_preview else {
             ui.centered_and_justified(|ui| {
-                ui.weak("Waiting for extracted spectrum preview...");
+                if let Some(err) = &self.echelle_preview_error {
+                    ui.colored_label(egui::Color32::from_rgb(255, 100, 100), err);
+                } else {
+                    ui.weak("Waiting for extracted spectrum preview...");
+                }
             });
             return;
         };

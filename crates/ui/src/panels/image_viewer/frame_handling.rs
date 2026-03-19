@@ -323,10 +323,26 @@ impl ImageViewerPanel {
             return;
         }
 
-        let Some(profile) = self.echelle_profile_cache.profile().cloned() else {
+        let Some(arc_profile) = self.echelle_profile_cache.profile().cloned() else {
             self.echelle_preview = None;
             self.echelle_preview_error = None;
             return;
+        };
+        // Patch profile dimensions to match actual frame (fixes remote-loaded profiles
+        // whose compatibility dimensions don't match the live camera stream).
+        let profile = if frame.width > 0
+            && frame.height > 0
+            && (arc_profile.compatibility.frame_width != frame.width
+                || arc_profile.compatibility.frame_height != frame.height)
+        {
+            let mut patched = (*arc_profile).clone();
+            patched.compatibility.frame_width = frame.width;
+            patched.compatibility.frame_height = frame.height;
+            patched.compatibility.sensor_width = frame.width;
+            patched.compatibility.sensor_height = frame.height;
+            std::sync::Arc::new(patched)
+        } else {
+            arc_profile
         };
 
         // Spawn extractor thread lazily on first use

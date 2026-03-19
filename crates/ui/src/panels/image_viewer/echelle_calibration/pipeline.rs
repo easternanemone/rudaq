@@ -15,8 +15,18 @@ impl ImageViewerPanel {
             match result {
                 Ok(toml_content) => {
                     match toml::from_str::<echelle::EchelleCalibrationProfile>(&toml_content) {
-                        Ok(profile) => {
+                        Ok(mut profile) => {
                             let name = profile.display_name.clone();
+                            // Patch frame dimensions to match active camera stream.
+                            // Without this, validate_for_frame() rejects every frame
+                            // with "frame size mismatch" and extraction silently fails.
+                            // (Same patching that "Activate Editor" does in rendering.rs)
+                            if self.width > 0 && self.height > 0 {
+                                profile.compatibility.sensor_width = self.width;
+                                profile.compatibility.sensor_height = self.height;
+                                profile.compatibility.frame_width = self.width;
+                                profile.compatibility.frame_height = self.height;
+                            }
                             // Load into editor AND activate
                             self.echelle_cal_ui.editor_profile = Some(profile.clone());
                             self.echelle_cal_ui.editor_dirty = false;
