@@ -236,6 +236,7 @@ pub fn run_calibration_pipeline_with_flat(
     run_calibration_pipeline_impl(arc_frame, Some(flat_frame), width, height, config)
 }
 
+#[allow(clippy::many_single_char_names)] // Mathematical variable names (a, b, c, w, h, i)
 fn run_calibration_pipeline_impl(
     arc_frame: &[f32],
     flat_frame: Option<&[f32]>,
@@ -440,6 +441,23 @@ fn run_calibration_pipeline_impl(
                     bootstrapped,
                     "Pass 3: bootstrapped orders via physics + 2D residual"
                 );
+            }
+        }
+    }
+
+    // ── Deduplicate physical_order_number (safety net) ────────────────
+    // Arc-matched orders (Pass 1/2) appear before bootstrapped ones, so
+    // first-wins preserves the higher-quality calibrations.
+    {
+        let mut seen_m: std::collections::HashSet<i32> = std::collections::HashSet::new();
+        for cal in &mut order_calibrations {
+            if let Some(m) = cal.physical_order_number {
+                if !seen_m.insert(m) {
+                    cal.physical_order_number = None;
+                    if let Some(ref mut notes) = cal.notes {
+                        notes.push_str(" [physical_order_number cleared: duplicate]");
+                    }
+                }
             }
         }
     }
@@ -788,6 +806,7 @@ fn linear_regression(points: &[(f64, f64)]) -> (f64, f64) {
 /// Returns `(a, b, c)` such that `y ≈ a + b*x + c*x²`.
 /// Falls back to linear regression if fewer than 3 points.
 ///
+#[allow(clippy::many_single_char_names)] // Standard math notation for regression coefficients
 /// Solves the 3×3 normal equations for the Vandermonde system:
 /// ```text
 /// [n    Σx   Σx²] [a]   [Σy  ]
@@ -888,6 +907,12 @@ fn bootstrap_uncalibrated_orders(
     // Step 1: Assign m to all traces via quadratic interpolation
     let (a, b, c) = quadratic_regression(&anchors);
 
+    // Collect already-assigned physical order numbers so we can skip duplicates
+    let mut assigned_m: std::collections::HashSet<i32> = order_calibrations
+        .iter()
+        .filter_map(|cal| cal.physical_order_number)
+        .collect();
+
     // Step 2: Compute physics baseline dispersion model.
     // Fit the actual dispersion (nm/pixel) vs m from calibrated orders.
     // Dispersion theoretically scales as gc/m²/npx. We fit a scale factor.
@@ -926,7 +951,7 @@ fn bootstrap_uncalibrated_orders(
     let m_values: Vec<f64> = anchors.iter().map(|(_, m)| *m).collect();
     let m_min = m_values.iter().copied().fold(f64::INFINITY, f64::min);
     let m_max = m_values.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-    let m_center = (m_min + m_max) / 2.0;
+    let m_center = f64::midpoint(m_min, m_max);
     let m_scale = ((m_max - m_min) / 2.0).max(1.0);
     let x_center = half_w;
     let x_scale = half_w.max(1.0);
@@ -964,7 +989,7 @@ fn bootstrap_uncalibrated_orders(
     }
 
     // Step 4: Fit 2D Chebyshev residual surface (degree 4 in pixel, 3 in order)
-    let surface = match chebyshev_fit_2d(
+    let Some(surface) = chebyshev_fit_2d(
         &residual_data,
         4, // degree_x (pixel)
         3, // degree_m (order)
@@ -972,9 +997,8 @@ fn bootstrap_uncalibrated_orders(
         x_scale,
         m_center,
         m_scale,
-    ) {
-        Some(s) => s,
-        None => return 0,
+    ) else {
+        return 0;
     };
 
     // Step 5: Bootstrap uncalibrated orders
@@ -991,6 +1015,11 @@ fn bootstrap_uncalibrated_orders(
         }
         let mf = predicted_m;
         let m_int = mf as i32;
+
+        // Skip if this physical order number is already assigned to another order
+        if !assigned_m.insert(m_int) {
+            continue;
+        }
 
         let lambda_center = gc / mf;
         let theoretical_disp = disp_scale * gc / (mf * mf * npx);
@@ -1218,6 +1247,7 @@ pub fn check_echelle_consistency(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::EchelleTraceModel;
     use crate::wavelength_fitting::load_hgar_atlas;
 
     /// Create a synthetic echelle frame with horizontal order traces
@@ -1964,5 +1994,212 @@ mod tests {
         }
 
         result.profile.validate().expect("profile should be valid");
+    }
+
+    /// Verify that `bootstrap_uncalibrated_orders` skips orders whose predicted
+    /// physical order number m is already assigned to another (arc-matched) order.
+    ///
+    /// Setup: 5 calibrated anchors at indices 0,3,6,9,12 with m=100..104 (slope ≈ 1/3
+    /// per index). The 11 uncalibrated orders in between all round to already-taken m
+    /// values — except index 14 which reaches m=105.
+    #[test]
+    fn test_bootstrap_skips_duplicate_physical_orders() {
+        use crate::trace_fitting::OrderTrace;
+        use crate::wavelength_fitting::OrderWlSolution;
+
+        let gc = 5000.0_f64;
+        let width = 1024_u32;
+        let npx = f64::from(width);
+        let n_traces: usize = 16;
+
+        let traces: Vec<OrderTrace> = (0..n_traces)
+            .map(|i| OrderTrace {
+                trace: EchelleTraceModel::Polynomial {
+                    basis: PolynomialBasis::Monomial,
+                    coefficients: vec![20.0 + 15.0 * i as f64],
+                    domain_start: 0.0,
+                    domain_end: npx,
+                },
+                aperture_half_width: 5.0,
+                fit_rms: 0.1,
+                n_samples: 50,
+            })
+            .collect();
+
+        // 5 calibrated anchors: enough for 2D Chebyshev fit (5 × 5 = 25 > 20 points)
+        let anchors: [(usize, i32); 5] = [(0, 100), (3, 101), (6, 102), (9, 103), (12, 104)];
+
+        let mut order_calibrations: Vec<EchelleOrderCalibration> = Vec::new();
+        for &(idx, m) in &anchors {
+            let mf = m as f64;
+            let lambda_center = gc / mf;
+            // Chebyshev coeff[1] such that eval dispersion ≈ gc/(m²·npx)
+            let b = gc / (mf * mf * 2.0);
+
+            order_calibrations.push(EchelleOrderCalibration {
+                relative_index: idx as u32,
+                physical_order_number: Some(m),
+                sample_start: 0,
+                sample_end: width - 1,
+                trace: traces[idx].trace.clone(),
+                wavelength: EchelleWavelengthModel::Polynomial {
+                    basis: PolynomialBasis::Monomial,
+                    coefficients: vec![lambda_center, b],
+                    domain_start: 0.0,
+                    domain_end: npx,
+                    unit: "nm".to_string(),
+                },
+                aperture_half_width_px: Some(5.0),
+                enabled: true,
+                notes: Some(format!("m={m}, anchor")),
+            });
+        }
+
+        let mut diagnostics: Vec<OrderDiagnostic> = (0..n_traces)
+            .map(|i| {
+                if let Some(&(_, m)) = anchors.iter().find(|&&(idx, _)| idx == i) {
+                    let mf = m as f64;
+                    let lambda_center = gc / mf;
+                    let b = gc / (mf * mf * 2.0);
+                    OrderDiagnostic {
+                        order_index: i as u32,
+                        n_lines_detected: 10,
+                        n_lines_matched: 8,
+                        n_lines_used: 6,
+                        rms_nm: 0.01,
+                        success: true,
+                        failure_reason: None,
+                        detected_lines: vec![],
+                        wl_solution: Some(OrderWlSolution {
+                            order: i as u32,
+                            coefficients: vec![lambda_center, b],
+                            pixel_min: 0.0,
+                            pixel_max: npx,
+                            rms_nm: 0.01,
+                            n_lines_used: 6,
+                            n_lines_total: 8,
+                        }),
+                    }
+                } else {
+                    OrderDiagnostic {
+                        order_index: i as u32,
+                        n_lines_detected: 0,
+                        n_lines_matched: 0,
+                        n_lines_used: 0,
+                        rms_nm: 0.0,
+                        success: false,
+                        failure_reason: Some("uncalibrated".to_string()),
+                        detected_lines: vec![],
+                        wl_solution: None,
+                    }
+                }
+            })
+            .collect();
+
+        let bootstrapped = bootstrap_uncalibrated_orders(
+            gc,
+            width,
+            &traces,
+            &mut order_calibrations,
+            &mut diagnostics,
+        );
+
+        // No duplicate physical_order_number values
+        let mut seen: std::collections::HashSet<i32> = std::collections::HashSet::new();
+        for cal in &order_calibrations {
+            if let Some(m) = cal.physical_order_number {
+                assert!(
+                    seen.insert(m),
+                    "duplicate physical_order_number {m} after bootstrap"
+                );
+            }
+        }
+
+        // With slope ≈ 1/3, most uncalibrated indices round to already-taken m values.
+        // Without the fix all 11 would be bootstrapped, producing many duplicates.
+        assert!(
+            bootstrapped < 11,
+            "expected duplicate-m orders to be skipped, but bootstrapped={bootstrapped}"
+        );
+    }
+
+    /// Verify that the post-assembly safety-net deduplication correctly clears
+    /// duplicate `physical_order_number` values (keeping the first occurrence).
+    #[test]
+    fn test_post_assembly_dedup_clears_duplicates() {
+        let make_cal = |idx: u32, m: Option<i32>, notes: &str| EchelleOrderCalibration {
+            relative_index: idx,
+            physical_order_number: m,
+            sample_start: 0,
+            sample_end: 1023,
+            trace: EchelleTraceModel::Polynomial {
+                basis: PolynomialBasis::Monomial,
+                coefficients: vec![100.0],
+                domain_start: 0.0,
+                domain_end: 1024.0,
+            },
+            wavelength: EchelleWavelengthModel::Polynomial {
+                basis: PolynomialBasis::Monomial,
+                coefficients: vec![500.0, -0.01],
+                domain_start: 0.0,
+                domain_end: 1024.0,
+                unit: "nm".to_string(),
+            },
+            aperture_half_width_px: Some(5.0),
+            enabled: true,
+            notes: Some(notes.to_string()),
+        };
+
+        let mut cals = vec![
+            make_cal(0, Some(50), "arc-matched"),  // first m=50 — keep
+            make_cal(1, Some(51), "arc-matched"),  // unique — keep
+            make_cal(2, Some(50), "bootstrapped"), // dup m=50 — clear
+            make_cal(3, Some(52), "bootstrapped"), // unique — keep
+            make_cal(4, Some(51), "bootstrapped"), // dup m=51 — clear
+            make_cal(5, None, "no m assigned"),    // already None — skip
+            make_cal(6, Some(53), "bootstrapped"), // unique — keep
+            make_cal(7, Some(53), "bootstrapped"), // dup m=53 — clear
+        ];
+
+        // Apply the same dedup logic as the pipeline's safety net
+        {
+            let mut seen_m: std::collections::HashSet<i32> = std::collections::HashSet::new();
+            for cal in &mut cals {
+                if let Some(m) = cal.physical_order_number {
+                    if !seen_m.insert(m) {
+                        cal.physical_order_number = None;
+                        if let Some(ref mut notes) = cal.notes {
+                            notes.push_str(" [physical_order_number cleared: duplicate]");
+                        }
+                    }
+                }
+            }
+        }
+
+        // First occurrences kept
+        assert_eq!(cals[0].physical_order_number, Some(50));
+        assert_eq!(cals[1].physical_order_number, Some(51));
+        assert_eq!(cals[3].physical_order_number, Some(52));
+        assert_eq!(cals[6].physical_order_number, Some(53));
+
+        // Duplicates cleared
+        assert_eq!(cals[2].physical_order_number, None);
+        assert_eq!(cals[4].physical_order_number, None);
+        assert_eq!(cals[7].physical_order_number, None);
+
+        // Already-None unchanged
+        assert_eq!(cals[5].physical_order_number, None);
+
+        // Notes annotated on cleared entries
+        for &idx in &[2, 4, 7] {
+            assert!(
+                cals[idx]
+                    .notes
+                    .as_ref()
+                    .unwrap()
+                    .contains("[physical_order_number cleared: duplicate]"),
+                "order {idx} should have dedup annotation in notes"
+            );
+        }
     }
 }

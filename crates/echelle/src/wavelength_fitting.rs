@@ -1615,8 +1615,8 @@ mod tests {
         let mut data = Vec::new();
         for ix in 0..10 {
             for im in 0..8 {
-                let x = ix as f64 * 256.0;
-                let m = 43.0 + im as f64 * 10.0;
+                let x = f64::from(ix) * 256.0;
+                let m = 43.0 + f64::from(im) * 10.0;
                 let z = 3.0 + 2.0 * x / 1280.0 + 1.5 * m / 80.0;
                 data.push((x, m, z));
             }
@@ -1654,8 +1654,8 @@ mod tests {
         let mut data = Vec::new();
         for ix in 0..20 {
             for im in 0..10 {
-                let x = (ix as f64 - 10.0) / 10.0; // [-1, 1] already normalized
-                let m = (im as f64 - 5.0) / 5.0; // [-1, 1]
+                let x = (f64::from(ix) - 10.0) / 10.0; // [-1, 1] already normalized
+                let m = (f64::from(im) - 5.0) / 5.0; // [-1, 1]
                 let z = x * x + m;
                 data.push((x, m, z));
             }

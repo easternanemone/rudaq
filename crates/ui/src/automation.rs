@@ -95,7 +95,7 @@ mod wasm_impl {
         static STATE_HOLDER: StateHolder = Rc::new(RefCell::new(AutomationState::default()));
         /// Stored egui Context for triggering repaints from JS API calls.
         /// Set on the first `DaqApp::update()` frame.
-        static EGUI_CTX: RefCell<Option<eframe::egui::Context>> = RefCell::new(None);
+        static EGUI_CTX: RefCell<Option<eframe::egui::Context>> = const { RefCell::new(None) };
     }
 
     /// Get cloned `Rc` handles for the command queue and state holder.
@@ -137,6 +137,12 @@ mod wasm_impl {
     pub struct DaqGuiApi {
         commands: CommandQueue,
         state: StateHolder,
+    }
+
+    impl Default for DaqGuiApi {
+        fn default() -> Self {
+            Self::new()
+        }
     }
 
     #[wasm_bindgen(js_class = "DaqGuiApi")]

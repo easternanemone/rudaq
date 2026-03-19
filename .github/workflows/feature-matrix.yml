@@ -124,6 +124,60 @@ jobs:
             --features ${{ matrix.features }} \
             --profile ci
 
+  # cargo-hack: verify each feature compiles independently and in combination
+  # Catches cases where feature A accidentally depends on feature B being enabled
+  feature-powerset:
+    name: "cargo-hack / ${{ matrix.package }}"
+    runs-on: [self-hosted, Linux, X64, leabs]
+    timeout-minutes: 30
+    env:
+      CARGO_BUILD_JOBS: "2"
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      RUSTFLAGS: "-C link-arg=-fuse-ld=lld"
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: common
+            skip_features: ""
+          - package: storage
+            # hdf5 requires system library
+            skip_features: "storage_hdf5"
+          - package: driver-registry
+            # FFI features need SDK headers not available in CI runner
+            skip_features: "comedi,comedi_hardware,pvcam,pvcam_sdk,pvcam_hardware,andor,andor_hardware,all_hardware,full"
+          - package: pool
+            skip_features: ""
+          - package: experiment
+            skip_features: ""
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup environment
+        uses: ./.github/actions/setup-daq
+        with:
+          dependency-profile: minimal
+          toolchain: 1.92.0
+          cache-key: feature-powerset-${{ matrix.package }}
+
+      - name: Install cargo-hack
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-hack
+
+      - name: Feature powerset check
+        run: |
+          SKIP_ARG=""
+          if [ -n "${{ matrix.skip_features }}" ]; then
+            SKIP_ARG="--skip ${{ matrix.skip_features }}"
+          fi
+          cargo hack check -p ${{ matrix.package }} \
+            --feature-powerset \
+            --no-dev-deps \
+            $SKIP_ARG
+
   wasm-check:
     name: "ui / wasm32 lint + compilation"
     runs-on: [self-hosted, Linux, X64, leabs]

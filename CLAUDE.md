@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-`AGENTS.md` is the canonical agent policy (local/gitignored, auto-injected by Claude Code hooks). `bdh prime` provides the authoritative beads workflow.
+`AGENTS.md` is the canonical agent policy (local/gitignored, auto-injected by Claude Code hooks). `bd prime` provides the authoritative beads workflow.
 
 ## Build / Test / Lint
 
@@ -21,6 +21,15 @@ cargo fmt --all                          # Format
 cargo fmt --all -- --check               # Format check (CI/pre-push parity)
 cargo clippy --all-targets               # Lint
 cargo clippy --workspace --all-targets --exclude ui --exclude comedi-sys --exclude driver-comedi -- -D warnings  # Clippy gate (CI/pre-push parity)
+cargo hack check -p common --feature-powerset --no-dev-deps  # Feature-flag powerset check (single crate)
+bash scripts/feature-check.sh                # Feature powerset check (all key crates)
+bash scripts/feature-check.sh common --quick # Single crate, each-feature mode (fast)
+cargo watch -x 'check -p common'             # File-watching auto-check (dev loop)
+cargo expand --package common parameter      # Macro expansion debugging
+cargo flamegraph --bin rust-daq-daemon       # CPU flamegraph (requires dtrace on macOS)
+cargo bloat --release -p ui --target wasm32-unknown-unknown  # WASM binary size breakdown
+cargo deny check                             # License/advisory/ban audit
+cargo machete                                # Find unused dependencies
 ```
 
 ### Maitai Hardware Build (Critical)
@@ -150,15 +159,33 @@ registry.register_from_config(DeviceConfig { id, name, driver: DriverConfig { ty
 
 ## Tools & Workflow
 
-**Issue tracking**: This project uses `bdh` (beads). Run `bdh prime` for the authoritative workflow — it is auto-injected at session start by hooks. Run `bdh onboard` to generate agent policy guidance including multi-agent coordination and recording guidelines.
+**Issue tracking**: `bd` (beads) — Run `bd prime` for workflow context (auto-injected at session start). Run `bd onboard` to generate AGENTS.md.
 
-**Worktree safety**: Always use `bdh ...` as the primary beads entrypoint, including in git worktrees (it handles BeadHub coordination). Only if you must run low-level `bdh` directly (rare) should you use `bash scripts/bd-safe.sh ...` to avoid worktree-local `.beads` drift. Verify local/runtime artifact drift with `bash scripts/beads-worktree-hygiene.sh status`, and use `bash scripts/beads-worktree-hygiene.sh cleanup --apply` to move stale worktree-local `.beads` artifacts.
+**Advanced features:**
+- `bd query "status=open AND priority<=1"` — compound query language
+- `bd graph <epic> --html > deps.html` — interactive dependency visualization
+- `bd swarm create/validate/status <epic>` — parallel agent work coordination
+- `bd mol pour <formula> --var key=value` — instantiate workflow templates
+- `bd gate list/check/resolve` — async coordination (human, timer, CI, PR gates)
+- `bd merge-slot acquire/release` — exclusive access for merge queue
+- `bd agent state <id> working` — agent lifecycle reporting
+- `bd slot set <agent> hook <bead>` — attach work to agent
+- `bd worktree create/remove <name>` — managed worktrees with beads redirect
+- `bd defer <id> --until="next monday"` — temporal issue management
+- `bd todo add "quick task"` — lightweight task capture
+- `bd github sync` — two-way GitHub issue sync
+- `bd find-duplicates --method ai` — AI-powered duplicate detection
+- `bd gc --older-than 90` — lifecycle garbage collection
+- `bd preflight --check` — pre-PR readiness checklist
+- `bd sql "SELECT ..."` — raw SQL queries on issue database
+
+**Worktree safety**: Use `bd worktree create/remove` for managed worktrees. Fallback: `bash scripts/bd-safe.sh ...`.
 
 **Code search**: Primary tool is `grepai search "query" --json --compact`. Trace calls with `grepai trace callers/callees "Symbol" --json`. Fall back to `rg`/`grep` if grepai is unavailable.
 
 **Structural search**: `sg` (ast-grep) for AST-aware code patterns. E.g., `sg -p '$EXPR.unwrap()' --lang rust`.
 
-**Quality gates**: `bdh close` runs lightweight check (fmt + ast-grep). `git push` runs full gate (fmt + clippy + tests). `bdh preflight` checks PR readiness.
+**Quality gates**: `bd close` runs lightweight check (fmt + ast-grep). `git push` runs full gate (fmt + clippy + tests). `bd preflight --check` for PR readiness.
 
 **LSP**: `rust-analyzer` enabled via `.claude/settings.json`.
 
@@ -257,6 +284,7 @@ pub fn set_page_title(title: &str) {
 | `scripts/echelle/analyze-soak-results.py` | Plot and analyze soak test CSV output (memory, latency, PASS/FAIL) |
 | `scripts/echelle/validate_vs_pypeit.py` | E2E validation: compare rust-daq extraction vs PypeIt reference |
 | `scripts/post-crash-forensics.sh` | Post-crash system forensics (dmesg, coredumps, journal, network) |
+| `scripts/feature-check.sh` | cargo-hack feature powerset check on key crates (local CI parity) |
 
 ### Echelle Calibration CLI
 
@@ -307,7 +335,7 @@ bash scripts/istar-stream-overnight-matrix.sh --hours 10 --batch-size 6       # 
 
 ## References
 
-- Agent policy: `AGENTS.md` (local/gitignored, auto-injected by hooks; generate with `bdh onboard`)
+- Agent policy: `AGENTS.md` (local/gitignored, auto-injected by hooks; generate with `bd onboard`)
 - Testing details: `docs/how-to/testing.md`
 - Feature flags: `config/feature_flags.toml`
 - Architecture deep-dive: `docs/explanation/architecture.md`
@@ -317,75 +345,49 @@ bash scripts/istar-stream-overnight-matrix.sh --hours 10 --batch-size 6       # 
 - Build config: `.cargo/config.toml`
 - Custom commands: `.claude/commands/`
 
-<!-- BEADHUB:START -->
-## BeadHub Coordination Rules
+<!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:b9766037 -->
+## Beads Issue Tracker
 
-This project uses `bdh` for multi-agent coordination and issue tracking, `bdh` is a wrapper on top of `bd` (beads). Commands starting with : like `bdh :status` are managed by `bdh`. Other commands are sent to `bd`.
+This project uses **bd (beads)** for issue tracking. Run `bd prime` to see full workflow context and commands.
 
-You are expected to work and coordinate with a team of agents. ALWAYS prioritize the team vs your particular task.
-
-You will see notifications telling you that other agents have written mails or chat messages, or are waiting for you. NEVER ignore notifications. It is rude towards your fellow agents. Do not be rude.
-
-Your goal is for the team to succeed in the shared project.
-
-The active project policy as well as the expected behaviour associated to your role is shown via `bdh :policy`.
-
-## Start Here (Every Session)
+### Quick Reference
 
 ```bash
-bdh :policy    # READ CAREFULLY and follow diligently
-bdh :status    # who am I? (alias/workspace/role) + team status
-bdh ready      # find unblocked work
+bd ready              # Find available work
+bd show <id>          # View issue details
+bd update <id> --claim  # Claim work
+bd close <id>         # Complete work
 ```
 
-Use `bdh :help` for bdh-specific help.
+### Rules
 
-## Rules
+- Use `bd` for ALL task tracking — do NOT use TodoWrite, TaskCreate, or markdown TODO lists
+- Run `bd prime` for detailed command reference and session close protocol
+- Use `bd remember` for persistent knowledge — do NOT use MEMORY.md files
 
-- Always use `bdh` (not `bd`) so work is coordinated
-- Default to mail (`bdh :aweb mail list|open|send`) for coordination; use chat (`bdh :aweb chat pending|open|send-and-wait|send-and-leave|history|extend-wait`) when you need a conversation with another agent.
-- Respond immediately to WAITING notifications — someone is blocked.
-- Notifications are for YOU, the agent, not for the human.
-- Don't overwrite the work of other agents without coordinating first.
-- ALWAYS check what other agents are working on with bdh :status which will tell you which beads they have claimed and what files they are working on (reservations).
-- `bdh` derives your identity from the `.beadhub` file in the current worktree. If you run it from another directory you will be impersonating another agent, do not do that.
-- Prioritize good communication — your goal is for the team to succeed
+## Landing the Plane (Session Completion)
 
-## Using mail
+**When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
 
-Mail is fire-and-forget — use it for status updates, handoffs, and non-blocking questions.
+**MANDATORY WORKFLOW:**
 
-```bash
-bdh :aweb mail send <alias> "message"                         # Send a message
-bdh :aweb mail send <alias> "message" --subject "API design"  # With subject
-bdh :aweb mail list                                           # Check your inbox
-bdh :aweb mail open <alias>                                   # Read & acknowledge
-```
+1. **File issues for remaining work** - Create issues for anything that needs follow-up
+2. **Run quality gates** (if code changed) - Tests, linters, builds
+3. **Update issue status** - Close finished work, update in-progress items
+4. **PUSH TO REMOTE** - This is MANDATORY:
+   ```bash
+   git pull --rebase
+   bd dolt push
+   git push
+   git status  # MUST show "up to date with origin"
+   ```
+5. **Clean up** - Clear stashes, prune remote branches
+6. **Verify** - All changes committed AND pushed
+7. **Hand off** - Provide context for next session
 
-## Using chat
-
-Chat sessions are persistent per participant pair. Use `--start-conversation` when initiating a new exchange (longer wait timeout).
-
-**Starting a conversation:**
-```bash
-bdh :aweb chat send-and-wait <alias> "question" --start-conversation
-```
-
-**Replying (when someone is waiting for you):**
-```bash
-bdh :aweb chat send-and-wait <alias> "response"
-```
-
-**Final reply (you don't need their answer):**
-```bash
-bdh :aweb chat send-and-leave <alias> "thanks, got it"
-```
-
-**Other commands:**
-```bash
-bdh :aweb chat pending          # List conversations with unread messages
-bdh :aweb chat open <alias>     # Read unread messages
-bdh :aweb chat history <alias>  # Full conversation history
-bdh :aweb chat extend-wait <alias> "need more time"  # Ask for patience
-```
-<!-- BEADHUB:END -->
+**CRITICAL RULES:**
+- Work is NOT complete until `git push` succeeds
+- NEVER stop before pushing - that leaves work stranded locally
+- NEVER say "ready to push when you are" - YOU must push
+- If push fails, resolve and retry until it succeeds
+<!-- END BEADS INTEGRATION -->

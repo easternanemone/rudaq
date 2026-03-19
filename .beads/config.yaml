@@ -72,3 +72,5 @@ sync-branch: "beads-sync"
 dolt.shared-server: true
 
 dolt.database: "beads"
+
+dolt.auto-commit: "batch"
