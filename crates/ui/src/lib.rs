@@ -10,6 +10,10 @@ pub mod time;
 #[cfg(any(feature = "web", test))]
 pub mod web_schema;
 
+// WASM automation API (window.daqGui) for browser automation tools
+#[cfg(target_arch = "wasm32")]
+pub mod automation;
+
 // These modules use native deps (clap, tokio runtime, process spawning, etc.)
 // and are not available on WASM targets.
 #[cfg(not(target_arch = "wasm32"))]

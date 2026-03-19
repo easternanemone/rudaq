@@ -41,6 +41,7 @@ use client::reconnect::{friendly_error_message, ConnectionManager, ConnectionSta
 use client::DaqClient;
 use protocol::daq::DeviceInfo;
 
+mod automation;
 mod connection;
 mod devices;
 mod dock_layout;
@@ -228,6 +229,14 @@ pub struct DaqApp {
     /// Whether touch-friendly style has been applied (avoids per-frame style_mut calls)
     #[cfg(target_arch = "wasm32")]
     touch_style_applied: bool,
+
+    /// Automation command queue — JS pushes, `update()` drains
+    #[cfg(target_arch = "wasm32")]
+    automation_commands: crate::automation::CommandQueue,
+
+    /// Automation state snapshot — `update()` writes, JS reads via `getStatus()`
+    #[cfg(target_arch = "wasm32")]
+    automation_state: crate::automation::StateHolder,
 }
 
 impl DaqApp {
@@ -652,6 +661,9 @@ impl DaqApp {
             );
         }
 
+        // Get shared handles for the automation bridge (JS ↔ DaqApp)
+        let (automation_commands, automation_state) = crate::automation::get_bridge_handles();
+
         Self {
             client: None,
             daemon_version: None,
@@ -713,6 +725,8 @@ impl DaqApp {
                 }
             },
             touch_style_applied: false,
+            automation_commands,
+            automation_state,
         }
     }
 }

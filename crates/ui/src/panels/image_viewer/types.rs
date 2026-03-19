@@ -136,7 +136,7 @@ impl FrameStreamSubscription {
 }
 
 /// FPS calculation state
-pub(super) struct FpsCounter {
+pub(crate) struct FpsCounter {
     frame_times: std::collections::VecDeque<Instant>,
     max_samples: usize,
 }
@@ -158,7 +158,7 @@ impl FpsCounter {
     }
 
     #[allow(clippy::cast_precision_loss)]
-    pub(super) fn fps(&self) -> f32 {
+    pub(crate) fn fps(&self) -> f32 {
         if self.frame_times.len() < 2 {
             return 0.0;
         }

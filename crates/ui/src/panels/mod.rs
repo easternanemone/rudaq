@@ -3,7 +3,7 @@
 mod code_preview;
 mod document_viewer;
 mod getting_started;
-mod image_viewer;
+pub(crate) mod image_viewer;
 mod live_visualization;
 mod logging;
 mod modules;

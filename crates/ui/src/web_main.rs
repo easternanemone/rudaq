@@ -48,6 +48,10 @@ mod web {
 
         tracing::info!("DAQ Control Panel (WASM) starting...");
 
+        // Install automation API at window.daqGui before eframe launch
+        // so automation scripts can issue commands during initialization.
+        ui::automation::install_automation_api();
+
         // Launch the eframe web app with the full DaqApp
         wasm_bindgen_futures::spawn_local(async {
             let web_options = eframe::WebOptions::default();

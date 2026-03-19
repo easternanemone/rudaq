@@ -16253,6 +16253,7 @@ dependencies = [
  "rerun",
  "rfd 0.17.2",
  "serde",
+ "serde-wasm-bindgen",
  "serde_json",
  "storage",
  "tempfile",

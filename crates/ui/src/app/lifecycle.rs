@@ -35,6 +35,10 @@ impl eframe::App for DaqApp {
             }
         }
 
+        // --- WASM automation API: drain command queue ---
+        #[cfg(target_arch = "wasm32")]
+        self.process_automation_commands(ctx);
+
         // --- Touch-friendly style for tablets (iPad/Android) ---
         // Applied once on first touch detection to avoid per-frame style_mut overhead.
         #[cfg(target_arch = "wasm32")]
@@ -237,6 +241,10 @@ impl eframe::App for DaqApp {
         }
 
         self.dock_state = Some(dock_state);
+
+        // --- WASM automation API: snapshot state for JS getStatus() ---
+        #[cfg(target_arch = "wasm32")]
+        self.update_automation_state();
 
         // Render cheat sheet panel if visible
         if self.show_cheat_sheet {

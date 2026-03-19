@@ -86,7 +86,7 @@ impl ImageViewerPanel {
     }
 
     /// Refresh the list of available cameras
-    pub(super) fn refresh_cameras(&mut self, client: &mut DaqClient, runtime: &Runtime) {
+    pub(crate) fn refresh_cameras(&mut self, client: &mut DaqClient, runtime: &Runtime) {
         let action_tx = self.action_tx.clone();
         let mut client = client.clone();
 

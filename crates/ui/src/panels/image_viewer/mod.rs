@@ -62,7 +62,7 @@ use protocol::daq::StreamQuality;
 
 /// View mode for the central area: 2D echellogram, 1D spectrum, or split (bd-alxb).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub(super) enum SpectrumViewMode {
+pub(crate) enum SpectrumViewMode {
     #[default]
     Echellogram,
     Spectrum,
@@ -89,18 +89,18 @@ use echelle_calibration::*;
 /// Image Viewer Panel state
 pub struct ImageViewerPanel {
     /// Currently selected device ID
-    pub(super) device_id: Option<String>,
+    pub(crate) device_id: Option<String>,
     /// Current frame dimensions
-    pub(super) width: u32,
-    pub(super) height: u32,
+    pub(crate) width: u32,
+    pub(crate) height: u32,
     /// Current frame bit depth
     pub(super) bit_depth: u32,
     /// Frame counter
-    pub(super) frame_count: u64,
+    pub(crate) frame_count: u64,
     /// Cached texture handle
     pub(super) texture: Option<egui::TextureHandle>,
     /// Current colormap
-    pub(super) colormap: Colormap,
+    pub(crate) colormap: Colormap,
     /// Current scale mode
     pub(super) scale_mode: ScaleMode,
     /// Zoom level (1.0 = fit to window)
@@ -112,9 +112,9 @@ pub struct ImageViewerPanel {
     /// Frame update sender (for cloning to async tasks)
     pub(super) frame_tx: Option<FrameUpdateSender>,
     /// Active stream subscription
-    pub(super) subscription: Option<FrameStreamSubscription>,
+    pub(crate) subscription: Option<FrameStreamSubscription>,
     /// FPS counter
-    pub(in crate::panels::image_viewer) fps_counter: FpsCounter,
+    pub(crate) fps_counter: FpsCounter,
     /// Auto-fit zoom on next frame
     pub(super) auto_fit: bool,
     /// Error message
@@ -138,7 +138,7 @@ pub struct ImageViewerPanel {
     /// Histogram display position
     pub(super) histogram_position: HistogramPosition,
     /// Available camera devices
-    pub(super) available_cameras: Vec<String>,
+    pub(crate) available_cameras: Vec<String>,
     /// Full sensor dimensions by camera ID (from device metadata)
     pub(super) camera_full_frame_dims: std::collections::HashMap<String, (u32, u32)>,
     /// Display minimum (0.0-1.0 normalized) - pixels at or below this are black
@@ -166,7 +166,7 @@ pub struct ImageViewerPanel {
 
     // -- Camera Control Fields --
     /// Camera parameters (cached)
-    pub(super) camera_params: Vec<ParameterCache>,
+    pub(crate) camera_params: Vec<ParameterCache>,
     /// Favorited parameter names for the current device (bd-4wf7)
     pub(super) param_favorites: std::collections::HashSet<String>,
     /// Parameter edit buffers (device_id, param_name) -> value
@@ -184,7 +184,7 @@ pub struct ImageViewerPanel {
     /// Parameters currently being set
     pub(super) setting_params: std::collections::HashSet<(String, String)>,
     /// Pending parameter updates to execute
-    pub(super) pending_param_updates: Vec<(String, String, String)>,
+    pub(crate) pending_param_updates: Vec<(String, String, String)>,
     /// Device ID currently loading parameters
     pub(super) loading_params_device: Option<String>,
     /// Live exposure preview mode (updates during drag)
@@ -280,17 +280,17 @@ pub struct ImageViewerPanel {
 
     // -- Echelle Calibration Profile Cache (bd-2kla.2.4) --
     /// Optional cached echelle calibration profile with hot-reload-safe semantics.
-    pub(super) echelle_profile_cache: EchelleProfileCache,
+    pub(crate) echelle_profile_cache: EchelleProfileCache,
     /// Last extracted echelle spectrum preview (MVP local extraction path).
     pub(in crate::panels::image_viewer) echelle_preview: Option<EchelleExtractionPreview>,
     /// Most recent extraction error (kept separate from general panel errors).
-    pub(super) echelle_preview_error: Option<String>,
+    pub(crate) echelle_preview_error: Option<String>,
     /// Extract every Nth frame to bound CPU cost on UI path.
     pub(super) echelle_extract_every_n_frames: u32,
     /// Toggle echelle extraction preview while profile is loaded.
     pub(super) echelle_extraction_enabled: bool,
     /// Selected order index for side-panel plot (0 = first extracted order).
-    pub(super) echelle_selected_order_plot: usize,
+    pub(crate) echelle_selected_order_plot: usize,
     /// Show merged wavelength-sorted preview when available.
     pub(super) echelle_show_merged_plot: bool,
     /// Reusable scratch buffer for 12/16-bit decode fallback path (allocation control).
@@ -311,8 +311,8 @@ pub struct ImageViewerPanel {
     /// Calibration authoring workspace state (bd-2kla.8 scaffolding).
     pub(in crate::panels::image_viewer) echelle_cal_ui: EchelleCalibrationUiState,
     /// Pending remote profile load request — path on daemon filesystem (bd-nss7).
-    /// Set by calibration workspace UI, processed in ui() where client is available.
-    pub(super) pending_remote_profile_load: Option<String>,
+    /// Set by calibration workspace UI or automation API, processed in ui() where client is available.
+    pub(crate) pending_remote_profile_load: Option<String>,
     /// Receiver for async remote profile load result (bd-nss7).
     pub(super) remote_profile_load_rx: Option<std::sync::mpsc::Receiver<Result<String, String>>>,
     /// True when the active echelle profile snapshot should be resynced into RunEngine state.
@@ -322,7 +322,7 @@ pub struct ImageViewerPanel {
 
     // -- Spectrum View Mode (bd-alxb) --
     /// Current view mode: 2D echellogram, 1D spectrum, or split view.
-    pub(super) spectrum_view_mode: SpectrumViewMode,
+    pub(crate) spectrum_view_mode: SpectrumViewMode,
 }
 
 impl Default for ImageViewerPanel {
