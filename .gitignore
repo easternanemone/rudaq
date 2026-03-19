@@ -182,3 +182,6 @@ slate.json
 
 # ActivityWatch data directory
 .aw/
+
+# Stringer scan history (ephemeral dedup state, changes every run)
+.stringer/
