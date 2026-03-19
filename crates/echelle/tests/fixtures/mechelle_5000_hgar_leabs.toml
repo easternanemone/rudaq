@@ -4,7 +4,7 @@
 # Orientation: UV at bottom (high Y), NIR at top (low Y)
 # 6 orders calibrated (Hg + Ar), 14 lines matched
 
-schema_version = "1.0"
+schema_version = { major = 1, minor = 0, patch = 0 }
 display_name = "Mechelle 5000 HgAr Calibrated v2 (leabs-dev)"
 
 [compatibility]
