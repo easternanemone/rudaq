@@ -198,7 +198,9 @@ Claude Code can directly interact with real DAQ hardware through the WASM GUI in
 | **maitai** | `maitai@100.117.5.12` | `http://100.117.5.12:50051` | 12 (PVCAM, Comedi, ELL14 x3, MaiTai, ESP300, Newport PM) |
 | **leabs-dev** | `ssh leabs-dev` | `http://10.0.0.40:50051` | 3 (Andor iStar, IPG YLPP-200, Thorlabs PM400) |
 
-WASM GUI: `http://100.117.5.12:8080`. Known reconnect bug (beefcake-48ad): must reload page to change daemon URL.
+WASM GUI: `http://100.117.5.12:8080` (maitai) or `http://100.109.21.118:8080` (leabs-dev, requires `--wasm-gui` deploy flag). Known reconnect bug (beefcake-48ad): must reload page to change daemon URL.
+
+**WASM GUI build**: `trunk` (external CLI tool, not a Cargo dependency) is required. Deploy scripts auto-install it via `cargo install trunk --locked`. To build manually: `cd crates/ui && trunk build --release`, then serve `dist/` with `python3 -m http.server 8080`.
 
 ### WASM DOM Interop
 
@@ -262,7 +264,7 @@ pub fn set_page_title(title: &str) {
 | Script | Purpose |
 |--------|---------|
 | `scripts/deploy-maitai.sh` | Full deploy to maitai (pull, clean, build, daemon, GUI) |
-| `scripts/deploy-leabs.sh` | Full deploy to leabs-dev (pull, build, daemon, GUI) |
+| `scripts/deploy-leabs.sh` | Full deploy to leabs-dev (pull, build, daemon, GUI). Use `--wasm-gui` to build+serve WASM GUI on leabs-dev:8080 |
 | `scripts/build-maitai.sh` | Full hardware build for maitai machine |
 | `scripts/build-lab.sh [--release]` | Build daemon with pvcam_sdk for lab |
 | `scripts/demo.sh` | Mock-hardware demo (daemon + GUI/script) |

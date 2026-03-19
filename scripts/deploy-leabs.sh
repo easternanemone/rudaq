@@ -47,6 +47,7 @@ WITH_DB=true
 SKIP_BUILD=false
 SKIP_GUI=false
 GUI_ONLY=false
+WASM_GUI=false
 RUNTIME_MODE=""
 
 # ============================================================================
@@ -64,6 +65,7 @@ OPTIONS:
   --skip-gui              Don't launch local GUI (deploy daemon only)
   --daemon-only           Alias for --skip-gui
   --gui-only              Skip all remote steps, just launch local GUI
+  --wasm-gui              Build and serve WASM GUI on leabs-dev (port 8080)
   --runtime-mode <mode>   Override daemon runtime mode (mock|native|universal|hybrid-db)
   --help                  Show this help
 
@@ -110,6 +112,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --gui-only)
             GUI_ONLY=true
+            shift
+            ;;
+        --wasm-gui)
+            WASM_GUI=true
             shift
             ;;
         --runtime-mode)
@@ -356,6 +362,53 @@ if ! $GUI_ONLY; then
 
     NEW_PID=$(remote "pgrep -f 'rust-daq-daemon daemon'" 2>/dev/null || echo "unknown")
     ok "Daemon running (PID: ${NEW_PID})"
+fi
+
+# ============================================================================
+# Phase 3.5: Build and serve WASM GUI (optional)
+# ============================================================================
+if $WASM_GUI && ! $GUI_ONLY; then
+    step "Phase 3.5: Building WASM GUI on leabs-dev"
+
+    # Ensure trunk is installed
+    if ! remote "command -v trunk >/dev/null 2>&1 || { [ -f \$HOME/.cargo/env ] && . \$HOME/.cargo/env; command -v trunk >/dev/null 2>&1; }"; then
+        info "Installing trunk (WASM build tool)..."
+        remote "source \$HOME/.cargo/env && cargo install trunk --locked" 2>&1 | while IFS= read -r line; do
+            echo -e "    ${line}"
+        done
+        ok "trunk installed"
+    else
+        ok "trunk already installed"
+    fi
+
+    # Ensure wasm32 target is installed
+    remote "source \$HOME/.cargo/env && rustup target add wasm32-unknown-unknown" 2>&1 | while IFS= read -r line; do
+        echo -e "    ${line}"
+    done
+
+    info "Building WASM GUI (trunk build --release)..."
+    remote "
+        source \$HOME/.cargo/env && \
+        cd ${REMOTE_DIR}/crates/ui && \
+        trunk build --release
+    " 2>&1 | while IFS= read -r line; do
+        echo -e "    ${line}"
+    done
+    ok "WASM GUI built"
+
+    # Kill any existing web server on port 8080
+    remote "fuser -k 8080/tcp" 2>/dev/null || true
+    sleep 1
+
+    # Serve the WASM GUI
+    remote "cd ${REMOTE_DIR}/crates/ui/dist && nohup python3 -m http.server 8080 > /tmp/wasm-gui-server.log 2>&1 &"
+    sleep 2
+
+    if remote "fuser 8080/tcp" &>/dev/null; then
+        ok "WASM GUI serving on http://${LEABS_HOST}:8080"
+    else
+        warn "Failed to start WASM GUI web server on port 8080"
+    fi
 fi
 
 # ============================================================================
