@@ -157,13 +157,8 @@ impl ImageViewerPanel {
                 }
                 if trigger_activate_editor {
                     if let Some(mut profile) = self.echelle_cal_ui.editor_profile.clone() {
-                        // Patch sensor dimensions to match active camera stream so
-                        // extraction passes validation. Do NOT patch frame_width/
-                        // frame_height — those must match the profile's order traces.
-                        if self.width > 0 && self.height > 0 {
-                            profile.compatibility.sensor_width = self.width;
-                            profile.compatibility.sensor_height = self.height;
-                        }
+                        // Do NOT patch compatibility dimensions — the profile
+                        // carries its own frame/sensor geometry from calibration.
                         self.echelle_profile_cache.activate_in_memory(profile);
                         self.mark_echelle_run_engine_sync_dirty();
                         self.echelle_cal_ui.status_message =
