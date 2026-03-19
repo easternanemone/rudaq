@@ -1,0 +1,359 @@
+#!/usr/bin/env bash
+# network-watchdog — layered WiFi + Tailscale connectivity watchdog
+# Runs as a systemd oneshot via network-watchdog.timer (every 60s)
+#
+# Checks (in order):
+#   1. WiFi interface exists and is UP
+#   2. WiFi connected to correct SSID
+#   3. Has an IPv4 address (DHCP renewal if missing)
+#   4. Internet reachable (ping, then HTTP, then captive portal login)
+#   5. Tailscale running and authenticated
+#
+# Install:
+#   sudo cp scripts/network-watchdog /usr/local/bin/network-watchdog
+#   sudo chmod +x /usr/local/bin/network-watchdog
+#   sudo cp config/systemd/network-watchdog.{service,timer} /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now network-watchdog.timer
+#
+# Tailscale auth key (optional, enables auto-reauth on key expiry):
+#   echo "tskey-auth-..." | sudo tee /etc/tailscale-authkey
+#   sudo chmod 600 /etc/tailscale-authkey
+
+set -euo pipefail
+
+LOG="/var/log/network-watchdog.log"
+MAX_LOG_LINES=500
+WIFI_IFACE="wlan0"
+WIFI_CONN="UNT"
+PING_TARGET="1.1.1.1"
+HTTP_CHECK_URL="http://detectportal.firefox.com/canonical.html"
+HTTP_CHECK_EXPECT="success"
+CAPTIVE_PORTAL_SCRIPT="/usr/local/bin/captive-portal-login"
+OK_LOG_INTERVAL=1800  # log "all OK" every 30 minutes (in seconds)
+OK_LOG_STATE="/run/network-watchdog-last-ok"
+
+# Tailscale recovery
+TAILSCALE_AUTHKEY_FILE="/etc/tailscale-authkey"
+TAILSCALE_RESTART_STATE="/run/network-watchdog-ts-restarts"
+TAILSCALE_MAX_RESTARTS=3          # max consecutive restarts before backing off
+TAILSCALE_BACKOFF_SECONDS=900     # 15 minutes backoff after max restarts
+TAILSCALE_BACKOFF_STATE="/run/network-watchdog-ts-backoff"
+
+log() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') $1" >> "$LOG"
+}
+
+log_ok_throttled() {
+    local now
+    now=$(date +%s)
+    local last=0
+    if [[ -f "$OK_LOG_STATE" ]]; then
+        last=$(cat "$OK_LOG_STATE" 2>/dev/null || echo 0)
+    fi
+    if (( now - last >= OK_LOG_INTERVAL )); then
+        log "OK: all checks passed"
+        echo "$now" > "$OK_LOG_STATE"
+    fi
+}
+
+rotate_log() {
+    if [[ -f "$LOG" ]]; then
+        local lines
+        lines=$(wc -l < "$LOG")
+        if (( lines > MAX_LOG_LINES )); then
+            tail -n "$MAX_LOG_LINES" "$LOG" > "${LOG}.tmp"
+            mv "${LOG}.tmp" "$LOG"
+        fi
+    fi
+}
+
+# --- WiFi recovery ---
+
+recover_wifi_interface() {
+    if ! ip link show "$WIFI_IFACE" &>/dev/null; then
+        log "WARN: $WIFI_IFACE not found, attempting rfkill unblock"
+        rfkill unblock wifi 2>/dev/null || true
+        sleep 2
+        if ! ip link show "$WIFI_IFACE" &>/dev/null; then
+            log "ERROR: $WIFI_IFACE still not found after rfkill unblock"
+            return 1
+        fi
+        log "RECOVERED: $WIFI_IFACE appeared after rfkill unblock"
+    fi
+
+    if ! ip link show "$WIFI_IFACE" | grep -q "state UP\|state DORMANT"; then
+        log "WARN: $WIFI_IFACE is DOWN, bringing up"
+        ip link set "$WIFI_IFACE" up 2>/dev/null || true
+        sleep 2
+    fi
+    return 0
+}
+
+recover_wifi_connection() {
+    local active_ssid
+    active_ssid=$(nmcli -t -f active,ssid dev wifi list ifname "$WIFI_IFACE" 2>/dev/null | grep '^yes:' | cut -d: -f2)
+
+    if [[ "$active_ssid" != "$WIFI_CONN" ]]; then
+        log "WARN: not connected to $WIFI_CONN (current: '${active_ssid:-none}'), reconnecting"
+        nmcli connection up "$WIFI_CONN" 2>&1 | while read -r line; do log "  nmcli: $line"; done
+        sleep 5
+        active_ssid=$(nmcli -t -f active,ssid dev wifi list ifname "$WIFI_IFACE" 2>/dev/null | grep '^yes:' | cut -d: -f2)
+        if [[ "$active_ssid" == "$WIFI_CONN" ]]; then
+            log "RECOVERED: connected to $WIFI_CONN"
+        else
+            log "ERROR: failed to connect to $WIFI_CONN (got: '${active_ssid:-none}')"
+            return 1
+        fi
+    fi
+    return 0
+}
+
+check_ip_address() {
+    local ip
+    ip=$(ip -4 addr show "$WIFI_IFACE" 2>/dev/null | grep -oP 'inet \K[0-9.]+' | head -1)
+
+    if [[ -z "$ip" ]]; then
+        log "WARN: no IPv4 address on $WIFI_IFACE, requesting DHCP renewal"
+        nmcli device reapply "$WIFI_IFACE" 2>/dev/null || true
+        sleep 5
+        ip=$(ip -4 addr show "$WIFI_IFACE" 2>/dev/null | grep -oP 'inet \K[0-9.]+' | head -1)
+        if [[ -n "$ip" ]]; then
+            log "RECOVERED: got IP $ip on $WIFI_IFACE"
+        else
+            log "ERROR: still no IPv4 address on $WIFI_IFACE after DHCP renewal"
+            return 1
+        fi
+    fi
+    return 0
+}
+
+check_internet() {
+    if ping -c 1 -W 5 "$PING_TARGET" &>/dev/null; then
+        return 0
+    fi
+
+    local http_body
+    http_body=$(curl -s --max-time 10 "$HTTP_CHECK_URL" 2>/dev/null || true)
+
+    if echo "$http_body" | grep -q "$HTTP_CHECK_EXPECT"; then
+        return 0
+    fi
+
+    log "WARN: internet unreachable (ping + HTTP failed), attempting captive portal login"
+    if [[ -x "$CAPTIVE_PORTAL_SCRIPT" ]]; then
+        "$CAPTIVE_PORTAL_SCRIPT" 2>&1 | while read -r line; do log "  portal: $line"; done
+        sleep 3
+        if ping -c 1 -W 5 "$PING_TARGET" &>/dev/null; then
+            log "RECOVERED: internet reachable after captive portal login"
+            return 0
+        fi
+        http_body=$(curl -s --max-time 10 "$HTTP_CHECK_URL" 2>/dev/null || true)
+        if echo "$http_body" | grep -q "$HTTP_CHECK_EXPECT"; then
+            log "RECOVERED: internet reachable after captive portal login (HTTP)"
+            return 0
+        fi
+    fi
+
+    log "ERROR: internet still unreachable after recovery attempts"
+    return 1
+}
+
+# --- Tailscale recovery ---
+
+ts_restart_count() {
+    if [[ -f "$TAILSCALE_RESTART_STATE" ]]; then
+        cat "$TAILSCALE_RESTART_STATE" 2>/dev/null || echo 0
+    else
+        echo 0
+    fi
+}
+
+ts_restart_increment() {
+    local count
+    count=$(ts_restart_count)
+    echo $(( count + 1 )) > "$TAILSCALE_RESTART_STATE"
+}
+
+ts_restart_reset() {
+    rm -f "$TAILSCALE_RESTART_STATE"
+}
+
+ts_in_backoff() {
+    if [[ ! -f "$TAILSCALE_BACKOFF_STATE" ]]; then
+        return 1
+    fi
+    local backoff_until
+    backoff_until=$(cat "$TAILSCALE_BACKOFF_STATE" 2>/dev/null || echo 0)
+    local now
+    now=$(date +%s)
+    if (( now < backoff_until )); then
+        return 0
+    fi
+    # Backoff expired — clear it and reset restart counter
+    rm -f "$TAILSCALE_BACKOFF_STATE"
+    ts_restart_reset
+    return 1
+}
+
+ts_enter_backoff() {
+    local until
+    until=$(( $(date +%s) + TAILSCALE_BACKOFF_SECONDS ))
+    echo "$until" > "$TAILSCALE_BACKOFF_STATE"
+    log "BACKOFF: tailscale recovery paused for ${TAILSCALE_BACKOFF_SECONDS}s (until $(date -d @"$until" '+%H:%M:%S' 2>/dev/null || date -r "$until" '+%H:%M:%S' 2>/dev/null || echo "$until"))"
+}
+
+check_tailscale() {
+    # Check if tailscaled is running
+    if ! systemctl is-active --quiet tailscaled; then
+        if ts_in_backoff; then
+            log "BACKOFF: tailscaled not active, skipping (in backoff)"
+            return 1
+        fi
+        log "WARN: tailscaled not active, starting"
+        systemctl start tailscaled 2>/dev/null || true
+        sleep 5
+        if systemctl is-active --quiet tailscaled; then
+            log "RECOVERED: tailscaled started"
+        else
+            log "ERROR: failed to start tailscaled"
+            ts_restart_increment
+            return 1
+        fi
+    fi
+
+    # Check backend state
+    local state
+    state=$(tailscale status --json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('BackendState',''))" 2>/dev/null || echo "")
+
+    if [[ "$state" == "Running" ]]; then
+        # All good — reset restart counter
+        ts_restart_reset
+        return 0
+    fi
+
+    # --- NeedsLogin: auth key expired, needs re-authentication ---
+    if [[ "$state" == "NeedsLogin" ]]; then
+        if ts_in_backoff; then
+            # Silently skip during backoff (already logged entry to backoff)
+            return 1
+        fi
+
+        # Try auth key if available
+        if [[ -f "$TAILSCALE_AUTHKEY_FILE" ]]; then
+            local authkey
+            authkey=$(cat "$TAILSCALE_AUTHKEY_FILE" 2>/dev/null | tr -d '[:space:]')
+            if [[ -n "$authkey" ]]; then
+                log "WARN: tailscale NeedsLogin, attempting re-auth with authkey"
+                if tailscale up --authkey="$authkey" --accept-routes 2>&1 | while read -r line; do log "  tailscale up: $line"; done; then
+                    sleep 5
+                    state=$(tailscale status --json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('BackendState',''))" 2>/dev/null || echo "")
+                    if [[ "$state" == "Running" ]]; then
+                        log "RECOVERED: tailscale re-authenticated via authkey"
+                        ts_restart_reset
+                        return 0
+                    fi
+                fi
+                log "ERROR: tailscale still '$state' after authkey re-auth attempt"
+            fi
+        fi
+
+        # No authkey or authkey failed — get the login URL for manual intervention
+        local auth_url
+        auth_url=$(tailscale status --json 2>/dev/null | python3 -c "import sys,json; u=json.load(sys.stdin).get('AuthURL',''); print(u) if u else print('')" 2>/dev/null || echo "")
+
+        # Rate-limit: don't keep restarting tailscaled for NeedsLogin — it can't help
+        local count
+        count=$(ts_restart_count)
+        if (( count >= TAILSCALE_MAX_RESTARTS )); then
+            ts_enter_backoff
+            if [[ -n "$auth_url" ]]; then
+                log "ERROR: tailscale NeedsLogin — manual re-auth required: $auth_url"
+            else
+                log "ERROR: tailscale NeedsLogin — manual re-auth required (run 'sudo tailscale up' on maitai)"
+            fi
+            return 1
+        fi
+
+        # First few attempts: try restart in case it's transient
+        ts_restart_increment
+        log "WARN: tailscale NeedsLogin (attempt $(( count + 1 ))/$TAILSCALE_MAX_RESTARTS), restarting tailscaled"
+        systemctl restart tailscaled 2>/dev/null || true
+        sleep 10
+        state=$(tailscale status --json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('BackendState',''))" 2>/dev/null || echo "")
+        if [[ "$state" == "Running" ]]; then
+            log "RECOVERED: tailscale BackendState is now Running"
+            ts_restart_reset
+            return 0
+        fi
+        log "ERROR: tailscale BackendState still '$state' after restart"
+        return 1
+    fi
+
+    # --- Other non-Running states (Starting, etc.) ---
+    if ts_in_backoff; then
+        return 1
+    fi
+
+    local count
+    count=$(ts_restart_count)
+    if (( count >= TAILSCALE_MAX_RESTARTS )); then
+        ts_enter_backoff
+        log "ERROR: tailscale BackendState='$state', giving up after $TAILSCALE_MAX_RESTARTS restarts"
+        return 1
+    fi
+
+    ts_restart_increment
+    log "WARN: tailscale BackendState='$state' (expected 'Running'), restarting tailscaled (attempt $(( count + 1 ))/$TAILSCALE_MAX_RESTARTS)"
+    systemctl restart tailscaled 2>/dev/null || true
+    sleep 10
+    state=$(tailscale status --json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('BackendState',''))" 2>/dev/null || echo "")
+    if [[ "$state" == "Running" ]]; then
+        log "RECOVERED: tailscale BackendState is now Running"
+        ts_restart_reset
+        return 0
+    fi
+    log "ERROR: tailscale BackendState still '$state' after restart"
+
+    # Check for a Tailscale IP
+    local ts_ip
+    ts_ip=$(tailscale ip -4 2>/dev/null || echo "")
+    if [[ -z "$ts_ip" ]]; then
+        log "WARN: no tailscale IPv4 address"
+        return 1
+    fi
+
+    return 0
+}
+
+# --- Main ---
+rotate_log
+
+failed=0
+
+if ! recover_wifi_interface; then
+    failed=1
+fi
+
+if (( failed == 0 )) && ! recover_wifi_connection; then
+    failed=1
+fi
+
+if (( failed == 0 )) && ! check_ip_address; then
+    failed=1
+fi
+
+if (( failed == 0 )) && ! check_internet; then
+    failed=1
+fi
+
+# Tailscale check runs even if WiFi had issues (it might still be connected via other means)
+if ! check_tailscale; then
+    failed=1
+fi
+
+if (( failed == 0 )); then
+    log_ok_throttled
+fi
+
+exit $failed

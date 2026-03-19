@@ -1,0 +1,10 @@
+[Unit]
+Description=Network connectivity watchdog (WiFi + Tailscale)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/network-watchdog
+# Don't fail the timer if a check fails
+SuccessExitStatus=1
