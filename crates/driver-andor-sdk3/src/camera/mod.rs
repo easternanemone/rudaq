@@ -587,6 +587,30 @@ impl AndorCamera {
                             tracing::info!("Set PixelEncoding=Mono16 for reliable frame streaming");
                         }
                     }
+
+                    // Force full-frame AOI to prevent stale hardware state from previous sessions.
+                    // The SDK retains AOI across AT_Close/AT_Open cycles, so a killed daemon can
+                    // leave the camera cropped (e.g. 640x540 instead of 2560x2160).
+                    let sw = info.sensor_width as i64;
+                    let sh = info.sensor_height as i64;
+                    if let Err(e) = Self::set_int_feature(handle, "AOILeft", 1) {
+                        tracing::warn!("Failed to set AOILeft=1: {e}");
+                    }
+                    if let Err(e) = Self::set_int_feature(handle, "AOITop", 1) {
+                        tracing::warn!("Failed to set AOITop=1: {e}");
+                    }
+                    if let Err(e) = Self::set_int_feature(handle, "AOIWidth", sw) {
+                        tracing::warn!(sensor_width = sw, "Failed to set AOIWidth: {e}");
+                    }
+                    if let Err(e) = Self::set_int_feature(handle, "AOIHeight", sh) {
+                        tracing::warn!(sensor_height = sh, "Failed to set AOIHeight: {e}");
+                    }
+                    tracing::info!(
+                        sensor_width = sw,
+                        sensor_height = sh,
+                        "Forced full-frame AOI on camera initialization"
+                    );
+
                     Ok((handle, info))
                 }
                 Err(e) => {

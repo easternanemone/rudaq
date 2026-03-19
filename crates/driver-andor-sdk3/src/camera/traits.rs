@@ -109,6 +109,19 @@ impl FrameProducer for AndorCamera {
                 })
                 .await??;
 
+            // Warn if AOI doesn't match full sensor — indicates stale or user-set crop.
+            let expected_w = inner.info.sensor_width;
+            let expected_h = inner.info.sensor_height;
+            if aoi_width != expected_w || aoi_height != expected_h {
+                tracing::warn!(
+                    aoi_w = aoi_width,
+                    aoi_h = aoi_height,
+                    sensor_w = expected_w,
+                    sensor_h = expected_h,
+                    "AOI dimensions don't match sensor — frames will be cropped"
+                );
+            }
+
             let bytes_per_pixel: usize = match pixel_encoding.as_str() {
                 "Mono16" => 2,
                 "Mono12" => 2,
