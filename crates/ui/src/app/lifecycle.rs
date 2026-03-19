@@ -35,6 +35,10 @@ impl eframe::App for DaqApp {
             }
         }
 
+        // --- WASM automation API: provide egui context for repaint wakeups ---
+        #[cfg(target_arch = "wasm32")]
+        crate::automation::set_egui_context(ctx.clone());
+
         // --- WASM automation API: drain command queue ---
         #[cfg(target_arch = "wasm32")]
         self.process_automation_commands(ctx);

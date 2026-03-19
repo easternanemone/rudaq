@@ -93,6 +93,9 @@ mod wasm_impl {
     thread_local! {
         static COMMAND_QUEUE: CommandQueue = Rc::new(RefCell::new(Vec::new()));
         static STATE_HOLDER: StateHolder = Rc::new(RefCell::new(AutomationState::default()));
+        /// Stored egui Context for triggering repaints from JS API calls.
+        /// Set on the first `DaqApp::update()` frame.
+        static EGUI_CTX: RefCell<Option<eframe::egui::Context>> = RefCell::new(None);
     }
 
     /// Get cloned `Rc` handles for the command queue and state holder.
@@ -102,6 +105,26 @@ mod wasm_impl {
     /// get handles to the *same* underlying data (single WASM thread).
     pub fn get_bridge_handles() -> (CommandQueue, StateHolder) {
         COMMAND_QUEUE.with(|q| STATE_HOLDER.with(|s| (q.clone(), s.clone())))
+    }
+
+    /// Store the egui Context so JS API calls can trigger repaints.
+    ///
+    /// Called from `DaqApp::update()` each frame (idempotent — just overwrites
+    /// with a clone of the same `Arc`-backed context).
+    pub fn set_egui_context(ctx: eframe::egui::Context) {
+        EGUI_CTX.with(|cell| *cell.borrow_mut() = Some(ctx));
+    }
+
+    /// Request an egui repaint so that queued commands are processed promptly.
+    ///
+    /// Without this, eframe in WASM reactive mode only repaints on user input,
+    /// leaving automation commands dormant until the next mouse/keyboard event.
+    fn request_repaint() {
+        EGUI_CTX.with(|cell| {
+            if let Some(ctx) = cell.borrow().as_ref() {
+                ctx.request_repaint();
+            }
+        });
     }
 
     // ── JS API class ─────────────────────────────────────────────
@@ -124,85 +147,71 @@ mod wasm_impl {
             Self { commands, state }
         }
 
+        /// Push a command and wake the eframe render loop to process it.
+        fn push_cmd(&self, cmd: AutomationCommand) {
+            self.commands.borrow_mut().push(cmd);
+            request_repaint();
+        }
+
         /// Connect to a daemon URL (e.g. `"http://100.117.5.12:50051"`).
         pub fn connect(&self, url: &str) {
-            self.commands
-                .borrow_mut()
-                .push(AutomationCommand::Connect(url.to_string()));
+            self.push_cmd(AutomationCommand::Connect(url.to_string()));
         }
 
         /// Disconnect from the current daemon.
         pub fn disconnect(&self) {
-            self.commands
-                .borrow_mut()
-                .push(AutomationCommand::Disconnect);
+            self.push_cmd(AutomationCommand::Disconnect);
         }
 
         /// Select a camera device by ID (e.g. `"istar_camera"`).
         #[wasm_bindgen(js_name = "selectCamera")]
         pub fn select_camera(&self, device_id: &str) {
-            self.commands
-                .borrow_mut()
-                .push(AutomationCommand::SelectCamera(device_id.to_string()));
+            self.push_cmd(AutomationCommand::SelectCamera(device_id.to_string()));
         }
 
         /// Start streaming frames from the selected camera.
         #[wasm_bindgen(js_name = "startStream")]
         pub fn start_stream(&self) {
-            self.commands
-                .borrow_mut()
-                .push(AutomationCommand::StartStream);
+            self.push_cmd(AutomationCommand::StartStream);
         }
 
         /// Stop the active frame stream.
         #[wasm_bindgen(js_name = "stopStream")]
         pub fn stop_stream(&self) {
-            self.commands
-                .borrow_mut()
-                .push(AutomationCommand::StopStream);
+            self.push_cmd(AutomationCommand::StopStream);
         }
 
         /// Set view mode: `"2D"`, `"1D"`, or `"Split"`.
         #[wasm_bindgen(js_name = "setViewMode")]
         pub fn set_view_mode(&self, mode: &str) {
-            self.commands
-                .borrow_mut()
-                .push(AutomationCommand::SetViewMode(mode.to_string()));
+            self.push_cmd(AutomationCommand::SetViewMode(mode.to_string()));
         }
 
         /// Set a camera parameter by name and string value.
         #[wasm_bindgen(js_name = "setParameter")]
         pub fn set_parameter(&self, name: &str, value: &str) {
-            self.commands
-                .borrow_mut()
-                .push(AutomationCommand::SetParameter {
-                    name: name.to_string(),
-                    value: value.to_string(),
-                });
+            self.push_cmd(AutomationCommand::SetParameter {
+                name: name.to_string(),
+                value: value.to_string(),
+            });
         }
 
         /// Load and activate an echelle calibration profile from a daemon-side path.
         #[wasm_bindgen(js_name = "activateProfile")]
         pub fn activate_profile(&self, path: &str) {
-            self.commands
-                .borrow_mut()
-                .push(AutomationCommand::ActivateProfile(path.to_string()));
+            self.push_cmd(AutomationCommand::ActivateProfile(path.to_string()));
         }
 
         /// Select an echelle order by index for the spectrum plot.
         #[wasm_bindgen(js_name = "selectOrder")]
         pub fn select_order(&self, index: usize) {
-            self.commands
-                .borrow_mut()
-                .push(AutomationCommand::SelectOrder(index));
+            self.push_cmd(AutomationCommand::SelectOrder(index));
         }
 
         /// Refresh the list of available cameras from the daemon.
         #[wasm_bindgen(js_name = "refreshCameras")]
         pub fn refresh_cameras(&self) {
-            self.commands
-                .borrow_mut()
-                .push(AutomationCommand::RefreshCameras);
+            self.push_cmd(AutomationCommand::RefreshCameras);
         }
 
         /// Get the current GUI state as a JS object.
