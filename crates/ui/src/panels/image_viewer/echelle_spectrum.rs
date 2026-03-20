@@ -175,6 +175,7 @@ impl ImageViewerPanel {
         };
 
         let mut plot = Plot::new(plot_id)
+            .auto_bounds(egui::Vec2b::FALSE)
             .allow_scroll(false)
             .allow_drag(true)
             .allow_zoom(true)
