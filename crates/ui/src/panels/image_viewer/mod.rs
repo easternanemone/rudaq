@@ -309,7 +309,7 @@ pub struct ImageViewerPanel {
     /// Hover cross-link from spectrum plot to image sample marker.
     pub(super) echelle_plot_hover_link: Option<EchellePlotHoverLink>,
     /// Calibration authoring workspace state (bd-2kla.8 scaffolding).
-    pub(in crate::panels::image_viewer) echelle_cal_ui: EchelleCalibrationUiState,
+    pub(crate) echelle_cal_ui: EchelleCalibrationUiState,
     /// Pending remote profile load request — path on daemon filesystem (bd-nss7).
     /// Set by calibration workspace UI or automation API, processed in ui() where client is available.
     pub(crate) pending_remote_profile_load: Option<String>,

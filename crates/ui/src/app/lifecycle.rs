@@ -311,6 +311,12 @@ impl eframe::App for DaqApp {
             eframe::set_value(storage, WASM_SERVER_URL_KEY, &trimmed_url);
         }
 
+        // Persist last echelle calibration profile path for auto-reload
+        let echelle_path = &self.image_viewer_panel.echelle_cal_ui.save_as_path_text;
+        if !echelle_path.is_empty() {
+            eframe::set_value(storage, "echelle_profile_path", echelle_path);
+        }
+
         // Persist device panel info for layout restoration
         let persisted_panels: HashMap<usize, PersistedPanelInfo> = self
             .device_panel_info

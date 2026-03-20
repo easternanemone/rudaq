@@ -59,12 +59,12 @@ pub(in crate::panels::image_viewer) struct ArcLineMatchRow {
 }
 
 #[derive(Debug, Clone, Default)]
-pub(in crate::panels::image_viewer) struct EchelleCalibrationUiState {
+pub(crate) struct EchelleCalibrationUiState {
     pub(in crate::panels::image_viewer) tab: EchelleCalibrationTab,
     pub(in crate::panels::image_viewer) editor_profile: Option<EchelleCalibrationProfile>,
     pub(in crate::panels::image_viewer) editor_dirty: bool,
     pub(in crate::panels::image_viewer) editor_last_loaded_path: Option<std::path::PathBuf>,
-    pub(in crate::panels::image_viewer) save_as_path_text: String,
+    pub(crate) save_as_path_text: String,
     pub(in crate::panels::image_viewer) points_path_text: String,
     pub(in crate::panels::image_viewer) line_list_path_text: String,
     pub(in crate::panels::image_viewer) blaze_export_path_text: String,

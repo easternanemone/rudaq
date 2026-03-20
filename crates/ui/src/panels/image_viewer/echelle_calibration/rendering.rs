@@ -156,7 +156,7 @@ impl ImageViewerPanel {
                     }
                 }
                 if trigger_activate_editor {
-                    if let Some(mut profile) = self.echelle_cal_ui.editor_profile.clone() {
+                    if let Some(profile) = self.echelle_cal_ui.editor_profile.clone() {
                         // Do NOT patch compatibility dimensions — the profile
                         // carries its own frame/sensor geometry from calibration.
                         self.echelle_profile_cache.activate_in_memory(profile);

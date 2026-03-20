@@ -492,7 +492,7 @@ impl DaqApp {
         // Mark session as running for crash detection on next launch
         write_session_file(daemon_address.as_str());
 
-        Self {
+        let mut app = Self {
             client: None,
             connection: ConnectionManager::new(),
             daemon_address,
@@ -560,7 +560,20 @@ impl DaqApp {
             cheat_sheet_panel: CheatSheetPanel::new(),
             show_cheat_sheet: false,
             recovered_from_crash,
+        };
+
+        // Restore last echelle profile path and auto-trigger load on next connection
+        if let Some(path) = cc
+            .storage
+            .and_then(|s| eframe::get_value::<String>(s, "echelle_profile_path"))
+        {
+            if !path.is_empty() {
+                app.image_viewer_panel.echelle_cal_ui.save_as_path_text = path.clone();
+                app.image_viewer_panel.pending_remote_profile_load = Some(path);
+            }
         }
+
+        app
     }
 
     /// Skips daemon launching, session files, crash detection, and ConnectionManager.
@@ -664,7 +677,7 @@ impl DaqApp {
         // Get shared handles for the automation bridge (JS ↔ DaqApp)
         let (automation_commands, automation_state) = crate::automation::get_bridge_handles();
 
-        Self {
+        let mut app = Self {
             client: None,
             daemon_version: None,
             dock_state: Some(dock_state),
@@ -727,7 +740,20 @@ impl DaqApp {
             touch_style_applied: false,
             automation_commands,
             automation_state,
+        };
+
+        // Restore last echelle profile path and auto-trigger load on next connection
+        if let Some(path) = cc
+            .storage
+            .and_then(|s| eframe::get_value::<String>(s, "echelle_profile_path"))
+        {
+            if !path.is_empty() {
+                app.image_viewer_panel.echelle_cal_ui.save_as_path_text = path.clone();
+                app.image_viewer_panel.pending_remote_profile_load = Some(path);
+            }
         }
+
+        app
     }
 }
 
