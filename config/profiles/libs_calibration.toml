@@ -1,0 +1,59 @@
+# LIBS Calibration Safe-Defaults Profile (bd-zg9e.11)
+#
+# Conservative camera settings for calibration lamp work.
+# Prevents MCP damage from bright emission sources (HgAr, Hg, D2-halogen).
+#
+# Usage:
+#   Apply via GUI "Load Profile" or:
+#   rust-daq-daemon daemon --hardware-config config/leabs_hardware.toml \
+#                          --camera-profile config/profiles/libs_calibration.toml
+
+[camera]
+# DDG mode gates the intensifier per-frame instead of CW (continuous).
+# Total MCP photon dose = gate_width × num_frames, NOT exposure_time × num_frames.
+gate_mode = "DDG"
+
+# Low MCP gain — manual recommends only 5-6× read noise floor for bright sources.
+# 500 is conservative; increase to 1000-2000 only if UV orders are too faint.
+mcp_gain = 500
+
+# DDG gate timing for the Gater (MCP intensifier) output.
+# 100µs gate width is a safe starting point for CW calibration lamps.
+# For pulsed LIBS: use 1-10µs with laser-synchronized external trigger.
+ddg_output_delay_ps = 0
+ddg_output_width_ps = 100_000_000  # 100 µs
+
+# Intelligate: simultaneously gate photocathode AND MCP for UV leakage rejection.
+# Essential when working with UV-bright sources (Hg lines < 400nm).
+mcp_intelligate = true
+
+# Insertion delay: Normal (~40ns). Use Fast (<19ns) only for time-resolved LIBS.
+insertion_delay = "Normal"
+
+[readout]
+# 16-bit HDR mode: maximum dynamic range, avoids saturation with bright lines.
+simple_preamp_gain_control = "16-bit (low noise & high well capacity)"
+
+# Rolling shutter is standard for calibration (no global shutter artifacts).
+electronic_shuttering = "Rolling"
+
+[cooling]
+# Enable cooling to reduce dark current noise for long-exposure UV calibration.
+enable_cooling = true
+temperature_control = "0.00"
+fan_speed = "On"
+
+[metadata]
+# Enable all per-frame metadata for data provenance.
+metadata_enable = true
+metadata_ddg_info = true
+metadata_mcp_gain = true
+metadata_frame_info = true
+metadata_timestamp = true
+
+[acquisition]
+# Accumulate 10 frames for SNR improvement without increasing per-frame MCP dose.
+accumulate_count = 10
+
+# Internal trigger for calibration (no external laser sync needed).
+trigger_mode = "Internal"

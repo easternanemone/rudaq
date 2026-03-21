@@ -224,15 +224,15 @@ if ! $GUI_ONLY; then
     if [[ -n "$RUNTIME_MODE" ]]; then
         deploy_validate_runtime_mode "$RUNTIME_MODE"
         DAEMON_CMD="${DAEMON_CMD} --runtime-mode ${RUNTIME_MODE}"
-    elif $WITH_DB; then
-        # Default to hybrid-db when DB features are compiled in
-        DAEMON_CMD="${DAEMON_CMD} --runtime-mode hybrid-db"
     else
-        # --no-db: binary lacks DB features, use universal TOML only
-        DAEMON_CMD="${DAEMON_CMD} --runtime-mode universal"
+        # Default to hardware-config for device registration. --runtime-mode and
+        # --hardware-config are mutually exclusive in the CLI, so only add
+        # --runtime-mode when the caller explicitly requests it.
+        DAEMON_CMD="${DAEMON_CMD} --hardware-config ${HARDWARE_CONFIG}"
     fi
 
     if $WITH_DB; then
+        # SurrealDB persistence works alongside --hardware-config via --db-path.
         DAEMON_CMD="${DAEMON_CMD} --db-path data/surrealdb-leabs"
         remote "mkdir -p ${REMOTE_DIR}/data" 2>/dev/null || true
     fi

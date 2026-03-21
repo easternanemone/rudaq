@@ -71,7 +71,9 @@ mod parameters;
 mod sdk_features;
 mod traits;
 
-use crate::types::{CameraInfo, ElectronicShutteringMode, GateMode, TriggerMode};
+use crate::types::{
+    CameraInfo, DeviceState, ElectronicShutteringMode, GateMode, InsertionDelay, TriggerMode,
+};
 use anyhow::Result;
 use common::capabilities::{FrameObserver, LoanedFrame, ObserverHandle};
 use common::core::Roi;
@@ -105,6 +107,12 @@ const CORE_FEATURE_NAMES: &[&str] = &[
     "SensorTemperature",
     "TargetSensorTemperature",
     "ElectronicShutteringMode",
+    // bd-zg9e: promoted from dynamic to core
+    "MCPIntelligentGating",
+    "MCPVoltage",
+    "InsertionDelay",
+    "CameraAcquiring",
+    "BaselineLevel",
 ];
 
 #[cfg(feature = "camera")]
@@ -249,6 +257,23 @@ pub(crate) struct AndorCameraInner {
 
     // Electronic shuttering (bd-apwl)
     pub(crate) electronic_shuttering: Parameter<ElectronicShutteringMode>,
+
+    // bd-zg9e: iStar intensifier features
+    pub(crate) mcp_intelligate: Parameter<bool>,
+    pub(crate) mcp_voltage: Parameter<u32>,
+    pub(crate) insertion_delay: Parameter<InsertionDelay>,
+
+    // bd-zg9e: per-frame metadata toggles
+    pub(crate) metadata_ddg_info: Parameter<bool>,
+    pub(crate) metadata_mcp_gain: Parameter<bool>,
+    pub(crate) metadata_frame_info: Parameter<bool>,
+
+    // bd-zg9e: acquisition status + diagnostics
+    pub(crate) camera_acquiring: Parameter<bool>,
+    pub(crate) baseline_level: Parameter<i64>,
+
+    // bd-zg9e.10: device lifecycle state
+    pub(crate) device_state: Parameter<DeviceState>,
 
     // Frame loss tracking (bd-fami)
     pub(crate) frames_dropped: AtomicU64,
@@ -422,6 +447,50 @@ impl AndorCamera {
             Parameter::new("electronic_shuttering", ElectronicShutteringMode::Rolling)
                 .with_description("Electronic shuttering mode");
 
+        // bd-zg9e: iStar intensifier parameters
+        #[allow(unused_mut)]
+        let mut mcp_intelligate = Parameter::new("mcp_intelligate", false).with_description(
+            "MCP Intelligate (simultaneous photocathode+MCP gating for UV safety)",
+        );
+
+        #[allow(unused_mut)]
+        let mut mcp_voltage = Parameter::new("mcp_voltage", 0u32)
+            .with_description("MCP high voltage read-back")
+            .read_only();
+
+        #[allow(unused_mut)]
+        let mut insertion_delay = Parameter::new("insertion_delay", InsertionDelay::Normal)
+            .with_description("Intensifier insertion delay (Normal ~40ns, Fast <19ns)");
+
+        // bd-zg9e: per-frame metadata toggles
+        #[allow(unused_mut)]
+        let mut metadata_ddg_info = Parameter::new("metadata_ddg_info", false)
+            .with_description("Include DDG timing in per-frame metadata");
+
+        #[allow(unused_mut)]
+        let mut metadata_mcp_gain_param = Parameter::new("metadata_mcp_gain", false)
+            .with_description("Include MCP gain in per-frame metadata");
+
+        #[allow(unused_mut)]
+        let mut metadata_frame_info = Parameter::new("metadata_frame_info", false)
+            .with_description("Include frame info in per-frame metadata");
+
+        // bd-zg9e: acquisition status + diagnostics
+        #[allow(unused_mut)]
+        let mut camera_acquiring = Parameter::new("camera_acquiring", false)
+            .with_description("Camera is actively acquiring")
+            .read_only();
+
+        #[allow(unused_mut)]
+        let mut baseline_level = Parameter::new("baseline_level", 0i64)
+            .with_description("Electronic baseline level (ADU)")
+            .read_only();
+
+        // bd-zg9e.10: device lifecycle state
+        let device_state = Parameter::new("device_state", DeviceState::Initializing)
+            .with_description("Device lifecycle state")
+            .read_only();
+
         let streaming_flag = Arc::new(AtomicBool::new(false));
 
         #[cfg(feature = "camera")]
@@ -430,13 +499,38 @@ impl AndorCamera {
             Self::attach_trigger_mode_callback(&mut trigger_mode, handle);
             Self::attach_gate_mode_callback(&mut gate_mode, handle);
             Self::attach_mcp_gain_callback(&mut mcp_gain, handle, streaming_flag.clone());
-            Self::attach_ddg_delay_callback(&mut ddg_output_delay_ps, handle);
-            Self::attach_ddg_width_callback(&mut ddg_output_width_ps, handle);
+            Self::attach_ddg_delay_callback(
+                &mut ddg_output_delay_ps,
+                handle,
+                streaming_flag.clone(),
+            );
+            Self::attach_ddg_width_callback(
+                &mut ddg_output_width_ps,
+                handle,
+                streaming_flag.clone(),
+            );
             Self::attach_temperature_reader(&mut temperature_c, handle);
             Self::attach_target_temperature_reader(&mut target_temperature_c, handle);
             Self::attach_roi_callback(&mut roi, handle);
             Self::attach_binning_callback(&mut binning, handle);
             Self::attach_electronic_shuttering_callback(&mut electronic_shuttering, handle);
+            // bd-zg9e: new callbacks
+            Self::attach_mcp_intelligate_callback(
+                &mut mcp_intelligate,
+                handle,
+                streaming_flag.clone(),
+            );
+            Self::attach_mcp_voltage_reader(&mut mcp_voltage, handle);
+            Self::attach_insertion_delay_callback(&mut insertion_delay, handle);
+            Self::attach_metadata_bool_callback(&mut metadata_ddg_info, handle, "MetadataEnable");
+            Self::attach_metadata_bool_callback(
+                &mut metadata_mcp_gain_param,
+                handle,
+                "MetadataEnable",
+            );
+            Self::attach_metadata_bool_callback(&mut metadata_frame_info, handle, "MetadataFrame");
+            Self::attach_camera_acquiring_reader(&mut camera_acquiring, handle);
+            Self::attach_baseline_level_reader(&mut baseline_level, handle);
         }
 
         let mut params = ParameterSet::new();
@@ -451,6 +545,16 @@ impl AndorCamera {
         params.register(temperature_c.clone());
         params.register(target_temperature_c.clone());
         params.register(electronic_shuttering.clone());
+        // bd-zg9e: register new core parameters
+        params.register(mcp_intelligate.clone());
+        params.register(mcp_voltage.clone());
+        params.register(insertion_delay.clone());
+        params.register(metadata_ddg_info.clone());
+        params.register(metadata_mcp_gain_param.clone());
+        params.register(metadata_frame_info.clone());
+        params.register(camera_acquiring.clone());
+        params.register(baseline_level.clone());
+        params.register(device_state.clone());
 
         {
             #[cfg(not(feature = "camera"))]
@@ -490,6 +594,16 @@ impl AndorCamera {
             cooling_enabled: AtomicBool::new(false),
             target_temperature_c,
             electronic_shuttering,
+            // bd-zg9e: new core parameters
+            mcp_intelligate,
+            mcp_voltage,
+            insertion_delay,
+            metadata_ddg_info,
+            metadata_mcp_gain: metadata_mcp_gain_param,
+            metadata_frame_info,
+            camera_acquiring,
+            baseline_level,
+            device_state,
             frames_dropped: AtomicU64::new(0),
             last_hw_frame_nr: std::sync::atomic::AtomicI32::new(-1),
             hw_timestamp_freq: AtomicU64::new(0),
@@ -682,6 +796,15 @@ impl AndorCamera {
             external_trigger_modes: check("TriggerMode"),
             electronic_shuttering_mode: check("ElectronicShutteringMode"),
             frame_count: check("FrameCount"),
+            mcp_intelligate: check("MCPIntelligentGating"),
+            mcp_voltage: check("MCPVoltage"),
+            insertion_delay: check("InsertionDelay"),
+            metadata_ddg_info: check("MetadataEnable"),
+            metadata_mcp_gain: check("MetadataEnable"),
+            metadata_frame_info: check("MetadataFrame"),
+            camera_acquiring: check("CameraAcquiring"),
+            baseline_level: check("BaselineLevel"),
+            software_trigger: check("SoftwareTrigger"),
         }
     }
 
@@ -704,6 +827,7 @@ impl AndorCamera {
                 external_trigger_modes: true,
                 electronic_shuttering_mode: true,
                 frame_count: true,
+                ..Default::default()
             },
         }
     }

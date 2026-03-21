@@ -49,16 +49,21 @@ impl TryFrom<&str> for TriggerMode {
 
 /// Gate mode for MCP (Multi-Channel Plate) intensifier.
 ///
-/// SDK3 enum values: "CW On", "CW Off", "Fire Only", "Fire and Gate", "DDG".
-/// We map `CWOn` → "CW On" (gate always open, for continuous imaging),
-/// `CWOff` → "CW Off" (gate always closed), and `DDG` → "DDG".
+/// SDK3 enum values: "CW On"(0), "CW Off"(1), "Fire Only"(2),
+/// "Gate Only"(3), "Fire and Gate"(4), "DDG"(5).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum GateMode {
     /// Continuous Wave On - MCP gate always open
     CWOn,
     /// Continuous Wave Off - MCP gate always closed
     CWOff,
-    /// Digital Delay Generator - use DDG timing control
+    /// Fire Only - external fire trigger controls gate
+    FireOnly,
+    /// Gate Only - external DIRECT GATE TTL input controls gate
+    GateOnly,
+    /// Fire and Gate - external fire trigger + direct gate
+    FireAndGate,
+    /// Digital Delay Generator - internal DDG controls timing
     DDG,
 }
 
@@ -67,6 +72,9 @@ impl fmt::Display for GateMode {
         match self {
             Self::CWOn => write!(f, "CW On"),
             Self::CWOff => write!(f, "CW Off"),
+            Self::FireOnly => write!(f, "Fire Only"),
+            Self::GateOnly => write!(f, "Gate Only"),
+            Self::FireAndGate => write!(f, "Fire and Gate"),
             Self::DDG => write!(f, "DDG"),
         }
     }
@@ -79,8 +87,90 @@ impl TryFrom<&str> for GateMode {
         match s {
             "CW On" | "CW" | "CWOn" => Ok(Self::CWOn),
             "CW Off" | "CWOff" => Ok(Self::CWOff),
+            "Fire Only" | "FireOnly" => Ok(Self::FireOnly),
+            "Gate Only" | "GateOnly" => Ok(Self::GateOnly),
+            "Fire and Gate" | "FireAndGate" => Ok(Self::FireAndGate),
             "DDG" => Ok(Self::DDG),
             _ => Err(format!("Invalid gate mode: {}", s)),
+        }
+    }
+}
+
+/// Insertion delay mode for the iStar intensifier.
+///
+/// Controls the minimum delay between trigger arrival and gate opening.
+/// SDK3 enum feature "InsertionDelay".
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum InsertionDelay {
+    /// Normal insertion delay (~40ns)
+    Normal,
+    /// Fast insertion delay (<19ns)
+    Fast,
+}
+
+impl fmt::Display for InsertionDelay {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Normal => write!(f, "Normal"),
+            Self::Fast => write!(f, "Fast"),
+        }
+    }
+}
+
+impl TryFrom<&str> for InsertionDelay {
+    type Error = String;
+
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        match s {
+            "Normal" => Ok(Self::Normal),
+            "Fast" => Ok(Self::Fast),
+            _ => Err(format!("Invalid insertion delay: {}", s)),
+        }
+    }
+}
+
+/// Device lifecycle state for SurrealDB persistence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DeviceState {
+    /// Camera not connected
+    Offline,
+    /// Camera opening / initializing SDK
+    Initializing,
+    /// Camera ready, cooled, idle
+    Ready,
+    /// Actively acquiring frames
+    Streaming,
+    /// Error state (SDK error, temperature fault, etc.)
+    Error,
+    /// Shutting down gracefully
+    ShuttingDown,
+}
+
+impl fmt::Display for DeviceState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Offline => write!(f, "offline"),
+            Self::Initializing => write!(f, "initializing"),
+            Self::Ready => write!(f, "ready"),
+            Self::Streaming => write!(f, "streaming"),
+            Self::Error => write!(f, "error"),
+            Self::ShuttingDown => write!(f, "shutting_down"),
+        }
+    }
+}
+
+impl TryFrom<&str> for DeviceState {
+    type Error = String;
+
+    fn try_from(s: &str) -> Result<Self, <Self as TryFrom<&str>>::Error> {
+        match s {
+            "offline" => Ok(Self::Offline),
+            "initializing" => Ok(Self::Initializing),
+            "ready" => Ok(Self::Ready),
+            "streaming" => Ok(Self::Streaming),
+            "error" => Ok(Self::Error),
+            "shutting_down" | "ShuttingDown" => Ok(Self::ShuttingDown),
+            _ => Err(format!("Invalid device state: {}", s)),
         }
     }
 }
@@ -215,6 +305,16 @@ pub struct FeatureSupport {
     pub external_trigger_modes: bool,
     pub electronic_shuttering_mode: bool,
     pub frame_count: bool,
+    // New features (bd-zg9e)
+    pub mcp_intelligate: bool,
+    pub mcp_voltage: bool,
+    pub insertion_delay: bool,
+    pub metadata_ddg_info: bool,
+    pub metadata_mcp_gain: bool,
+    pub metadata_frame_info: bool,
+    pub camera_acquiring: bool,
+    pub baseline_level: bool,
+    pub software_trigger: bool,
 }
 
 /// Known Andor SDK3 camera models and their expected feature sets.
@@ -260,6 +360,15 @@ impl CameraModel {
                 external_trigger_modes: true,
                 electronic_shuttering_mode: true,
                 frame_count: true,
+                mcp_intelligate: true,
+                mcp_voltage: true,
+                insertion_delay: true,
+                metadata_ddg_info: true,
+                metadata_mcp_gain: true,
+                metadata_frame_info: true,
+                camera_acquiring: true,
+                baseline_level: true,
+                software_trigger: true,
             },
             Self::Zyla | Self::Neo | Self::Marana | Self::Sona | Self::Balor => FeatureSupport {
                 mcp_gain: false,
@@ -272,18 +381,19 @@ impl CameraModel {
                 external_trigger_modes: true,
                 electronic_shuttering_mode: true,
                 frame_count: true,
+                camera_acquiring: true,
+                baseline_level: true,
+                software_trigger: true,
+                ..Default::default()
             },
             Self::SimCam => FeatureSupport {
-                mcp_gain: false,
-                gate_mode: false,
-                ddg_output_delay: false,
-                ddg_output_width: false,
-                sensor_cooling: false,
                 sensor_temperature: true,
                 pixel_encoding: true,
                 external_trigger_modes: true,
                 electronic_shuttering_mode: true,
                 frame_count: true,
+                camera_acquiring: true,
+                ..Default::default()
             },
         }
     }

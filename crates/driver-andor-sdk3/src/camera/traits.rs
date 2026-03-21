@@ -35,6 +35,12 @@ impl FrameProducer for AndorCamera {
         self.inner.last_hw_frame_nr.store(-1, Ordering::Relaxed);
         // bd-9id0: Clear sticky error so has_acquisition_error() is session-scoped.
         self.clear_error();
+        // bd-zg9e.10: Update device lifecycle state
+        let _ = self
+            .inner
+            .device_state
+            .set(crate::types::DeviceState::Streaming)
+            .await;
 
         #[cfg(feature = "camera")]
         {
@@ -67,6 +73,23 @@ impl FrameProducer for AndorCamera {
 
                     if let Err(e) = Self::set_enum_feature(handle, "GateMode", &gate_str) {
                         tracing::debug!("GateMode not available (non-gated camera): {e}");
+                    }
+
+                    // bd-zg9e.1: When DDG mode is active, ensure DDGOutputSelector
+                    // targets the MCP gater so DDGOutputDelay/Width control the gate.
+                    if inner.gate_mode.get() == crate::types::GateMode::DDG {
+                        if let Err(e) = Self::set_enum_feature(handle, "DDGOutputSelector", "Gater")
+                        {
+                            tracing::debug!("DDGOutputSelector not available: {e}");
+                        }
+                        // bd-zg9e.2: Enable MCPIntelligate in DDG mode for UV safety
+                        if inner.info.features.mcp_intelligate && inner.mcp_intelligate.get() {
+                            if let Err(e) =
+                                Self::set_bool_feature(handle, "MCPIntelligentGating", true)
+                            {
+                                tracing::debug!("MCPIntelligate not available: {e}");
+                            }
+                        }
                     }
 
                     if let Err(e) = Self::set_enum_feature(handle, "ShutterMode", "Open") {
@@ -224,6 +247,12 @@ impl FrameProducer for AndorCamera {
         );
 
         self.inner.streaming.store(false, Ordering::SeqCst);
+        // bd-zg9e.10: Update device lifecycle state
+        let _ = self
+            .inner
+            .device_state
+            .set(crate::types::DeviceState::Ready)
+            .await;
 
         if let Some(handle) = self.inner.acq_task_handle.lock().await.take() {
             handle.abort();
@@ -653,6 +682,10 @@ impl Commandable for AndorCamera {
             "get_frames_dropped" => {
                 let dropped = self.frames_dropped();
                 Ok(serde_json::json!({"frames_dropped": dropped}))
+            }
+            "software_trigger" => {
+                self.trigger().await?;
+                Ok(serde_json::json!({"triggered": true}))
             }
             _ => anyhow::bail!("Unknown command: {command}"),
         }

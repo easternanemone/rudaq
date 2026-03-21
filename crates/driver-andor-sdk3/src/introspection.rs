@@ -779,7 +779,14 @@ pub fn introspect_mock_features() -> Vec<DiscoveredFeature> {
         df_int("MCPGain", (0, 4095), true, "Intensifier"),
         df_enum(
             "GateMode",
-            &["CWOn", "CWOff", "FireAndGate", "GateOnly", "DDG"],
+            &[
+                "CW On",
+                "CW Off",
+                "Fire Only",
+                "Gate Only",
+                "Fire and Gate",
+                "DDG",
+            ],
             true,
             "Intensifier",
         ),

@@ -126,7 +126,7 @@ pub fn generate_libs_spectrum(
 
 /// Core parameter names that are explicitly constructed in MockCamera::new().
 /// Dynamic features with these SDK3 names are skipped to avoid duplicates.
-const MOCK_CORE_FEATURES: &[&str] = &["ExposureTime", "MCPGain"];
+const MOCK_CORE_FEATURES: &[&str] = &["ExposureTime", "MCPGain", "MCPIntelligentGating"];
 
 /// Mock iStar camera for testing
 #[derive(Clone)]
@@ -165,6 +165,15 @@ impl MockCamera {
                 external_trigger_modes: true,
                 electronic_shuttering_mode: true,
                 frame_count: true,
+                mcp_intelligate: true,
+                mcp_voltage: true,
+                insertion_delay: true,
+                metadata_ddg_info: true,
+                metadata_mcp_gain: true,
+                metadata_frame_info: true,
+                camera_acquiring: true,
+                baseline_level: true,
+                software_trigger: true,
             },
         };
 

@@ -295,22 +295,54 @@ impl AndorCamera {
         });
     }
 
+    /// DDG delay callback with pause-apply-restart support (bd-zg9e.1).
+    ///
+    /// Ensures DDGOutputSelector is set to "Gater" before applying the delay,
+    /// since the SDK3 DDG output features are per-output.
     #[cfg(feature = "camera")]
-    pub(super) fn attach_ddg_delay_callback(param: &mut Parameter<u64>, handle: AT_H) {
+    pub(super) fn attach_ddg_delay_callback(
+        param: &mut Parameter<u64>,
+        handle: AT_H,
+        streaming: Arc<AtomicBool>,
+    ) {
         param.connect_to_hardware_write(move |delay_ps: u64| {
+            let streaming = streaming.clone();
             Box::pin(sdk_blocking(move || {
-                // SDK3 DDGOutputDelay is in seconds; parameter stores picoseconds
-                AndorCamera::set_float_feature(handle, "DDGOutputDelay", delay_ps as f64 * 1e-12)
+                // Ensure DDGOutputSelector targets the MCP gater
+                let _ = AndorCamera::set_enum_feature(handle, "DDGOutputSelector", "Gater");
+                let delay_s = delay_ps as f64 * 1e-12;
+                let result = AndorCamera::set_float_feature(handle, "DDGOutputDelay", delay_s);
+                if result.is_ok() || !streaming.load(std::sync::atomic::Ordering::Relaxed) {
+                    return result;
+                }
+                tracing::info!("Pausing acquisition to change DDGOutputDelay");
+                pause_apply_restart(handle, || {
+                    AndorCamera::set_float_feature(handle, "DDGOutputDelay", delay_s)
+                })
             }))
         });
     }
 
+    /// DDG width callback with pause-apply-restart support (bd-zg9e.1).
     #[cfg(feature = "camera")]
-    pub(super) fn attach_ddg_width_callback(param: &mut Parameter<u64>, handle: AT_H) {
+    pub(super) fn attach_ddg_width_callback(
+        param: &mut Parameter<u64>,
+        handle: AT_H,
+        streaming: Arc<AtomicBool>,
+    ) {
         param.connect_to_hardware_write(move |width_ps: u64| {
+            let streaming = streaming.clone();
             Box::pin(sdk_blocking(move || {
-                // SDK3 DDGOutputWidth is in seconds; parameter stores picoseconds
-                AndorCamera::set_float_feature(handle, "DDGOutputWidth", width_ps as f64 * 1e-12)
+                let _ = AndorCamera::set_enum_feature(handle, "DDGOutputSelector", "Gater");
+                let width_s = width_ps as f64 * 1e-12;
+                let result = AndorCamera::set_float_feature(handle, "DDGOutputWidth", width_s);
+                if result.is_ok() || !streaming.load(std::sync::atomic::Ordering::Relaxed) {
+                    return result;
+                }
+                tracing::info!("Pausing acquisition to change DDGOutputWidth");
+                pause_apply_restart(handle, || {
+                    AndorCamera::set_float_feature(handle, "DDGOutputWidth", width_s)
+                })
             }))
         });
     }
@@ -372,6 +404,94 @@ impl AndorCamera {
             let mode_str = mode.to_string();
             Box::pin(sdk_blocking(move || {
                 AndorCamera::set_enum_feature(handle, "ElectronicShutteringMode", &mode_str)
+            }))
+        });
+    }
+
+    // =========================================================================
+    // bd-zg9e: New iStar intensifier and metadata callbacks
+    // =========================================================================
+
+    /// MCPIntelligate: simultaneous photocathode + MCP gating (bd-zg9e.2).
+    #[cfg(feature = "camera")]
+    pub(super) fn attach_mcp_intelligate_callback(
+        param: &mut Parameter<bool>,
+        handle: AT_H,
+        streaming: Arc<AtomicBool>,
+    ) {
+        param.connect_to_hardware_write(move |val: bool| {
+            let streaming = streaming.clone();
+            Box::pin(sdk_blocking(move || {
+                let result = AndorCamera::set_bool_feature(handle, "MCPIntelligentGating", val);
+                if result.is_ok() || !streaming.load(std::sync::atomic::Ordering::Relaxed) {
+                    return result;
+                }
+                tracing::info!("Pausing acquisition to change MCPIntelligate");
+                pause_apply_restart(handle, || {
+                    AndorCamera::set_bool_feature(handle, "MCPIntelligentGating", val)
+                })
+            }))
+        });
+    }
+
+    /// MCPVoltage: read-only monitoring of actual MCP high voltage (bd-zg9e.4).
+    #[cfg(feature = "camera")]
+    pub(super) fn attach_mcp_voltage_reader(param: &mut Parameter<u32>, handle: AT_H) {
+        param.connect_to_hardware_read(move || {
+            Box::pin(sdk_blocking(move || {
+                AndorCamera::get_int_feature(handle, "MCPVoltage").map(|v| v as u32)
+            }))
+        });
+    }
+
+    /// InsertionDelay: gate latency control (bd-zg9e.5).
+    #[cfg(feature = "camera")]
+    pub(super) fn attach_insertion_delay_callback(
+        param: &mut Parameter<crate::types::InsertionDelay>,
+        handle: AT_H,
+    ) {
+        param.connect_to_hardware_write(move |mode: crate::types::InsertionDelay| {
+            let mode_str = mode.to_string();
+            Box::pin(sdk_blocking(move || {
+                AndorCamera::set_enum_feature(handle, "InsertionDelay", &mode_str)
+            }))
+        });
+    }
+
+    /// Generic metadata boolean callback (bd-zg9e.6).
+    ///
+    /// Used for MetadataDDGInfo, MetadataMCPGain, MetadataFrameInfo.
+    #[cfg(feature = "camera")]
+    pub(super) fn attach_metadata_bool_callback(
+        param: &mut Parameter<bool>,
+        handle: AT_H,
+        feature_name: &str,
+    ) {
+        let fname = feature_name.to_string();
+        param.connect_to_hardware_write(move |val: bool| {
+            let fname = fname.clone();
+            Box::pin(sdk_blocking(move || {
+                AndorCamera::set_bool_feature(handle, &fname, val)
+            }))
+        });
+    }
+
+    /// CameraAcquiring: read-only acquisition status (bd-zg9e.7).
+    #[cfg(feature = "camera")]
+    pub(super) fn attach_camera_acquiring_reader(param: &mut Parameter<bool>, handle: AT_H) {
+        param.connect_to_hardware_read(move || {
+            Box::pin(sdk_blocking(move || {
+                AndorCamera::get_bool_feature(handle, "CameraAcquiring")
+            }))
+        });
+    }
+
+    /// BaselineLevel: read-only electronic baseline (bd-zg9e.8).
+    #[cfg(feature = "camera")]
+    pub(super) fn attach_baseline_level_reader(param: &mut Parameter<i64>, handle: AT_H) {
+        param.connect_to_hardware_read(move || {
+            Box::pin(sdk_blocking(move || {
+                AndorCamera::get_int_feature(handle, "BaselineLevel")
             }))
         });
     }
