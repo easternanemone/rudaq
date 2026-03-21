@@ -19,16 +19,22 @@ driver-mock = { path = "../driver-mock" }
 # Config-driven universal driver (always available for TOML manifest loading)
 driver-universal = { path = "../driver-universal" }
 
+# Runtime SDK probing (lightweight — attempts dlopen without linking)
+libloading = { version = "0.8", optional = true }
+
 # Concrete hardware drivers (all optional, gated by features)
 driver-pvcam = { path = "../driver-pvcam", optional = true }
 driver-comedi = { path = "../driver-comedi", optional = true }
 driver-andor-sdk3 = { path = "../driver-andor-sdk3", optional = true }
 
 [features]
-default = ["serial"]
+default = ["serial", "runtime_probe"]
 
 # Serial communication (pass-through to hardware)
 serial = ["hardware/serial"]
+
+# Runtime SDK probing via dlopen (detects SDK availability without linking)
+runtime_probe = ["dep:libloading"]
 
 # PVCAM camera support
 pvcam = ["dep:driver-pvcam"]

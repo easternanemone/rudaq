@@ -67,8 +67,9 @@
 //! ```
 
 use crate::capabilities::{
-    Commandable, DeviceCategory, EmissionControl, ExposureControl, FrameProducer, GatedCamera,
-    Movable, Parameterized, PulseGenerator, Readable, Reconfigurable, SafetyInterlock, Settable,
+    Commandable, CounterConfigurable, DeviceCategory, DeviceIntrospection, EmissionControl,
+    ExposureControl, FrameProducer, GatedCamera, Movable, Parameterized, PulseGenerator,
+    RangeIntrospectable, Readable, ReadableWithMetadata, Reconfigurable, SafetyInterlock, Settable,
     ShutterControl, SpectrometerControl, Stageable, StateRefreshable, TriggerOnPosition,
     Triggerable, WavelengthTunable,
 };
@@ -177,6 +178,22 @@ pub enum Capability {
     /// Post-reconnection state refresh (bd-47p2)
     /// Corresponds to [`crate::capabilities::StateRefreshable`]
     StateRefreshable,
+
+    /// Configurable counter/timer (Comedi INSN_CONFIG, bd-f3pq)
+    /// Corresponds to [`crate::capabilities::CounterConfigurable`]
+    CounterConfigurable,
+
+    /// Can report available analog voltage/current ranges (bd-3bjp)
+    /// Corresponds to [`crate::capabilities::RangeIntrospectable`]
+    RangeIntrospectable,
+
+    /// Can report board/subdevice metadata (bd-sa9p)
+    /// Corresponds to [`crate::capabilities::DeviceIntrospection`]
+    DeviceIntrospection,
+
+    /// Reads with raw value, voltage, and timestamp metadata (bd-09ls)
+    /// Corresponds to [`crate::capabilities::ReadableWithMetadata`]
+    ReadableWithMetadata,
 }
 
 impl Capability {
@@ -202,6 +219,10 @@ impl Capability {
             Self::SafetyInterlock => "Safety Interlock",
             Self::Reconfigurable => "Reconfigurable",
             Self::StateRefreshable => "State Refreshable",
+            Self::CounterConfigurable => "Counter Configurable",
+            Self::RangeIntrospectable => "Range Introspectable",
+            Self::DeviceIntrospection => "Device Introspection",
+            Self::ReadableWithMetadata => "Readable With Metadata",
         }
     }
 
@@ -227,6 +248,10 @@ impl Capability {
             Self::SafetyInterlock => "safety_interlock",
             Self::Reconfigurable => "reconfigurable",
             Self::StateRefreshable => "state_refreshable",
+            Self::CounterConfigurable => "counter_configurable",
+            Self::RangeIntrospectable => "range_introspectable",
+            Self::DeviceIntrospection => "device_introspection",
+            Self::ReadableWithMetadata => "readable_with_metadata",
         }
     }
 }
@@ -327,6 +352,18 @@ pub struct DeviceComponents {
     /// StateRefreshable implementation (post-reconnection state refresh, bd-47p2)
     pub state_refreshable: Option<Arc<dyn StateRefreshable>>,
 
+    /// CounterConfigurable implementation (DAQ counter/timer config, bd-f3pq)
+    pub counter_configurable: Option<Arc<dyn CounterConfigurable>>,
+
+    /// RangeIntrospectable implementation (analog range queries, bd-3bjp)
+    pub range_introspectable: Option<Arc<dyn RangeIntrospectable>>,
+
+    /// DeviceIntrospection implementation (board/subdevice metadata, bd-sa9p)
+    pub device_introspection: Option<Arc<dyn DeviceIntrospection>>,
+
+    /// ReadableWithMetadata implementation (structured analog reads, bd-09ls)
+    pub readable_with_metadata: Option<Arc<dyn ReadableWithMetadata>>,
+
     /// Optional lifecycle hooks for device registration/shutdown
     pub lifecycle: Option<Arc<dyn DeviceLifecycle>>,
 
@@ -397,6 +434,18 @@ impl DeviceComponents {
         }
         if self.state_refreshable.is_some() {
             caps.push(Capability::StateRefreshable);
+        }
+        if self.counter_configurable.is_some() {
+            caps.push(Capability::CounterConfigurable);
+        }
+        if self.range_introspectable.is_some() {
+            caps.push(Capability::RangeIntrospectable);
+        }
+        if self.device_introspection.is_some() {
+            caps.push(Capability::DeviceIntrospection);
+        }
+        if self.readable_with_metadata.is_some() {
+            caps.push(Capability::ReadableWithMetadata);
         }
 
         caps
@@ -531,6 +580,30 @@ impl DeviceComponents {
     /// Set StateRefreshable implementation (bd-47p2)
     pub fn with_state_refreshable(mut self, s: Arc<dyn StateRefreshable>) -> Self {
         self.state_refreshable = Some(s);
+        self
+    }
+
+    /// Set CounterConfigurable implementation (bd-f3pq)
+    pub fn with_counter_configurable(mut self, c: Arc<dyn CounterConfigurable>) -> Self {
+        self.counter_configurable = Some(c);
+        self
+    }
+
+    /// Set RangeIntrospectable implementation (bd-3bjp)
+    pub fn with_range_introspectable(mut self, r: Arc<dyn RangeIntrospectable>) -> Self {
+        self.range_introspectable = Some(r);
+        self
+    }
+
+    /// Set DeviceIntrospection implementation (bd-sa9p)
+    pub fn with_device_introspection(mut self, d: Arc<dyn DeviceIntrospection>) -> Self {
+        self.device_introspection = Some(d);
+        self
+    }
+
+    /// Set ReadableWithMetadata implementation (bd-09ls)
+    pub fn with_readable_with_metadata(mut self, r: Arc<dyn ReadableWithMetadata>) -> Self {
+        self.readable_with_metadata = Some(r);
         self
     }
 

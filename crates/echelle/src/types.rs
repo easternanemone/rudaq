@@ -2833,6 +2833,7 @@ mod tests {
         // Create a profile with high-degree Chebyshev wavelength models
         // (degree 5) and verify all coefficients survive TOML serialization
         // at full f64 precision.
+        #[allow(clippy::excessive_precision)] // test intentionally uses high-precision literals
         let chebyshev_coeffs = vec![
             450.123_456_789_012_3,
             0.098_765_432_109_876,

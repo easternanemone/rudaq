@@ -724,20 +724,6 @@ impl LiveVisualizationPanel {
         }
     }
 
-    /// Configure detectors to display
-    ///
-    /// # Arguments
-    ///
-    /// - `cameras`: List of (device_id, title) for camera panels
-    /// - `plots`: List of (device_id, label, title) for plot panels
-    pub fn configure_detectors(
-        &mut self,
-        cameras: Vec<(String, String)>,
-        plots: Vec<(String, String, String)>,
-    ) {
-        self.configure_detectors_with_spectra(cameras, plots, Vec::new());
-    }
-
     /// Configure detectors including streamed spectrum plot panels.
     pub fn configure_detectors_with_spectra(
         &mut self,
@@ -1299,6 +1285,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cast_precision_loss)] // Test indices are small; precision loss irrelevant
     fn spectrum_plot_state_caps_history_per_series() {
         let mut state = SpectrumPlotState::new("spec".to_string(), "merged".to_string());
         let x = vec![1.0, 2.0, 3.0];

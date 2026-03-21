@@ -58,14 +58,6 @@ impl OscilloscopeSample {
             timestamp: None,
         }
     }
-
-    pub fn with_timestamp(channel: u32, voltage: f64, timestamp: f64) -> Self {
-        Self {
-            channel,
-            voltage,
-            timestamp: Some(timestamp),
-        }
-    }
 }
 
 /// Sender for pushing samples to the oscilloscope
@@ -440,11 +432,6 @@ impl OscilloscopePanel {
         Self::default()
     }
 
-    /// Get a sender clone for pushing samples from external code
-    pub fn get_sender(&self) -> OscilloscopeSender {
-        self.sample_tx.clone()
-    }
-
     /// Start streaming from a hardware device via gRPC
     pub fn start_streaming(
         &mut self,
@@ -615,11 +602,6 @@ impl OscilloscopePanel {
             channel.clear();
         }
         self.last_trigger_time = None;
-    }
-
-    /// Main UI entry point
-    pub fn ui(&mut self, ui: &mut Ui) {
-        self.ui_with_client(ui, None, None, None);
     }
 
     /// UI with optional client for external streaming

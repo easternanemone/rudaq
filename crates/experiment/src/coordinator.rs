@@ -391,6 +391,34 @@ mod tests {
         fn get_settable(&self, _id: &str) -> Option<Arc<dyn Settable>> {
             None
         }
+
+        fn get_counter_configurable(
+            &self,
+            _id: &str,
+        ) -> Option<Arc<dyn common::capabilities::CounterConfigurable>> {
+            None
+        }
+
+        fn get_range_introspectable(
+            &self,
+            _id: &str,
+        ) -> Option<Arc<dyn common::capabilities::RangeIntrospectable>> {
+            None
+        }
+
+        fn get_device_introspection(
+            &self,
+            _id: &str,
+        ) -> Option<Arc<dyn common::capabilities::DeviceIntrospection>> {
+            None
+        }
+
+        fn get_readable_with_metadata(
+            &self,
+            _id: &str,
+        ) -> Option<Arc<dyn common::capabilities::ReadableWithMetadata>> {
+            None
+        }
     }
 
     // ---- Tests ----

@@ -219,8 +219,7 @@ fn append_entry(path: &Path, entry: &HeartbeatEntry) -> std::io::Result<()> {
         .append(true)
         .open(path)?;
 
-    let line = serde_json::to_string(entry)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    let line = serde_json::to_string(entry).map_err(std::io::Error::other)?;
     writeln!(file, "{line}")?;
     debug!(path = %path.display(), "Heartbeat entry written");
     Ok(())

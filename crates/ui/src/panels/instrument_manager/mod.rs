@@ -832,7 +832,13 @@ impl InstrumentManagerPanel {
         // Clone groups to avoid borrow checker issues
         let groups = self.groups.clone();
 
-        for group in groups {
+        for (i, group) in groups.iter().enumerate() {
+            // Add spacing between category groups to prevent click regions
+            // from overlapping at category header boundaries (bd-ehsg).
+            if i > 0 {
+                ui.add_space(4.0);
+            }
+
             let header = format!(
                 "{} {} ({})",
                 group.category.icon(),

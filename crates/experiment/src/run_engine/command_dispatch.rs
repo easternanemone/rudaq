@@ -24,7 +24,7 @@ pub(crate) struct CommandDispatcher<'a> {
     pub(crate) feedback_tx: &'a mpsc::Sender<FeedbackEvent>,
 }
 
-impl<'a> CommandDispatcher<'a> {
+impl CommandDispatcher<'_> {
     /// Execute a move command.
     pub(crate) async fn execute_move(&self, device_id: &str, position: f64) -> anyhow::Result<()> {
         debug!(device = %device_id, position = %position, "Moving");

@@ -570,11 +570,7 @@ impl CounterPanel {
                     }
                     // Forward to Counter Display viewer panel
                     if let Some(sender) = &self.display_sender {
-                        let _ = sender.try_send(CounterUpdate {
-                            counter,
-                            count,
-                            timestamp: None,
-                        });
+                        let _ = sender.try_send(CounterUpdate { counter, count });
                     }
                     self.error = None;
                 }

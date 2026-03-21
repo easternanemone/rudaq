@@ -341,12 +341,10 @@ mod camera_integration_tests {
                 }
                 Ok(Some(Err(err))) => panic!("stream error: {}", err),
                 Ok(None) => break,
+                Err(_) if !first_frame => break,
                 Err(_) => {
-                    if first_frame {
-                        // First frame timed out — this is the flaky case.
-                        // Continue trying rather than giving up immediately.
-                        continue;
-                    }
+                    // First frame timed out — this is the flaky case.
+                    // Continue trying rather than giving up immediately.
                 }
             }
         }

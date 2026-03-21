@@ -27,6 +27,83 @@ use common::driver::DriverFactory;
 use common::error::DaqError;
 use hardware::registry::{register_mock_factories, DeviceRegistry, HardwareConfig};
 
+// ============================================================================
+// Runtime SDK probing (feature: runtime_probe)
+// ============================================================================
+
+/// Results of runtime SDK availability probing via `dlopen`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiscoveredSdks {
+    /// PVCAM SDK (`libpvcam.so`) is loadable at runtime.
+    pub pvcam: bool,
+    /// Andor SDK3 (`libatcore.so`) is loadable at runtime.
+    pub andor: bool,
+    /// Comedi (`libcomedi.so`) is loadable at runtime.
+    pub comedi: bool,
+}
+
+impl std::fmt::Display for DiscoveredSdks {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut found = Vec::new();
+        if self.pvcam {
+            found.push("pvcam");
+        }
+        if self.andor {
+            found.push("andor");
+        }
+        if self.comedi {
+            found.push("comedi");
+        }
+        if found.is_empty() {
+            write!(f, "DiscoveredSdks(none)")
+        } else {
+            write!(f, "DiscoveredSdks({})", found.join(", "))
+        }
+    }
+}
+
+/// Probe for SDK shared libraries at runtime using `dlopen`.
+///
+/// Attempts to load each SDK's shared library without resolving any symbols.
+/// This is a lightweight check that doesn't execute any SDK code — it only
+/// verifies that the `.so` file is present and loadable by the dynamic linker.
+///
+/// Returns [`DiscoveredSdks`] indicating which SDKs are available.
+///
+/// # Platform Note
+///
+/// On macOS (development machines), this always returns all-false since the
+/// SDK `.so` files are Linux-only. Use the shell script `scripts/ops/detect-sdk.sh`
+/// for cross-platform detection.
+#[cfg(feature = "runtime_probe")]
+pub fn probe_available() -> DiscoveredSdks {
+    DiscoveredSdks {
+        pvcam: try_load_library("libpvcam.so"),
+        andor: try_load_library("libatcore.so"),
+        comedi: try_load_library("libcomedi.so"),
+    }
+}
+
+/// Fallback when `runtime_probe` feature is disabled: reports nothing discovered.
+#[cfg(not(feature = "runtime_probe"))]
+pub fn probe_available() -> DiscoveredSdks {
+    DiscoveredSdks {
+        pvcam: false,
+        andor: false,
+        comedi: false,
+    }
+}
+
+/// Attempt to load a shared library by name. Returns true if the library
+/// is loadable by the system's dynamic linker.
+#[cfg(feature = "runtime_probe")]
+fn try_load_library(name: &str) -> bool {
+    // SAFETY: We only load the library to check existence — we never resolve
+    // symbols or call into it. The library is dropped immediately after the check.
+    #[allow(unsafe_code)]
+    unsafe { libloading::Library::new(name) }.is_ok()
+}
+
 /// Register all available hardware driver factories.
 ///
 /// This registers factories for all enabled hardware drivers:
@@ -54,6 +131,13 @@ pub async fn register_all_factories(
     registry: &DeviceRegistry,
     config_dir: Option<&std::path::Path>,
 ) -> Result<(), DaqError> {
+    // Probe for SDK availability at runtime (if runtime_probe feature enabled).
+    // This lets us warn early when a driver feature is compiled in but the
+    // shared library isn't actually present on this machine.
+    // sdks is used in #[cfg(feature)] blocks below — unused when no SDK features enabled
+    #[allow(unused_variables)]
+    let sdks = probe_available();
+
     // Register mock factories (always available)
     register_mock_factories(registry);
 
@@ -63,6 +147,13 @@ pub async fn register_all_factories(
         use driver_andor_sdk3::{AndorCameraFactory, AndorSpectrographFactory};
         registry.register_factory(Box::new(AndorCameraFactory));
         registry.register_factory(Box::new(AndorSpectrographFactory));
+
+        #[cfg(feature = "andor_hardware")]
+        if !sdks.andor {
+            tracing::warn!(
+                "Andor SDK3 hardware feature enabled but libatcore.so not loadable at runtime"
+            );
+        }
     }
 
     // Register PVCAM factory
@@ -70,6 +161,13 @@ pub async fn register_all_factories(
     {
         use driver_pvcam::PvcamFactory;
         registry.register_factory(Box::new(PvcamFactory));
+
+        #[cfg(feature = "pvcam_hardware")]
+        if !sdks.pvcam {
+            tracing::warn!(
+                "PVCAM hardware feature enabled but libpvcam.so not loadable at runtime"
+            );
+        }
     }
 
     // Register Comedi factories (NI DAQ, etc.)
@@ -83,6 +181,13 @@ pub async fn register_all_factories(
         registry.register_factory(Box::new(ComediAnalogOutputFactory));
         registry.register_factory(Box::new(ComediDigitalIOFactory));
         registry.register_factory(Box::new(ComediCounterFactory));
+
+        #[cfg(feature = "comedi_hardware")]
+        if !sdks.comedi {
+            tracing::warn!(
+                "Comedi hardware feature enabled but libcomedi.so not loadable at runtime"
+            );
+        }
     }
 
     // Load and register config-driven factories from TOML files (schema_version=3)

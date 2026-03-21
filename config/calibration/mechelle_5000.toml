@@ -29,10 +29,11 @@ first_physical_order = 43
 order_step = 1
 
 [detector]
-# Andor iStar sCMOS: 2560×2160 pixels, 16-bit readout
-width = 2560
-height = 2160
-bit_depth = 16
+# Andor iStar DH340T: 2048×2048 pixels, 12-bit readout (Mono12 encoding)
+# Previous config incorrectly stated 2560×2160 / 16-bit — fixed 2026-03-21
+width = 2048
+height = 2048
+bit_depth = 12
 
 [orientation]
 # Dispersion (wavelength) runs along X axis

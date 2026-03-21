@@ -930,16 +930,14 @@ async fn restore_parameter_state(db: &db::DaqDb, registry: &DeviceRegistry) -> R
             continue;
         }
 
-        let parameterized = match registry.get_parameterized(device_id) {
-            Some(p) => p,
-            None => continue,
+        let Some(parameterized) = registry.get_parameterized(device_id) else {
+            continue;
         };
         let param_set = parameterized.parameters();
 
         for state in states {
-            let param = match param_set.get(&state.param_name) {
-                Some(p) => p,
-                None => continue,
+            let Some(param) = param_set.get(&state.param_name) else {
+                continue;
             };
             if let Err(e) = param.set_json(state.param_value.clone()) {
                 tracing::debug!(

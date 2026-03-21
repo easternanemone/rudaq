@@ -20,17 +20,6 @@ const MAX_HISTORY: usize = 1000;
 pub struct VoltmeterReading {
     pub channel: u32,
     pub voltage: f64,
-    pub timestamp: Option<f64>,
-}
-
-impl VoltmeterReading {
-    pub fn new(channel: u32, voltage: f64) -> Self {
-        Self {
-            channel,
-            voltage,
-            timestamp: None,
-        }
-    }
 }
 
 /// Sender for voltmeter readings
@@ -319,11 +308,6 @@ impl VoltmeterPanel {
         Self::default()
     }
 
-    /// Get sender for pushing readings
-    pub fn get_sender(&self) -> VoltmeterSender {
-        self.reading_tx.clone()
-    }
-
     /// Start streaming from a hardware device via gRPC
     pub fn start_streaming(
         &mut self,
@@ -390,7 +374,7 @@ impl VoltmeterPanel {
                                     #[allow(clippy::cast_precision_loss)]
                                     let avg_voltage: f64 = data.voltages.iter().sum::<f64>()
                                         / data.voltages.len() as f64;
-                                    let reading = VoltmeterReading::new(channel, avg_voltage);
+                                    let reading = VoltmeterReading { channel, voltage: avg_voltage };
                                     let _ = reading_tx.try_send(reading);
                                 }
                             }
@@ -464,11 +448,6 @@ impl VoltmeterPanel {
         } else {
             raw
         }
-    }
-
-    /// Main UI entry point
-    pub fn ui(&mut self, ui: &mut Ui) {
-        self.ui_with_client(ui, None, None, None);
     }
 
     /// UI with optional client for streaming

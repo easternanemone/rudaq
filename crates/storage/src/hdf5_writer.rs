@@ -38,6 +38,22 @@ pub struct Hdf5Metrics {
     pub write_errors: u64,
 }
 
+/// Result of post-run batch count verification.
+///
+/// Compares the expected batch count, the writer's internal counter, and the
+/// actual batch count persisted in the HDF5 file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BatchCountVerification {
+    /// The caller-supplied expected batch count.
+    pub expected: u64,
+    /// Batches the writer's internal counter reports as written.
+    pub written: u64,
+    /// Actual batch groups found in the HDF5 file on disk.
+    pub actual_in_file: u64,
+    /// `true` when all three counts agree.
+    pub matches: bool,
+}
+
 /// Background HDF5 writer that persists ring buffer data
 ///
 /// # Architecture
@@ -1151,6 +1167,51 @@ impl HDF5Writer {
         Ok(())
     }
 
+    /// Verify post-run batch count consistency.
+    ///
+    /// Opens the HDF5 file, counts the batch groups under `/measurements`,
+    /// and compares against both the writer's internal `frames_written` counter
+    /// and the caller-supplied `expected` value.
+    ///
+    /// Logs a `tracing::warn!` when a mismatch is detected.
+    #[cfg(feature = "storage_hdf5")]
+    pub fn verify_batch_count(&self, expected: u64) -> Result<BatchCountVerification> {
+        let written = self.frames_written.load(Ordering::Acquire);
+        let output_path = self.output_path.clone();
+
+        let actual_in_file = if output_path.exists() {
+            let file = hdf5::File::open(&output_path).map_err(map_hdf5_err)?;
+            match file.group("measurements") {
+                Ok(measurements) => {
+                    #[allow(clippy::cast_possible_truncation)]
+                    let count = measurements.member_names().map_err(map_hdf5_err)?.len() as u64;
+                    count
+                }
+                Err(_) => 0,
+            }
+        } else {
+            0
+        };
+
+        let matches = expected == written && written == actual_in_file;
+
+        if !matches {
+            tracing::warn!(
+                expected,
+                written,
+                actual_in_file,
+                "HDF5 batch count mismatch detected during post-run verification"
+            );
+        }
+
+        Ok(BatchCountVerification {
+            expected,
+            written,
+            actual_in_file,
+            matches,
+        })
+    }
+
     /// Get number of batches written so far
     pub fn batch_count(&self) -> u64 {
         self.batch_counter.load(Ordering::Acquire)
@@ -1565,5 +1626,61 @@ mod tests {
         };
         assert_eq!(a, b);
         assert_ne!(a, c);
+    }
+
+    #[cfg(feature = "storage_hdf5")]
+    #[tokio::test]
+    async fn test_verify_batch_count_after_writes() {
+        let ring_temp = NamedTempFile::new().unwrap();
+        let temp_dir = TempDir::new().unwrap();
+        let hdf5_path = temp_dir.path().join("verify_count.h5");
+
+        let ring = Arc::new(RingBuffer::create(ring_temp.path(), 1).unwrap());
+        let writer = HDF5Writer::new(&hdf5_path, ring.clone()).unwrap();
+
+        // Write 3 separate batches to the ring buffer and flush each one.
+        // flush_to_disk() doesn't increment frames_written (only the run() loop does),
+        // so we manually track it here to match what run() would do.
+        for i in 0..3u8 {
+            let data = vec![i; 64];
+            ring.write(&data).unwrap();
+            writer.flush_to_disk().await.unwrap();
+            writer.frames_written.fetch_add(1, Ordering::Relaxed);
+        }
+
+        let written = writer.frames_written.load(Ordering::Acquire);
+
+        // Verify matching count
+        let result = writer.verify_batch_count(written).unwrap();
+        assert_eq!(result.expected, written);
+        assert_eq!(result.written, written);
+        assert_eq!(result.actual_in_file, written);
+        assert!(result.matches, "All three counts should agree");
+
+        // Verify mismatch detection with wrong expected count
+        let result = writer.verify_batch_count(written + 5).unwrap();
+        assert!(!result.matches, "Mismatch should be detected");
+        assert_eq!(result.expected, written + 5);
+        assert_eq!(result.written, written);
+    }
+
+    #[cfg(feature = "storage_hdf5")]
+    #[tokio::test]
+    async fn test_verify_batch_count_no_file() {
+        let ring_temp = NamedTempFile::new().unwrap();
+        let temp_dir = TempDir::new().unwrap();
+        let hdf5_path = temp_dir.path().join("nonexistent.h5");
+
+        let ring = Arc::new(RingBuffer::create(ring_temp.path(), 1).unwrap());
+        let writer = HDF5Writer::new(&hdf5_path, ring).unwrap();
+
+        // No flushes performed, file does not exist
+        let result = writer.verify_batch_count(0).unwrap();
+        assert!(result.matches, "Zero expected, zero written, zero on disk");
+        assert_eq!(result.actual_in_file, 0);
+
+        // Mismatch: caller expected frames but none exist
+        let result = writer.verify_batch_count(5).unwrap();
+        assert!(!result.matches);
     }
 }

@@ -1,4 +1,6 @@
 //! Device discovery and introspection endpoints.
+// tonic gRPC handlers must return Result<Response<T>, Status>; Status is inherently large.
+#![allow(clippy::result_large_err)]
 
 use super::*;
 

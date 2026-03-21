@@ -1,4 +1,6 @@
 //! Observable parameters and state streaming endpoints.
+// tonic gRPC handlers must return Result<Response<T>, Status>; Status is inherently large.
+#![allow(clippy::result_large_err)]
 
 use super::*;
 
@@ -542,6 +544,7 @@ fn snapshot_to_proto(snapshot: SystemStateSnapshot) -> ProtoSystemState {
 }
 
 /// Set or clear the favorite flag for a parameter (bd-4wf7).
+#[allow(unused_variables)] // svc and req only used with db-surreal feature
 pub(super) async fn set_parameter_favorite(
     svc: &HardwareServiceImpl,
     request: Request<SetParameterFavoriteRequest>,
@@ -565,6 +568,7 @@ pub(super) async fn set_parameter_favorite(
 }
 
 /// Get all favorited parameter names for a device (bd-4wf7).
+#[allow(unused_variables)] // svc and req only used with db-surreal feature
 pub(super) async fn get_parameter_favorites(
     svc: &HardwareServiceImpl,
     request: Request<GetParameterFavoritesRequest>,

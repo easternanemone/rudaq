@@ -402,6 +402,12 @@ async fn main() -> Result<()> {
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
 
+    // Probe for hardware SDK availability at runtime (dlopen check).
+    // This runs early so the discovered SDKs appear in startup logs.
+    let discovered_sdks = driver_registry::probe_available();
+    tracing::info!(%discovered_sdks, "Runtime SDK probe complete");
+    println!("SDK probe: {discovered_sdks}");
+
     println!();
 
     let cli = Cli::parse();
@@ -479,14 +485,14 @@ async fn main() -> Result<()> {
             output,
             grating_constant,
             temperature,
-        } => handle_simulate(source, output, grating_constant, temperature).await,
+        } => handle_simulate(source, output, grating_constant, temperature),
         #[cfg(feature = "db-surreal")]
         Commands::Config(cmd) => handle_config_command(cmd).await,
         Commands::Recover { input, output } => handle_recover(input, output).await,
     }
 }
 
-async fn handle_simulate(
+fn handle_simulate(
     source: String,
     output: PathBuf,
     grating_constant: f64,
@@ -546,16 +552,17 @@ async fn handle_simulate(
     };
 
     // Scale to u16 and write TIFF.
-    let max_val = frame.iter().cloned().fold(0.0_f32, f32::max);
+    let max_val = frame.iter().copied().fold(0.0_f32, f32::max);
     let scale = if max_val > 0.0 {
-        60000.0 / max_val as f64
+        60000.0 / f64::from(max_val)
     } else {
         1.0
     };
     let u16_bytes: Vec<u8> = frame
         .iter()
         .flat_map(|&v| {
-            let val = ((v as f64 * scale).clamp(0.0, 65535.0)) as u16;
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let val = (f64::from(v) * scale).clamp(0.0, 65535.0) as u16;
             val.to_ne_bytes()
         })
         .collect();

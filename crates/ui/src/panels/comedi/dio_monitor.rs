@@ -16,17 +16,6 @@ const MAX_HISTORY: usize = 100;
 pub struct DioStateUpdate {
     pub pin: u32,
     pub state: bool,
-    pub timestamp: Option<f64>,
-}
-
-impl DioStateUpdate {
-    pub fn new(pin: u32, state: bool) -> Self {
-        Self {
-            pin,
-            state,
-            timestamp: None,
-        }
-    }
 }
 
 /// Sender for DIO state updates

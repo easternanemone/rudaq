@@ -66,9 +66,10 @@
 // use anyhow::{anyhow, Result}; // Removed
 // use anyhow::anyhow; // Removed
 use common::capabilities::{
-    CapabilityProvider, Commandable, EmissionControl, ExposureControl, FrameProducer, GatedCamera,
-    Movable, Parameterized, Readable, Reconfigurable, Settable, ShutterControl,
-    SpectrometerControl, Stageable, StateRefreshable, Triggerable, WavelengthTunable,
+    CapabilityProvider, Commandable, CounterConfigurable, DeviceIntrospection, EmissionControl,
+    ExposureControl, FrameProducer, GatedCamera, Movable, Parameterized, RangeIntrospectable,
+    Readable, ReadableWithMetadata, Reconfigurable, Settable, ShutterControl, SpectrometerControl,
+    Stageable, StateRefreshable, Triggerable, WavelengthTunable,
 };
 use common::data::Frame;
 use common::driver::{
@@ -331,6 +332,14 @@ struct RegisteredDevice {
     reconfigurable: Option<Arc<dyn Reconfigurable>>,
     /// StateRefreshable implementation (if supported) - post-reconnection refresh (bd-47p2)
     state_refreshable: Option<Arc<dyn StateRefreshable>>,
+    /// CounterConfigurable implementation (if supported) - DAQ counter/timer config (bd-f3pq)
+    counter_configurable: Option<Arc<dyn CounterConfigurable>>,
+    /// RangeIntrospectable implementation (if supported) - analog range queries (bd-3bjp)
+    range_introspectable: Option<Arc<dyn RangeIntrospectable>>,
+    /// DeviceIntrospection implementation (if supported) - board/subdevice metadata (bd-sa9p)
+    device_introspection: Option<Arc<dyn DeviceIntrospection>>,
+    /// ReadableWithMetadata implementation (if supported) - structured analog reads (bd-09ls)
+    readable_with_metadata: Option<Arc<dyn ReadableWithMetadata>>,
     /// Optional lifecycle hooks for registration/shutdown
     lifecycle: Option<Arc<dyn DeviceLifecycle>>,
     /// Device metadata (units, ranges, etc.)
@@ -407,6 +416,18 @@ impl RegisteredDevice {
         }
         if self.state_refreshable.is_some() {
             caps.push(Capability::StateRefreshable);
+        }
+        if self.counter_configurable.is_some() {
+            caps.push(Capability::CounterConfigurable);
+        }
+        if self.range_introspectable.is_some() {
+            caps.push(Capability::RangeIntrospectable);
+        }
+        if self.device_introspection.is_some() {
+            caps.push(Capability::DeviceIntrospection);
+        }
+        if self.readable_with_metadata.is_some() {
+            caps.push(Capability::ReadableWithMetadata);
         }
 
         caps
@@ -923,6 +944,10 @@ impl DeviceRegistry {
             spectrometer_control: components.spectrometer_control,
             reconfigurable: components.reconfigurable,
             state_refreshable: components.state_refreshable,
+            counter_configurable: components.counter_configurable,
+            range_introspectable: components.range_introspectable,
+            device_introspection: components.device_introspection,
+            readable_with_metadata: components.readable_with_metadata,
             lifecycle: components.lifecycle,
             metadata,
             config_hash: 0, // Default — set by reconciler when registering from DB
@@ -1414,6 +1439,10 @@ impl DeviceRegistry {
                         spectrometer_control: None,
                         reconfigurable: None,
                         state_refreshable: None,
+                        counter_configurable: None,
+                        range_introspectable: None,
+                        device_introspection: None,
+                        readable_with_metadata: None,
                         lifecycle: None,
                         metadata: old_metadata,
                         config_hash: 0,
@@ -1584,6 +1613,34 @@ impl DeviceRegistry {
         self.devices
             .get(id)
             .and_then(|d| d.state_refreshable.clone())
+    }
+
+    /// Get a device as CounterConfigurable (if it supports counter/timer config, bd-f3pq)
+    pub fn get_counter_configurable(&self, id: &str) -> Option<Arc<dyn CounterConfigurable>> {
+        self.devices
+            .get(id)
+            .and_then(|d| d.counter_configurable.clone())
+    }
+
+    /// Get a device as RangeIntrospectable (if it supports analog range queries, bd-3bjp)
+    pub fn get_range_introspectable(&self, id: &str) -> Option<Arc<dyn RangeIntrospectable>> {
+        self.devices
+            .get(id)
+            .and_then(|d| d.range_introspectable.clone())
+    }
+
+    /// Get a device as DeviceIntrospection (if it supports board/subdevice metadata, bd-sa9p)
+    pub fn get_device_introspection(&self, id: &str) -> Option<Arc<dyn DeviceIntrospection>> {
+        self.devices
+            .get(id)
+            .and_then(|d| d.device_introspection.clone())
+    }
+
+    /// Get a device as ReadableWithMetadata (if it supports structured analog reads, bd-09ls)
+    pub fn get_readable_with_metadata(&self, id: &str) -> Option<Arc<dyn ReadableWithMetadata>> {
+        self.devices
+            .get(id)
+            .and_then(|d| d.readable_with_metadata.clone())
     }
 
     /// Get the config hash for a registered device (for change detection).
@@ -1771,6 +1828,10 @@ impl DeviceRegistry {
             spectrometer_control: None,
             reconfigurable: None,
             state_refreshable: None,
+            counter_configurable: None,
+            range_introspectable: None,
+            device_introspection: None,
+            readable_with_metadata: None,
             lifecycle: None,
             metadata,
             config_hash: 0,
@@ -1872,6 +1933,22 @@ impl CapabilityProvider for DeviceRegistry {
 
     fn get_settable(&self, id: &str) -> Option<Arc<dyn Settable>> {
         self.get_settable(id)
+    }
+
+    fn get_counter_configurable(&self, id: &str) -> Option<Arc<dyn CounterConfigurable>> {
+        self.get_counter_configurable(id)
+    }
+
+    fn get_range_introspectable(&self, id: &str) -> Option<Arc<dyn RangeIntrospectable>> {
+        self.get_range_introspectable(id)
+    }
+
+    fn get_device_introspection(&self, id: &str) -> Option<Arc<dyn DeviceIntrospection>> {
+        self.get_device_introspection(id)
+    }
+
+    fn get_readable_with_metadata(&self, id: &str) -> Option<Arc<dyn ReadableWithMetadata>> {
+        self.get_readable_with_metadata(id)
     }
 }
 

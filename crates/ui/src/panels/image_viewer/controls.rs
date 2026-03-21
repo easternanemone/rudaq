@@ -85,13 +85,33 @@ impl ImageViewerPanel {
         }
     }
 
-    /// Refresh the list of available cameras
+    /// Refresh the list of available cameras.
+    ///
+    /// On transient connection errors (common during initial gRPC handshake),
+    /// retries once after 500ms before surfacing the error to the user (bd-tim0).
     pub(crate) fn refresh_cameras(&mut self, client: &mut DaqClient, runtime: &Runtime) {
         let action_tx = self.action_tx.clone();
         let mut client = client.clone();
 
         runtime.spawn(async move {
-            match client.list_devices().await {
+            let result = client.list_devices().await;
+
+            // On failure, check if this looks like a transient connection error
+            // and retry once after a short delay before reporting to the user.
+            let result = match result {
+                Ok(devices) => Ok(devices),
+                Err(first_err) if Self::is_transient_connection_error(&first_err) => {
+                    tracing::debug!(
+                        error = %first_err,
+                        "Transient error listing cameras, retrying in 500ms"
+                    );
+                    crate::runtime::sleep(std::time::Duration::from_millis(500)).await;
+                    client.list_devices().await
+                }
+                Err(e) => Err(e),
+            };
+
+            match result {
                 Ok(devices) => {
                     // Filter for camera devices (FrameProducer capability)
                     let mut cameras: Vec<String> = Vec::new();
@@ -129,6 +149,19 @@ impl ImageViewerPanel {
         });
 
         self.last_refresh = Some(Instant::now());
+    }
+
+    /// Check whether an error looks like a transient gRPC connection issue
+    /// (e.g., channel not yet ready, TCP handshake in progress).
+    /// Only these are retried; genuine server errors propagate immediately.
+    fn is_transient_connection_error(err: &anyhow::Error) -> bool {
+        let msg = err.to_string().to_lowercase();
+        msg.contains("transport")
+            || msg.contains("connect")
+            || msg.contains("broken pipe")
+            || msg.contains("connection refused")
+            || msg.contains("channel closed")
+            || msg.contains("not ready")
     }
 
     /// Load parameters for the selected camera (filtered for quick access)

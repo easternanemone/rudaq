@@ -16,17 +16,6 @@ const RATE_HISTORY_SIZE: usize = 50;
 pub struct CounterUpdate {
     pub counter: u32,
     pub count: u64,
-    pub timestamp: Option<f64>,
-}
-
-impl CounterUpdate {
-    pub fn new(counter: u32, count: u64) -> Self {
-        Self {
-            counter,
-            count,
-            timestamp: None,
-        }
-    }
 }
 
 /// Sender for counter updates

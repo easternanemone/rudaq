@@ -568,7 +568,10 @@ impl DaqApp {
             .and_then(|s| eframe::get_value::<String>(s, "echelle_profile_path"))
         {
             if !path.is_empty() {
-                app.image_viewer_panel.echelle_cal_ui.save_as_path_text = path.clone();
+                app.image_viewer_panel
+                    .echelle_cal_ui
+                    .save_as_path_text
+                    .clone_from(&path);
                 app.image_viewer_panel.request_remote_profile_load(path);
             }
         }
@@ -748,7 +751,10 @@ impl DaqApp {
             .and_then(|s| eframe::get_value::<String>(s, "echelle_profile_path"))
         {
             if !path.is_empty() {
-                app.image_viewer_panel.echelle_cal_ui.save_as_path_text = path.clone();
+                app.image_viewer_panel
+                    .echelle_cal_ui
+                    .save_as_path_text
+                    .clone_from(&path);
                 app.image_viewer_panel.request_remote_profile_load(path);
             }
         }

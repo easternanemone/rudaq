@@ -1636,6 +1636,170 @@ impl MeasurementLock {
 }
 
 // =============================================================================
+// Counter/Timer Configuration (bd-f3pq)
+// =============================================================================
+
+/// Counter mode for DAQ counter/timer operations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CounterMode {
+    /// Count discrete events on an input signal.
+    EventCounting,
+    /// Measure input signal frequency.
+    FrequencyMeasurement,
+    /// Measure input signal period.
+    PeriodMeasurement,
+    /// Generate output pulses.
+    PulseGeneration,
+    /// Decode quadrature encoder signals.
+    QuadratureEncoder,
+    /// Measure pulse width of input signal.
+    PulseWidth,
+}
+
+/// Edge selection for counter triggers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CounterEdge {
+    /// Trigger on rising edge.
+    Rising,
+    /// Trigger on falling edge.
+    Falling,
+    /// Trigger on both edges.
+    Both,
+}
+
+/// Configuration for a DAQ counter/timer channel.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CounterConfig {
+    /// Counter operating mode.
+    pub mode: CounterMode,
+    /// Edge selection for triggering.
+    pub edge: CounterEdge,
+    /// Optional gate source channel index.
+    pub gate_source: Option<u32>,
+    /// Optional clock source channel index.
+    pub clock_source: Option<u32>,
+}
+
+/// Capability: Configurable Counter/Timer (Comedi `INSN_CONFIG`)
+///
+/// Devices that expose hardware counter/timer channels with configurable
+/// modes, edges, and clock/gate routing.
+#[async_trait]
+pub trait CounterConfigurable: Send + Sync {
+    /// Apply a counter configuration.
+    async fn configure_counter(&self, config: CounterConfig) -> Result<()>;
+    /// Read back the current counter configuration.
+    async fn get_counter_config(&self) -> Result<CounterConfig>;
+}
+
+// =============================================================================
+// Analog Range Introspection (bd-3bjp)
+// =============================================================================
+
+/// Unit for an analog range.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RangeUnit {
+    /// Volts.
+    Volts,
+    /// Milliamps.
+    MilliAmps,
+    /// Dimensionless / unknown.
+    None,
+}
+
+/// Description of an analog voltage/current range.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnalogRange {
+    /// Range index within the subdevice.
+    pub index: u32,
+    /// Minimum value of the range.
+    pub min: f64,
+    /// Maximum value of the range.
+    pub max: f64,
+    /// Physical unit of the range.
+    pub unit: RangeUnit,
+}
+
+/// Capability: Analog Range Introspection
+///
+/// Devices that can report the available analog voltage/current ranges
+/// for each subdevice (e.g., Comedi `comedi_get_n_ranges` /
+/// `comedi_get_range`).
+#[async_trait]
+pub trait RangeIntrospectable: Send + Sync {
+    /// Get all available ranges for the given subdevice.
+    async fn get_ranges(&self, subdevice: u32) -> Result<Vec<AnalogRange>>;
+}
+
+// =============================================================================
+// Device Introspection (bd-sa9p)
+// =============================================================================
+
+/// Summary of a single subdevice within a DAQ board.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IntrospectedSubdevice {
+    /// Subdevice index on the board.
+    pub index: u32,
+    /// Subdevice type as a human-readable string (e.g., "analog_input").
+    pub subdevice_type: String,
+    /// Number of channels on this subdevice.
+    pub n_channels: u32,
+    /// Number of available ranges on this subdevice.
+    pub n_ranges: u32,
+}
+
+/// Full introspection of a DAQ device (board name, driver, subdevices).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeviceIntrospectionInfo {
+    /// Board name reported by the hardware/driver.
+    pub board_name: String,
+    /// Kernel driver name.
+    pub driver_name: String,
+    /// List of subdevices on this board.
+    pub subdevices: Vec<IntrospectedSubdevice>,
+}
+
+/// Capability: Deep Device Introspection
+///
+/// Devices that can report board-level and subdevice-level metadata
+/// (e.g., Comedi `comedi_get_board_name`, `comedi_get_n_subdevices`).
+#[async_trait]
+pub trait DeviceIntrospection: Send + Sync {
+    /// Return full device introspection info.
+    async fn introspect(&self) -> Result<DeviceIntrospectionInfo>;
+}
+
+// =============================================================================
+// Readable With Metadata (bd-09ls)
+// =============================================================================
+
+/// Structured result from an analog read with raw value, voltage, and timestamp.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReadResult {
+    /// Raw ADC sample value.
+    pub raw_value: i32,
+    /// Calibrated voltage (or current) in physical units.
+    pub voltage: f64,
+    /// Timestamp in nanoseconds (monotonic or wall-clock, device-dependent).
+    pub timestamp_ns: u64,
+    /// Index of the analog range used for conversion.
+    pub range_index: u32,
+}
+
+/// Capability: Read With Full Metadata
+///
+/// Like [`Readable`] but returns structured metadata (raw value, calibrated
+/// voltage, timestamp, range index) instead of a single `f64`.
+#[async_trait]
+pub trait ReadableWithMetadata: Send + Sync {
+    /// Read a channel and return structured metadata.
+    async fn read_with_metadata(&self, channel: u32) -> Result<ReadResult>;
+}
+
+// =============================================================================
 // Composite Capabilities (bd-bog5)
 // =============================================================================
 
@@ -1678,6 +1842,14 @@ pub trait CapabilityProvider: Send + Sync {
     fn get_emission_control(&self, id: &str) -> Option<Arc<dyn EmissionControl>>;
     /// Get a device's Settable capability (if supported).
     fn get_settable(&self, id: &str) -> Option<Arc<dyn Settable>>;
+    /// Get a device's CounterConfigurable capability (if supported).
+    fn get_counter_configurable(&self, id: &str) -> Option<Arc<dyn CounterConfigurable>>;
+    /// Get a device's RangeIntrospectable capability (if supported).
+    fn get_range_introspectable(&self, id: &str) -> Option<Arc<dyn RangeIntrospectable>>;
+    /// Get a device's DeviceIntrospection capability (if supported).
+    fn get_device_introspection(&self, id: &str) -> Option<Arc<dyn DeviceIntrospection>>;
+    /// Get a device's ReadableWithMetadata capability (if supported).
+    fn get_readable_with_metadata(&self, id: &str) -> Option<Arc<dyn ReadableWithMetadata>>;
 }
 
 #[cfg(test)]
