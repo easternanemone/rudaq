@@ -148,6 +148,7 @@ registry.register_from_config(DeviceConfig { id, name, driver: DriverConfig { ty
 - Error handling: propagate with `?`, add context via `anyhow::Context`. No `.unwrap()` in library code (CI enforces `clippy::unwrap_used`); use `.expect("reason")` for invariants.
 - Hardware state: always use `Parameter<T>` with `BoxFuture<'static, Result<()>>` callbacks.
 - Workspace clippy: pedantic lints enabled with project-specific allows (see `Cargo.toml` `[workspace.lints.clippy]`).
+- Non-trivial TODO/FIXME comments should include a beads reference (e.g., `TODO(bd-xxxx)`), matching repository policy enforcement.
 
 ## Testing Patterns
 
@@ -200,7 +201,7 @@ Claude Code can directly interact with real DAQ hardware through the WASM GUI in
 
 WASM GUI: `http://100.117.5.12:8080` (maitai) or `http://100.109.21.118:8080` (leabs-dev, requires `--wasm-gui` deploy flag). Known reconnect bug (beefcake-48ad): must reload page to change daemon URL.
 
-**WASM GUI build**: `trunk` (external CLI tool, not a Cargo dependency) is required. Deploy scripts auto-install it via `cargo install trunk --locked`. To build manually: `cd crates/ui && trunk build --release`, then serve `dist/` with `python3 -m http.server 8080`.
+**WASM GUI build**: `trunk` (external CLI tool, not a Cargo dependency) is required. `deploy-leabs.sh --wasm-gui` installs a pre-built `trunk` binary to `/usr/local/bin` when missing. To build manually: `cd crates/ui && trunk build --release`, then serve `dist/` with `python3 -m http.server 8080`.
 
 ### WASM DOM Interop
 
@@ -286,6 +287,7 @@ pub fn set_page_title(title: &str) {
 | `scripts/hygiene/check-doc-drift.sh` | Detect documentation drift from code |
 | `scripts/hygiene/check-inventory-drift.sh` | Detect inventory drift |
 | `scripts/hygiene/check-dependency-hygiene.sh` | Dependency audit (cargo-audit, cargo-deny, cargo-machete) |
+| `scripts/hygiene/cleanup-report.sh` | Recurring cleanup report (oversized files, doc drift, TODO/FIXME/HACK counts, deprecated items) |
 | **repro/** | |
 | `scripts/repro/leabs-daemon-watchdog.sh` | Leabs daemon health monitor |
 | `scripts/repro/repro-istar-stream-crash.sh` | iSTAR stream crash repro harness (grpcurl soak + artifact capture) |
