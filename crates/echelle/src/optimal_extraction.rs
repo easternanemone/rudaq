@@ -25,6 +25,17 @@ pub struct OptimalExtractionConfig {
     pub read_noise: f64,
     /// Detector gain in electrons/ADU (default: 1.0).
     pub gain: f64,
+    /// Excess noise factor for intensified detectors (default: 1.0 for CCD).
+    ///
+    /// For standard CCDs, F = 1.0 (no excess noise).
+    /// For ICCDs (e.g., Andor iStar with Gen III MCP), F ≈ 1.6.
+    /// For EMCCDs, F = √2 ≈ 1.41.
+    ///
+    /// The variance model becomes: V = readnoise² + F² × signal / gain.
+    /// Setting F > 1 correctly downweights high-signal pixels in the
+    /// inverse-variance weighting, producing a more accurate extraction
+    /// for photon-counting / intensified detectors.
+    pub excess_noise_factor: f64,
     /// Maximum cosmic ray rejection iterations (default: 5).
     pub max_cr_iterations: usize,
     /// Sigma threshold for cosmic ray rejection (default: 6.0).
@@ -38,9 +49,26 @@ impl Default for OptimalExtractionConfig {
         Self {
             read_noise: 3.0,
             gain: 1.0,
+            excess_noise_factor: 1.0,
             max_cr_iterations: 5,
             cr_sigma: 6.0,
             min_frac_use: 0.9,
+        }
+    }
+}
+
+impl OptimalExtractionConfig {
+    /// Preset for Andor iStar ICCD (Gen III filmless MCP).
+    ///
+    /// Uses F = 1.6 (manufacturer-reported excess noise factor for Gen III MCP),
+    /// read noise = 20 e⁻ (CCD after intensifier), and gain = 1.0 ADU/e⁻.
+    /// Adjust gain based on actual MCP gain setting.
+    pub fn istar_iccd() -> Self {
+        Self {
+            read_noise: 20.0,
+            gain: 1.0,
+            excess_noise_factor: 1.6,
+            ..Self::default()
         }
     }
 }
@@ -231,6 +259,7 @@ fn extract_with_profile(
     let n_disp = rect.n_dispersion;
     let n_cross = rect.n_cross;
     let rn2 = config.read_noise * config.read_noise;
+    let f2 = config.excess_noise_factor * config.excess_noise_factor;
 
     for col in 0..n_disp {
         let mut num = 0.0f64;
@@ -252,12 +281,13 @@ fn extract_with_profile(
             let d = f64::from(rect.data[idx]);
             let s = sky.map_or(0.0, |sk| f64::from(sk[idx]));
 
-            // Variance model: V = read_noise^2 + max(sky + flux_est * P, 0) / gain
+            // Variance model: V = readnoise² + F² × max(signal, 0) / gain
+            // F = excess noise factor (1.0 for CCD, ~1.6 for ICCD, √2 for EMCCD).
             // For first iteration, use D as flux estimate.
             let v = if is_first_iteration {
-                rn2 + (s + (d - s).max(0.0)).max(0.0) / config.gain
+                rn2 + f2 * (s + (d - s).max(0.0)).max(0.0) / config.gain
             } else {
-                rn2 + (s + prev_flux * p).max(0.0) / config.gain
+                rn2 + f2 * (s + prev_flux * p).max(0.0) / config.gain
             };
 
             if v <= 0.0 {
@@ -297,6 +327,7 @@ fn reject_cosmic_rays(
     let n_disp = rect.n_dispersion;
     let n_cross = rect.n_cross;
     let rn2 = config.read_noise * config.read_noise;
+    let f2 = config.excess_noise_factor * config.excess_noise_factor;
     let mut n_flagged = 0;
 
     for (col, &flux_col) in flux.iter().enumerate().take(n_disp) {
@@ -310,8 +341,8 @@ fn reject_cosmic_rays(
             let sky_val = sky.map_or(0.0, |sk| f64::from(sk[idx]));
             let prof = profile[idx];
 
-            // Variance: V = read_noise^2 + max(sky + flux*P, 0) / gain
-            let var = rn2 + (sky_val + flux_col * prof).max(0.0) / config.gain;
+            // Variance: V = readnoise² + F² × max(sky + flux*P, 0) / gain
+            let var = rn2 + f2 * (sky_val + flux_col * prof).max(0.0) / config.gain;
             if var <= 1e-30 {
                 continue;
             }

@@ -301,8 +301,15 @@ pub struct ImageViewerPanel {
     pub(super) echelle_plot_smoothing_window: u32,
     /// X-axis display mode for the spectrum preview.
     pub(super) echelle_plot_x_axis_mode: EchellePlotXAxisMode,
-    /// Lock Y-axis bounds after first extraction to prevent auto-rescale on panel resize.
+    /// Lock Y-axis bounds after first extraction to prevent auto-rescale on new data (bd-zy7y.4).
+    /// Separate flags for the full-width (Spectrum/Split view) and sidebar plots since
+    /// they have independent egui_plot memory.
     pub(super) echelle_plot_y_locked: bool,
+    /// Lock Y-axis bounds on the sidebar echelle preview plot (bd-zy7y.4).
+    pub(super) echelle_sidebar_plot_y_locked: bool,
+    /// Last rendered order index + merged state, used to detect user-initiated data
+    /// changes that should reset Y zoom (bd-zy7y.4).
+    pub(super) echelle_plot_last_rendered: Option<(usize, bool)>,
     /// Developer diagnostics counters for the local extractor.
     pub(super) echelle_extract_runs: u64,
     pub(super) echelle_extract_errors: u64,
@@ -451,6 +458,8 @@ impl Default for ImageViewerPanel {
             echelle_plot_smoothing_window: 1,
             echelle_plot_x_axis_mode: EchellePlotXAxisMode::Wavelength,
             echelle_plot_y_locked: false,
+            echelle_sidebar_plot_y_locked: false,
+            echelle_plot_last_rendered: None,
             echelle_extract_runs: 0,
             echelle_extract_errors: 0,
             echelle_extract_skipped_frames: 0,

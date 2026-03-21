@@ -12,6 +12,10 @@ impl ImageViewerPanel {
                 self.mark_echelle_run_engine_sync_dirty();
                 self.error = None;
                 self.echelle_preview_error = None;
+                // Reset Y zoom locks so the first frame auto-fits (bd-zy7y.4).
+                self.echelle_plot_y_locked = false;
+                self.echelle_sidebar_plot_y_locked = false;
+                self.echelle_plot_last_rendered = None;
                 self.echelle_cal_ui.save_as_path_text = path.display().to_string();
                 if !self.echelle_cal_ui.editor_dirty {
                     if let Some(profile) = self.echelle_profile_cache.profile() {
@@ -37,6 +41,10 @@ impl ImageViewerPanel {
                 self.mark_echelle_run_engine_sync_dirty();
                 self.echelle_cal_ui.editor_last_loaded_path = None;
                 self.status = Some("Echelle profile cleared".to_string());
+                // Reset Y zoom locks (bd-zy7y.4).
+                self.echelle_plot_y_locked = false;
+                self.echelle_sidebar_plot_y_locked = false;
+                self.echelle_plot_last_rendered = None;
             }
         }
     }

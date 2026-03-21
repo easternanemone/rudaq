@@ -2269,4 +2269,658 @@ mod tests {
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("frame size mismatch"));
     }
+
+    // ====================================================================
+    // Task 1: bd-qe8p.2.2 — Compatibility regression suite
+    // ====================================================================
+
+    #[test]
+    fn incompatible_on_roi_mismatch() {
+        let profile = minimal_profile();
+        // Profile has roi_x=128, roi_y=256. Provide different ROI values.
+        let frame = EchelleFrameContext {
+            width: 1024,
+            height: 512,
+            roi_x: Some(64),
+            roi_y: Some(256),
+            binning_x: Some(1),
+            binning_y: Some(1),
+            bit_depth: Some(16),
+        };
+        let result = profile.check_frame_compatibility(&frame);
+        assert!(!result.is_usable());
+        assert!(matches!(result, FrameCompatibility::Incompatible { .. }));
+        assert!(matches!(
+            result.diagnostics()[0],
+            CompatibilityWarning::RoiMismatch {
+                axis: "X",
+                expected: 128,
+                actual: 64,
+            }
+        ));
+    }
+
+    #[test]
+    fn multiple_mismatches_all_reported() {
+        let profile = minimal_profile();
+        // Frame size AND binning differ simultaneously.
+        let frame = EchelleFrameContext {
+            width: 2048,
+            height: 2048,
+            binning_x: Some(2),
+            binning_y: Some(2),
+            ..Default::default()
+        };
+        let result = profile.check_frame_compatibility(&frame);
+        assert!(!result.is_usable());
+        let diagnostics = result.diagnostics();
+        // Should report at least frame size + binning X + binning Y = 3 issues.
+        assert!(
+            diagnostics.len() >= 3,
+            "expected at least 3 diagnostics, got {}",
+            diagnostics.len()
+        );
+        let has_frame_size = diagnostics
+            .iter()
+            .any(|d| matches!(d, CompatibilityWarning::FrameSizeMismatch { .. }));
+        let has_binning_x = diagnostics
+            .iter()
+            .any(|d| matches!(d, CompatibilityWarning::BinningMismatch { axis: "X", .. }));
+        let has_binning_y = diagnostics
+            .iter()
+            .any(|d| matches!(d, CompatibilityWarning::BinningMismatch { axis: "Y", .. }));
+        assert!(has_frame_size, "missing FrameSizeMismatch diagnostic");
+        assert!(has_binning_x, "missing BinningMismatch X diagnostic");
+        assert!(has_binning_y, "missing BinningMismatch Y diagnostic");
+    }
+
+    #[test]
+    fn bit_depth_mismatch_with_matching_geometry_is_usable_with_warnings() {
+        let profile = minimal_profile();
+        // All geometry matches, only bit depth differs.
+        let frame = EchelleFrameContext {
+            width: 1024,
+            height: 512,
+            roi_x: Some(128),
+            roi_y: Some(256),
+            binning_x: Some(1),
+            binning_y: Some(1),
+            bit_depth: Some(12),
+        };
+        let result = profile.check_frame_compatibility(&frame);
+        assert!(result.is_usable());
+        assert!(matches!(
+            result,
+            FrameCompatibility::UsableWithWarnings { .. }
+        ));
+        assert_eq!(result.diagnostics().len(), 1);
+        assert!(matches!(
+            result.diagnostics()[0],
+            CompatibilityWarning::BitDepthMismatch {
+                expected: 16,
+                actual: 12,
+            }
+        ));
+    }
+
+    #[test]
+    fn omitted_optional_fields_are_compatible() {
+        let profile = minimal_profile();
+        // Only frame dimensions provided; roi, binning, bit_depth all None.
+        let frame = EchelleFrameContext {
+            width: 1024,
+            height: 512,
+            roi_x: None,
+            roi_y: None,
+            binning_x: None,
+            binning_y: None,
+            bit_depth: None,
+        };
+        let result = profile.check_frame_compatibility(&frame);
+        assert_eq!(result, FrameCompatibility::Compatible);
+        assert!(result.diagnostics().is_empty());
+    }
+
+    #[test]
+    fn validate_for_frame_rejects_usable_with_warnings_in_strict_mode() {
+        let profile = minimal_profile();
+        // Geometry matches, but bit depth differs → UsableWithWarnings.
+        // validate_for_frame is strict: it should reject this.
+        let frame = EchelleFrameContext {
+            width: 1024,
+            height: 512,
+            roi_x: Some(128),
+            roi_y: Some(256),
+            binning_x: Some(1),
+            binning_y: Some(1),
+            bit_depth: Some(12),
+        };
+        let err = profile.validate_for_frame(frame).unwrap_err();
+        assert!(
+            err.to_string().contains("bit depth mismatch"),
+            "expected bit depth mismatch error, got: {}",
+            err
+        );
+    }
+
+    // ====================================================================
+    // Task 2: bd-qe8p.2.3 — Extraction regression fixtures
+    // ====================================================================
+
+    /// Build a small profile with a single order on a compact frame
+    /// suitable for extraction tests with controlled pixel values.
+    fn small_extraction_profile(mode: EchelleSummationMode) -> EchelleCalibrationProfile {
+        let width = 16u32;
+        let height = 10u32;
+        EchelleCalibrationProfile {
+            schema_version: EchelleSchemaVersion::v1(),
+            profile_id: Some("extraction-test".to_string()),
+            display_name: "Extraction Test".to_string(),
+            compatibility: EchelleFrameCompatibility {
+                sensor_width: width,
+                sensor_height: height,
+                frame_width: width,
+                frame_height: height,
+                roi_x: 0,
+                roi_y: 0,
+                binning_x: 1,
+                binning_y: 1,
+                bit_depth: Some(16),
+            },
+            orientation: EchelleOrientation {
+                dispersion_axis: DetectorAxis::X,
+                cross_dispersion_axis: DetectorAxis::Y,
+                order_number_increase_direction: AxisDirection::Positive,
+                wavelength_increase_with_dispersion_positive: true,
+            },
+            extraction: EchelleExtractionConfig {
+                summation_mode: mode,
+                default_aperture_half_width_px: 1.0,
+                background: None,
+            },
+            orders: vec![EchelleOrderCalibration {
+                relative_index: 0,
+                physical_order_number: Some(42),
+                sample_start: 0,
+                sample_end: width - 1,
+                trace: EchelleTraceModel::Polynomial {
+                    basis: PolynomialBasis::Monomial,
+                    coefficients: vec![5.0],
+                    domain_start: 0.0,
+                    domain_end: f64::from(width - 1),
+                },
+                wavelength: EchelleWavelengthModel::Sampled {
+                    wavelengths: (0..width).map(|i| 400.0 + f64::from(i) * 0.5).collect(),
+                    unit: "nm".to_string(),
+                },
+                aperture_half_width_px: None,
+                enabled: true,
+                notes: None,
+            }],
+            corrections: EchelleCorrections::default(),
+            provenance: EchelleProvenance {
+                creator_tool: "test".to_string(),
+                creator_version: None,
+                created_at_utc: Utc::now(),
+                source_frame_ids: vec![],
+                notes: None,
+            },
+        }
+    }
+
+    /// Build a 16-bit LE frame with non-uniform pixel values to distinguish
+    /// SimpleSum from `SqrtWeightedSum` extraction.
+    fn non_uniform_frame(width: u32, height: u32) -> Vec<u8> {
+        let pixel_count = (width as usize) * (height as usize);
+        let mut buf = vec![0u8; pixel_count * 2];
+        // Fill rows 4..=6 (aperture around trace center y=5) with increasing values.
+        for x in 0..width {
+            for y in 4..=6u32 {
+                // Center pixel (y=5) gets high value, edges get low values.
+                let value: u16 = match y {
+                    4 => 10,   // low edge
+                    5 => 1000, // center
+                    6 => 10,   // low edge
+                    _ => 0,
+                };
+                let idx = ((y * width + x) as usize) * 2;
+                let le = value.to_le_bytes();
+                buf[idx] = le[0];
+                buf[idx + 1] = le[1];
+            }
+        }
+        buf
+    }
+
+    #[test]
+    fn sqrt_weighted_sum_differs_from_simple_sum_on_non_uniform_data() {
+        let width = 16u32;
+        let height = 10u32;
+        let frame = non_uniform_frame(width, height);
+
+        let simple_profile = small_extraction_profile(EchelleSummationMode::SimpleSum);
+        let sqrt_profile = small_extraction_profile(EchelleSummationMode::SqrtWeightedSum);
+
+        let simple_preview =
+            extract_preview(&simple_profile, &frame, width, height, 16, 0).unwrap();
+        let sqrt_preview = extract_preview(&sqrt_profile, &frame, width, height, 16, 0).unwrap();
+
+        // SimpleSum: 10 + 1000 + 10 = 1020 per sample.
+        for val in &simple_preview.orders[0].flux {
+            assert!(
+                (*val - 1020.0).abs() < 1e-6,
+                "SimpleSum flux should be 1020, got {}",
+                val
+            );
+        }
+
+        // SqrtWeightedSum uses inverse-sqrt-variance weighting, which produces
+        // different values when pixel intensities are non-uniform.
+        let sqrt_flux_0 = sqrt_preview.orders[0].flux[0];
+        let simple_flux_0 = simple_preview.orders[0].flux[0];
+        assert!(
+            (sqrt_flux_0 - simple_flux_0).abs() > 1.0,
+            "SqrtWeightedSum should produce different flux than SimpleSum \
+             on non-uniform data: sqrt={}, simple={}",
+            sqrt_flux_0,
+            simple_flux_0
+        );
+    }
+
+    #[test]
+    fn extraction_with_bit_depth_mismatch_succeeds() {
+        // Profile says 16-bit, but we provide 12-bit data.
+        // check_frame_compatibility returns UsableWithWarnings, so extraction proceeds.
+        let profile = small_extraction_profile(EchelleSummationMode::SimpleSum);
+        let width = profile.compatibility.frame_width;
+        let height = profile.compatibility.frame_height;
+        let frame = vec![0u8; (width as usize) * (height as usize) * 2];
+
+        let result = extract_preview(&profile, &frame, width, height, 12, 0);
+        assert!(
+            result.is_ok(),
+            "extraction should succeed with bit depth mismatch: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn extraction_with_frame_size_mismatch_returns_error() {
+        let profile = small_extraction_profile(EchelleSummationMode::SimpleSum);
+        // Profile expects 16x10, but we provide a 32x20 frame.
+        let frame = vec![0u8; 32 * 20 * 2];
+        let result = extract_preview(&profile, &frame, 32, 20, 16, 0);
+        assert!(result.is_err());
+        assert!(
+            result.as_ref().unwrap_err().contains("frame size mismatch"),
+            "expected frame size mismatch error, got: {}",
+            result.unwrap_err()
+        );
+    }
+
+    #[test]
+    fn extraction_preserves_per_order_diagnostics() {
+        let width = 16u32;
+        let height = 10u32;
+        let frame = non_uniform_frame(width, height);
+
+        let profile = small_extraction_profile(EchelleSummationMode::SimpleSum);
+        let preview = extract_preview(&profile, &frame, width, height, 16, 0).unwrap();
+
+        let order = &preview.orders[0];
+        // All 16 samples should be covered since trace center is y=5 with aperture radius 1.
+        assert_eq!(order.total_samples, 16);
+        assert_eq!(order.covered_samples, 16);
+        // No pixel is at saturation (max u16 = 65535), so no saturated samples.
+        assert_eq!(order.saturated_samples, 0);
+        // valid_fraction should be 1.0 for each sample (all 3 pixels in aperture are valid).
+        for &frac in &order.valid_fraction {
+            assert!(
+                (frac - 1.0).abs() < 1e-6,
+                "expected valid_fraction=1.0, got {}",
+                frac
+            );
+        }
+    }
+
+    #[test]
+    fn merged_preview_sorts_wavelengths_across_orders() {
+        // Build a profile with two orders whose wavelength ranges overlap/interleave.
+        let width = 8u32;
+        let height = 20u32;
+        let profile = EchelleCalibrationProfile {
+            schema_version: EchelleSchemaVersion::v1(),
+            profile_id: None,
+            display_name: "merge-sort-test".to_string(),
+            compatibility: EchelleFrameCompatibility {
+                sensor_width: width,
+                sensor_height: height,
+                frame_width: width,
+                frame_height: height,
+                roi_x: 0,
+                roi_y: 0,
+                binning_x: 1,
+                binning_y: 1,
+                bit_depth: Some(16),
+            },
+            orientation: EchelleOrientation {
+                dispersion_axis: DetectorAxis::X,
+                cross_dispersion_axis: DetectorAxis::Y,
+                order_number_increase_direction: AxisDirection::Positive,
+                wavelength_increase_with_dispersion_positive: true,
+            },
+            extraction: EchelleExtractionConfig {
+                summation_mode: EchelleSummationMode::SimpleSum,
+                default_aperture_half_width_px: 1.0,
+                background: None,
+            },
+            orders: vec![
+                EchelleOrderCalibration {
+                    relative_index: 0,
+                    physical_order_number: Some(50),
+                    sample_start: 0,
+                    sample_end: width - 1,
+                    trace: EchelleTraceModel::Polynomial {
+                        basis: PolynomialBasis::Monomial,
+                        coefficients: vec![5.0],
+                        domain_start: 0.0,
+                        domain_end: f64::from(width - 1),
+                    },
+                    // Order 0 covers 500-507 nm
+                    wavelength: EchelleWavelengthModel::Sampled {
+                        wavelengths: (0..width).map(|i| 500.0 + f64::from(i)).collect(),
+                        unit: "nm".to_string(),
+                    },
+                    aperture_half_width_px: None,
+                    enabled: true,
+                    notes: None,
+                },
+                EchelleOrderCalibration {
+                    relative_index: 1,
+                    physical_order_number: Some(49),
+                    sample_start: 0,
+                    sample_end: width - 1,
+                    trace: EchelleTraceModel::Polynomial {
+                        basis: PolynomialBasis::Monomial,
+                        coefficients: vec![15.0],
+                        domain_start: 0.0,
+                        domain_end: f64::from(width - 1),
+                    },
+                    // Order 1 covers 400-407 nm (lower wavelengths than order 0)
+                    wavelength: EchelleWavelengthModel::Sampled {
+                        wavelengths: (0..width).map(|i| 400.0 + f64::from(i)).collect(),
+                        unit: "nm".to_string(),
+                    },
+                    aperture_half_width_px: None,
+                    enabled: true,
+                    notes: None,
+                },
+            ],
+            corrections: EchelleCorrections::default(),
+            provenance: EchelleProvenance {
+                creator_tool: "test".to_string(),
+                creator_version: None,
+                created_at_utc: Utc::now(),
+                source_frame_ids: vec![],
+                notes: None,
+            },
+        };
+
+        let frame = vec![0u8; (width as usize) * (height as usize) * 2];
+        let preview = extract_preview(&profile, &frame, width, height, 16, 0).unwrap();
+
+        let merged = preview
+            .merged
+            .as_ref()
+            .expect("merged preview should be present");
+        // Merged wavelengths should be sorted in ascending order.
+        for pair in merged.wavelengths.windows(2) {
+            assert!(
+                pair[0] <= pair[1],
+                "merged wavelengths not sorted: {} > {}",
+                pair[0],
+                pair[1]
+            );
+        }
+        // First wavelength should be from order 1 (400 nm range).
+        assert!(
+            merged.wavelengths[0] < 410.0,
+            "first merged wavelength should be in 400nm range, got {}",
+            merged.wavelengths[0]
+        );
+        // Last wavelength should be from order 0 (500 nm range).
+        assert!(
+            *merged.wavelengths.last().unwrap() > 490.0,
+            "last merged wavelength should be in 500nm range, got {}",
+            merged.wavelengths.last().unwrap()
+        );
+    }
+
+    // ====================================================================
+    // Task 3: bd-qe8p.2.1 — WASM activate-path regression (non-WASM)
+    // ====================================================================
+
+    #[test]
+    fn large_multi_order_profile_roundtrip_and_extraction() {
+        // Build a profile with 50+ orders programmatically.
+        let width = 200u32;
+        let height = 600u32;
+        let num_orders = 55u32;
+
+        let orders: Vec<EchelleOrderCalibration> = (0..num_orders)
+            .map(|i| {
+                // Space trace centers evenly across the cross-dispersion axis.
+                let trace_center = 10.0 + f64::from(i) * 10.0;
+                EchelleOrderCalibration {
+                    relative_index: i,
+                    #[allow(clippy::cast_possible_wrap)]
+                    physical_order_number: Some(100 - i as i32),
+                    sample_start: 0,
+                    sample_end: width - 1,
+                    trace: EchelleTraceModel::Polynomial {
+                        basis: PolynomialBasis::Monomial,
+                        coefficients: vec![trace_center],
+                        domain_start: 0.0,
+                        domain_end: f64::from(width - 1),
+                    },
+                    wavelength: EchelleWavelengthModel::Sampled {
+                        wavelengths: (0..width)
+                            .map(|s| {
+                                // Each order covers a unique wavelength range.
+                                let base = 300.0 + f64::from(i) * 10.0;
+                                base + f64::from(s) * 0.05
+                            })
+                            .collect(),
+                        unit: "nm".to_string(),
+                    },
+                    aperture_half_width_px: Some(2.0),
+                    enabled: true,
+                    notes: None,
+                }
+            })
+            .collect();
+
+        let profile = EchelleCalibrationProfile {
+            schema_version: EchelleSchemaVersion::v1(),
+            profile_id: Some("large-profile-test".to_string()),
+            display_name: "Large Multi-Order Test".to_string(),
+            compatibility: EchelleFrameCompatibility {
+                sensor_width: width,
+                sensor_height: height,
+                frame_width: width,
+                frame_height: height,
+                roi_x: 0,
+                roi_y: 0,
+                binning_x: 1,
+                binning_y: 1,
+                bit_depth: Some(16),
+            },
+            orientation: EchelleOrientation {
+                dispersion_axis: DetectorAxis::X,
+                cross_dispersion_axis: DetectorAxis::Y,
+                order_number_increase_direction: AxisDirection::Positive,
+                wavelength_increase_with_dispersion_positive: true,
+            },
+            extraction: EchelleExtractionConfig {
+                summation_mode: EchelleSummationMode::SimpleSum,
+                default_aperture_half_width_px: 3.0,
+                background: None,
+            },
+            orders,
+            corrections: EchelleCorrections::default(),
+            provenance: EchelleProvenance {
+                creator_tool: "test".to_string(),
+                creator_version: Some("1.0.0".to_string()),
+                created_at_utc: Utc::now(),
+                source_frame_ids: vec!["synth_flat_001".to_string()],
+                notes: Some("Programmatically generated 55-order profile".to_string()),
+            },
+        };
+
+        // Step 1: Validate the profile.
+        profile
+            .validate()
+            .expect("large multi-order profile should validate");
+
+        // Step 2: Serialize to TOML.
+        let dir = tempdir().unwrap();
+        let toml_path = dir.path().join("large_profile.toml");
+        profile
+            .save_to_path(&toml_path)
+            .expect("should serialize to TOML");
+
+        // Step 3: Deserialize from TOML and re-validate.
+        let loaded =
+            EchelleCalibrationProfile::load_from_path(&toml_path).expect("should deserialize");
+        assert_eq!(loaded.orders.len(), num_orders as usize);
+        assert_eq!(loaded.display_name, profile.display_name);
+        assert_eq!(loaded.compatibility, profile.compatibility);
+        // Verify order data survived the roundtrip.
+        for (orig, loaded_order) in profile.orders.iter().zip(loaded.orders.iter()) {
+            assert_eq!(orig.relative_index, loaded_order.relative_index);
+            assert_eq!(
+                orig.physical_order_number,
+                loaded_order.physical_order_number
+            );
+        }
+
+        // Step 4: Extract on a matching synthetic frame.
+        let frame = vec![0u8; (width as usize) * (height as usize) * 2];
+        let preview = extract_preview(&loaded, &frame, width, height, 16, 42)
+            .expect("extraction on matching synthetic frame should succeed");
+        assert_eq!(preview.orders.len(), num_orders as usize);
+        assert_eq!(preview.frame_number, 42);
+        assert!(
+            preview.merged.is_some(),
+            "merged preview should be present for multi-order extraction"
+        );
+        // Verify merged wavelengths are sorted.
+        let merged = preview.merged.as_ref().unwrap();
+        for pair in merged.wavelengths.windows(2) {
+            assert!(
+                pair[0] <= pair[1],
+                "merged wavelengths not sorted: {} > {}",
+                pair[0],
+                pair[1]
+            );
+        }
+    }
+
+    // -- Wavelength model fidelity tests (bd-qe8p.1.6) --
+
+    #[test]
+    fn chebyshev_wavelength_model_roundtrip_preserves_full_precision() {
+        // Create a profile with high-degree Chebyshev wavelength models
+        // (degree 5) and verify all coefficients survive TOML serialization
+        // at full f64 precision.
+        let chebyshev_coeffs = vec![
+            450.123_456_789_012_34,
+            0.098_765_432_109_876,
+            -0.000_012_345_678_901,
+            0.000_000_001_234_567,
+            -1.234_567_890_123_456e-12,
+            9.876_543_210_987_654e-16,
+        ];
+        let trace_coeffs = vec![
+            256.789_012_345_678_9,
+            -0.001_234_567_890_123,
+            0.000_000_567_890_123,
+        ];
+
+        let mut profile = minimal_profile();
+        profile.orders = vec![EchelleOrderCalibration {
+            relative_index: 0,
+            physical_order_number: Some(50),
+            sample_start: 0,
+            sample_end: 15,
+            trace: EchelleTraceModel::Polynomial {
+                basis: PolynomialBasis::Chebyshev,
+                coefficients: trace_coeffs.clone(),
+                domain_start: 0.0,
+                domain_end: 1023.0,
+            },
+            wavelength: EchelleWavelengthModel::Polynomial {
+                basis: PolynomialBasis::Chebyshev,
+                coefficients: chebyshev_coeffs.clone(),
+                domain_start: 0.0,
+                domain_end: 1023.0,
+                unit: "nm".to_string(),
+            },
+            aperture_half_width_px: Some(4.0),
+            enabled: true,
+            notes: None,
+        }];
+
+        // TOML roundtrip
+        let dir = tempdir().unwrap();
+        let toml_path = dir.path().join("chebyshev_profile.toml");
+        profile.save_to_path(&toml_path).unwrap();
+        let loaded_toml = EchelleCalibrationProfile::load_from_path(&toml_path).unwrap();
+
+        // JSON roundtrip
+        let json_path = dir.path().join("chebyshev_profile.json");
+        profile.save_to_path(&json_path).unwrap();
+        let loaded_json = EchelleCalibrationProfile::load_from_path(&json_path).unwrap();
+
+        // Verify wavelength coefficients at full precision
+        for (label, loaded) in [("TOML", &loaded_toml), ("JSON", &loaded_json)] {
+            let EchelleWavelengthModel::Polynomial {
+                basis,
+                coefficients,
+                ..
+            } = &loaded.orders[0].wavelength
+            else {
+                panic!("{label}: expected Polynomial wavelength model");
+            };
+            assert_eq!(*basis, PolynomialBasis::Chebyshev, "{label}: basis");
+            assert_eq!(
+                coefficients.len(),
+                chebyshev_coeffs.len(),
+                "{label}: coefficient count"
+            );
+            for (i, (expected, actual)) in
+                chebyshev_coeffs.iter().zip(coefficients.iter()).enumerate()
+            {
+                assert!(
+                    (expected - actual).abs() < f64::EPSILON,
+                    "{label}: coeff[{i}] expected {expected}, got {actual} (diff {})",
+                    (expected - actual).abs()
+                );
+            }
+
+            // Verify trace coefficients too
+            let EchelleTraceModel::Polynomial {
+                basis: tbasis,
+                coefficients: tcoeffs,
+                ..
+            } = &loaded.orders[0].trace;
+            assert_eq!(*tbasis, PolynomialBasis::Chebyshev, "{label}: trace basis");
+            for (i, (expected, actual)) in trace_coeffs.iter().zip(tcoeffs.iter()).enumerate() {
+                assert!(
+                    (expected - actual).abs() < f64::EPSILON,
+                    "{label}: trace coeff[{i}] expected {expected}, got {actual}"
+                );
+            }
+        }
+    }
 }

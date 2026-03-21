@@ -85,6 +85,16 @@ impl ImageViewerPanel {
                         .suffix(" px"),
                 );
 
+                // Reset Y zoom button (bd-zy7y.4)
+                if self.echelle_plot_y_locked
+                    && ui
+                        .small_button("Reset Y")
+                        .on_hover_text("Re-fit Y axis to data")
+                        .clicked()
+                {
+                    self.echelle_plot_y_locked = false;
+                }
+
                 // Frame/profile info on the right
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.weak(format!(
@@ -180,9 +190,24 @@ impl ImageViewerPanel {
             "spectrum_view_plot_sidebar"
         };
 
-        // Lock Y auto-bounds after first data to prevent auto-rescale on panel resize.
+        // Reset Y lock when the user changes order selection or toggles merged mode,
+        // since the Y range can differ dramatically between orders (bd-zy7y.4).
+        let current_render_key = (
+            self.echelle_selected_order_plot,
+            self.echelle_show_merged_plot,
+        );
+        if self
+            .echelle_plot_last_rendered
+            .is_some_and(|prev| prev != current_render_key)
+        {
+            self.echelle_plot_y_locked = false;
+            self.echelle_sidebar_plot_y_locked = false;
+        }
+        self.echelle_plot_last_rendered = Some(current_render_key);
+
+        // Lock Y auto-bounds after first data to prevent auto-rescale on new frames.
         // X remains auto to always show the full wavelength range.
-        // Double-click the plot to reset Y zoom (egui_plot built-in).
+        // Double-click the plot or click "Reset Y" to re-fit (bd-zy7y.4).
         let y_auto = !self.echelle_plot_y_locked;
         let mut plot = Plot::new(plot_id)
             .id(egui::Id::new(plot_id))
@@ -485,9 +510,13 @@ impl ImageViewerPanel {
         };
         let mut hover_link = None;
 
-        Plot::new("image_viewer_echelle_preview_plot")
+        // Lock Y auto-bounds after first data, same as the full-width plot (bd-zy7y.4).
+        let sidebar_y_auto = !self.echelle_sidebar_plot_y_locked;
+
+        let sidebar_response = Plot::new("image_viewer_echelle_preview_plot")
             .id(egui::Id::new("image_viewer_echelle_preview_plot"))
             .height(180.0)
+            .auto_bounds(egui::Vec2b::new(true, sidebar_y_auto))
             .allow_scroll(false)
             .allow_drag(true)
             .allow_zoom(true)
@@ -532,6 +561,15 @@ impl ImageViewerPanel {
                 }
             });
         self.echelle_plot_hover_link = hover_link;
+
+        // Lock sidebar Y after first render, same pattern as full-width plot (bd-zy7y.4).
+        if !self.echelle_sidebar_plot_y_locked {
+            self.echelle_sidebar_plot_y_locked = true;
+        }
+        // Double-click unlocks sidebar Y for re-auto-fit, then re-locks next frame.
+        if sidebar_response.response.double_clicked() {
+            self.echelle_sidebar_plot_y_locked = false;
+        }
 
         if let Some(order) = preview.orders.get(self.echelle_selected_order_plot) {
             #[allow(clippy::cast_precision_loss)]

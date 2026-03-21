@@ -295,6 +295,7 @@ pub enum ConnectionState {
 /// Replaces the previous `pending_remote_profile_load: Option<String>` +
 /// `remote_profile_load_rx: Option<Receiver>` pair with explicit states
 /// so the UI can distinguish idle, loading, success, and failure.
+#[allow(dead_code)] // Fields on Succeeded/Failed carry debug context
 #[derive(Debug, Default)]
 pub(in crate::panels::image_viewer) enum RemoteProfileLoadState {
     /// No load in progress.
