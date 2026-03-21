@@ -174,12 +174,13 @@ impl ImageViewerPanel {
             "spectrum_view_plot_sidebar"
         };
 
-        // Use a fixed global ID so plot memory (including user zoom state) survives
-        // layout changes like split panel resizing. Without this, egui derives the
-        // plot ID from the parent UI hierarchy, which changes on layout shifts and
-        // resets auto_bounds to true (causing the zoom-snap-back bug).
+        // Lock Y auto-bounds after first data to prevent auto-rescale on panel resize.
+        // X remains auto to always show the full wavelength range.
+        // Double-click the plot to reset Y zoom (egui_plot built-in).
+        let y_auto = !self.echelle_plot_y_locked;
         let mut plot = Plot::new(plot_id)
             .id(egui::Id::new(plot_id))
+            .auto_bounds(egui::Vec2b::new(true, y_auto))
             .allow_scroll(false)
             .allow_drag(true)
             .allow_zoom(true)
@@ -193,7 +194,7 @@ impl ImageViewerPanel {
             plot = plot.height(180.0);
         }
 
-        plot.show(ui, |plot_ui| {
+        let response = plot.show(ui, |plot_ui| {
             plot_ui.line(line);
             if let (Some(order), Some(w_lookup), Some(f_lookup)) = (
                 selected_order_for_hover,
@@ -228,6 +229,16 @@ impl ImageViewerPanel {
             }
         });
         self.echelle_plot_hover_link = hover_link;
+
+        // Lock Y auto-bounds after first render so panel resizing doesn't rescale.
+        // Double-click resets zoom (egui_plot built-in sets mem.auto_bounds = true).
+        if !self.echelle_plot_y_locked {
+            self.echelle_plot_y_locked = true;
+        }
+        // Double-click unlocks Y for re-auto-fit, then re-locks next frame.
+        if response.response.double_clicked() {
+            self.echelle_plot_y_locked = false;
+        }
 
         // Coverage/hover info below the plot
         if let Some(order) = self
