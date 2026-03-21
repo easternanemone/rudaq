@@ -1556,7 +1556,7 @@ impl GenericDriver {
         &self,
         tx: tokio::sync::mpsc::Sender<crate::capabilities::LoanedFrame>,
     ) -> Result<()> {
-        // TODO: Plugin-based devices don't yet support pooled frames.
+        // TODO(bd-p2a1): plugin-based devices don't yet support pooled frames.
         // This is a stub for API compatibility. When pooled frame support is added,
         // this method will store the sender and use it during frame acquisition.
         let mut primary = self.primary_output.write().await;

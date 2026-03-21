@@ -43,8 +43,7 @@
 //! [`Frame`]: data::Frame
 //! [`PixelBuffer`]: data::PixelBuffer
 
-// TODO: Fix doc comment generic types (e.g., `Parameter<T>`) to use backticks
-// and broken intra-doc links (e.g., `#[async_trait]`)
+// Suppressed: generic types in doc comments (e.g., `Parameter<T>`) parse as HTML tags
 #![allow(rustdoc::invalid_html_tags)]
 #![allow(rustdoc::broken_intra_doc_links)]
 

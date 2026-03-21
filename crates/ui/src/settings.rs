@@ -445,7 +445,7 @@ impl SettingsWindow {
                 ui.horizontal(|ui| {
                     ui.text_edit_singleline(&mut self.working_settings.logging.log_file_path);
                     if ui.button("Browse...").clicked() {
-                        // TODO: File picker integration
+                        // TODO(bd-p2a1): integrate native file picker (rfd crate)
                         ui.ctx().debug_text("File picker not yet implemented");
                     }
                 });
@@ -477,7 +477,7 @@ impl SettingsWindow {
                 ui.horizontal(|ui| {
                     ui.text_edit_singleline(&mut self.working_settings.storage.default_save_dir);
                     if ui.button("Browse...").clicked() {
-                        // TODO: Directory picker integration
+                        // TODO(bd-p2a1): integrate native directory picker (rfd crate)
                         ui.ctx().debug_text("Directory picker not yet implemented");
                     }
                 });

@@ -55,7 +55,7 @@
 //! [`DocumentWriter`]: document_writer::DocumentWriter
 //! [`StorageConfig`]: config::StorageConfig
 
-// TODO: Fix doc comment generic types to use backticks
+// Suppressed: generic types in doc comments parse as HTML tags
 #![allow(rustdoc::invalid_html_tags)]
 #![allow(rustdoc::broken_intra_doc_links)]
 #![allow(rustdoc::private_intra_doc_links)]

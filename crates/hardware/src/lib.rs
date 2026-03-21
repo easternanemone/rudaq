@@ -42,7 +42,7 @@
 //! [`Readable`]: capabilities::Readable
 //! [`FrameProducer`]: capabilities::FrameProducer
 
-// TODO: Fix doc comment generic types (e.g., `Arc<Mutex>`) to use backticks
+// Suppressed: generic types in doc comments (e.g., `Arc<Mutex>`) parse as HTML tags
 #![allow(rustdoc::invalid_html_tags)]
 #![allow(rustdoc::broken_intra_doc_links)]
 

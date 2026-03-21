@@ -171,7 +171,7 @@ impl DocumentWriter {
 
                             // Find the stream group associated with this descriptor
                             // For now, we need to iterate or store map.
-                            // TODO: Optimize lookup. Assuming "primary" for now or checking groups.
+                            // TODO(bd-p2a1): optimize descriptor-to-group lookup instead of assuming "primary"
                             // Actually, we should store the stream name in DescriptorInfo.
                             // Hack for now: check all groups or derive from descriptor doc (not available here directly)
                             // Assuming primary stream for standard plans.
@@ -271,7 +271,7 @@ impl DocumentWriter {
                     }
                 }
                 Document::Manifest(_) => {
-                    // TODO: Handle manifest writing if needed within stream
+                    // TODO(bd-p2a1): handle Manifest document writing to HDF5
                     return Ok(());
                 }
             }

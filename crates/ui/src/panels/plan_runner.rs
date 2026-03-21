@@ -295,7 +295,8 @@ impl PlanRunnerPanel {
                     });
                 }
                 PlanType::GridScan => {
-                    ui.label("Grid scan parameters (TODO: implement 2D form)");
+                    // TODO(bd-p2a1): implement 2D grid scan parameter form
+                    ui.label("Grid scan parameters (not yet implemented)");
                 }
             }
 
@@ -320,7 +321,7 @@ impl PlanRunnerPanel {
                         "line_scan".to_string()
                     }
                     PlanType::GridScan => {
-                        // TODO: Add grid scan parameters
+                        // TODO(bd-p2a1): add grid scan parameters to QueuePlan request
                         "grid_scan".to_string()
                     }
                 };
@@ -370,8 +371,10 @@ impl PlanRunnerPanel {
             ui.label("✅ Connected to RunEngineServiceClient");
             ui.label("✅ Implemented gRPC call for QueuePlan");
             ui.label("✅ Implemented start, pause, resume, abort (bd-xrkv)");
-            ui.label("⏳ TODO: Poll get_engine_status for status updates");
-            ui.label("⏳ TODO: Validate plan parameters before queueing");
+            // TODO(bd-p2a1): poll get_engine_status for live status updates
+            ui.label("Pending: live engine status polling");
+            // TODO(bd-p2a1): validate plan parameters before queueing
+            ui.label("Pending: plan parameter validation");
         });
 
         // Execute pending action

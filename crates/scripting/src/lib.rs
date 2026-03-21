@@ -1,4 +1,4 @@
-// TODO: Fix doc comment generic types to use backticks
+// Suppressed: generic types in doc comments parse as HTML tags
 #![allow(rustdoc::invalid_html_tags)]
 #![allow(rustdoc::broken_intra_doc_links)]
 // Allow Rust 1.93+ clippy lints that require significant refactoring

@@ -368,7 +368,7 @@ impl RunHistoryPanel {
                         ui.end_row();
                     });
 
-                // TODO: Display run metadata when AcquisitionSummary includes metadata field
+                // TODO(bd-p2a1): display run metadata when AcquisitionSummary includes metadata field
                 // This will be populated from HDF5 attributes in future enhancement
 
                 ui.separator();

@@ -560,7 +560,7 @@ impl ExperimentDesignerPanel {
                 let node_clone = node.clone();
 
                 // Show inspector and check for modifications
-                // TODO: Fetch and cache device list from DaqClient for autocomplete
+                // TODO(bd-p2a1): fetch and cache device list from DaqClient for autocomplete
                 let device_ids: Vec<String> = Vec::new(); // Empty for now, falls back to text field
                 if let Some(modified_node) = PropertyInspector::show(ui, &node_clone, &device_ids) {
                     // Create undo-tracked modification
@@ -2063,14 +2063,14 @@ impl ExperimentDesignerPanel {
 
     /// Confirm adaptive action and resume execution.
     fn confirm_adaptive_action(&mut self) {
-        // TODO: Send signal to RunEngine to proceed with adaptive action
+        // TODO(bd-p2a1): send gRPC signal to RunEngine to proceed with adaptive action
         tracing::info!("Adaptive action approved");
         self.set_status("Adaptive action approved - proceeding");
     }
 
     /// Cancel adaptive action.
     fn cancel_adaptive_action(&mut self) {
-        // TODO: Send signal to RunEngine to skip adaptive action
+        // TODO(bd-p2a1): send gRPC signal to RunEngine to skip adaptive action
         // May need to abort scan or continue without action
         tracing::info!("Adaptive action cancelled");
         self.set_status("Adaptive action cancelled");

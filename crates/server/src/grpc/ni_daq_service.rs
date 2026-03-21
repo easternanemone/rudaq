@@ -1545,7 +1545,7 @@ impl NiDaqService for NiDaqServiceImpl {
                             ai_busy: ai_info.map(|s| s.is_busy()).unwrap_or(false),
                             ao_busy: ao_info.map(|s| s.is_busy()).unwrap_or(false),
                             dio_configured: dio_info.is_some(),
-                            active_counters: 0, // TODO: Track active counters in state
+                            active_counters: 0, // TODO(bd-krmn): track active counters in ComediDeviceState
                             ai_channels,
                             ao_channels,
                             dio_channels,

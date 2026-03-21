@@ -183,7 +183,7 @@ pub(super) enum ImageViewerAction {
     },
     /// Error from async operation
     Error(String),
-    /// Reconnection attempt result (bd-12qt) - construction TODO
+    /// Reconnection attempt result (bd-12qt)
     #[allow(dead_code)]
     ReconnectResult { device_id: String, success: bool },
     /// Recording started (bd-3pdi.5.3)

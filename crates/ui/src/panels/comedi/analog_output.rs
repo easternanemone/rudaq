@@ -364,11 +364,11 @@ impl AnalogOutputPanel {
 
                 ui.horizontal(|ui| {
                     if ui.button("Start Waveform").clicked() {
-                        // TODO: Start waveform generation
+                        // TODO(bd-p2a1): implement waveform generation start via NiDaqService
                         self.status = Some("Waveform generation not yet implemented".to_string());
                     }
                     if ui.button("Stop").clicked() {
-                        // TODO: Stop waveform generation
+                        // TODO(bd-p2a1): implement waveform generation stop via NiDaqService
                     }
                 });
             }

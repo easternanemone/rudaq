@@ -53,7 +53,7 @@ impl ScriptEditorPanel {
                 .on_hover_text("Execute this script")
                 .clicked()
             {
-                // TODO: Connect to scripting engine execution
+                // TODO(bd-p2a1): connect Run button to scripting engine via gRPC
                 self.status = Some("Run not yet implemented".to_string());
             }
 

@@ -101,7 +101,7 @@ impl DocumentSink for ZarrSink {
                     keys = ?desc.data_keys.keys().collect::<Vec<_>>(),
                     "ZarrSink: descriptor received"
                 );
-                // TODO: Pre-create Zarr arrays based on DataKey schema
+                // TODO(bd-p2a1): pre-create Zarr arrays based on DataKey schema
                 Ok(())
             }
             Document::Event(event) => {
@@ -116,7 +116,7 @@ impl DocumentSink for ZarrSink {
 
                 self.event_counter += 1;
 
-                // TODO: Write scalar data and arrays to the Zarr store using
+                // TODO(bd-p2a1): write scalar data and arrays to the Zarr store using
                 // `ZarrWriter::write_chunk` with chunk indices derived from
                 // `coords`. Set `_ARRAY_DIMENSIONS` from `dim_names` when
                 // creating the array on first write.
