@@ -370,12 +370,11 @@ fi
 if $WASM_GUI && ! $GUI_ONLY; then
     step "Phase 3.5: Building WASM GUI on leabs-dev"
 
-    # Ensure trunk is installed (prefer /usr/local/bin to survive ~/.cargo/bin cleanup)
+    # Ensure trunk is installed (pre-built binary in /usr/local/bin — fast, no cargo build)
+    TRUNK_VERSION="0.21.14"
     if ! remote "command -v trunk >/dev/null 2>&1"; then
-        info "Installing trunk (WASM build tool) to /usr/local/bin..."
-        remote "source \$HOME/.cargo/env && cargo install trunk --locked --root /usr/local" 2>&1 | while IFS= read -r line; do
-            echo -e "    ${line}"
-        done
+        info "Installing trunk ${TRUNK_VERSION} (pre-built binary)..."
+        remote "curl -sL https://github.com/trunk-rs/trunk/releases/download/v${TRUNK_VERSION}/trunk-x86_64-unknown-linux-gnu.tar.gz | sudo tar xz -C /usr/local/bin/"
         ok "trunk installed to /usr/local/bin"
     else
         ok "trunk already installed ($(remote 'which trunk'))"
