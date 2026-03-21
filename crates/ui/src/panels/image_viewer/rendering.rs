@@ -11,6 +11,21 @@ impl ImageViewerPanel {
         self.poll_param_results(ui.ctx());
         self.poll_echelle_profile_cache();
         self.poll_remote_profile_load();
+        // Reset terminal load states to Idle — outcomes are already propagated
+        // to echelle_cal_ui.status_message/last_error by poll_remote_profile_load.
+        // On success, trigger immediate extraction on the last frame (bd-zy7y.3)
+        // so users see whether the new profile works without waiting for the next
+        // frame from the camera stream.
+        if self.remote_profile_load.is_terminal() {
+            let was_success = matches!(
+                self.remote_profile_load,
+                RemoteProfileLoadState::Succeeded { .. }
+            );
+            self.remote_profile_load = RemoteProfileLoadState::default();
+            if was_success {
+                self.try_immediate_echelle_extraction();
+            }
+        }
         self.sync_echelle_profile_to_run_engine(client.as_deref_mut(), runtime);
 
         // Drain pending frame updates
@@ -569,13 +584,19 @@ impl ImageViewerPanel {
                 self.set_camera_parameter(client_val, runtime, dev, name, val);
             }
 
-            // Handle pending remote profile load (bd-nss7)
-            if let Some(path) = self.pending_remote_profile_load.take() {
+            // Handle remote profile load state machine (bd-zy7y.1)
+            // Only transition from Pending — do NOT use std::mem::take which would
+            // drop Loading/Succeeded/Failed states and lose in-flight results.
+            if let Some(path) = match &self.remote_profile_load {
+                RemoteProfileLoadState::Pending { path } => Some(path.clone()),
+                _ => None,
+            } {
                 let mut client_clone = client_val.clone();
                 let (tx, rx) = std::sync::mpsc::channel();
-                self.remote_profile_load_rx = Some(rx);
+                let path_clone = path.clone();
+                self.remote_profile_load = RemoteProfileLoadState::Loading { path, rx };
                 runtime.spawn(async move {
-                    match client_clone.load_calibration_profile(&path).await {
+                    match client_clone.load_calibration_profile(&path_clone).await {
                         Ok(resp) if resp.success => {
                             let _ = tx.send(Ok(resp.content));
                         }

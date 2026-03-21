@@ -13,8 +13,14 @@ impl ImageViewerPanel {
             ui.centered_and_justified(|ui| {
                 if let Some(err) = &self.echelle_preview_error {
                     ui.colored_label(egui::Color32::from_rgb(255, 100, 100), err);
+                } else if self.remote_profile_load.is_busy() {
+                    ui.weak("Loading calibration profile...");
+                } else if self.echelle_profile_cache.profile().is_none() {
+                    ui.weak("No calibration profile active.");
+                } else if !self.echelle_extraction_enabled {
+                    ui.weak("Extraction is disabled.");
                 } else {
-                    ui.weak("Waiting for extracted spectrum preview...");
+                    ui.weak("Waiting for first frame to extract...");
                 }
             });
             return;
@@ -355,12 +361,23 @@ impl ImageViewerPanel {
             });
         }
 
+        // Show extraction diagnostics (bd-y171): distinguish no-profile, loading,
+        // incompatible, extraction-error, and waiting-for-first-frame states.
         if let Some(err) = &self.echelle_preview_error {
             ui.colored_label(colors::ERROR, err);
         }
 
         let Some(preview) = &self.echelle_preview else {
-            ui.weak("Waiting for extracted spectrum preview...");
+            if self.echelle_preview_error.is_some() {
+                // Error already shown above — don't also say "waiting" (bd-y171)
+            } else if self.remote_profile_load.is_busy() {
+                ui.spinner();
+                ui.weak("Loading calibration profile...");
+            } else if !self.echelle_extraction_enabled {
+                ui.weak("Extraction is disabled.");
+            } else {
+                ui.weak("Waiting for first frame to extract...");
+            }
             return;
         };
 

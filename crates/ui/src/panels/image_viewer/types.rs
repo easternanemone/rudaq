@@ -290,6 +290,55 @@ pub enum ConnectionState {
     Reconnecting,
 }
 
+/// State machine for remote profile load/activate operations (bd-zy7y.1).
+///
+/// Replaces the previous `pending_remote_profile_load: Option<String>` +
+/// `remote_profile_load_rx: Option<Receiver>` pair with explicit states
+/// so the UI can distinguish idle, loading, success, and failure.
+#[derive(Debug, Default)]
+pub(in crate::panels::image_viewer) enum RemoteProfileLoadState {
+    /// No load in progress.
+    #[default]
+    Idle,
+    /// A load request has been submitted but the async task hasn't started yet.
+    /// The path is stored so the UI can show what's being loaded.
+    Pending { path: String },
+    /// The async gRPC call is in flight. The receiver will deliver the result.
+    Loading {
+        path: String,
+        rx: std::sync::mpsc::Receiver<Result<String, String>>,
+    },
+    /// Load completed successfully. Caller should transition to Idle after
+    /// processing the profile content.
+    Succeeded { path: String },
+    /// Load failed with an error message.
+    Failed { path: String, error: String },
+}
+
+impl RemoteProfileLoadState {
+    /// Returns true if a load is pending or in flight.
+    pub(super) fn is_busy(&self) -> bool {
+        matches!(self, Self::Pending { .. } | Self::Loading { .. })
+    }
+
+    /// Returns a user-visible status message for active (in-flight) states only.
+    /// Terminal states (Succeeded/Failed) return None because their outcomes
+    /// are communicated via `echelle_cal_ui.status_message`/`last_error`.
+    pub(super) fn status_message(&self) -> Option<String> {
+        match self {
+            Self::Pending { path } => Some(format!("Requesting profile: {path}...")),
+            Self::Loading { path, .. } => Some(format!("Loading profile from daemon: {path}...")),
+            _ => None,
+        }
+    }
+
+    /// Returns true if the state is terminal (Succeeded/Failed) and should
+    /// be reset to Idle after the caller has processed the outcome.
+    pub(super) fn is_terminal(&self) -> bool {
+        matches!(self, Self::Succeeded { .. } | Self::Failed { .. })
+    }
+}
+
 /// Recording state for camera frames (bd-3pdi.5.3)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum RecordingState {

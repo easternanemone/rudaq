@@ -68,7 +68,7 @@ impl DaqApp {
                     }
                 }
                 AutomationCommand::ActivateProfile(path) => {
-                    self.image_viewer_panel.pending_remote_profile_load = Some(path);
+                    self.image_viewer_panel.request_remote_profile_load(path);
                 }
                 AutomationCommand::SelectOrder(index) => {
                     self.image_viewer_panel.echelle_selected_order_plot = index;

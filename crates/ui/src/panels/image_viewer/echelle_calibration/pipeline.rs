@@ -4,42 +4,64 @@ use super::super::*;
 use super::rendering::detect_cross_dispersion_peaks_from_frame;
 
 impl ImageViewerPanel {
-    /// Poll for remote profile load results (bd-nss7).
+    /// Poll the remote profile load state machine (bd-zy7y.1).
+    ///
+    /// Checks the `Loading` state's receiver for a result and transitions
+    /// to `Succeeded` or `Failed`. On success, loads the profile into both
+    /// the editor and the active cache.
     pub(in crate::panels::image_viewer) fn poll_remote_profile_load(&mut self) {
-        let result = match &self.remote_profile_load_rx {
-            Some(rx) => rx.try_recv().ok(),
-            None => None,
+        // Only poll when in Loading state — other states don't have a receiver.
+        let current = std::mem::take(&mut self.remote_profile_load);
+        let RemoteProfileLoadState::Loading { path, rx } = current else {
+            // Put back the state we took — no work to do.
+            self.remote_profile_load = current;
+            return;
         };
-        if let Some(result) = result {
-            self.remote_profile_load_rx = None;
-            match result {
-                Ok(toml_content) => {
-                    match toml::from_str::<echelle::EchelleCalibrationProfile>(&toml_content) {
-                        Ok(mut profile) => {
+
+        match rx.try_recv() {
+            Ok(Ok(toml_content)) => {
+                match toml::from_str::<echelle::EchelleCalibrationProfile>(&toml_content) {
+                    Ok(profile) => {
+                        // Validate the loaded profile before activating it.
+                        // A malformed TOML could pass deserialization but fail
+                        // structural checks (empty orders, invalid domains, etc.).
+                        if let Err(e) = profile.validate() {
+                            let error = format!("Loaded profile failed validation: {e}");
+                            self.echelle_cal_ui.last_error = Some(error.clone());
+                            self.remote_profile_load =
+                                RemoteProfileLoadState::Failed { path, error };
+                        } else {
                             let name = profile.display_name.clone();
-                            // Do NOT patch any compatibility dimensions — the profile
-                            // carries its own frame/sensor geometry from calibration.
-                            // validate_for_frame() handles stream vs profile mismatches
-                            // at extraction time.
                             // Load into editor AND activate
                             self.echelle_cal_ui.editor_profile = Some(profile.clone());
                             self.echelle_cal_ui.editor_dirty = false;
                             self.echelle_cal_ui.status_message =
                                 Some(format!("Loaded profile from daemon: {name}"));
                             self.echelle_cal_ui.last_error = None;
-                            // Also activate it
                             self.echelle_profile_cache.activate_in_memory(profile);
                             self.mark_echelle_run_engine_sync_dirty();
-                        }
-                        Err(e) => {
-                            self.echelle_cal_ui.last_error =
-                                Some(format!("Failed to parse profile TOML: {e}"));
+                            self.remote_profile_load = RemoteProfileLoadState::Succeeded { path };
                         }
                     }
+                    Err(e) => {
+                        let error = format!("Failed to parse profile TOML: {e}");
+                        self.echelle_cal_ui.last_error = Some(error.clone());
+                        self.remote_profile_load = RemoteProfileLoadState::Failed { path, error };
+                    }
                 }
-                Err(e) => {
-                    self.echelle_cal_ui.last_error = Some(e);
-                }
+            }
+            Ok(Err(e)) => {
+                self.echelle_cal_ui.last_error = Some(e.clone());
+                self.remote_profile_load = RemoteProfileLoadState::Failed { path, error: e };
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => {
+                // Still loading — put the state back.
+                self.remote_profile_load = RemoteProfileLoadState::Loading { path, rx };
+            }
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                let error = "Profile load channel disconnected unexpectedly".to_string();
+                self.echelle_cal_ui.last_error = Some(error.clone());
+                self.remote_profile_load = RemoteProfileLoadState::Failed { path, error };
             }
         }
     }

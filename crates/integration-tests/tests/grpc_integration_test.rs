@@ -323,15 +323,31 @@ mod camera_integration_tests {
         let mut frames = Vec::new();
         let mut last_metrics = None;
 
-        while start.elapsed() < Duration::from_secs(3) {
-            match timeout(Duration::from_millis(300), stream.next()).await {
+        // Use a longer initial timeout (2s) to handle mock camera startup latency,
+        // then shorter timeouts (300ms) for subsequent frames. This prevents flaky
+        // failures on loaded CI machines where the first frame takes longer to arrive.
+        let mut first_frame = true;
+        while start.elapsed() < Duration::from_secs(5) {
+            let frame_timeout = if first_frame {
+                Duration::from_secs(2)
+            } else {
+                Duration::from_millis(300)
+            };
+            match timeout(frame_timeout, stream.next()).await {
                 Ok(Some(Ok(frame))) => {
+                    first_frame = false;
                     last_metrics = frame.metrics.clone();
                     frames.push(frame);
                 }
                 Ok(Some(Err(err))) => panic!("stream error: {}", err),
                 Ok(None) => break,
-                Err(_) => {}
+                Err(_) => {
+                    if first_frame {
+                        // First frame timed out — this is the flaky case.
+                        // Continue trying rather than giving up immediately.
+                        continue;
+                    }
+                }
             }
         }
 

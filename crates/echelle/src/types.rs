@@ -305,6 +305,114 @@ pub struct EchelleFrameContext {
     pub bit_depth: Option<u32>,
 }
 
+/// Structured result from frame/profile compatibility checking.
+///
+/// Replaces the old binary pass/fail `validate_for_frame()` with physically
+/// meaningful compatibility states. Callers can decide whether to proceed,
+/// warn, or reject based on the specific mismatch category.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FrameCompatibility {
+    /// Profile and frame match on all checked fields.
+    Compatible,
+    /// Minor mismatches that still allow extraction to proceed.
+    /// This is used when the frame and profile agree on geometry
+    /// (sensor dimensions, ROI, binning) but differ in other properties,
+    /// such as bit depth. The caller should surface the warnings to the
+    /// user but may proceed with extraction.
+    UsableWithWarnings { warnings: Vec<CompatibilityWarning> },
+    /// Profile cannot be meaningfully applied to this frame.
+    Incompatible { reasons: Vec<CompatibilityWarning> },
+}
+
+impl FrameCompatibility {
+    /// Returns `true` if extraction can proceed (compatible or usable with warnings).
+    pub fn is_usable(&self) -> bool {
+        !matches!(self, Self::Incompatible { .. })
+    }
+
+    /// Returns all warnings/reasons as a flat list.
+    pub fn diagnostics(&self) -> &[CompatibilityWarning] {
+        match self {
+            Self::Compatible => &[],
+            Self::UsableWithWarnings { warnings } | Self::Incompatible { reasons: warnings } => {
+                warnings
+            }
+        }
+    }
+}
+
+/// Individual compatibility diagnostic with enough context for the UI
+/// to present physically meaningful feedback to the user.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CompatibilityWarning {
+    /// Frame dimensions differ from the profile's calibrated dimensions.
+    /// This is incompatible because trace positions and sample ranges
+    /// are defined in the profile's frame coordinate space.
+    FrameSizeMismatch {
+        expected_width: u32,
+        expected_height: u32,
+        actual_width: u32,
+        actual_height: u32,
+    },
+    /// ROI origin differs. Trace positions are relative to sensor origin,
+    /// so a different ROI shifts the extraction window.
+    RoiMismatch {
+        axis: &'static str,
+        expected: u32,
+        actual: u32,
+    },
+    /// Binning factor differs. This changes effective pixel scale and
+    /// invalidates trace polynomial coefficients.
+    BinningMismatch {
+        axis: &'static str,
+        expected: u32,
+        actual: u32,
+    },
+    /// Bit depth differs. Extraction still works but saturation thresholds
+    /// and noise models may be wrong.
+    BitDepthMismatch { expected: u32, actual: u32 },
+}
+
+impl std::fmt::Display for CompatibilityWarning {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::FrameSizeMismatch {
+                expected_width,
+                expected_height,
+                actual_width,
+                actual_height,
+            } => write!(
+                f,
+                "frame size mismatch: profile expects {}x{}, got {}x{}",
+                expected_width, expected_height, actual_width, actual_height
+            ),
+            Self::RoiMismatch {
+                axis,
+                expected,
+                actual,
+            } => write!(
+                f,
+                "ROI {} mismatch: profile expects {}, got {}",
+                axis, expected, actual
+            ),
+            Self::BinningMismatch {
+                axis,
+                expected,
+                actual,
+            } => write!(
+                f,
+                "binning {} mismatch: profile expects {}, got {}",
+                axis, expected, actual
+            ),
+            Self::BitDepthMismatch { expected, actual } => write!(
+                f,
+                "bit depth mismatch: profile expects {}-bit, got {}-bit",
+                expected, actual
+            ),
+        }
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum EchelleProfileError {
     #[error("I/O error reading profile {path}: {source}")]
@@ -431,61 +539,123 @@ impl EchelleCalibrationProfile {
         Ok(())
     }
 
+    /// Check structured compatibility between this profile and a frame.
+    ///
+    /// Returns a [`FrameCompatibility`] that distinguishes:
+    /// - `Compatible`: all checked fields match
+    /// - `UsableWithWarnings`: extraction can proceed but results may be degraded
+    ///   (e.g., bit depth differs — saturation threshold will be wrong)
+    /// - `Incompatible`: extraction would produce physically meaningless results
+    ///   (e.g., frame dimensions or binning differ from calibration)
+    ///
+    /// This does NOT call `validate()` — the profile is assumed to be structurally
+    /// valid. Call `validate()` separately if loading from untrusted input.
+    pub fn check_frame_compatibility(&self, frame: &EchelleFrameContext) -> FrameCompatibility {
+        let c = &self.compatibility;
+        let mut hard_mismatches = Vec::new();
+        let mut soft_mismatches = Vec::new();
+
+        // Frame dimensions: incompatible if different, because trace positions
+        // and sample ranges are defined in the profile's frame coordinate space.
+        if frame.width != c.frame_width || frame.height != c.frame_height {
+            hard_mismatches.push(CompatibilityWarning::FrameSizeMismatch {
+                expected_width: c.frame_width,
+                expected_height: c.frame_height,
+                actual_width: frame.width,
+                actual_height: frame.height,
+            });
+        }
+
+        // ROI: incompatible if different, because trace polynomials encode
+        // sensor-coordinate positions that depend on the ROI origin.
+        if let Some(roi_x) = frame.roi_x {
+            if roi_x != c.roi_x {
+                hard_mismatches.push(CompatibilityWarning::RoiMismatch {
+                    axis: "X",
+                    expected: c.roi_x,
+                    actual: roi_x,
+                });
+            }
+        }
+        if let Some(roi_y) = frame.roi_y {
+            if roi_y != c.roi_y {
+                hard_mismatches.push(CompatibilityWarning::RoiMismatch {
+                    axis: "Y",
+                    expected: c.roi_y,
+                    actual: roi_y,
+                });
+            }
+        }
+
+        // Binning: incompatible if different, because it changes effective
+        // pixel scale and invalidates trace polynomial coefficients.
+        if let Some(bx) = frame.binning_x {
+            if bx != c.binning_x {
+                hard_mismatches.push(CompatibilityWarning::BinningMismatch {
+                    axis: "X",
+                    expected: c.binning_x,
+                    actual: bx,
+                });
+            }
+        }
+        if let Some(by) = frame.binning_y {
+            if by != c.binning_y {
+                hard_mismatches.push(CompatibilityWarning::BinningMismatch {
+                    axis: "Y",
+                    expected: c.binning_y,
+                    actual: by,
+                });
+            }
+        }
+
+        // Bit depth: usable with warning. Extraction math is the same but
+        // saturation detection thresholds will be wrong.
+        if let (Some(expected), Some(actual)) = (c.bit_depth, frame.bit_depth) {
+            if expected != actual {
+                soft_mismatches.push(CompatibilityWarning::BitDepthMismatch { expected, actual });
+            }
+        }
+
+        if !hard_mismatches.is_empty() {
+            FrameCompatibility::Incompatible {
+                reasons: hard_mismatches,
+            }
+        } else if !soft_mismatches.is_empty() {
+            FrameCompatibility::UsableWithWarnings {
+                warnings: soft_mismatches,
+            }
+        } else {
+            FrameCompatibility::Compatible
+        }
+    }
+
+    /// Strict pass/fail validation for frame compatibility.
+    ///
+    /// Delegates to [`check_frame_compatibility`] and rejects anything
+    /// that is not fully `Compatible`. Also validates the profile itself.
+    ///
+    /// Prefer [`check_frame_compatibility`] when the caller can handle
+    /// warnings (e.g., UI preview can show "bit depth mismatch" without
+    /// blocking extraction).
     pub fn validate_for_frame(
         &self,
         frame: EchelleFrameContext,
     ) -> Result<(), EchelleProfileError> {
         self.validate()?;
 
-        let c = &self.compatibility;
-        if frame.width != c.frame_width || frame.height != c.frame_height {
-            return Err(invalid(format!(
-                "frame size mismatch: profile expects {}x{}, got {}x{}",
-                c.frame_width, c.frame_height, frame.width, frame.height
-            )));
-        }
-
-        if let Some(roi_x) = frame.roi_x {
-            if roi_x != c.roi_x {
-                return Err(invalid(format!(
-                    "ROI X mismatch: profile expects {}, got {}",
-                    c.roi_x, roi_x
-                )));
+        let compat = self.check_frame_compatibility(&frame);
+        match compat {
+            FrameCompatibility::Compatible => Ok(()),
+            FrameCompatibility::UsableWithWarnings { warnings } => {
+                // Strict mode: treat warnings as errors
+                let msgs: Vec<String> = warnings.iter().map(ToString::to_string).collect();
+                Err(invalid(msgs.join("; ")))
+            }
+            FrameCompatibility::Incompatible { reasons } => {
+                let msgs: Vec<String> = reasons.iter().map(ToString::to_string).collect();
+                Err(invalid(msgs.join("; ")))
             }
         }
-        if let Some(roi_y) = frame.roi_y {
-            if roi_y != c.roi_y {
-                return Err(invalid(format!(
-                    "ROI Y mismatch: profile expects {}, got {}",
-                    c.roi_y, roi_y
-                )));
-            }
-        }
-        if let Some(bx) = frame.binning_x {
-            if bx != c.binning_x {
-                return Err(invalid(format!(
-                    "binning_x mismatch: profile expects {}, got {}",
-                    c.binning_x, bx
-                )));
-            }
-        }
-        if let Some(by) = frame.binning_y {
-            if by != c.binning_y {
-                return Err(invalid(format!(
-                    "binning_y mismatch: profile expects {}, got {}",
-                    c.binning_y, by
-                )));
-            }
-        }
-        if let (Some(expected), Some(actual)) = (c.bit_depth, frame.bit_depth) {
-            if expected != actual {
-                return Err(invalid(format!(
-                    "bit_depth mismatch: profile expects {}, got {}",
-                    expected, actual
-                )));
-            }
-        }
-        Ok(())
     }
 
     fn validate_compatibility(&self) -> Result<(), EchelleProfileError> {
@@ -1033,14 +1203,20 @@ pub fn extract_preview_masked(
     frame_number: u64,
     mask: Option<&BadPixelMask>,
 ) -> Result<EchelleExtractionPreview, String> {
-    profile
-        .validate_for_frame(EchelleFrameContext {
-            width,
-            height,
-            bit_depth: Some(bit_depth),
-            ..Default::default()
-        })
-        .map_err(|error| error.to_string())?;
+    let compat = profile.check_frame_compatibility(&EchelleFrameContext {
+        width,
+        height,
+        bit_depth: Some(bit_depth),
+        ..Default::default()
+    });
+    if !compat.is_usable() {
+        let msgs: Vec<String> = compat
+            .diagnostics()
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        return Err(msgs.join("; "));
+    }
 
     let decoded = DecodedIntensityFrame::decode(frame_data, width, height, bit_depth, None)?;
     extract_preview_with_scratch_inner(profile, &decoded, bit_depth, frame_number, mask)
@@ -1078,14 +1254,20 @@ pub fn extract_preview_with_u16_scratch_masked(
     u16_scratch: &mut Vec<u16>,
     mask: Option<&BadPixelMask>,
 ) -> Result<EchelleExtractionPreview, String> {
-    profile
-        .validate_for_frame(EchelleFrameContext {
-            width,
-            height,
-            bit_depth: Some(bit_depth),
-            ..Default::default()
-        })
-        .map_err(|error| error.to_string())?;
+    let compat = profile.check_frame_compatibility(&EchelleFrameContext {
+        width,
+        height,
+        bit_depth: Some(bit_depth),
+        ..Default::default()
+    });
+    if !compat.is_usable() {
+        let msgs: Vec<String> = compat
+            .diagnostics()
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        return Err(msgs.join("; "));
+    }
 
     let decoded =
         DecodedIntensityFrame::decode(frame_data, width, height, bit_depth, Some(u16_scratch))?;
@@ -1245,9 +1427,11 @@ fn extract_order(
                     }
                 }
             }
-            EchelleSummationMode::SimpleSum
-            | EchelleSummationMode::SqrtWeightedSum
-            | EchelleSummationMode::Optimal => {
+            // Optimal extraction requires a rectified order and spatial profile
+            // (see optimal_extraction.rs). The preview path operates on raw frames,
+            // so Optimal falls back to SimpleSum here. Full optimal extraction is
+            // available via the rectification → optimal_extract pipeline.
+            EchelleSummationMode::SimpleSum | EchelleSummationMode::Optimal => {
                 for offset in -radius..=radius {
                     let cross_px = center_px + offset;
                     if let Some((x, y)) = map_disp_cross_to_local_xy(
@@ -1270,27 +1454,78 @@ fn extract_order(
                         }
                     }
                 }
+            }
+            EchelleSummationMode::SqrtWeightedSum => {
+                // Inverse-sqrt-variance weighting: weight_i = 1 / sqrt(V_i)
+                // where V_i = readnoise² + max(pixel_i, 0) / gain.
+                // This downweights noisy edge pixels without requiring a
+                // spatial profile fit (intermediate between SimpleSum and Optimal).
+                //
+                // Uses conservative defaults when detector model is not configured.
+                const DEFAULT_READ_NOISE: f64 = 3.0; // electrons
+                const DEFAULT_GAIN: f64 = 1.0; // electrons/ADU
 
-                if valid > 0 {
-                    if let Some(background) = &profile.extraction.background {
-                        if background.enabled {
-                            #[allow(clippy::cast_possible_wrap)]
-                            // Background sidebands operate in signed detector coordinates around the order center.
-                            let (background_sum, background_count) = sample_background_sidebands(
-                                profile,
-                                mask,
-                                frame,
-                                sample_local as i32,
-                                center_px,
-                                radius,
-                                background.inter_order_gap_min_px as i32,
-                                background.baseline_window_px as i32,
-                            );
-                            if background_count > 0 {
-                                let background_mean = background_sum / f64::from(background_count);
-                                sample_sum -= background_mean * f64::from(valid);
-                            }
+                let mut weight_sum = 0.0f64;
+                for offset in -radius..=radius {
+                    let cross_px = center_px + offset;
+                    if let Some((x, y)) = map_disp_cross_to_local_xy(
+                        profile.orientation.dispersion_axis,
+                        sample_local as i32,
+                        cross_px,
+                    ) {
+                        if x < 0
+                            || y < 0
+                            || (x as u32) >= frame.width()
+                            || (y as u32) >= frame.height()
+                            || is_excluded(profile, mask, x as u32, y as u32)
+                        {
+                            continue;
                         }
+                        if let Some(pixel) = frame.get(x as u32, y as u32) {
+                            let signal = f64::from(pixel);
+                            // Variance: readnoise² + Poisson term (signal/gain)
+                            let variance = DEFAULT_READ_NOISE * DEFAULT_READ_NOISE
+                                + signal.max(0.0) / DEFAULT_GAIN;
+                            let weight = 1.0 / variance.sqrt();
+                            sample_sum += signal * weight;
+                            weight_sum += weight;
+                            valid += 1;
+                            saturated_sample |= pixel >= saturation_threshold;
+                        }
+                    }
+                }
+                // Normalize by total weight to produce a weighted mean × aperture
+                if weight_sum > 0.0 {
+                    sample_sum /= weight_sum;
+                    sample_sum *= f64::from(valid);
+                }
+            }
+        }
+
+        // Background subtraction applies to all aperture-based modes
+        // (SimpleSum, SqrtWeightedSum, Optimal) but not OrderCenterPixel.
+        if valid > 0
+            && !matches!(
+                profile.extraction.summation_mode,
+                EchelleSummationMode::OrderCenterPixel
+            )
+        {
+            if let Some(background) = &profile.extraction.background {
+                if background.enabled {
+                    #[allow(clippy::cast_possible_wrap)]
+                    let (background_sum, background_count) = sample_background_sidebands(
+                        profile,
+                        mask,
+                        frame,
+                        sample_local as i32,
+                        center_px,
+                        radius,
+                        background.inter_order_gap_min_px as i32,
+                        background.baseline_window_px as i32,
+                    );
+                    if background_count > 0 {
+                        let background_mean = background_sum / f64::from(background_count);
+                        sample_sum -= background_mean * f64::from(valid);
                     }
                 }
             }
@@ -1903,5 +2138,135 @@ mod tests {
             (frac - 2.0 / 3.0).abs() < 1e-5,
             "expected ~0.667, got {frac}"
         );
+    }
+
+    // -- FrameCompatibility tests (bd-qe8p.1.2) --
+
+    #[test]
+    fn compatible_when_all_fields_match() {
+        let profile = minimal_profile();
+        let frame = EchelleFrameContext {
+            width: 1024,
+            height: 512,
+            roi_x: Some(128),
+            roi_y: Some(256),
+            binning_x: Some(1),
+            binning_y: Some(1),
+            bit_depth: Some(16),
+        };
+        let result = profile.check_frame_compatibility(&frame);
+        assert_eq!(result, FrameCompatibility::Compatible);
+        assert!(result.is_usable());
+        assert!(result.diagnostics().is_empty());
+    }
+
+    #[test]
+    fn compatible_when_optional_fields_omitted() {
+        let profile = minimal_profile();
+        let frame = EchelleFrameContext {
+            width: 1024,
+            height: 512,
+            ..Default::default()
+        };
+        let result = profile.check_frame_compatibility(&frame);
+        assert_eq!(result, FrameCompatibility::Compatible);
+    }
+
+    #[test]
+    fn incompatible_on_frame_size_mismatch() {
+        let profile = minimal_profile();
+        let frame = EchelleFrameContext {
+            width: 2048,
+            height: 2048,
+            ..Default::default()
+        };
+        let result = profile.check_frame_compatibility(&frame);
+        assert!(!result.is_usable());
+        assert!(matches!(result, FrameCompatibility::Incompatible { .. }));
+        assert!(matches!(
+            result.diagnostics()[0],
+            CompatibilityWarning::FrameSizeMismatch { .. }
+        ));
+    }
+
+    #[test]
+    fn incompatible_on_binning_mismatch() {
+        let profile = minimal_profile();
+        let frame = EchelleFrameContext {
+            width: 1024,
+            height: 512,
+            binning_x: Some(2),
+            ..Default::default()
+        };
+        let result = profile.check_frame_compatibility(&frame);
+        assert!(!result.is_usable());
+        assert!(matches!(
+            result.diagnostics()[0],
+            CompatibilityWarning::BinningMismatch {
+                axis: "X",
+                expected: 1,
+                actual: 2
+            }
+        ));
+    }
+
+    #[test]
+    fn usable_with_warning_on_bit_depth_mismatch() {
+        let profile = minimal_profile();
+        let frame = EchelleFrameContext {
+            width: 1024,
+            height: 512,
+            bit_depth: Some(12),
+            ..Default::default()
+        };
+        let result = profile.check_frame_compatibility(&frame);
+        assert!(result.is_usable());
+        assert!(matches!(
+            result,
+            FrameCompatibility::UsableWithWarnings { .. }
+        ));
+        assert!(matches!(
+            result.diagnostics()[0],
+            CompatibilityWarning::BitDepthMismatch {
+                expected: 16,
+                actual: 12
+            }
+        ));
+    }
+
+    #[test]
+    fn hard_mismatch_takes_precedence_over_soft() {
+        let profile = minimal_profile();
+        let frame = EchelleFrameContext {
+            width: 512,
+            height: 512,
+            bit_depth: Some(12),
+            ..Default::default()
+        };
+        let result = profile.check_frame_compatibility(&frame);
+        // Frame size mismatch is hard → Incompatible, even though bit depth is soft.
+        assert!(!result.is_usable());
+        assert!(matches!(result, FrameCompatibility::Incompatible { .. }));
+    }
+
+    #[test]
+    fn extract_preview_allows_bit_depth_mismatch() {
+        // Extraction should proceed when only bit depth differs (usable with warnings).
+        let profile = minimal_profile();
+        let width = profile.compatibility.frame_width;
+        let height = profile.compatibility.frame_height;
+        let frame_data = vec![0u8; (width as usize) * (height as usize) * 2];
+        // Profile expects 16-bit, we provide 12-bit — should still extract
+        let result = extract_preview(&profile, &frame_data, width, height, 12, 0);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn extract_preview_rejects_frame_size_mismatch() {
+        let profile = minimal_profile();
+        let frame_data = vec![0u8; 100 * 100 * 2];
+        let result = extract_preview(&profile, &frame_data, 100, 100, 16, 0);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("frame size mismatch"));
     }
 }

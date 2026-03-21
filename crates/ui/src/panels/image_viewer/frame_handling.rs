@@ -301,7 +301,10 @@ impl ImageViewerPanel {
                 }
                 Err(err) => {
                     self.echelle_extract_errors = self.echelle_extract_errors.saturating_add(1);
-                    self.echelle_preview = None;
+                    // Preserve the last-good preview (bd-zy7y.2) so users
+                    // see a stale spectrum rather than a blank panel during
+                    // transient extraction failures (e.g., frame timing jitter,
+                    // partial frames, or temporary stream interruption).
                     self.echelle_preview_error = Some(err);
                 }
             }
@@ -324,27 +327,36 @@ impl ImageViewerPanel {
             return;
         }
 
-        let Some(arc_profile) = self.echelle_profile_cache.profile().cloned() else {
+        let Some(profile) = self.echelle_profile_cache.profile().cloned() else {
             self.echelle_preview = None;
             self.echelle_preview_error = None;
             return;
         };
-        // Patch profile dimensions to match actual frame (fixes remote-loaded profiles
-        // whose compatibility dimensions don't match the live camera stream).
-        let profile = if frame.width > 0
-            && frame.height > 0
-            && (arc_profile.compatibility.frame_width != frame.width
-                || arc_profile.compatibility.frame_height != frame.height)
-        {
-            let mut patched = (*arc_profile).clone();
-            patched.compatibility.frame_width = frame.width;
-            patched.compatibility.frame_height = frame.height;
-            patched.compatibility.sensor_width = frame.width;
-            patched.compatibility.sensor_height = frame.height;
-            std::sync::Arc::new(patched)
-        } else {
-            arc_profile
-        };
+
+        // Check frame/profile compatibility using structured diagnostics (bd-qe8p.1.2).
+        // Incompatible profiles are rejected with a user-visible diagnostic instead of
+        // silently patching dimensions (the old approach destroyed calibration geometry).
+        if frame.width > 0 && frame.height > 0 {
+            let compat = profile.check_frame_compatibility(&echelle::EchelleFrameContext {
+                width: frame.width,
+                height: frame.height,
+                bit_depth: Some(frame.bit_depth),
+                ..Default::default()
+            });
+            if !compat.is_usable() {
+                let msgs: Vec<String> = compat
+                    .diagnostics()
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect();
+                self.echelle_preview = None;
+                self.echelle_preview_error = Some(format!(
+                    "Profile incompatible with current frame: {}",
+                    msgs.join("; ")
+                ));
+                return;
+            }
+        }
 
         // Spawn extractor thread lazily on first use
         if self.echelle_extract_tx.is_none() && !self.echelle_sync_mode {
@@ -389,6 +401,62 @@ impl ImageViewerPanel {
             });
             self.apply_pending_echelle();
         }
+    }
+
+    /// Attempt a one-shot extraction on the last received frame (bd-zy7y.3).
+    ///
+    /// Called after profile activation to give immediate feedback on whether
+    /// the new profile is compatible with the current frame data.
+    pub(super) fn try_immediate_echelle_extraction(&mut self) {
+        if !self.echelle_extraction_enabled {
+            return;
+        }
+        let Some(data) = self.last_frame_data.clone() else {
+            return;
+        };
+        if self.width == 0 || self.height == 0 {
+            return;
+        }
+        let Some(profile) = self.echelle_profile_cache.profile().cloned() else {
+            return;
+        };
+
+        // Check compatibility before extracting
+        let compat = profile.check_frame_compatibility(&echelle::EchelleFrameContext {
+            width: self.width,
+            height: self.height,
+            bit_depth: Some(self.bit_depth),
+            ..Default::default()
+        });
+        if !compat.is_usable() {
+            let msgs: Vec<String> = compat
+                .diagnostics()
+                .iter()
+                .map(ToString::to_string)
+                .collect();
+            self.echelle_preview_error = Some(format!(
+                "Profile incompatible with current frame: {}",
+                msgs.join("; ")
+            ));
+            return;
+        }
+
+        let t0 = crate::time::Instant::now();
+        let preview = extract_preview_with_u16_scratch(
+            &profile,
+            &data,
+            self.width,
+            self.height,
+            self.bit_depth,
+            self.frame_count,
+            &mut self.echelle_decode_scratch_u16,
+        );
+        self.pending_echelle = Some(EchelleExtractionResult {
+            preview,
+            extract_ms: t0.elapsed().as_secs_f64() * 1000.0,
+            frame_number: self.frame_count,
+        });
+        self.apply_pending_echelle();
     }
 
     /// Get sender for async frame updates (for external frame producers)

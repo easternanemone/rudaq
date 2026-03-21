@@ -569,7 +569,7 @@ impl DaqApp {
         {
             if !path.is_empty() {
                 app.image_viewer_panel.echelle_cal_ui.save_as_path_text = path.clone();
-                app.image_viewer_panel.pending_remote_profile_load = Some(path);
+                app.image_viewer_panel.request_remote_profile_load(path);
             }
         }
 
@@ -749,7 +749,7 @@ impl DaqApp {
         {
             if !path.is_empty() {
                 app.image_viewer_panel.echelle_cal_ui.save_as_path_text = path.clone();
-                app.image_viewer_panel.pending_remote_profile_load = Some(path);
+                app.image_viewer_panel.request_remote_profile_load(path);
             }
         }
 

@@ -27,7 +27,14 @@ impl ImageViewerPanel {
                     }
                 });
 
-                if let Some(msg) = &self.echelle_cal_ui.status_message {
+                // Show remote load state machine status when active (bd-zy7y.1),
+                // otherwise fall back to the static status message.
+                if let Some(load_msg) = self.remote_profile_load.status_message() {
+                    if self.remote_profile_load.is_busy() {
+                        ui.spinner();
+                    }
+                    ui.small(&load_msg);
+                } else if let Some(msg) = &self.echelle_cal_ui.status_message {
                     ui.small(msg);
                 }
                 if let Some(err) = &self.echelle_cal_ui.last_error {
@@ -118,16 +125,21 @@ impl ImageViewerPanel {
                     }
                 });
 
-                if trigger_load_editor {
+                if trigger_load_editor || trigger_activate_only {
                     let path_text = self.echelle_cal_ui.save_as_path_text.trim().to_string();
                     if path_text.is_empty() {
+                        self.echelle_cal_ui.last_error = Some(if trigger_load_editor {
+                            "Enter a profile path before loading".to_string()
+                        } else {
+                            "Enter a profile path before activation".to_string()
+                        });
+                    } else if self.remote_profile_load.is_busy() {
                         self.echelle_cal_ui.last_error =
-                            Some("Enter a profile path before loading".to_string());
+                            Some("A profile load is already in progress".to_string());
                     } else {
-                        // Request remote load via gRPC (works in WASM) — bd-nss7
-                        self.pending_remote_profile_load = Some(path_text.clone());
-                        self.echelle_cal_ui.status_message =
-                            Some(format!("Loading profile from daemon: {path_text}..."));
+                        // Transition to Pending; rendering.rs will pick this up and start gRPC call
+                        self.remote_profile_load =
+                            RemoteProfileLoadState::Pending { path: path_text };
                         self.echelle_cal_ui.last_error = None;
                     }
                 }
@@ -139,20 +151,6 @@ impl ImageViewerPanel {
                 if trigger_save_activate {
                     if let Err(err) = self.save_echelle_editor_profile_to_path(true) {
                         self.echelle_cal_ui.last_error = Some(err);
-                    }
-                }
-                if trigger_activate_only {
-                    let path_text = self.echelle_cal_ui.save_as_path_text.trim().to_string();
-                    if path_text.is_empty() {
-                        self.echelle_cal_ui.last_error =
-                            Some("Enter a profile path before activation".to_string());
-                    } else {
-                        // Load remotely and activate — bd-nss7
-                        // We reuse the load path; activation happens when the result arrives
-                        self.pending_remote_profile_load = Some(path_text.clone());
-                        self.echelle_cal_ui.status_message =
-                            Some(format!("Loading + activating from daemon: {path_text}..."));
-                        self.echelle_cal_ui.last_error = None;
                     }
                 }
                 if trigger_activate_editor {

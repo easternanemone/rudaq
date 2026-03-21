@@ -312,11 +312,9 @@ pub struct ImageViewerPanel {
     pub(super) echelle_plot_hover_link: Option<EchellePlotHoverLink>,
     /// Calibration authoring workspace state (bd-2kla.8 scaffolding).
     pub(crate) echelle_cal_ui: EchelleCalibrationUiState,
-    /// Pending remote profile load request — path on daemon filesystem (bd-nss7).
-    /// Set by calibration workspace UI or automation API, processed in ui() where client is available.
-    pub(crate) pending_remote_profile_load: Option<String>,
-    /// Receiver for async remote profile load result (bd-nss7).
-    pub(super) remote_profile_load_rx: Option<std::sync::mpsc::Receiver<Result<String, String>>>,
+    /// Remote profile load state machine (bd-zy7y.1).
+    /// Tracks the full lifecycle: Idle → Pending → Loading → Succeeded/Failed → Idle.
+    pub(in crate::panels::image_viewer) remote_profile_load: RemoteProfileLoadState,
     /// True when the active echelle profile snapshot should be resynced into RunEngine state.
     pub(super) echelle_run_engine_sync_dirty: bool,
     /// True while an async echelle snapshot sync request is in flight.
@@ -459,8 +457,7 @@ impl Default for ImageViewerPanel {
             echelle_last_extract_ms: None,
             echelle_plot_hover_link: None,
             echelle_cal_ui: EchelleCalibrationUiState::with_defaults(),
-            pending_remote_profile_load: None,
-            remote_profile_load_rx: None,
+            remote_profile_load: RemoteProfileLoadState::default(),
             echelle_run_engine_sync_dirty: false,
             echelle_run_engine_sync_in_flight: false,
 
@@ -503,6 +500,15 @@ impl ImageViewerPanel {
             {
                 self.status = None;
             }
+        }
+    }
+
+    /// Request a remote profile load via the state machine (bd-zy7y.1).
+    ///
+    /// Called from app startup to restore the last-used profile path.
+    pub fn request_remote_profile_load(&mut self, path: String) {
+        if !self.remote_profile_load.is_busy() {
+            self.remote_profile_load = RemoteProfileLoadState::Pending { path };
         }
     }
 
