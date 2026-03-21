@@ -363,13 +363,11 @@ impl AnalogOutputPanel {
                 });
 
                 ui.horizontal(|ui| {
-                    if ui.button("Start Waveform").clicked() {
-                        // TODO(bd-p2a1): implement waveform generation start via NiDaqService
-                        self.status = Some("Waveform generation not yet implemented".to_string());
-                    }
-                    if ui.button("Stop").clicked() {
-                        // TODO(bd-p2a1): implement waveform generation stop via NiDaqService
-                    }
+                    // TODO(bd-p2a1): implement waveform generation via NiDaqService
+                    ui.add_enabled(false, egui::Button::new("Start Waveform"))
+                        .on_disabled_hover_text("Waveform generation not yet implemented");
+                    ui.add_enabled(false, egui::Button::new("Stop"))
+                        .on_disabled_hover_text("Waveform generation not yet implemented");
                 });
             }
         });

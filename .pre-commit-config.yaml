@@ -76,7 +76,7 @@ repos:
       # File exclusions are handled by .ignore (gitignore syntax)
       - id: ast-grep
         name: ast-grep lint
-        entry: bash scripts/run-ast-grep.sh scan
+        entry: bash scripts/ci/run-ast-grep.sh scan
         language: system
         types: [rust]
         pass_filenames: false

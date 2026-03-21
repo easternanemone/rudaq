@@ -444,10 +444,14 @@ impl SettingsWindow {
                 ui.label("Log File Path:");
                 ui.horizontal(|ui| {
                     ui.text_edit_singleline(&mut self.working_settings.logging.log_file_path);
-                    if ui.button("Browse...").clicked() {
-                        // TODO(bd-p2a1): integrate native file picker (rfd crate)
-                        ui.ctx().debug_text("File picker not yet implemented");
-                    }
+                    // TODO(bd-p2a1): integrate native file picker (rfd crate)
+                    if ui
+                        .add_enabled(false, egui::Button::new("Browse..."))
+                        .on_disabled_hover_text(
+                            "File picker not yet available — enter the path manually",
+                        )
+                        .clicked()
+                    {}
                 });
                 ui.end_row();
 
@@ -476,10 +480,14 @@ impl SettingsWindow {
                 ui.label("Default Save Directory:");
                 ui.horizontal(|ui| {
                     ui.text_edit_singleline(&mut self.working_settings.storage.default_save_dir);
-                    if ui.button("Browse...").clicked() {
-                        // TODO(bd-p2a1): integrate native directory picker (rfd crate)
-                        ui.ctx().debug_text("Directory picker not yet implemented");
-                    }
+                    // TODO(bd-p2a1): integrate native directory picker (rfd crate)
+                    if ui
+                        .add_enabled(false, egui::Button::new("Browse..."))
+                        .on_disabled_hover_text(
+                            "Directory picker not yet available — enter the path manually",
+                        )
+                        .clicked()
+                    {}
                 });
                 ui.end_row();
 
@@ -515,16 +523,13 @@ impl SettingsWindow {
     }
 
     fn show_calibration_settings(&mut self, ui: &mut egui::Ui) {
-        ui.label("Calibration file management coming soon...");
-        ui.add_space(10.0);
-
-        ui.group(|ui| {
-            ui.label(egui::RichText::new("Future Features:").strong());
-            ui.label("• Load dark frame calibration files");
-            ui.label("• Load flat field calibration files");
-            ui.label("• Manage calibration profiles");
-            ui.label("• Import/export calibration data");
-        });
+        ui.label(
+            egui::RichText::new(
+                "Calibration file management is not yet available. \
+                 Use the CLI `rust-daq-daemon calibrate` command for offline calibration.",
+            )
+            .weak(),
+        );
     }
 
     fn show_shortcuts_settings(&mut self, ui: &mut egui::Ui) {
@@ -556,7 +561,7 @@ impl SettingsWindow {
         ui.add_space(10.0);
         ui.separator();
         ui.label(
-            egui::RichText::new("Note: Keyboard shortcut customization coming soon")
+            egui::RichText::new("Note: Keyboard shortcuts are not currently customizable")
                 .small()
                 .weak(),
         );

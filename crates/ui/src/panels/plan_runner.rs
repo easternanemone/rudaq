@@ -252,11 +252,14 @@ impl PlanRunnerPanel {
                     PlanType::LineScan,
                     "Line Scan",
                 );
-                ui.selectable_value(
-                    &mut self.selected_plan_type,
-                    PlanType::GridScan,
-                    "Grid Scan",
-                );
+                ui.add_enabled_ui(false, |ui| {
+                    ui.selectable_value(
+                        &mut self.selected_plan_type,
+                        PlanType::GridScan,
+                        "Grid Scan",
+                    )
+                    .on_disabled_hover_text("Grid scan parameter form not yet implemented");
+                });
             });
 
             ui.add_space(8.0);
@@ -296,7 +299,9 @@ impl PlanRunnerPanel {
                 }
                 PlanType::GridScan => {
                     // TODO(bd-p2a1): implement 2D grid scan parameter form
-                    ui.label("Grid scan parameters (not yet implemented)");
+                    ui.label(
+                        egui::RichText::new("Grid scan parameter form not yet available.").weak(),
+                    );
                 }
             }
 
@@ -363,19 +368,8 @@ impl PlanRunnerPanel {
 
         ui.add_space(12.0);
 
-        // Implementation Status
-        ui.collapsing("Implementation Status (v0.6.0)", |ui| {
-            ui.add_space(4.0);
-            ui.label("✅ Panel structure created");
-            ui.label("✅ UI controls laid out");
-            ui.label("✅ Connected to RunEngineServiceClient");
-            ui.label("✅ Implemented gRPC call for QueuePlan");
-            ui.label("✅ Implemented start, pause, resume, abort (bd-xrkv)");
-            // TODO(bd-p2a1): poll get_engine_status for live status updates
-            ui.label("Pending: live engine status polling");
-            // TODO(bd-p2a1): validate plan parameters before queueing
-            ui.label("Pending: plan parameter validation");
-        });
+        // TODO(bd-p2a1): poll get_engine_status for live status updates
+        // TODO(bd-p2a1): validate plan parameters before queueing
 
         // Execute pending action
         if let Some(action) = self.pending_action.take() {

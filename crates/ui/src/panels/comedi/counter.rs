@@ -388,9 +388,8 @@ impl CounterPanel {
                     });
 
                     ui.horizontal(|ui| {
-                        if ui.button("Start Output").clicked() {
-                            self.status = Some("Pulse generation not yet implemented".to_string());
-                        }
+                        ui.add_enabled(false, egui::Button::new("Start Output"))
+                            .on_disabled_hover_text("Pulse generation not yet implemented");
                         if ui.button("Stop").clicked() {
                             stop_action = true;
                         }

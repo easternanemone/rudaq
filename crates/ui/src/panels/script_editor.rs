@@ -49,12 +49,13 @@ impl ScriptEditorPanel {
             }
 
             if ui
-                .button("Run")
-                .on_hover_text("Execute this script")
+                .add_enabled(false, egui::Button::new("Run"))
+                .on_disabled_hover_text(
+                    "Script execution not yet connected — save and run via CLI instead",
+                )
                 .clicked()
             {
                 // TODO(bd-p2a1): connect Run button to scripting engine via gRPC
-                self.status = Some("Run not yet implemented".to_string());
             }
 
             ui.separator();
