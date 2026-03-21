@@ -769,6 +769,15 @@ impl AndorCamera {
         let firmware_version =
             Self::get_string_feature_or_default(handle, "FirmwareVersion", "Unknown");
 
+        tracing::info!(
+            sensor_width,
+            sensor_height,
+            model = %model,
+            serial = %serial_number,
+            firmware = %firmware_version,
+            "Andor SDK3 sensor dimensions from hardware"
+        );
+
         let features = Self::query_feature_support(handle);
 
         Ok(CameraInfo {
