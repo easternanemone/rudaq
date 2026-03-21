@@ -37,6 +37,18 @@
 | **UI** | `ui` [PRIMARY], `ui-slint` [EXPERIMENTAL] | `ui` is the primary supported operator UI (native + WASM); `ui-slint` is evaluation-only and not production parity. |
 | **Testing** | `integration-tests` | Cross-crate integration test suite. |
 
+## Workspace Member Support Levels
+
+Most workspace crates are **stable** and used in production builds. The exceptions are listed below.
+
+| Crate | Support Level | Notes |
+|---|---|---|
+| `ui-slint` | **Experimental** | Slint evaluation UI for prototyping and workflow comparison. Not production parity with `crates/ui`. Excluded from CI test matrix and clippy gates. May be removed if the evaluation concludes. |
+| `driver-dover-motion` / `dover-motion-sys` | **Experimental** | Dover Motion SmartStage FFI driver. In workspace but not yet wired into `driver-registry`. Requires vendor SDK not available in CI. |
+| `comedi-sys` / `driver-comedi` | **Platform-restricted** | Linux-only (Comedi DAQ). Excluded from default workspace builds and CI clippy via `--exclude`. |
+
+All other workspace members are considered **stable** and included in the standard CI pipeline.
+
 ## Feature Flags (Compile Time)
 
 | Flag | Crate Owner | Description |

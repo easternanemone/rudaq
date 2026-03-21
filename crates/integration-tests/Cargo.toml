@@ -46,21 +46,34 @@ tracing-subscriber = { version = "0.3", features = ["registry"] }
 
 [features]
 default = ["networking", "server", "scripting", "storage_hdf5", "storage_arrow", "serial", "modules", "pvcam", "universal", "db-surreal-mem"]
-networking = ["server/networking"]
-server = ["dep:server", "networking"]
-scripting = ["dep:scripting"]
-storage_hdf5 = ["dep:hdf5", "storage/storage_hdf5", "server/storage_hdf5"]
-storage_arrow = ["storage/storage_arrow", "server/storage_arrow", "common/storage_arrow"]
-pvcam = ["dep:driver-pvcam", "driver-registry/pvcam"]
-pvcam_sdk = ["pvcam", "driver-registry/pvcam_sdk"]
-gui_egui = ["ui/standalone"]
-hardware_tests = []
-libs_drivers = []
-libs_spirit_driver = []
-serial = ["hardware/serial"]
-modules = ["daq-modules"]
-universal = ["dep:driver-universal"]
-db-surreal-mem = ["dep:db", "db/kv-mem", "dep:server", "server/db-surreal-mem"]
+
+# ============================================================================
+# CRATE-LOCAL ONLY (no downstream forwarding, gate test code only)
+# ============================================================================
+hardware_tests = []      # Gates real-hardware test paths (pvcam, elliptec, etc.)
+libs_drivers = []        # Nextest group marker (no cfg usage)
+libs_spirit_driver = []  # Nextest group marker (no cfg usage)
+
+# ============================================================================
+# HYBRID (activate optional deps + forward to downstream + gate test files)
+#
+# In integration-tests, most features serve triple duty:
+#   1. Activate an optional dependency (dep:server, dep:scripting, etc.)
+#   2. Forward feature flags to downstream crates (server/networking, storage/storage_hdf5, etc.)
+#   3. Gate #[cfg(feature = "...")] in test files to skip tests when disabled
+# ============================================================================
+server = ["dep:server", "networking"]     # gRPC tests (grpc_server_test, grpc_roundtrip, grpc_config_service_e2e)
+scripting = ["dep:scripting"]             # e2e_script_execution, grpc tests with scripting
+universal = ["dep:driver-universal"]      # hardware_universal_driver_validation tests
+gui_egui = ["ui/standalone"]              # gui_logic_test, gui_visual_test, gui_camera_test
+networking = ["server/networking"]        # grpc_api_test, grpc_server_smoke
+storage_hdf5 = ["dep:hdf5", "storage/storage_hdf5", "server/storage_hdf5"]  # data_pipeline/hdf5_tests, full_pipeline
+storage_arrow = ["storage/storage_arrow", "server/storage_arrow", "common/storage_arrow"]  # data_pipeline, full_pipeline
+pvcam = ["dep:driver-pvcam", "driver-registry/pvcam"]   # pvcam_integration, end_to_end_frames, grpc_camera_test
+pvcam_sdk = ["pvcam", "driver-registry/pvcam_sdk"]       # pvcam_streaming_test, module_exports
+serial = ["hardware/serial"]              # plugin_system_integration
+modules = ["daq-modules"]                 # module_exports_test
+db-surreal-mem = ["dep:db", "db/kv-mem", "dep:server", "server/db-surreal-mem"]  # surrealdb_e2e, andor tests, runtime_metadata
 db-surreal-rocksdb = ["dep:db", "db/kv-rocksdb", "dep:server", "server/db-surreal-rocksdb"]
 
 [[bench]]

@@ -43,45 +43,45 @@ tempfile.workspace = true
 
 [features]
 default = ["networking", "server", "db-surreal-mem"]
-networking = []
-server = [] # Enabled by default via dependency, but kept as feature flag for conditional compilation
-storage_hdf5 = ["storage/storage_hdf5"]
-storage_arrow = ["storage/storage_arrow"]
-# Real PVCAM SDK (requires installation)
-pvcam_sdk = ["driver-registry/pvcam_sdk"]
-pvcam_hardware = ["pvcam_sdk"]
-
-# Real Comedi hardware (requires libcomedi installed)
-comedi_hardware = ["driver-registry/comedi_hardware", "server/comedi", "dep:driver-comedi"]
 
 # ============================================================================
-# HIGH-LEVEL PROFILES
+# CRATE-SPECIFIC (used in #[cfg(feature = "...")] within bin source code)
+# ============================================================================
+networking = []                         # Gates gRPC server startup, daemon manager networking paths
+server = []                             # Guards pvcam_grpc_harness compilation
+
+# ============================================================================
+# HYBRID (forwarded to downstream crates AND used in #[cfg] within bin)
+# ============================================================================
+storage_hdf5 = ["storage/storage_hdf5"]             # cfg-gated storage service wiring in daemon_manager
+storage_arrow = ["storage/storage_arrow"]            # cfg-gated storage service wiring in daemon_manager
+comedi_hardware = ["driver-registry/comedi_hardware", "server/comedi", "dep:driver-comedi"]  # cfg-gated safety heartbeat + comedi init
+modules = ["dep:daq-modules"]                        # Activates optional dep (implicit cfg via dep:)
+metrics = ["dep:prometheus", "server/metrics"]        # cfg-gated Prometheus endpoint in watch_reconciler
+db-surreal = ["dep:db", "server/db-surreal"]          # cfg-gated DB init paths in main + daemon_manager
+
+# ============================================================================
+# PURE PASS-THROUGH (forwarded only, no #[cfg] usage in bin source)
+# ============================================================================
+pvcam_sdk = ["driver-registry/pvcam_sdk"]            # Real PVCAM SDK (requires installation)
+pvcam_hardware = ["pvcam_sdk"]                       # Alias for pvcam_sdk
+serial = ["hardware/serial", "driver-registry/serial"]
+all_hardware = ["driver-registry/all_hardware", "server/comedi"]
+scripting_python = ["scripting/python"]
+
+# ============================================================================
+# DATABASE ENGINE (pass-through to db + server; db-surreal base is hybrid above)
+# ============================================================================
+db-surreal-mem = ["db-surreal", "db/kv-mem", "server/db-surreal-mem"]
+db-surreal-rocksdb = ["db-surreal", "db/kv-rocksdb", "server/db-surreal-rocksdb"]
+
+# ============================================================================
+# HIGH-LEVEL PROFILES (composition of the above features)
 # ============================================================================
 backend = ["modules", "all_hardware"]
 cli = ["all_hardware", "scripting_python"]
 full = ["storage_arrow", "serial", "modules", "all_hardware"]
-
-modules = ["dep:daq-modules"]
-all_hardware = ["driver-registry/all_hardware", "server/comedi"]
-scripting_python = ["scripting/python"]
-serial = ["hardware/serial", "driver-registry/serial"]
-
-# ============================================================================
-# DATABASE (SurrealDB persistence layer)
-# ============================================================================
-# Base feature — activates the db crate (use one of the engine features below)
-db-surreal = ["dep:db", "server/db-surreal"]
-# In-memory engine (fast compile, for dev/test)
-db-surreal-mem = ["db-surreal", "db/kv-mem", "server/db-surreal-mem"]
-# RocksDB engine (persistent, for production)
-db-surreal-rocksdb = ["db-surreal", "db/kv-rocksdb", "server/db-surreal-rocksdb"]
-
-# Production deployment with RocksDB persistence + full module system.
-# Use: cargo build --release -p bin --features production
 production = ["db-surreal-rocksdb", "modules", "all_hardware"]
-
-# Prometheus metrics (reconciler observability)
-metrics = ["dep:prometheus", "server/metrics"]
 
 # ============================================================================
 # MAITAI LAB PROFILE - COMPLETE HARDWARE STACK

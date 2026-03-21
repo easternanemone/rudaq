@@ -60,30 +60,33 @@ hyper = { version = "0.14", features = ["server", "http1", "tcp"], optional = tr
 [features]
 # Simplified feature flags (bd-0aqw)
 default = ["modules", "server", "networking", "scripting", "alerting"]
-alerting = ["dep:reqwest"]
-server = ["dep:tonic-web", "dep:tower-http", "dep:tower-layer", "dep:tower-service"]
-modules = ["dep:daq-modules"]
-modules_scripting = ["modules", "daq-modules/scripting"]
-networking = []
-scripting = ["dep:scripting"]
-metrics = ["dep:prometheus", "dep:hyper", "storage/metrics"]
-rerun_sink = ["dep:rerun"]
 
+# ============================================================================
+# CRATE-SPECIFIC (activate optional deps or gate code within server itself)
+# ============================================================================
+server = ["dep:tonic-web", "dep:tower-http", "dep:tower-layer", "dep:tower-service"]  # gRPC web transport layer
+alerting = ["dep:reqwest"]             # Webhook alerting (Slack/Discord)
+networking = []                        # Guards one cfg check in grpc/server.rs
+scripting = ["dep:scripting"]          # Rhai/Python scripting engine
+modules = ["dep:daq-modules"]          # DAQ module system
+modules_scripting = ["modules", "daq-modules/scripting"]
+comedi = ["dep:driver-comedi"]         # NI DAQ — used directly by ni_daq_service
+comedi_hardware = ["comedi", "driver-comedi/hardware"]
+rerun_sink = ["dep:rerun"]             # Rerun visualization sink
+metrics = ["dep:prometheus", "dep:hyper", "storage/metrics"]  # Prometheus + metrics forwarding
+
+# ============================================================================
+# PASS-THROUGH (forwarded to downstream crates, no cfg usage in server itself)
+# ============================================================================
 # SurrealDB persistence (ConfigService gRPC handler)
 db-surreal = ["dep:db"]
 db-surreal-mem = ["db-surreal", "db/kv-mem"]
 db-surreal-rocksdb = ["db-surreal", "db/kv-rocksdb"]
-
-# Storage backends (pass-through to daq-storage)
+# Storage backends
 storage_hdf5 = ["dep:hdf5", "storage/storage_hdf5"]
 storage_arrow = ["storage/storage_arrow"]
-
-# Serial communication (pass-through to hardware)
+# Serial communication
 serial = ["hardware/serial"]
-
-# Comedi DAQ support (used directly by ni_daq_service)
-comedi = ["dep:driver-comedi"]
-comedi_hardware = ["comedi", "driver-comedi/hardware"]
 
 [dev-dependencies]
 config = "0.14.1"
