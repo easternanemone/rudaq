@@ -370,15 +370,15 @@ fi
 if $WASM_GUI && ! $GUI_ONLY; then
     step "Phase 3.5: Building WASM GUI on leabs-dev"
 
-    # Ensure trunk is installed
-    if ! remote "command -v trunk >/dev/null 2>&1 || { [ -f \$HOME/.cargo/env ] && . \$HOME/.cargo/env; command -v trunk >/dev/null 2>&1; }"; then
-        info "Installing trunk (WASM build tool)..."
-        remote "source \$HOME/.cargo/env && cargo install trunk --locked" 2>&1 | while IFS= read -r line; do
+    # Ensure trunk is installed (prefer /usr/local/bin to survive ~/.cargo/bin cleanup)
+    if ! remote "command -v trunk >/dev/null 2>&1"; then
+        info "Installing trunk (WASM build tool) to /usr/local/bin..."
+        remote "source \$HOME/.cargo/env && cargo install trunk --locked --root /usr/local" 2>&1 | while IFS= read -r line; do
             echo -e "    ${line}"
         done
-        ok "trunk installed"
+        ok "trunk installed to /usr/local/bin"
     else
-        ok "trunk already installed"
+        ok "trunk already installed ($(remote 'which trunk'))"
     fi
 
     # Ensure wasm32 target is installed
