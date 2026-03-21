@@ -27,10 +27,11 @@ use anyhow::{anyhow, Result};
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
-/// Converts legacy strfmt `{var}` syntax to minijinja `{{ var }}` syntax.
+/// LEGACY: Converts strfmt `{var}` syntax to minijinja `{{ var }}` syntax.
 ///
-/// This function enables backward compatibility with existing YAML configurations
-/// that use the simpler `{var}` placeholder format.
+/// Existing TOML/YAML device manifests may use the `{var}` placeholder format.
+/// Remove after all manifests are verified to use `{{ var }}` syntax.
+/// See docs/reference/deprecation-plan.md Section 3.1.
 ///
 /// # Arguments
 /// * `template` - Template string potentially containing `{var}` placeholders

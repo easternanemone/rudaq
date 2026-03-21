@@ -695,7 +695,9 @@ pub(super) struct PersistedPanelInfo {
     pub(super) driver_type: String,
     #[serde(default)]
     pub(super) capabilities: Vec<String>,
-    // Legacy fields for backward compatibility during deserialization
+    // LEGACY: Deprecated boolean capability fields, kept for deserialization of
+    // old persisted panel state. Remove after v1.0. See
+    // docs/reference/deprecation-plan.md Section 1.1.
     #[serde(default)]
     pub(super) is_emission_controllable: bool,
     #[serde(default)]
@@ -715,7 +717,7 @@ impl From<&DeviceInfo> for PersistedPanelInfo {
             device_name: info.name.clone(),
             driver_type: info.driver_type.clone(),
             capabilities: info.capabilities.clone(),
-            // Legacy fields no longer populated
+            // LEGACY: No longer populated; kept for struct completeness. Remove with booleans.
             is_emission_controllable: false,
             is_shutter_controllable: false,
             is_wavelength_tunable: false,
@@ -727,7 +729,8 @@ impl From<&DeviceInfo> for PersistedPanelInfo {
 
 impl From<PersistedPanelInfo> for DeviceInfo {
     fn from(info: PersistedPanelInfo) -> Self {
-        // Migrate from legacy booleans if capabilities is empty (old format)
+        // LEGACY: Migrate from legacy booleans if capabilities is empty (old persisted format).
+        // Remove after v1.0 when all stored state uses `capabilities` strings.
         let capabilities = if info.capabilities.is_empty() {
             let mut caps = Vec::new();
             if info.is_movable {

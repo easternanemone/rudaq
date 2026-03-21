@@ -83,7 +83,9 @@ pub use ni_daq_service::NiDaqServiceImpl;
 pub use plugin_service::PluginServiceImpl;
 pub use preset_service::{PresetServiceImpl, default_preset_storage_path};
 pub use run_engine_service::RunEngineServiceImpl;
-#[allow(deprecated)] // ScanService kept for backwards compatibility until v0.8.0
+// LEGACY: ScanService kept for backwards compatibility. Remove at v1.0.
+// See docs/reference/deprecation-plan.md Section 1.2.
+#[allow(deprecated)]
 pub use scan_service::ScanServiceImpl;
 #[cfg(feature = "server")]
 pub use server::{DaqServer, start_server, start_server_with_hardware};

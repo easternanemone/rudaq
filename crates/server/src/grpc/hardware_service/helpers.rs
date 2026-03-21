@@ -309,8 +309,10 @@ pub(super) fn device_info_to_proto_with_health(
         name: info.name.clone(),
         driver_type: info.driver_type.clone(),
         category: category as i32,
-        // Deprecated booleans - kept populated for backward compatibility
-        // Canonical source is the `capabilities` repeated string field below
+        // LEGACY: Deprecated boolean capability flags, kept populated for wire
+        // compatibility with older UI clients. Remove after v1.0 when all clients
+        // use the `capabilities` repeated string field (field 100). See
+        // docs/reference/deprecation-plan.md Section 1.1.
         is_movable: info.capabilities.contains(&Capability::Movable),
         is_readable: info.capabilities.contains(&Capability::Readable),
         is_triggerable: info.capabilities.contains(&Capability::Triggerable),

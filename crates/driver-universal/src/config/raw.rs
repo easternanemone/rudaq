@@ -62,7 +62,10 @@ pub struct RawManifest {
     #[serde(default)]
     pub validation: Option<toml::Value>,
 
-    /// Rhai scripts for complex operations (v1 legacy).
+    // LEGACY: v1 config fields below are accepted but ignored in schema v3.
+    // Remove after all manifests in config/devices/ use v3 syntax only.
+    // See docs/reference/deprecation-plan.md Section 3.2.
+    /// Rhai scripts for complex operations (v1 legacy, ignored in v3).
     #[serde(default)]
     pub scripts: Option<toml::Value>,
 
@@ -74,7 +77,7 @@ pub struct RawManifest {
     #[serde(default)]
     pub binary_responses: Option<toml::Value>,
 
-    /// Legacy v1 trait mappings (accepted but ignored in v3; use `capabilities`).
+    /// v1 trait mappings (accepted but ignored in v3; use `capabilities`).
     #[serde(default)]
     pub trait_mapping: Option<toml::Value>,
 }
@@ -214,7 +217,8 @@ pub struct RawCommandConfig {
     #[serde(default)]
     pub delay_ms: Option<u32>,
 
-    /// Whether this is a query command (v2 legacy).
+    // LEGACY: v2 query flag, accepted but ignored in v3. See deprecation-plan.md 3.2.
+    /// Whether this is a query command (v2 legacy, ignored in v3).
     #[serde(default)]
     pub query: Option<bool>,
 }
@@ -238,11 +242,13 @@ pub struct RawResponseConfig {
     #[serde(default)]
     pub regex: Option<String>,
 
-    /// Legacy v1 regex pattern (alias for regex).
+    // LEGACY: v1 regex alias. See deprecation-plan.md 3.2.
+    /// v1 regex pattern (alias for `regex`).
     #[serde(default)]
     pub pattern: Option<String>,
 
-    /// Field type declarations for regex captures (v1 legacy).
+    // LEGACY: v1 regex capture type declarations. See deprecation-plan.md 3.2.
+    /// Field type declarations for regex captures (v1 legacy, ignored in v3).
     #[serde(default)]
     pub fields: Option<HashMap<String, toml::Value>>,
 }

@@ -73,7 +73,7 @@ static MUTATING_METHODS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         // ControlService — script execution
         "/daq.ControlService/StartScript",
         "/daq.ControlService/StopScript",
-        // ScanService (deprecated but still active)
+        // LEGACY: ScanService routes, remove at v1.0. See deprecation-plan.md 1.2.
         "/daq.ScanService/StartScan",
         "/daq.ScanService/StopScan",
         "/daq.ScanService/PauseScan",

@@ -54,7 +54,7 @@ pub mod config;
 pub mod drivers;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod manifest_driver;
-/// Backward-compat alias: `plugin` → `manifest_driver`
+/// LEGACY: Backward-compat alias `plugin` -> `manifest_driver`. Remove after v1.0.
 #[cfg(not(target_arch = "wasm32"))]
 pub use manifest_driver as plugin;
 #[cfg(not(target_arch = "wasm32"))]

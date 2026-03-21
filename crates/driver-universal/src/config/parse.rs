@@ -559,7 +559,7 @@ fn validate_responses(
                 }
             }
         } else if let Some(regex_str) = resp.regex.as_ref().or(resp.pattern.as_ref()) {
-            // Tier 3: Regex (supports both `regex` and legacy `pattern` fields)
+            // LEGACY: Tier 3 also accepts v1 `pattern` field as alias for `regex`. See deprecation-plan.md 3.2.
             const MAX_REGEX_LENGTH: usize = 1024;
             if regex_str.len() > MAX_REGEX_LENGTH {
                 errors.push(ConfigError::Other(format!(

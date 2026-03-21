@@ -76,7 +76,9 @@ impl<'a> CommandDispatcher<'a> {
     ) -> anyhow::Result<()> {
         debug!(device = %device_id, param = %parameter, value = %value, "Setting parameter");
 
-        // Try legacy Settable trait first (backwards compatibility)
+        // LEGACY: Try Settable trait first for drivers that don't implement Parameterized.
+        // Remove after all drivers implement Parameterized. See
+        // docs/reference/deprecation-plan.md Section 3.3.
         let settable = self.registry.get_settable(device_id);
         if let Some(settable) = settable {
             let json_value: serde_json::Value = serde_json::from_str(value)

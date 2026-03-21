@@ -80,6 +80,7 @@
 - [Dover Motion API](reference/dover-motion-api.md)
 - [Echelle Calibration Profile Schema](reference/echelle-calibration-profile-schema.md)
 - [Echelle Spectrum Streaming Protocol](reference/echelle-spectrum-streaming-protocol-design.md)
+- [Deprecation & Removal Plan](reference/deprecation-plan.md)
 
 # Architecture Decision Records
 

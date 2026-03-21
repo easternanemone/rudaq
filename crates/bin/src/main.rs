@@ -687,7 +687,8 @@ fn resolve_runtime_mode(cli_mode: Option<RuntimeMode>) -> (Option<RuntimeMode>, 
         return (cli_mode, "from --runtime-mode flag");
     }
 
-    // Check DAQ_RUNTIME_MODE first, then legacy RUSTDAQ_RUNTIME_MODE
+    // LEGACY: Falls back to RUSTDAQ_RUNTIME_MODE for old service files and CI scripts.
+    // Remove after all deployments use DAQ_RUNTIME_MODE. Low priority.
     let (env_val, source) = if let Ok(val) = std::env::var("DAQ_RUNTIME_MODE") {
         (Some(val), "from DAQ_RUNTIME_MODE env var")
     } else if let Ok(val) = std::env::var("RUSTDAQ_RUNTIME_MODE") {
