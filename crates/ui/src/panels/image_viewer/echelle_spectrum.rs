@@ -174,8 +174,12 @@ impl ImageViewerPanel {
             "spectrum_view_plot_sidebar"
         };
 
+        // Use a fixed global ID so plot memory (including user zoom state) survives
+        // layout changes like split panel resizing. Without this, egui derives the
+        // plot ID from the parent UI hierarchy, which changes on layout shifts and
+        // resets auto_bounds to true (causing the zoom-snap-back bug).
         let mut plot = Plot::new(plot_id)
-            .auto_bounds(egui::Vec2b::new(true, false))
+            .id(egui::Id::new(plot_id))
             .allow_scroll(false)
             .allow_drag(true)
             .allow_zoom(true)
@@ -454,8 +458,8 @@ impl ImageViewerPanel {
         let mut hover_link = None;
 
         Plot::new("image_viewer_echelle_preview_plot")
+            .id(egui::Id::new("image_viewer_echelle_preview_plot"))
             .height(180.0)
-            .auto_bounds(egui::Vec2b::new(true, false))
             .allow_scroll(false)
             .allow_drag(true)
             .allow_zoom(true)
