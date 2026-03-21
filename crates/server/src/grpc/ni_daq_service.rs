@@ -1000,7 +1000,7 @@ impl NiDaqService for NiDaqServiceImpl {
             })?;
 
             let pin = req.pin;
-            let bit_value = serde_json::Value::Bool(req.value != 0);
+            let bit_value = serde_json::Value::Bool(req.value);
             let s = settable.clone();
             self.await_with_timeout("WriteDigitalIO", async move {
                 s.set_value(&pin.to_string(), bit_value).await
