@@ -209,7 +209,7 @@ jobs:
 
       - name: Run performance regression gate
         run: |
-          python3 scripts/check-benchmark-regressions.py \
+          python3 scripts/ci/check-benchmark-regressions.py \
             --output-dir target/performance-gate
 
       - name: Generate criterion HTML report for ring buffer writes
@@ -263,7 +263,7 @@ jobs:
           tool: cargo-machete
 
       - name: Run dependency hygiene gate
-        run: bash scripts/check-dependency-hygiene.sh
+        run: bash scripts/hygiene/check-dependency-hygiene.sh
 
       - name: Install cargo-sbom
         if: github.event_name == 'push'

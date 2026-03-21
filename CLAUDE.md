@@ -22,8 +22,8 @@ cargo fmt --all -- --check               # Format check (CI/pre-push parity)
 cargo clippy --all-targets               # Lint
 cargo clippy --workspace --all-targets --exclude ui --exclude comedi-sys --exclude driver-comedi -- -D warnings  # Clippy gate (CI/pre-push parity)
 cargo hack check -p common --feature-powerset --no-dev-deps  # Feature-flag powerset check (single crate)
-bash scripts/feature-check.sh                # Feature powerset check (all key crates)
-bash scripts/feature-check.sh common --quick # Single crate, each-feature mode (fast)
+bash scripts/ci/feature-check.sh                # Feature powerset check (all key crates)
+bash scripts/ci/feature-check.sh common --quick # Single crate, each-feature mode (fast)
 cargo watch -x 'check -p common'             # File-watching auto-check (dev loop)
 cargo expand --package common parameter      # Macro expansion debugging
 cargo flamegraph --bin rust-daq-daemon       # CPU flamegraph (requires dtrace on macOS)
@@ -34,12 +34,12 @@ cargo machete                                # Find unused dependencies
 
 ### Maitai Hardware Build (Critical)
 
-Always use `bash scripts/build-maitai.sh` for real hardware. Building without `--features maitai` silently selects mock PVCAM paths. Verify: daemon log shows `pvcam_sdk feature enabled: true` and registers expected physical devices.
+Always use `bash scripts/ops/build-maitai.sh` for real hardware. Building without `--features maitai` silently selects mock PVCAM paths. Verify: daemon log shows `pvcam_sdk feature enabled: true` and registers expected physical devices.
 
 ### Hardware Tests (maitai only)
 
 ```bash
-source scripts/env-check.sh && cargo nextest run --profile hardware --features hardware_tests
+source scripts/ops/env-check.sh && cargo nextest run --profile hardware --features hardware_tests
 ```
 
 ## Architecture
@@ -263,30 +263,40 @@ pub fn set_page_title(title: &str) {
 
 | Script | Purpose |
 |--------|---------|
-| `scripts/deploy-maitai.sh` | Full deploy to maitai (pull, clean, build, daemon, GUI) |
-| `scripts/deploy-leabs.sh` | Full deploy to leabs-dev (single-command remote checkout+pull+build, daemon restart, optional GUI). Use `--wasm-gui` to build+serve WASM GUI on leabs-dev:8080 |
-| `scripts/build-maitai.sh` | Full hardware build for maitai machine |
-| `scripts/build-lab.sh [--release]` | Build daemon with pvcam_sdk for lab |
-| `scripts/demo.sh` | Mock-hardware demo (daemon + GUI/script) |
-| `scripts/env-check.sh` | Source before hardware tests |
-| `scripts/install-hooks.sh [quick]` | Pre-commit hooks (full or format-only) |
-| `scripts/pre-push-gate.sh` | Pre-push quality gate (fmt, optional mdBook build, clippy, tests) |
-| `scripts/install-service.sh` | Install daemon as systemd service |
-| `scripts/calibrate-comedi.sh` | Comedi DAQ calibration |
-| `scripts/leabs-daemon-watchdog.sh` | Leabs daemon health monitor |
-| `scripts/repro-istar-stream-crash.sh` | iSTAR stream crash repro harness (grpcurl soak + artifact capture) |
-| `scripts/istar-stream-overnight-matrix.sh` | Long-run iSTAR repro matrix over quality/FPS/exposure grids |
-| `scripts/leabs-daemon-crash-wrapper.sh` | Remote daemon crash-capture wrapper used by repro/watchdog flows |
-| `scripts/install-target-maintenance.sh` | Install target cleanup cron job |
-| `scripts/run-ast-grep.sh` | AST-grep structural search helper |
-| `scripts/target-maintenance.sh` | Clean bloated target/ directory |
-| `scripts/bd-safe.sh` | Worktree-safe beads commands (auto-discovers Dolt/SQLite backend) |
-| `scripts/beads-worktree-hygiene.sh` | Detect/clean stale worktree-local beads runtime artifacts |
+| **deploy/** | |
+| `scripts/deploy/deploy-maitai.sh` | Full deploy to maitai (pull, clean, build, daemon, GUI) |
+| `scripts/deploy/deploy-leabs.sh` | Full deploy to leabs-dev (remote checkout+pull+build, daemon restart, optional GUI). Use `--wasm-gui` to build+serve WASM GUI on leabs-dev:8080 |
+| `scripts/deploy/install-service.sh` | Install daemon as systemd service |
+| **ops/** | |
+| `scripts/ops/build-maitai.sh` | Full hardware build for maitai machine |
+| `scripts/ops/build-lab.sh [--release]` | Build daemon with pvcam_sdk for lab |
+| `scripts/ops/demo.sh` | Mock-hardware demo (daemon + GUI/script) |
+| `scripts/ops/env-check.sh` | Source before hardware tests |
+| `scripts/ops/install-hooks.sh [quick]` | Pre-commit hooks (full or format-only) |
+| `scripts/ops/calibrate-comedi.sh` | Comedi DAQ calibration |
+| `scripts/ops/post-crash-forensics.sh` | Post-crash system forensics (dmesg, coredumps, journal, network) |
+| **ci/** | |
+| `scripts/ci/pre-push-gate.sh` | Pre-push quality gate (fmt, optional mdBook build, clippy, tests) |
+| `scripts/ci/feature-check.sh` | cargo-hack feature powerset check on key crates (local CI parity) |
+| `scripts/ci/run-ast-grep.sh` | AST-grep structural search helper |
+| **hygiene/** | |
+| `scripts/hygiene/target-maintenance.sh` | Clean bloated target/ directory |
+| `scripts/hygiene/install-target-maintenance.sh` | Install target cleanup cron job |
+| `scripts/hygiene/beads-worktree-hygiene.sh` | Detect/clean stale worktree-local beads runtime artifacts |
+| `scripts/hygiene/check-doc-drift.sh` | Detect documentation drift from code |
+| `scripts/hygiene/check-inventory-drift.sh` | Detect inventory drift |
+| `scripts/hygiene/check-dependency-hygiene.sh` | Dependency audit (cargo-audit, cargo-deny, cargo-machete) |
+| **repro/** | |
+| `scripts/repro/leabs-daemon-watchdog.sh` | Leabs daemon health monitor |
+| `scripts/repro/repro-istar-stream-crash.sh` | iSTAR stream crash repro harness (grpcurl soak + artifact capture) |
+| `scripts/repro/istar-stream-overnight-matrix.sh` | Long-run iSTAR repro matrix over quality/FPS/exposure grids |
+| `scripts/repro/leabs-daemon-crash-wrapper.sh` | Remote daemon crash-capture wrapper used by repro/watchdog flows |
+| **echelle/** | |
 | `scripts/echelle/overnight-soak.sh` | 12h echelle extraction stability soak (memory, frame drops, latency) |
 | `scripts/echelle/analyze-soak-results.py` | Plot and analyze soak test CSV output (memory, latency, PASS/FAIL) |
 | `scripts/echelle/validate_vs_pypeit.py` | E2E validation: compare rust-daq extraction vs PypeIt reference |
-| `scripts/post-crash-forensics.sh` | Post-crash system forensics (dmesg, coredumps, journal, network) |
-| `scripts/feature-check.sh` | cargo-hack feature powerset check on key crates (local CI parity) |
+| **root** | |
+| `scripts/bd-safe.sh` | Worktree-safe beads commands (auto-discovers Dolt/SQLite backend) |
 
 ### Echelle Calibration CLI
 
@@ -316,9 +326,9 @@ Output: `EchelleCalibrationProfile` with all 115 orders calibrated (42 arc-match
 ### Leabs/iSTAR Repro Commands
 
 ```bash
-bash scripts/leabs-daemon-watchdog.sh --build-remote-on-start   # Health monitor + auto-restart for leabs daemon
-bash scripts/repro-istar-stream-crash.sh --build-remote --soak-seconds 1800  # iSTAR crash repro soak + artifact capture
-bash scripts/istar-stream-overnight-matrix.sh --hours 10 --batch-size 6       # Overnight iSTAR stream matrix run
+bash scripts/repro/leabs-daemon-watchdog.sh --build-remote-on-start   # Health monitor + auto-restart for leabs daemon
+bash scripts/repro/repro-istar-stream-crash.sh --build-remote --soak-seconds 1800  # iSTAR crash repro soak + artifact capture
+bash scripts/repro/istar-stream-overnight-matrix.sh --hours 10 --batch-size 6       # Overnight iSTAR stream matrix run
 ```
 
 ## Quick Commands

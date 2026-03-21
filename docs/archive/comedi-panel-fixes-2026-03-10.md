@@ -29,7 +29,7 @@ During testing via the Chrome WASM GUI, clicking "Read All" on the Analog Input 
 
 ```bash
 # From your local machine (macOS)
-bash scripts/deploy-maitai.sh --daemon-only
+bash scripts/deploy/deploy-maitai.sh --daemon-only
 ```
 
 If deploy script fails (git pull issues on maitai), use the git bundle method:
@@ -47,7 +47,7 @@ scp /tmp/comedi-fix.bundle maitai@100.117.5.12:/tmp/
 ssh maitai@100.117.5.12 'cd ~/code/rust-daq && git stash && git fetch /tmp/comedi-fix.bundle HEAD:refs/remotes/bundle/main && git merge bundle/main --no-edit'
 
 # Build on maitai
-ssh maitai@100.117.5.12 'cd ~/code/rust-daq && bash scripts/build-maitai.sh'
+ssh maitai@100.117.5.12 'cd ~/code/rust-daq && bash scripts/ops/build-maitai.sh'
 ```
 
 ### Step 2: Restart daemon

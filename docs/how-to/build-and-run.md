@@ -23,7 +23,7 @@ maitai = [
 **ALWAYS use the build script:**
 
 ```bash
-bash scripts/build-maitai.sh
+bash scripts/ops/build-maitai.sh
 ```
 
 This script:
@@ -138,7 +138,7 @@ The most definitive test for real hardware:
 **Solution:**
 ```bash
 cargo clean
-bash scripts/build-maitai.sh
+bash scripts/ops/build-maitai.sh
 ```
 
 ### Problem: Daemon Shows "using mock mode"
@@ -207,14 +207,14 @@ Problem: PVCAM SDK requires environment variables. Build will fail or use mock m
 ### ✅ CORRECT: Use the build script
 
 ```bash
-bash scripts/build-maitai.sh
+bash scripts/ops/build-maitai.sh
 ```
 
 ## Quick Reference
 
 ```bash
 # Correct workflow
-bash scripts/build-maitai.sh                    # Build daemon with ALL hardware
+bash scripts/ops/build-maitai.sh                    # Build daemon with ALL hardware
 cargo build --release -p ui              # Build GUI (separate)
 
 # Start daemon
@@ -230,6 +230,6 @@ grep "pvcam_sdk feature enabled" <daemon_output>
 ## See Also
 
 - `CLAUDE.md` - Main project documentation
-- `scripts/build-maitai.sh` - Build script
+- `scripts/ops/build-maitai.sh` - Build script
 - `crates/bin/Cargo.toml` - Feature flag definitions
 - `config/maitai_universal.toml` - Hardware configuration

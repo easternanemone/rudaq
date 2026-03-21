@@ -74,7 +74,7 @@ Use the deploy helper (recommended):
 
 ```bash
 cd <path-to-rust-daq>
-bash scripts/deploy-leabs.sh --skip-build
+bash scripts/deploy/deploy-leabs.sh --skip-build
 ```
 
 Useful variants:
@@ -82,13 +82,13 @@ Useful variants:
 - daemon only:
 
 ```bash
-bash scripts/deploy-leabs.sh --skip-build --daemon-only
+bash scripts/deploy/deploy-leabs.sh --skip-build --daemon-only
 ```
 
 - GUI only (daemon already running):
 
 ```bash
-bash scripts/deploy-leabs.sh --gui-only
+bash scripts/deploy/deploy-leabs.sh --gui-only
 ```
 
 If you do not use the helper, ensure a daemon is running on `leabs-dev` and a

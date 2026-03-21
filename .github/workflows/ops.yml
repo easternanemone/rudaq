@@ -79,7 +79,7 @@ jobs:
           tool: cargo-machete
 
       - name: Dependency hygiene checks
-        run: bash scripts/check-dependency-hygiene.sh
+        run: bash scripts/hygiene/check-dependency-hygiene.sh
 
   release-please:
     name: Release Please (manual)

@@ -5,8 +5,8 @@
 # are properly configured before building or testing.
 #
 # Usage:
-#   source scripts/env-check.sh          # Validate AND set up environment
-#   ./scripts/env-check.sh --check       # Validate only (no modification)
+#   source scripts/ops/env-check.sh       # Validate AND set up environment
+#   ./scripts/ops/env-check.sh --check   # Validate only (no modification)
 #   ./scripts/env-check.sh --help        # Show help
 #
 # Exit codes:

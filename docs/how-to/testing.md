@@ -217,7 +217,7 @@ cargo nextest run -p driver-pvcam --features "pvcam_sdk,hardware_tests"
 cargo nextest run -p driver-andor-sdk3 --features hardware_tests
 
 # Real hardware integration profile on Maitai
-source scripts/env-check.sh && cargo nextest run --profile hardware --features hardware_tests
+source scripts/ops/env-check.sh && cargo nextest run --profile hardware --features hardware_tests
 ```
 
 ---
@@ -385,7 +385,7 @@ ssh maitai@100.117.5.12 'cd ~/rust-daq && \
 Require SDK and environment setup:
 
 ```bash
-source scripts/env-check.sh
+source scripts/ops/env-check.sh
 export PVCAM_SMOKE_TEST=1
 
 cargo nextest run --profile hardware \
@@ -656,10 +656,10 @@ Coverage is informational — no automatic threshold enforcement. Focus testing 
 
 ```bash
 # Install hooks (one-time)
-bash scripts/install-hooks.sh
+bash scripts/ops/install-hooks.sh
 
 # Quick hooks for rapid iteration (format only)
-bash scripts/install-hooks.sh quick
+bash scripts/ops/install-hooks.sh quick
 
 # Run manually without committing
 pre-commit run --all-files

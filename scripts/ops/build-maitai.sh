@@ -1,7 +1,7 @@
 #!/bin/bash
 # Build script for maitai lab machine with COMPLETE REAL HARDWARE SUPPORT
 #
-# Usage: bash scripts/build-maitai.sh
+# Usage: bash scripts/ops/build-maitai.sh
 #
 # The 'maitai' feature flag enables native SDK hardware drivers:
 #   - PVCAM (real SDK, not mock)

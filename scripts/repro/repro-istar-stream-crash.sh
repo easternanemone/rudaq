@@ -14,7 +14,7 @@
 
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PROTO_DIR="${ROOT_DIR}/crates/protocol/proto"
 
 SSH_HOST="leabs-dev"
@@ -151,12 +151,12 @@ ensure_tunnel() {
 
 install_remote_wrapper() {
   log "Installing crash wrapper script on remote repo checkout"
-  scp -q "${ROOT_DIR}/scripts/leabs-daemon-crash-wrapper.sh" \
-    "${SSH_HOST}:${REMOTE_DIR}/scripts/leabs-daemon-crash-wrapper.sh"
+  scp -q "${ROOT_DIR}/scripts/repro/leabs-daemon-crash-wrapper.sh" \
+    "${SSH_HOST}:${REMOTE_DIR}/scripts/repro/leabs-daemon-crash-wrapper.sh"
   ssh_remote bash -s -- "$REMOTE_DIR" <<'EOS'
 set -euo pipefail
 remote_dir="$1"
-chmod +x "${remote_dir}/scripts/leabs-daemon-crash-wrapper.sh"
+chmod +x "${remote_dir}/scripts/repro/leabs-daemon-crash-wrapper.sh"
 EOS
 }
 
@@ -205,7 +205,7 @@ daemon_cmd=(
 source "$HOME/.cargo/env"
 cd "$remote_dir"
 source "$env_file"
-setsid -f bash scripts/leabs-daemon-crash-wrapper.sh \
+setsid -f bash scripts/repro/leabs-daemon-crash-wrapper.sh \
   --capture-root "$capture_root" \
   --label istar_stream_repro \
   -- "${daemon_cmd[@]}" \

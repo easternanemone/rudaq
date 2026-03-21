@@ -270,7 +270,7 @@ cargo build --release -p bin --features "full,storage_hdf5"
 cargo test
 
 # Real hardware on maitai
-source scripts/env-check.sh
+source scripts/ops/env-check.sh
 cargo nextest run --profile hardware --features hardware_tests
 
 # Specific driver tests

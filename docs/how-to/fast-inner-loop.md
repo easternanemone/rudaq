@@ -33,7 +33,7 @@ cargo check -p ui --lib --target wasm32-unknown-unknown --no-default-features --
 ## 5. Hardware-Only Verification (maitai)
 *Note: Only works on maitai hardware.*
 ```bash
-source scripts/env-check.sh && cargo nextest run --profile hardware --features hardware_tests
+source scripts/ops/env-check.sh && cargo nextest run --profile hardware --features hardware_tests
 ```
 
 ## 6. Fast Scripting Loop
@@ -46,5 +46,5 @@ cargo run -p bin -- run examples/demo_scan.rhai --hardware-config config/demo.to
 ## 7. Automated Helper
 Run the consolidated fast-check script:
 ```bash
-./scripts/fast-check.sh
+./scripts/ops/fast-check.sh
 ```

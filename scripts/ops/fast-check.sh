@@ -16,4 +16,4 @@ cargo nextest run --workspace --exclude ui --exclude comedi-sys --exclude driver
 echo "[3/3] Running doc tests..."
 cargo test --doc --workspace --exclude ui
 
-echo "✅ Fast-check passed! For full verification, use scripts/build-maitai.sh or CI."
+echo "✅ Fast-check passed! For full verification, use scripts/ops/build-maitai.sh or CI."

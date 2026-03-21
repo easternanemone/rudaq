@@ -2,9 +2,9 @@
 # Install, uninstall, or check the rust-daq-daemon systemd user service.
 #
 # Usage:
-#   bash scripts/install-service.sh install    # copy unit, daemon-reload, enable
-#   bash scripts/install-service.sh uninstall  # stop, disable, remove, daemon-reload
-#   bash scripts/install-service.sh status     # systemctl --user status
+#   bash scripts/deploy/install-service.sh install    # copy unit, daemon-reload, enable
+#   bash scripts/deploy/install-service.sh uninstall  # stop, disable, remove, daemon-reload
+#   bash scripts/deploy/install-service.sh status     # systemctl --user status
 #
 # The service unit template lives in config/systemd/rust-daq-daemon.service.
 # Install copies it to ~/.config/systemd/user/ and enables (but does not start)

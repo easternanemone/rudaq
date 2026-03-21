@@ -56,13 +56,13 @@ jobs:
 
           case "${target}" in
             maitai-eos)
-              matrix='{"include":[{"target":"maitai-eos","deploy_script":"scripts/deploy-maitai.sh","camera_id":"prime_bsi","expected_devices":"prime_bsi,maitai,power_meter"}]}'
+              matrix='{"include":[{"target":"maitai-eos","deploy_script":"scripts/deploy/deploy-maitai.sh","camera_id":"prime_bsi","expected_devices":"prime_bsi,maitai,power_meter"}]}'
               ;;
             leabs-dev)
-              matrix='{"include":[{"target":"leabs-dev","deploy_script":"scripts/deploy-leabs.sh","camera_id":"istar_camera","expected_devices":"istar_camera,ipg_laser,power_meter"}]}'
+              matrix='{"include":[{"target":"leabs-dev","deploy_script":"scripts/deploy/deploy-leabs.sh","camera_id":"istar_camera","expected_devices":"istar_camera,ipg_laser,power_meter"}]}'
               ;;
             both)
-              matrix='{"include":[{"target":"maitai-eos","deploy_script":"scripts/deploy-maitai.sh","camera_id":"prime_bsi","expected_devices":"prime_bsi,maitai,power_meter"},{"target":"leabs-dev","deploy_script":"scripts/deploy-leabs.sh","camera_id":"istar_camera","expected_devices":"istar_camera,ipg_laser,power_meter"}]}'
+              matrix='{"include":[{"target":"maitai-eos","deploy_script":"scripts/deploy/deploy-maitai.sh","camera_id":"prime_bsi","expected_devices":"prime_bsi,maitai,power_meter"},{"target":"leabs-dev","deploy_script":"scripts/deploy/deploy-leabs.sh","camera_id":"istar_camera","expected_devices":"istar_camera,ipg_laser,power_meter"}]}'
               ;;
             *)
               echo "::error::Unsupported target '${target}'"

@@ -3,7 +3,7 @@
 #
 # This script is intended for long interactive lab sessions (GUI/manual use). It:
 # - ensures a local SSH tunnel to the remote daemon
-# - starts/restarts the daemon under scripts/leabs-daemon-crash-wrapper.sh
+# - starts/restarts the daemon under scripts/repro/leabs-daemon-crash-wrapper.sh
 # - polls daemon health via gRPC
 # - logs restart events and collects wrapper/journal artifacts on every restart
 #
@@ -11,9 +11,9 @@
 
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PROTO_DIR="${ROOT_DIR}/crates/protocol/proto"
-REMOTE_WRAPPER="${ROOT_DIR}/scripts/leabs-daemon-crash-wrapper.sh"
+REMOTE_WRAPPER="${ROOT_DIR}/scripts/repro/leabs-daemon-crash-wrapper.sh"
 
 SSH_HOST="leabs-dev"
 REMOTE_DIR="/home/brian/code/rust-daq"

@@ -19,10 +19,10 @@ fi
 
 # ── 2. Quality gate (fmt + clippy + tests) ──────────────────────
 REPO_ROOT="$(git rev-parse --show-toplevel)"
-GATE_SCRIPT="$REPO_ROOT/scripts/pre-push-gate.sh"
+GATE_SCRIPT="$REPO_ROOT/scripts/ci/pre-push-gate.sh"
 
 if [ -x "$GATE_SCRIPT" ]; then
     exec "$GATE_SCRIPT"
 else
-    echo "Warning: scripts/pre-push-gate.sh not found, skipping quality gate" >&2
+    echo "Warning: scripts/ci/pre-push-gate.sh not found, skipping quality gate" >&2
 fi

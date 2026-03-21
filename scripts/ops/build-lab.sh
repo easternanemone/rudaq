@@ -1,7 +1,7 @@
 #!/bin/bash
 # Build rust-daq daemon with real PVCAM SDK support for lab hardware
 #
-# Usage: ./scripts/build-lab.sh [--release]
+# Usage: ./scripts/ops/build-lab.sh [--release]
 #
 # This script builds the daemon with pvcam_sdk feature enabled,
 # which is required for real Prime BSI camera streaming.
@@ -10,8 +10,8 @@
 set -e
 
 # Source environment if available
-if [ -f "scripts/env-check.sh" ]; then
-    source scripts/env-check.sh 2>/dev/null || true
+if [ -f "scripts/ops/env-check.sh" ]; then
+    source scripts/ops/env-check.sh 2>/dev/null || true
 elif [ -f "config/hosts/maitai.env" ]; then
     source config/hosts/maitai.env
 fi

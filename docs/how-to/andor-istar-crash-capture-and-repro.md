@@ -11,11 +11,11 @@ That message can be a *follow-on symptom* after the daemon has already crashed.
 
 ## Tools Added
 
-- `scripts/leabs-daemon-crash-wrapper.sh`
+- `scripts/repro/leabs-daemon-crash-wrapper.sh`
   - runs on `leabs-dev`
   - wraps `rust-daq-daemon`
   - captures exit code, journal excerpts, coredump metadata, core-file scan
-- `scripts/repro-istar-stream-crash.sh`
+- `scripts/repro/repro-istar-stream-crash.sh`
   - runs locally
   - starts the wrapped daemon on `leabs-dev` (optional)
   - ensures local SSH tunnel to `127.0.0.1:50051`
@@ -29,7 +29,7 @@ This exercises a sustained `StreamFrames` session.
 ```bash
 cd "$(git rev-parse --show-toplevel)"
 
-bash scripts/repro-istar-stream-crash.sh \
+bash scripts/repro/repro-istar-stream-crash.sh \
   --soak-seconds 1800 \
   --quality full \
   --max-fps 30 \
@@ -54,7 +54,7 @@ Step 1: Start wrapped daemon once and validate tunnel (short run, leaves daemon 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
 
-bash scripts/repro-istar-stream-crash.sh \
+bash scripts/repro/repro-istar-stream-crash.sh \
   --soak-seconds 5 \
   --quality fast \
   --max-fps 2 \
@@ -70,7 +70,7 @@ i=0
 while [ $i -lt 40 ]; do
   i=$((i+1))
   echo "=== ITERATION $i ==="
-  bash scripts/repro-istar-stream-crash.sh \
+  bash scripts/repro/repro-istar-stream-crash.sh \
     --no-restart-daemon \
     --soak-seconds 15 \
     --quality fast \

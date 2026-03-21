@@ -2,7 +2,7 @@
 # Install git hooks for rust-daq
 #
 # Usage:
-#   bash scripts/install-hooks.sh [quick]
+#   bash scripts/ops/install-hooks.sh [quick]
 #
 # Arguments:
 #   quick - Install quick pre-commit hooks (formatting only, faster for development)
@@ -14,7 +14,7 @@
 #   - post-merge/post-checkout/prepare-commit-msg: beads only
 #
 # The pre-push quality gate mirrors CI to prevent push failures.
-# See scripts/pre-push-gate.sh for the quality gate implementation.
+# See scripts/ci/pre-push-gate.sh for the quality gate implementation.
 
 set -e
 
@@ -78,10 +78,10 @@ echo -e "${GREEN}  Pre-commit framework configured${NC}"
 echo ""
 echo "=== Pre-push quality gate ==="
 
-if [ -x "$REPO_ROOT/scripts/pre-push-gate.sh" ]; then
-    echo -e "${GREEN}  scripts/pre-push-gate.sh is executable${NC}"
+if [ -x "$REPO_ROOT/scripts/ci/pre-push-gate.sh" ]; then
+    echo -e "${GREEN}  scripts/ci/pre-push-gate.sh is executable${NC}"
 else
-    echo -e "${RED}  scripts/pre-push-gate.sh is missing or not executable${NC}"
+    echo -e "${RED}  scripts/ci/pre-push-gate.sh is missing or not executable${NC}"
     exit 1
 fi
 
@@ -102,5 +102,5 @@ echo "  git commit  -> beads export + pre-commit (format, ast-grep)"
 echo "  git push    -> beads sync + quality gate (fmt, clippy, tests)"
 echo ""
 echo "Commands:"
-echo "  bash scripts/pre-push-gate.sh    # Run quality gate manually"
+echo "  bash scripts/ci/pre-push-gate.sh    # Run quality gate manually"
 echo "  git push --no-verify             # Skip hooks (emergency only)"

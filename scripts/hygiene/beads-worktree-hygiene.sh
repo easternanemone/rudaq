@@ -4,8 +4,8 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  scripts/beads-worktree-hygiene.sh status
-  scripts/beads-worktree-hygiene.sh cleanup [--apply]
+  scripts/hygiene/beads-worktree-hygiene.sh status
+  scripts/hygiene/beads-worktree-hygiene.sh cleanup [--apply]
 
 Commands:
   status    Show canonical DB location and whether this worktree has local stale artifacts.
@@ -20,7 +20,7 @@ if ! command -v git >/dev/null 2>&1; then
 fi
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-bd_safe="$script_dir/bd-safe.sh"
+bd_safe="$script_dir/../bd-safe.sh"
 
 if [[ ! -x "$bd_safe" ]]; then
   echo "error: expected executable $bd_safe (run chmod +x scripts/bd-safe.sh)" >&2

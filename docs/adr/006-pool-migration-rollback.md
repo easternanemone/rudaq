@@ -208,7 +208,7 @@ cargo nextest run --workspace --features mock
 
 ```bash
 # On maitai
-source scripts/env-check.sh
+source scripts/ops/env-check.sh
 cargo nextest run --profile hardware --features hardware_tests -p driver-pvcam \
   -- --test-threads=1 --nocapture
 ```
@@ -283,7 +283,7 @@ tail -f /var/log/rust-daq/daemon.log | grep -E "(pool_hit_rate|frame_loss|WARN|E
 
 - [ ] Stop daemon
 - [ ] `git checkout feat/pool-rollback` (or revert commits)
-- [ ] `source scripts/build-maitai.sh`
+- [ ] `source scripts/ops/build-maitai.sh`
 - [ ] Restart daemon
 - [ ] Verify frame acquisition works
 - [ ] Run smoke test to confirm stability

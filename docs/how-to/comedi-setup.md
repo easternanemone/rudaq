@@ -290,14 +290,14 @@ sudo comedi_calibrate -v -f /dev/comedi0
 
 ### Calibration Script
 
-A convenience script is provided at `scripts/calibrate-comedi.sh`:
+A convenience script is provided at `scripts/ops/calibrate-comedi.sh`:
 
 ```bash
 # Run calibration on maitai
-sudo bash scripts/calibrate-comedi.sh
+sudo bash scripts/ops/calibrate-comedi.sh
 
 # Verify calibration
-sudo bash scripts/calibrate-comedi.sh --verify
+sudo bash scripts/ops/calibrate-comedi.sh --verify
 ```
 
 ### Calibration Files

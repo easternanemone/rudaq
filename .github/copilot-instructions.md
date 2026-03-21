@@ -79,8 +79,8 @@ scripts/bd-safe.sh close <id> --reason "Done"
 When using git worktrees, avoid local `.beads` runtime drift:
 
 ```bash
-scripts/beads-worktree-hygiene.sh status
-scripts/beads-worktree-hygiene.sh cleanup --apply
+scripts/hygiene/beads-worktree-hygiene.sh status
+scripts/hygiene/beads-worktree-hygiene.sh cleanup --apply
 ```
 
 ## Build Commands

@@ -86,7 +86,7 @@ hardware stack: PVCAM camera, serial instruments, and Comedi DAQ.
 source config/hosts/maitai.env
 
 # Or run a standalone validation check
-./scripts/env-check.sh --check
+./scripts/ops/env-check.sh --check
 ```
 
 `env-check.sh` verifies:
@@ -97,13 +97,13 @@ source config/hosts/maitai.env
 - `LD_LIBRARY_PATH` and `LIBRARY_PATH` configuration
 - `pvcam.ini` existence
 
-When sourced (`source scripts/env-check.sh`), it auto-fixes missing variables.
-When invoked as a script (`./scripts/env-check.sh --check`), it reports only.
+When sourced (`source scripts/ops/env-check.sh`), it auto-fixes missing variables.
+When invoked as a script (`./scripts/ops/env-check.sh --check`), it reports only.
 
 ### Step 2 -- Build with the maitai feature
 
 ```bash
-bash scripts/build-maitai.sh
+bash scripts/ops/build-maitai.sh
 ```
 
 This script:
@@ -436,16 +436,16 @@ Over time, `target/` can grow to tens of gigabytes. Two scripts manage this.
 
 ```bash
 # Check size and clean if above 30 GB (default threshold)
-bash scripts/target-maintenance.sh
+bash scripts/hygiene/target-maintenance.sh
 
 # Force a full cargo clean regardless of size
-bash scripts/target-maintenance.sh --force --mode full
+bash scripts/hygiene/target-maintenance.sh --force --mode full
 
 # Partial clean (remove incremental artifacts + heavy crates only)
-bash scripts/target-maintenance.sh --mode partial
+bash scripts/hygiene/target-maintenance.sh --mode partial
 
 # Dry run -- see what would happen
-bash scripts/target-maintenance.sh --dry-run
+bash scripts/hygiene/target-maintenance.sh --dry-run
 ```
 
 | Flag | Default | Description |
@@ -462,11 +462,11 @@ Install a periodic cleanup job (launchd on macOS, systemd timer on Linux):
 
 ```bash
 # Install with defaults (full mode, 30 GB threshold)
-bash scripts/install-target-maintenance.sh
+bash scripts/hygiene/install-target-maintenance.sh
 
 # Install with custom settings
-bash scripts/install-target-maintenance.sh --mode partial --threshold-gb 20
+bash scripts/hygiene/install-target-maintenance.sh --mode partial --threshold-gb 20
 
 # Remove the scheduled job
-bash scripts/install-target-maintenance.sh --uninstall
+bash scripts/hygiene/install-target-maintenance.sh --uninstall
 ```

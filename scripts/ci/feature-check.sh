@@ -2,9 +2,9 @@
 # feature-check.sh — Run cargo-hack feature powerset check on key crates
 #
 # Usage:
-#   bash scripts/feature-check.sh              # All crates
-#   bash scripts/feature-check.sh common       # Single crate
-#   bash scripts/feature-check.sh --quick      # Fast: each-feature (not powerset)
+#   bash scripts/ci/feature-check.sh              # All crates
+#   bash scripts/ci/feature-check.sh common       # Single crate
+#   bash scripts/ci/feature-check.sh --quick      # Fast: each-feature (not powerset)
 
 set -euo pipefail
 

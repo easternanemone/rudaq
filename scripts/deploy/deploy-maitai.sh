@@ -8,15 +8,22 @@
 #   4. Launch local GUI connecting to maitai
 #
 # Usage:
-#   bash scripts/deploy-maitai.sh                           # Full deploy from main
-#   bash scripts/deploy-maitai.sh --branch feat/my-feature  # Deploy a feature branch
-#   bash scripts/deploy-maitai.sh --with-db                 # Enable SurrealDB persistence
-#   bash scripts/deploy-maitai.sh --gui-only                # Just launch GUI (daemon running)
-#   bash scripts/deploy-maitai.sh --skip-build --daemon-only  # Restart daemon, skip build
+#   bash scripts/deploy/deploy-maitai.sh                           # Full deploy from main
+#   bash scripts/deploy/deploy-maitai.sh --branch feat/my-feature  # Deploy a feature branch
+#   bash scripts/deploy/deploy-maitai.sh --with-db                 # Enable SurrealDB persistence
+#   bash scripts/deploy/deploy-maitai.sh --gui-only                # Just launch GUI (daemon running)
+#   bash scripts/deploy/deploy-maitai.sh --skip-build --daemon-only  # Restart daemon, skip build
 #
 # See --help for all options.
 
 set -euo pipefail
+
+# ============================================================================
+# Source shared deploy library
+# ============================================================================
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=deploy-common.sh
+source "${SCRIPT_DIR}/deploy-common.sh"
 
 # ============================================================================
 # Configuration
@@ -24,18 +31,10 @@ set -euo pipefail
 MAITAI_USER="${MAITAI_USER:-maitai}"
 MAITAI_HOST="${MAITAI_HOST:-maitai-eos}"  # Tailscale hostname
 MAITAI_SSH="${MAITAI_SSH:-${MAITAI_USER}@${MAITAI_HOST}}"
+DEPLOY_SSH="$MAITAI_SSH"
 REMOTE_DIR="${REMOTE_DIR:-/home/${MAITAI_USER}/code/rust-daq}"
 DAEMON_PORT=50051
 REMOTE_LOG="/tmp/rust-daq-daemon.log"
-
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-BOLD='\033[1m'
-NC='\033[0m'
 
 # ============================================================================
 # Defaults
@@ -66,16 +65,16 @@ OPTIONS:
 
 EXAMPLES:
   # Full deploy: pull main, clean build, start daemon, launch GUI
-  bash scripts/deploy-maitai.sh
+  bash scripts/deploy/deploy-maitai.sh
 
   # Deploy a feature branch with SurrealDB
-  bash scripts/deploy-maitai.sh --branch feat/graph-plan --with-db
+  bash scripts/deploy/deploy-maitai.sh --branch feat/graph-plan --with-db
 
   # Just restart daemon (no build, no GUI)
-  bash scripts/deploy-maitai.sh --skip-build --daemon-only
+  bash scripts/deploy/deploy-maitai.sh --skip-build --daemon-only
 
   # Just launch GUI (daemon already running on maitai)
-  bash scripts/deploy-maitai.sh --gui-only
+  bash scripts/deploy/deploy-maitai.sh --gui-only
 HELP
 }
 
@@ -122,37 +121,6 @@ while [[ $# -gt 0 ]]; do
 done
 
 # ============================================================================
-# Helpers
-# ============================================================================
-step() {
-    echo ""
-    echo -e "${CYAN}${BOLD}━━━ $1 ━━━${NC}"
-}
-
-ok() {
-    echo -e "${GREEN}  ✓ $1${NC}"
-}
-
-warn() {
-    echo -e "${YELLOW}  ⚠ $1${NC}"
-}
-
-fail() {
-    echo -e "${RED}  ✗ $1${NC}"
-    exit 1
-}
-
-info() {
-    echo -e "${BLUE}  → $1${NC}"
-}
-
-remote() {
-    # Execute a command on maitai via SSH
-    # Uses -o ConnectTimeout to fail fast if host is unreachable
-    ssh -o ConnectTimeout=10 -o BatchMode=yes "${MAITAI_SSH}" "$@"
-}
-
-# ============================================================================
 # Banner
 # ============================================================================
 echo -e "${BOLD}${CYAN}"
@@ -173,21 +141,8 @@ echo ""
 # Phase 0: Connectivity check
 # ============================================================================
 if ! $GUI_ONLY; then
-    step "Phase 0: Checking SSH connectivity to maitai"
-    if ! remote "echo ok" &>/dev/null; then
-        fail "Cannot SSH to ${MAITAI_SSH}. Is Tailscale running?"
-    fi
-    ok "SSH to ${MAITAI_SSH} works"
-
-    # Check Rust toolchain — try PATH first, then source cargo env as fallback
-    # (SSH BatchMode doesn't load login profile, and rustc may be installed
-    # via system packages without $HOME/.cargo/env)
-    if ! remote 'command -v rustc >/dev/null 2>&1 || { [ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"; command -v rustc >/dev/null 2>&1; }' &>/dev/null; then
-        warn "Rust toolchain not found on maitai"
-        info "Install with: ssh ${MAITAI_SSH} 'curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs | sh'"
-        fail "Rust toolchain required for remote build"
-    fi
-    ok "Rust toolchain available"
+    deploy_check_ssh "maitai"
+    deploy_check_rust
 
     # Check PVCAM SDK (Phase 1 validates PVCAM_SDK_DIR from maitai.env;
     # this just confirms the installation directory exists at all)
@@ -203,21 +158,7 @@ fi
 if ! $GUI_ONLY && ! $SKIP_BUILD; then
     step "Phase 1: Pull & build on maitai (branch: ${BRANCH})"
 
-    info "Fetching latest code..."
-    remote "cd ${REMOTE_DIR} && git fetch --all --prune" 2>&1 | while IFS= read -r line; do
-        echo -e "    ${line}"
-    done
-
-    # Validate branch name to prevent shell injection via SSH
-    if [[ ! "$BRANCH" =~ ^[a-zA-Z0-9._/-]+$ ]]; then
-        fail "Invalid branch name '${BRANCH}' — only alphanumeric, '.', '_', '/', '-' allowed"
-    fi
-
-    info "Checking out ${BRANCH}..."
-    remote "cd ${REMOTE_DIR} && git checkout ${BRANCH} && git pull origin ${BRANCH}" 2>&1 | while IFS= read -r line; do
-        echo -e "    ${line}"
-    done
-    ok "On branch ${BRANCH}, up to date"
+    deploy_fetch_and_checkout "$BRANCH" "origin"
 
     info "Verifying PVCAM SDK environment..."
     PVCAM_CHECK=$(remote "source ${REMOTE_DIR}/config/hosts/maitai.env && echo \$PVCAM_SDK_DIR" 2>/dev/null)
@@ -241,41 +182,14 @@ if ! $GUI_ONLY && ! $SKIP_BUILD; then
     done
     ok "Build complete"
 
-    # Verify binary exists
-    remote "test -f ${REMOTE_DIR}/target/release/rust-daq-daemon" || fail "Binary not found after build"
-    ok "Binary verified: ${REMOTE_DIR}/target/release/rust-daq-daemon"
+    deploy_verify_binary
 fi
 
 # ============================================================================
 # Phase 2: Stop old daemon
 # ============================================================================
 if ! $GUI_ONLY; then
-    step "Phase 2: Stopping old daemon"
-
-    OLD_PIDS=$(remote "pgrep -f 'rust-daq-daemon daemon'" 2>/dev/null || true)
-    if [[ -n "$OLD_PIDS" ]]; then
-        # Format PIDs for display (may be multiple)
-        PID_LIST=$(echo "$OLD_PIDS" | tr '\n' ' ')
-        info "Killing daemon process(es): ${PID_LIST}"
-        remote "pkill -f 'rust-daq-daemon daemon'" 2>/dev/null || true
-
-        # Wait for graceful shutdown
-        for i in $(seq 1 5); do
-            if ! remote "pgrep -f 'rust-daq-daemon daemon'" &>/dev/null; then
-                ok "Daemon stopped gracefully"
-                break
-            fi
-            if [[ $i -eq 5 ]]; then
-                warn "Daemon didn't stop gracefully, force killing..."
-                remote "pkill -9 -f 'rust-daq-daemon daemon'" 2>/dev/null || true
-                sleep 1
-                ok "Daemon force-killed"
-            fi
-            sleep 1
-        done
-    else
-        ok "No running daemon found"
-    fi
+    deploy_stop_daemon
 fi
 
 # ============================================================================
@@ -293,11 +207,7 @@ if ! $GUI_ONLY; then
     DAEMON_CMD="./target/release/rust-daq-daemon daemon --port ${DAEMON_PORT}"
 
     if [[ -n "$RUNTIME_MODE" ]]; then
-        # Validate against known modes to prevent shell injection via SSH
-        case "$RUNTIME_MODE" in
-            mock|native|universal|hybrid-db) ;;
-            *) fail "Invalid --runtime-mode '${RUNTIME_MODE}'. Allowed: mock, native, universal, hybrid-db" ;;
-        esac
+        deploy_validate_runtime_mode "$RUNTIME_MODE"
         DAEMON_CMD="${DAEMON_CMD} --runtime-mode ${RUNTIME_MODE}"
     else
         # Default to hybrid-db (universal TOML + SurrealDB control-plane).
@@ -309,68 +219,21 @@ if ! $GUI_ONLY; then
         DAEMON_CMD="${DAEMON_CMD} --db-path data/surrealdb-maitai"
     fi
 
-    info "Command: ${DAEMON_CMD}"
-    info "Log: ${REMOTE_LOG}"
-
     # Create DB data directory if needed
     if $WITH_DB; then
         remote "mkdir -p ${REMOTE_DIR}/data" 2>/dev/null || true
     fi
 
-    # Launch daemon in background via nohup
-    remote "
-        cd ${REMOTE_DIR} && \
-        source config/hosts/maitai.env && \
-        nohup ${DAEMON_CMD} > ${REMOTE_LOG} 2>&1 &
-        echo \$!
-    "
-
-    # Wait for daemon to start listening
-    info "Waiting for daemon to start (port ${DAEMON_PORT})..."
-    DAEMON_READY=false
-    for i in $(seq 1 60); do
-        if remote "ss -tlnp 2>/dev/null | grep -q ':${DAEMON_PORT}'" 2>/dev/null; then
-            DAEMON_READY=true
-            break
-        fi
-        sleep 1
-        printf "."
-    done
-    echo ""
-
-    if $DAEMON_READY; then
-        ok "Daemon listening on port ${DAEMON_PORT}"
-    else
-        fail "Daemon failed to start within 60s. Check logs: ssh ${MAITAI_SSH} 'tail -50 ${REMOTE_LOG}'"
-    fi
-
-    # Show startup log
-    info "Daemon startup log:"
-    remote "head -20 ${REMOTE_LOG}" 2>/dev/null | while IFS= read -r line; do
-        echo -e "    ${line}"
-    done
-
-    NEW_PID=$(remote "pgrep -f 'rust-daq-daemon daemon'" 2>/dev/null || echo "unknown")
-    ok "Daemon running (PID: ${NEW_PID})"
+    deploy_start_daemon "$DAEMON_CMD" "config/hosts/maitai.env"
+    deploy_wait_for_daemon
+    deploy_show_startup_log
 fi
 
 # ============================================================================
 # Phase 4: Launch local GUI
 # ============================================================================
 if ! $SKIP_GUI; then
-    step "Phase 4: Launching local GUI"
-    info "Connecting to http://${MAITAI_HOST}:${DAEMON_PORT}"
-    info "Close the GUI window or press Ctrl+C to exit"
-    echo ""
-
-    # Run GUI in foreground — user closes it when done
-    cargo run --bin rust-daq-gui -- --daemon-url "http://${MAITAI_HOST}:${DAEMON_PORT}" || true
-
-    echo ""
-    echo -e "${GREEN}GUI closed. Daemon still running on maitai.${NC}"
-    echo -e "  Daemon log:  ${BLUE}ssh ${MAITAI_SSH} 'tail -f ${REMOTE_LOG}'${NC}"
-    echo -e "  Stop daemon: ${BLUE}ssh ${MAITAI_SSH} 'pkill -f rust-daq-daemon'${NC}"
-    echo -e "  Reconnect:   ${BLUE}bash scripts/deploy-maitai.sh --gui-only${NC}"
+    deploy_launch_gui "$MAITAI_HOST" "deploy-maitai.sh"
 fi
 
 # ============================================================================

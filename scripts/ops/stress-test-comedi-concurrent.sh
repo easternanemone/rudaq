@@ -12,12 +12,12 @@
 #   - Completes within timeout
 #
 # Usage:
-#   bash scripts/stress-test-comedi-concurrent.sh [--daemon-url URL] [--device-id ID] [--duration SECS] [--rate HZ]
+#   bash scripts/ops/stress-test-comedi-concurrent.sh [--daemon-url URL] [--device-id ID] [--duration SECS] [--rate HZ]
 #
 # Requires: grpcurl, jq, bash 4+
 #
 # Example:
-#   bash scripts/stress-test-comedi-concurrent.sh --daemon-url 100.117.5.12:50051 --duration 30 --rate 50
+#   bash scripts/ops/stress-test-comedi-concurrent.sh --daemon-url 100.117.5.12:50051 --duration 30 --rate 50
 set -euo pipefail
 
 # Defaults

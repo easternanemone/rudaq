@@ -410,7 +410,7 @@ sink.load_blueprint("crates/server/blueprints/daq_default.rbl")?;
 **Files to remove after Rust Blueprint API stabilizes:**
 - `crates/server/blueprints/generate_blueprints.py`
 - `crates/server/blueprints/*.rbl` (generated files)
-- `scripts/regenerate_blueprints.sh`
+- `scripts/ops/regenerate_blueprints.sh`
 
 ### Phase 5: Optimize Memory and Latency
 

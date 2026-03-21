@@ -198,7 +198,7 @@ Use the `force_reset` example to clear the stuck camera state:
 
 ```bash
 cd /path/to/rust-daq
-source config/hosts/maitai.env  # or scripts/env-check.sh
+source config/hosts/maitai.env  # or scripts/ops/env-check.sh
 
 # Run the force reset tool
 cargo run --example force_reset --features pvcam_sdk -p driver-pvcam

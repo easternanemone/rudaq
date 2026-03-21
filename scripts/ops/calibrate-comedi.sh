@@ -6,7 +6,7 @@
 # This improves measurement accuracy from ~50mV offset to ~1-2mV.
 #
 # Usage:
-#   sudo bash scripts/calibrate-comedi.sh [OPTIONS]
+#   sudo bash scripts/ops/calibrate-comedi.sh [OPTIONS]
 #
 # Options:
 #   --verify      Run verification tests after calibration

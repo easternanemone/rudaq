@@ -2,12 +2,12 @@
 set -euo pipefail
 
 # Regenerate Rerun blueprints using an isolated venv.
-# Usage: scripts/regenerate_blueprints.sh
+# Usage: scripts/ops/regenerate_blueprints.sh
 
 BLUEPRINT_DIR="crates/server/blueprints"
 VENV="$BLUEPRINT_DIR/.venv"
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 if [ ! -d "$VENV" ]; then
   python3 -m venv "$VENV"

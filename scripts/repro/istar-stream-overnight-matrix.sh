@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # Run an overnight iSTAR stream repro matrix on leabs-dev using the existing repro harness.
 #
-# This script repeatedly invokes scripts/repro-istar-stream-crash.sh across a parameter grid,
+# This script repeatedly invokes scripts/repro/repro-istar-stream-crash.sh across a parameter grid,
 # records case results, and automatically restarts/rebuilds the daemon under the crash wrapper
 # when needed. It is intended for long unattended soak runs.
 
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-REPRO_SCRIPT="${ROOT_DIR}/scripts/repro-istar-stream-crash.sh"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+REPRO_SCRIPT="${ROOT_DIR}/scripts/repro/repro-istar-stream-crash.sh"
 LOCAL_RUN_ROOT="${ROOT_DIR}/tmp/istar-overnight-matrix"
 
 SSH_HOST="leabs-dev"
@@ -34,7 +34,7 @@ usage() {
   cat <<'EOF'
 Usage: istar-stream-overnight-matrix.sh [options]
 
-Runs repeated stream soak cases using scripts/repro-istar-stream-crash.sh over a parameter matrix.
+Runs repeated stream soak cases using scripts/repro/repro-istar-stream-crash.sh over a parameter matrix.
 
 Options:
   --ssh-host <host>              SSH host for leabs machine (default: leabs-dev)

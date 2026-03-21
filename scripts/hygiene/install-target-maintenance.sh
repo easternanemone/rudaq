@@ -13,7 +13,7 @@ UNINSTALL=false
 
 usage() {
   cat <<'EOF'
-Usage: scripts/install-target-maintenance.sh [options]
+Usage: scripts/hygiene/install-target-maintenance.sh [options]
 
 Options:
   --mode <full|partial>    Cleanup mode passed to target-maintenance.sh (default: full)
@@ -24,9 +24,9 @@ Options:
   -h, --help               Show this help
 
 Examples:
-  bash scripts/install-target-maintenance.sh
-  bash scripts/install-target-maintenance.sh --mode partial --threshold-gb 20
-  bash scripts/install-target-maintenance.sh --uninstall
+  bash scripts/hygiene/install-target-maintenance.sh
+  bash scripts/hygiene/install-target-maintenance.sh --mode partial --threshold-gb 20
+  bash scripts/hygiene/install-target-maintenance.sh --uninstall
 EOF
 }
 
@@ -76,13 +76,13 @@ if ! [[ "$THRESHOLD_GB" =~ ^[0-9]+$ ]]; then
 fi
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-SCRIPT_PATH="$REPO_ROOT/scripts/target-maintenance.sh"
+SCRIPT_PATH="$REPO_ROOT/scripts/hygiene/target-maintenance.sh"
 LOG_DIR="$REPO_ROOT/.git/maintenance-logs"
 LOG_FILE="$LOG_DIR/target-maintenance.log"
 
 if [[ ! -x "$SCRIPT_PATH" ]]; then
   echo "Expected executable script at: $SCRIPT_PATH" >&2
-  echo "Run: chmod +x scripts/target-maintenance.sh" >&2
+  echo "Run: chmod +x scripts/hygiene/target-maintenance.sh" >&2
   exit 1
 fi
 
@@ -209,7 +209,7 @@ case "$(uname -s)" in
     ;;
   *)
     echo "Unsupported OS for automatic scheduler install: $(uname -s)" >&2
-    echo "Run scripts/target-maintenance.sh manually or wire it into your local scheduler."
+    echo "Run scripts/hygiene/target-maintenance.sh manually or wire it into your local scheduler."
     exit 1
     ;;
 esac

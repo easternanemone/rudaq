@@ -24,7 +24,7 @@ Expected runtime policy: `universal=2, native_exception=1, deprecated_native=0`
 
 ```bash
 # From local machine — pulls, builds, launches daemon + GUI
-bash scripts/deploy-leabs.sh --with-db
+bash scripts/deploy/deploy-leabs.sh --with-db
 ```
 
 ### Option B: Manual Build on leabs-dev
