@@ -130,6 +130,28 @@ The `driver-registry` crate provides unified feature flags for all hardware driv
 
 These devices require **no feature flags** — they load at runtime via TOML config.
 
+### FFI Sys Crates
+
+Low-level FFI binding crates. These features gate native SDK linkage; they are activated transitively by the driver-registry or driver crates and should not be set directly.
+
+| Feature | Crate | Description |
+|---------|-------|-------------|
+| `pvcam-sdk` | `pvcam-sys` | Link real PVCAM shared library |
+| `comedi-sdk` | `comedi-sys` | Link real Comedi shared library |
+| `andor-sdk3` | `andor-sdk3-sys` | Link Andor SDK3 core library |
+| `camera` | `andor-sdk3-sys` | Andor camera subset |
+| `spectrograph` | `andor-sdk3-sys`, `driver-andor-sdk3` | Andor spectrograph subset |
+| `hardware` | `andor-sdk3-sys`, `driver-andor-sdk3` | Full Andor hardware (camera + spectrograph) |
+| `dover-sdk` | `dover-motion-sys` | Link Dover Motion shared library |
+| `dover-hardware` | `driver-dover-motion` | Dover Motion real hardware support |
+
+### driver-universal Features
+
+| Feature | Description |
+|---------|-------------|
+| `serial` | Serial port support (default) |
+| `emulator` | Built-in device emulator for testing without hardware |
+
 ### Camera Hardware
 
 | Feature | Description | Requirements |
@@ -160,10 +182,53 @@ These devices require **no feature flags** — they load at runtime via TOML con
 - `standalone` — Native desktop GUI (default, uses `eframe` + `egui`)
 - `web` — WASM browser GUI (same panels as standalone)
 - `rerun_viewer` — Embedded Rerun viewer with camera streaming
+- `dark-light` — OS dark/light mode detection
+- `pvcam` / `pvcam_sdk` / `pvcam_hardware` — UI-side PVCAM driver integration
+
+**Server Features** (`server` crate):
+- `alerting` — Webhook alerting for Slack/Discord (default, pulls `reqwest`)
+- `modules_scripting` — Module system with scripting integration
+- `rerun_sink` — Rerun.io data sink for visualization
+- `comedi` / `comedi_hardware` — Server-side Comedi driver support
 
 **Scripting:**
 - Base Rhai scripting is always available via `scripting` crate
 - `scripting_python` enables PyO3 Python bindings (optional)
+- `hardware_factories` — Hardware factory registration in scripts
+- `hdf5_scripting` — HDF5 access from scripts
+- `scripting_full` — Full scripting bundle (`hardware_factories` + `hdf5_scripting`)
+- `scripting_full_libs` — Full scripting with LIBS drivers
+- `libs_scripting` — LIBS-specific scripting (Andor, Dover Motion)
+- `polarization` — Polarization analysis scripting (requires `scripting_full`)
+- `driver-comedi` — Comedi bindings for scripting
+
+**Protocol Features** (`protocol` crate):
+- `server` — Server-side protocol support
+
+**Common Crate Internal Features:**
+- `fits` — FITS file I/O (via `fitsio` crate)
+- `schemars` — JSON schema generation support
+- `serial` — Serial port communication (via `serial2-tokio`)
+- `storage_arrow` / `storage_hdf5` — Storage type definitions
+
+**Hardware Crate Internal Features:**
+- `binary_protocol` — Binary protocol support with CRC checksums
+- `plugins_hot_reload` — Hot-reloadable plugin system (via `notify` + `hot-lib-reloader`)
+- `simulator` — Hardware simulator mode
+
+**Echelle Crate:**
+- `fits` — FITS file format support for echelle calibration frames
+
+**Pool Crate:**
+- `dlpack` — DLPack tensor descriptor for zero-copy NumPy/PyTorch interop
+- `metrics` — Prometheus counters for pool lifecycle
+
+**Integration Test Features** (`integration-tests` crate):
+- `gui_egui` — UI integration tests (via `ui/standalone`)
+- `libs_drivers` — LIBS driver integration tests
+- `libs_spirit_driver` — Spirit laser driver integration tests
+- `universal` — driver-universal integration tests
+- `daq-modules` / `modules` — Module system tests
 
 ---
 
@@ -345,3 +410,21 @@ export LD_LIBRARY_PATH=$PVCAM_LIB_DIR:$LD_LIBRARY_PATH
 
 ### GUI doesn't compile
 Ensure windowing dependencies are installed. See [Platform Notes](../how-to/platform-notes.md).
+
+---
+
+## Verification
+
+Run the feature matrix drift checker to validate this document against actual `Cargo.toml` definitions:
+
+```bash
+bash scripts/generate-feature-matrix.sh --check
+```
+
+To regenerate a full auto-generated matrix:
+
+```bash
+bash scripts/generate-feature-matrix.sh --output docs/reference/feature-matrix-generated.md
+```
+
+See also: [build-profiles.md](build-profiles.md) for the canonical build profile reference.
