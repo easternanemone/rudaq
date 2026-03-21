@@ -2202,4 +2202,494 @@ mod tests {
             );
         }
     }
+
+    // ── Task 2 (bd-qe8p.1.7): Seed-model validation for cropped/sparse data ──
+
+    /// Verify that `build_echelle_seeds` produces valid wavelength models when
+    /// only half the expected orders are present (simulating a cropped detector).
+    ///
+    /// The seed function for each order should still map pixel → wavelength
+    /// correctly: λ_center should satisfy the echelle equation m × λ = gc.
+    #[test]
+    fn test_echelle_seed_cropped_half_orders() {
+        let gc = 2800.0;
+        let n_pixels = 300_u32;
+        let first_physical_order = 10;
+        let order_step = -1;
+
+        // Full detector would have ~10 orders (m=10 down to m=1).
+        // Simulate a cropped detector with only the first 5.
+        let n_orders = 5;
+        let seeds = build_echelle_seeds(gc, first_physical_order, order_step, n_orders, n_pixels);
+        assert_eq!(seeds.len(), n_orders);
+
+        for (i, seed_fn) in seeds.iter().enumerate() {
+            let m = (first_physical_order + order_step * i as i32).abs().max(1) as f64;
+            let expected_center = gc / m;
+
+            // Evaluate at the midpoint pixel
+            let mid_px = f64::from(n_pixels) / 2.0;
+            let wl_mid = seed_fn(mid_px);
+
+            // The wavelength at the center pixel should be close to gc/m.
+            let err = (wl_mid - expected_center).abs();
+            assert!(
+                err < 1.0,
+                "order {i} (m={m}): seed center wavelength {wl_mid:.2}nm \
+                 should be near {expected_center:.2}nm (err={err:.4})"
+            );
+
+            // Wavelength should be monotonic across the order
+            let wl_left = seed_fn(0.0);
+            let wl_right = seed_fn(f64::from(n_pixels));
+            assert!(
+                (wl_right - wl_left).abs() > 1e-3,
+                "order {i}: seed should have nonzero dispersion"
+            );
+        }
+    }
+
+    /// Verify that the quadratic regression in Pass 2 works correctly when
+    /// calibrated orders are non-consecutive (sparse data).
+    ///
+    /// Sets up anchors at non-consecutive order indices (0, 4, 9, 14, 19)
+    /// and checks that the quadratic model interpolates reasonable m values
+    /// for the gaps.
+    #[test]
+    fn test_quadratic_regression_sparse_orders() {
+        // Simulate a real echelle: m(i) has a mild quadratic trend from
+        // the prism's Cauchy dispersion.
+        // True model: m(i) = 100 - 2*i + 0.01*i²
+        let true_m = |i: f64| -> f64 { 100.0 - 2.0 * i + 0.01 * i * i };
+
+        // Only 5 anchors at non-consecutive indices
+        let anchors: Vec<(f64, f64)> = vec![0.0, 4.0, 9.0, 14.0, 19.0]
+            .into_iter()
+            .map(|i| (i, true_m(i)))
+            .collect();
+
+        let (a, b, c) = quadratic_regression(&anchors);
+
+        // Check that the fitted model recovers m at the anchor points
+        for &(i, expected_m) in &anchors {
+            let predicted = a + b * i + c * i * i;
+            let err = (predicted - expected_m).abs();
+            assert!(
+                err < 0.01,
+                "anchor i={i}: predicted m={predicted:.4}, expected {expected_m:.4} (err={err:.6})"
+            );
+        }
+
+        // Check interpolation at non-anchor points
+        for gap_i in [2.0, 7.0, 12.0, 17.0] {
+            let predicted = a + b * gap_i + c * gap_i * gap_i;
+            let expected = true_m(gap_i);
+            let err = (predicted - expected).abs();
+            assert!(
+                err < 0.1,
+                "gap i={gap_i}: predicted m={predicted:.4}, expected {expected:.4} (err={err:.6})"
+            );
+        }
+    }
+
+    /// Verify that the quadratic regression degrades gracefully to linear
+    /// when only 2 anchor points are available (too few for quadratic).
+    #[test]
+    fn test_quadratic_regression_too_few_points_falls_back_to_linear() {
+        // With only 2 points, quadratic_regression should fall back to
+        // linear regression (c=0).
+        let anchors = vec![(0.0, 100.0), (10.0, 80.0)];
+
+        let (a, b, c) = quadratic_regression(&anchors);
+
+        // The quadratic coefficient should be zero (linear fallback)
+        assert!(
+            c.abs() < 1e-10,
+            "with 2 points, quadratic coefficient should be ~0, got {c}"
+        );
+
+        // Linear model should still interpolate correctly
+        let predicted_mid = a + b * 5.0;
+        let expected_mid = 90.0; // linear interp between 100 and 80
+        assert!(
+            (predicted_mid - expected_mid).abs() < 0.1,
+            "linear fallback: predicted {predicted_mid:.4}, expected {expected_mid:.4}"
+        );
+    }
+
+    /// Verify that `bootstrap_uncalibrated_orders` works when calibrated
+    /// orders cover only the top half of the detector (cropped scenario).
+    ///
+    /// All anchors are in indices 0..5 out of 10 total traces; the function
+    /// should still bootstrap the remaining indices 5..9.
+    #[test]
+    fn test_bootstrap_works_with_cropped_anchors() {
+        use crate::trace_fitting::OrderTrace;
+        use crate::wavelength_fitting::OrderWlSolution;
+
+        let gc = 5000.0_f64;
+        let width = 1024_u32;
+        let npx = f64::from(width);
+        let n_traces: usize = 10;
+
+        let traces: Vec<OrderTrace> = (0..n_traces)
+            .map(|i| OrderTrace {
+                trace: EchelleTraceModel::Polynomial {
+                    basis: PolynomialBasis::Monomial,
+                    coefficients: vec![20.0 + 15.0 * i as f64],
+                    domain_start: 0.0,
+                    domain_end: npx,
+                },
+                aperture_half_width: 5.0,
+                fit_rms: 0.1,
+                n_samples: 50,
+            })
+            .collect();
+
+        // Calibrated anchors only in the first half: indices 0..5
+        let anchors: [(usize, i32); 5] = [(0, 50), (1, 51), (2, 52), (3, 53), (4, 54)];
+
+        let mut order_calibrations: Vec<EchelleOrderCalibration> = Vec::new();
+        for &(idx, m) in &anchors {
+            let mf = m as f64;
+            let lambda_center = gc / mf;
+            let disp = gc / (mf * mf * npx);
+
+            order_calibrations.push(EchelleOrderCalibration {
+                relative_index: idx as u32,
+                physical_order_number: Some(m),
+                sample_start: 0,
+                sample_end: width - 1,
+                trace: traces[idx].trace.clone(),
+                wavelength: EchelleWavelengthModel::Polynomial {
+                    basis: PolynomialBasis::Monomial,
+                    coefficients: vec![lambda_center - disp * npx / 2.0, disp],
+                    domain_start: 0.0,
+                    domain_end: npx,
+                    unit: "nm".to_string(),
+                },
+                aperture_half_width_px: Some(5.0),
+                enabled: true,
+                notes: Some(format!("m={m}, anchor")),
+            });
+        }
+
+        let mut diagnostics: Vec<OrderDiagnostic> = (0..n_traces)
+            .map(|i| {
+                if let Some(&(_, m)) = anchors.iter().find(|&&(idx, _)| idx == i) {
+                    let mf = m as f64;
+                    let lambda_center = gc / mf;
+                    let disp = gc / (mf * mf * npx);
+                    OrderDiagnostic {
+                        order_index: i as u32,
+                        n_lines_detected: 10,
+                        n_lines_matched: 8,
+                        n_lines_used: 6,
+                        rms_nm: 0.01,
+                        success: true,
+                        failure_reason: None,
+                        detected_lines: vec![],
+                        wl_solution: Some(OrderWlSolution {
+                            order: i as u32,
+                            coefficients: vec![lambda_center, disp * npx / 2.0],
+                            pixel_min: 0.0,
+                            pixel_max: npx,
+                            rms_nm: 0.01,
+                            n_lines_used: 6,
+                            n_lines_total: 8,
+                        }),
+                    }
+                } else {
+                    OrderDiagnostic {
+                        order_index: i as u32,
+                        n_lines_detected: 0,
+                        n_lines_matched: 0,
+                        n_lines_used: 0,
+                        rms_nm: 0.0,
+                        success: false,
+                        failure_reason: Some("uncalibrated".to_string()),
+                        detected_lines: vec![],
+                        wl_solution: None,
+                    }
+                }
+            })
+            .collect();
+
+        let bootstrapped = bootstrap_uncalibrated_orders(
+            gc,
+            width,
+            &traces,
+            &mut order_calibrations,
+            &mut diagnostics,
+        );
+
+        // Should bootstrap at least some of the 5 uncalibrated orders
+        assert!(
+            bootstrapped > 0,
+            "should bootstrap at least one order from cropped anchors, got 0"
+        );
+
+        // All bootstrapped orders should have a physical_order_number
+        for cal in &order_calibrations {
+            assert!(
+                cal.physical_order_number.is_some(),
+                "order {} should have a physical_order_number",
+                cal.relative_index
+            );
+        }
+
+        // Bootstrapped orders should have m values that continue the sequence
+        for cal in &order_calibrations {
+            if let Some(m) = cal.physical_order_number {
+                assert!(
+                    (50..=60).contains(&m),
+                    "bootstrapped m={m} for order {} is out of expected range 50..60",
+                    cal.relative_index
+                );
+            }
+        }
+    }
+
+    /// Verify that `bootstrap_uncalibrated_orders` works with sparse
+    /// (non-consecutive) calibrated anchors scattered across the detector.
+    #[test]
+    fn test_bootstrap_works_with_sparse_anchors() {
+        use crate::trace_fitting::OrderTrace;
+        use crate::wavelength_fitting::OrderWlSolution;
+
+        let gc = 5000.0_f64;
+        let width = 1024_u32;
+        let npx = f64::from(width);
+        let n_traces: usize = 15;
+
+        let traces: Vec<OrderTrace> = (0..n_traces)
+            .map(|i| OrderTrace {
+                trace: EchelleTraceModel::Polynomial {
+                    basis: PolynomialBasis::Monomial,
+                    coefficients: vec![20.0 + 15.0 * i as f64],
+                    domain_start: 0.0,
+                    domain_end: npx,
+                },
+                aperture_half_width: 5.0,
+                fit_rms: 0.1,
+                n_samples: 50,
+            })
+            .collect();
+
+        // Sparse anchors: only every 3rd order is calibrated
+        let sparse_anchors: [(usize, i32); 5] = [(0, 80), (3, 83), (6, 86), (9, 89), (12, 92)];
+
+        let mut order_calibrations: Vec<EchelleOrderCalibration> = Vec::new();
+        for &(idx, m) in &sparse_anchors {
+            let mf = m as f64;
+            let lambda_center = gc / mf;
+            let disp = gc / (mf * mf * npx);
+
+            order_calibrations.push(EchelleOrderCalibration {
+                relative_index: idx as u32,
+                physical_order_number: Some(m),
+                sample_start: 0,
+                sample_end: width - 1,
+                trace: traces[idx].trace.clone(),
+                wavelength: EchelleWavelengthModel::Polynomial {
+                    basis: PolynomialBasis::Monomial,
+                    coefficients: vec![lambda_center - disp * npx / 2.0, disp],
+                    domain_start: 0.0,
+                    domain_end: npx,
+                    unit: "nm".to_string(),
+                },
+                aperture_half_width_px: Some(5.0),
+                enabled: true,
+                notes: Some(format!("m={m}, anchor")),
+            });
+        }
+
+        let mut diagnostics: Vec<OrderDiagnostic> = (0..n_traces)
+            .map(|i| {
+                if let Some(&(_, m)) = sparse_anchors.iter().find(|&&(idx, _)| idx == i) {
+                    let mf = m as f64;
+                    let lambda_center = gc / mf;
+                    let disp = gc / (mf * mf * npx);
+                    OrderDiagnostic {
+                        order_index: i as u32,
+                        n_lines_detected: 10,
+                        n_lines_matched: 8,
+                        n_lines_used: 6,
+                        rms_nm: 0.01,
+                        success: true,
+                        failure_reason: None,
+                        detected_lines: vec![],
+                        wl_solution: Some(OrderWlSolution {
+                            order: i as u32,
+                            coefficients: vec![lambda_center, disp * npx / 2.0],
+                            pixel_min: 0.0,
+                            pixel_max: npx,
+                            rms_nm: 0.01,
+                            n_lines_used: 6,
+                            n_lines_total: 8,
+                        }),
+                    }
+                } else {
+                    OrderDiagnostic {
+                        order_index: i as u32,
+                        n_lines_detected: 0,
+                        n_lines_matched: 0,
+                        n_lines_used: 0,
+                        rms_nm: 0.0,
+                        success: false,
+                        failure_reason: Some("uncalibrated".to_string()),
+                        detected_lines: vec![],
+                        wl_solution: None,
+                    }
+                }
+            })
+            .collect();
+
+        let bootstrapped = bootstrap_uncalibrated_orders(
+            gc,
+            width,
+            &traces,
+            &mut order_calibrations,
+            &mut diagnostics,
+        );
+
+        // Should bootstrap at least some of the 10 uncalibrated orders
+        assert!(
+            bootstrapped > 0,
+            "should bootstrap orders from sparse anchors, got 0"
+        );
+
+        // Verify the interpolated m values are reasonable: they should fill
+        // the gaps (m=81,82,84,85,87,88,90,91,93,94)
+        let mut all_m: Vec<i32> = order_calibrations
+            .iter()
+            .filter_map(|cal| cal.physical_order_number)
+            .collect();
+        all_m.sort_unstable();
+        all_m.dedup();
+
+        // With stride-1 m assignment, the gaps should be filled
+        assert!(
+            all_m.len() > sparse_anchors.len(),
+            "bootstrapping should add more m values than the {0} anchors, got {1}",
+            sparse_anchors.len(),
+            all_m.len()
+        );
+    }
+
+    /// Verify that `bootstrap_uncalibrated_orders` returns 0 when there are
+    /// too few calibrated anchors for the quadratic regression (< 3 points).
+    #[test]
+    fn test_bootstrap_graceful_with_too_few_anchors() {
+        use crate::trace_fitting::OrderTrace;
+        use crate::wavelength_fitting::OrderWlSolution;
+
+        let gc = 5000.0_f64;
+        let width = 1024_u32;
+        let npx = f64::from(width);
+        let n_traces: usize = 5;
+
+        let traces: Vec<OrderTrace> = (0..n_traces)
+            .map(|i| OrderTrace {
+                trace: EchelleTraceModel::Polynomial {
+                    basis: PolynomialBasis::Monomial,
+                    coefficients: vec![20.0 + 15.0 * i as f64],
+                    domain_start: 0.0,
+                    domain_end: npx,
+                },
+                aperture_half_width: 5.0,
+                fit_rms: 0.1,
+                n_samples: 50,
+            })
+            .collect();
+
+        // Only 2 calibrated anchors — not enough for quadratic regression
+        let anchors: [(usize, i32); 2] = [(0, 50), (1, 51)];
+
+        let mut order_calibrations: Vec<EchelleOrderCalibration> = Vec::new();
+        for &(idx, m) in &anchors {
+            let mf = m as f64;
+            let lambda_center = gc / mf;
+            let disp = gc / (mf * mf * npx);
+
+            order_calibrations.push(EchelleOrderCalibration {
+                relative_index: idx as u32,
+                physical_order_number: Some(m),
+                sample_start: 0,
+                sample_end: width - 1,
+                trace: traces[idx].trace.clone(),
+                wavelength: EchelleWavelengthModel::Polynomial {
+                    basis: PolynomialBasis::Monomial,
+                    coefficients: vec![lambda_center - disp * npx / 2.0, disp],
+                    domain_start: 0.0,
+                    domain_end: npx,
+                    unit: "nm".to_string(),
+                },
+                aperture_half_width_px: Some(5.0),
+                enabled: true,
+                notes: Some(format!("m={m}, anchor")),
+            });
+        }
+
+        let mut diagnostics: Vec<OrderDiagnostic> = (0..n_traces)
+            .map(|i| {
+                if let Some(&(_, m)) = anchors.iter().find(|&&(idx, _)| idx == i) {
+                    let mf = m as f64;
+                    let lambda_center = gc / mf;
+                    let disp = gc / (mf * mf * npx);
+                    OrderDiagnostic {
+                        order_index: i as u32,
+                        n_lines_detected: 10,
+                        n_lines_matched: 8,
+                        n_lines_used: 6,
+                        rms_nm: 0.01,
+                        success: true,
+                        failure_reason: None,
+                        detected_lines: vec![],
+                        wl_solution: Some(OrderWlSolution {
+                            order: i as u32,
+                            coefficients: vec![lambda_center, disp * npx / 2.0],
+                            pixel_min: 0.0,
+                            pixel_max: npx,
+                            rms_nm: 0.01,
+                            n_lines_used: 6,
+                            n_lines_total: 8,
+                        }),
+                    }
+                } else {
+                    OrderDiagnostic {
+                        order_index: i as u32,
+                        n_lines_detected: 0,
+                        n_lines_matched: 0,
+                        n_lines_used: 0,
+                        rms_nm: 0.0,
+                        success: false,
+                        failure_reason: Some("uncalibrated".to_string()),
+                        detected_lines: vec![],
+                        wl_solution: None,
+                    }
+                }
+            })
+            .collect();
+
+        let bootstrapped = bootstrap_uncalibrated_orders(
+            gc,
+            width,
+            &traces,
+            &mut order_calibrations,
+            &mut diagnostics,
+        );
+
+        // With only 2 anchors, bootstrap_uncalibrated_orders should bail
+        // early (needs >= 3 for quadratic regression).
+        assert_eq!(
+            bootstrapped, 0,
+            "should not bootstrap any orders with only 2 anchors"
+        );
+
+        // The 3 uncalibrated orders should remain failed
+        for (i, diag) in diagnostics.iter().enumerate().skip(2) {
+            assert!(!diag.success, "order {i} should remain uncalibrated");
+        }
+    }
 }

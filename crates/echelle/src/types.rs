@@ -2834,7 +2834,7 @@ mod tests {
         // (degree 5) and verify all coefficients survive TOML serialization
         // at full f64 precision.
         let chebyshev_coeffs = vec![
-            450.123_456_789_012_34,
+            450.123_456_789_012_3,
             0.098_765_432_109_876,
             -0.000_012_345_678_901,
             0.000_000_001_234_567,
@@ -2898,13 +2898,13 @@ mod tests {
                 chebyshev_coeffs.len(),
                 "{label}: coefficient count"
             );
+            // Bit-for-bit f64 preservation — serde serializes full precision.
             for (i, (expected, actual)) in
                 chebyshev_coeffs.iter().zip(coefficients.iter()).enumerate()
             {
-                assert!(
-                    (expected - actual).abs() < f64::EPSILON,
-                    "{label}: coeff[{i}] expected {expected}, got {actual} (diff {})",
-                    (expected - actual).abs()
+                assert_eq!(
+                    *expected, *actual,
+                    "{label}: wavelength coeff[{i}] not bit-exact"
                 );
             }
 
@@ -2916,9 +2916,9 @@ mod tests {
             } = &loaded.orders[0].trace;
             assert_eq!(*tbasis, PolynomialBasis::Chebyshev, "{label}: trace basis");
             for (i, (expected, actual)) in trace_coeffs.iter().zip(tcoeffs.iter()).enumerate() {
-                assert!(
-                    (expected - actual).abs() < f64::EPSILON,
-                    "{label}: trace coeff[{i}] expected {expected}, got {actual}"
+                assert_eq!(
+                    *expected, *actual,
+                    "{label}: trace coeff[{i}] not bit-exact"
                 );
             }
         }

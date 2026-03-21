@@ -1172,6 +1172,68 @@ pub fn chebyshev_fit_2d(
     })
 }
 
+/// Leave-one-out cross-validation RMS for a 2D Chebyshev surface fit.
+///
+/// For each data point, fits a 2D Chebyshev surface to all *other* points,
+/// predicts the held-out point's value, and accumulates the squared error.
+/// Returns the RMS of all prediction errors.
+///
+/// This validates that the surface is not overfitting: for a well-behaved
+/// fit, the LOO RMS should be close to the underlying noise level, not
+/// significantly larger.
+///
+/// Returns `f64::INFINITY` if any leave-one-out fit fails (too few points
+/// for the requested degree).
+#[must_use]
+pub fn leave_one_out_rms(points: &[(f64, f64, f64)], degree_x: usize, degree_y: usize) -> f64 {
+    let n = points.len();
+    let n_coeffs = (degree_x + 1) * (degree_y + 1);
+
+    // Need at least n_coeffs + 1 total points so that after holding one out
+    // we still have enough for the fit.
+    if n <= n_coeffs {
+        return f64::INFINITY;
+    }
+
+    // Compute normalization bounds from the full dataset.
+    let x_vals: Vec<f64> = points.iter().map(|&(x, _, _)| x).collect();
+    let y_vals: Vec<f64> = points.iter().map(|&(_, y, _)| y).collect();
+    let x_min = x_vals.iter().copied().fold(f64::INFINITY, f64::min);
+    let x_max = x_vals.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    let y_min = y_vals.iter().copied().fold(f64::INFINITY, f64::min);
+    let y_max = y_vals.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+
+    let x_center = f64::midpoint(x_min, x_max);
+    let x_scale = ((x_max - x_min) / 2.0).max(1.0);
+    let y_center = f64::midpoint(y_min, y_max);
+    let y_scale = ((y_max - y_min) / 2.0).max(1.0);
+
+    let mut sum_sq_err = 0.0;
+
+    for hold_out in 0..n {
+        // Build the leave-one-out dataset
+        let loo_data: Vec<(f64, f64, f64)> = points
+            .iter()
+            .enumerate()
+            .filter(|&(i, _)| i != hold_out)
+            .map(|(_, &p)| p)
+            .collect();
+
+        let Some(surface) = chebyshev_fit_2d(
+            &loo_data, degree_x, degree_y, x_center, x_scale, y_center, y_scale,
+        ) else {
+            return f64::INFINITY;
+        };
+
+        let predicted = surface.eval(points[hold_out].0, points[hold_out].1);
+        let err = predicted - points[hold_out].2;
+        sum_sq_err += err * err;
+    }
+
+    #[allow(clippy::cast_precision_loss)] // n is always small (data points in a calibration fit)
+    (sum_sq_err / n as f64).sqrt()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1667,5 +1729,86 @@ mod tests {
         // x²+m at (0.5, 0.3) = 0.25 + 0.3 = 0.55
         let z = surface.eval(0.5, 0.3);
         assert!((z - 0.55).abs() < 1e-6, "quadratic: got {z}, expected 0.55");
+    }
+
+    /// Leave-one-out cross-validation: synthetic 2D data with known noise.
+    ///
+    /// The true surface is z = 2x + 3y + 1.5xy, sampled on a grid with
+    /// deterministic pseudo-noise of known amplitude. The LOO RMS should
+    /// be close to the noise RMS since the model has enough capacity to
+    /// capture the underlying polynomial.
+    #[test]
+    fn test_leave_one_out_rms_matches_noise_level() {
+        let noise_amplitude = 0.05;
+        let mut points = Vec::new();
+
+        // Build a 10×10 grid of data with deterministic noise.
+        for ix in 0..10 {
+            for iy in 0..10 {
+                let x = f64::from(ix) * 100.0;
+                let y = 40.0 + f64::from(iy) * 8.0;
+                let true_val =
+                    2.0 * x / 1000.0 + 3.0 * y / 100.0 + 1.5 * (x / 1000.0) * (y / 100.0);
+                // Deterministic pseudo-noise via sin
+                let noise = noise_amplitude
+                    * ((f64::from(ix) * 7.3 + f64::from(iy) * 13.7).sin()
+                        + (f64::from(ix) * 3.1 - f64::from(iy) * 5.9).cos() * 0.5);
+                points.push((x, y, true_val + noise));
+            }
+        }
+
+        // Degree 2×2 should capture the underlying bilinear surface easily.
+        let loo_rms = leave_one_out_rms(&points, 2, 2);
+
+        // The noise RMS is roughly noise_amplitude / sqrt(2) ≈ 0.035.
+        // LOO RMS should be in the same ballpark — not orders of magnitude larger.
+        assert!(
+            loo_rms < noise_amplitude * 3.0,
+            "LOO RMS {loo_rms:.6} should be near the noise level ({noise_amplitude}), \
+             not much larger"
+        );
+        assert!(
+            loo_rms.is_finite(),
+            "LOO RMS should be finite, got {loo_rms}"
+        );
+    }
+
+    /// LOO RMS with a noiseless exact polynomial should be near zero.
+    #[test]
+    fn test_leave_one_out_rms_noiseless_is_near_zero() {
+        let mut points = Vec::new();
+        // z = x + 2*y, exact linear surface on a 6×6 grid (36 points, fitting 4 coeffs).
+        for ix in 0..6 {
+            for iy in 0..6 {
+                let x = f64::from(ix) * 200.0;
+                let y = 50.0 + f64::from(iy) * 10.0;
+                let z = x / 1000.0 + 2.0 * y / 100.0;
+                points.push((x, y, z));
+            }
+        }
+
+        let loo_rms = leave_one_out_rms(&points, 1, 1);
+        assert!(
+            loo_rms < 1e-10,
+            "noiseless linear data should give LOO RMS near zero, got {loo_rms}"
+        );
+    }
+
+    /// LOO RMS returns infinity when there are too few points.
+    #[test]
+    fn test_leave_one_out_rms_too_few_points() {
+        // degree 2×2 → 9 coefficients, need at least 10 points
+        let points: Vec<(f64, f64, f64)> = (0..9)
+            .map(|i| {
+                let x = f64::from(i);
+                (x, x, x * x)
+            })
+            .collect();
+
+        let loo_rms = leave_one_out_rms(&points, 2, 2);
+        assert!(
+            loo_rms.is_infinite(),
+            "should return infinity for too few points, got {loo_rms}"
+        );
     }
 }

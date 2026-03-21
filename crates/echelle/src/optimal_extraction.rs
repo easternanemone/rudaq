@@ -61,7 +61,7 @@ impl OptimalExtractionConfig {
     /// Preset for Andor iStar ICCD (Gen III filmless MCP).
     ///
     /// Uses F = 1.6 (manufacturer-reported excess noise factor for Gen III MCP),
-    /// read noise = 20 e⁻ (CCD after intensifier), and gain = 1.0 ADU/e⁻.
+    /// read noise = 20 e⁻ (CCD after intensifier), and gain = 1.0 e⁻/ADU.
     /// Adjust gain based on actual MCP gain setting.
     pub fn istar_iccd() -> Self {
         Self {
