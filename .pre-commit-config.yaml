@@ -48,7 +48,7 @@ repos:
     hooks:
       - id: doc-drift-check
         name: doc drift check
-        entry: ./scripts/check-doc-drift.sh
+        entry: ./scripts/hygiene/check-doc-drift.sh
         language: script
         types: [markdown]
         pass_filenames: false
@@ -121,7 +121,7 @@ repos:
 
       - id: target-size-check
         name: target/ size check
-        entry: bash -c 'if [ -d target ]; then size_kb=$(du -sk target | awk "{print \$1}"); threshold_kb=$((20 * 1024 * 1024)); if [ "$size_kb" -gt "$threshold_kb" ]; then size_human=$(du -sh target | awk "{print \$1}"); echo "WARNING: target/ is $size_human (>20GiB). Run: scripts/target-maintenance.sh"; fi; fi'
+        entry: bash -c 'if [ -d target ]; then size_kb=$(du -sk target | awk "{print \$1}"); threshold_kb=$((20 * 1024 * 1024)); if [ "$size_kb" -gt "$threshold_kb" ]; then size_human=$(du -sh target | awk "{print \$1}"); echo "WARNING: target/ is $size_human (>20GiB). Run: scripts/hygiene/target-maintenance.sh"; fi; fi'
         language: system
         always_run: true
         pass_filenames: false

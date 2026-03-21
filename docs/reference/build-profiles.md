@@ -79,9 +79,9 @@ The primary quality gate, run on every PR and push to `main`.
 | Unit + integration tests | `cargo nextest run --workspace --profile ci --exclude ui --exclude comedi-sys --exclude driver-comedi` |
 | Ring buffer benchmark | `cargo nextest run -p storage bench_ring_buffer_write_throughput --profile ci` |
 | Performance regression gate | `python3 scripts/check-benchmark-regressions.py` |
-| Dependency hygiene + SBOM | `bash scripts/check-dependency-hygiene.sh` |
+| Dependency hygiene + SBOM | `bash scripts/hygiene/check-dependency-hygiene.sh` |
 
-**Pre-push hook parity:** `scripts/pre-push-gate.sh` mirrors the first three steps locally.
+**Pre-push hook parity:** `scripts/ci/pre-push-gate.sh` mirrors the first three steps locally.
 
 **Nextest profile:** `ci` (3 retries, 60s slow-timeout, no fail-fast). Defined in `.config/nextest.toml`.
 
@@ -107,7 +107,7 @@ Tests optional feature combinations that are not part of the default build. Each
 
 **Feature powerset** (cargo-hack): `common`, `storage`, `driver-registry`, `pool`, `experiment` -- each checked with `--feature-powerset --no-dev-deps`. FFI features and `storage_hdf5` are skipped (require native SDKs).
 
-**Local parity:** `bash scripts/feature-check.sh` runs the powerset checks. Use `bash scripts/feature-check.sh common --quick` for a fast single-crate check.
+**Local parity:** `bash scripts/ci/feature-check.sh` runs the powerset checks. Use `bash scripts/ci/feature-check.sh common --quick` for a fast single-crate check.
 
 **CI mapping:** `feature-matrix.yml` -- runs on PRs (non-docs paths) and pushes to `main`.
 
@@ -131,13 +131,13 @@ Serial/SCPI devices (ELL14, ESP300, MaiTai laser, 1830-C) use `driver-universal`
 **Commands:**
 ```bash
 # Recommended: use the build script (handles env, clean, features)
-bash scripts/build-maitai.sh
+bash scripts/ops/build-maitai.sh
 
 # Full deploy (pull, build, daemon, GUI):
-bash scripts/deploy-maitai.sh
+bash scripts/deploy/deploy-maitai.sh
 
 # Deploy a feature branch:
-bash scripts/deploy-maitai.sh --branch feat/my-feature --with-db
+bash scripts/deploy/deploy-maitai.sh --branch feat/my-feature --with-db
 ```
 
 **CI mapping:** `nightly-hardware-smoke.yml` (scheduled daily + manual dispatch). Deploys to maitai-eos, runs gRPC hardware smoke validation. `hardware-tailscale.yml` provides SSH connectivity checks.
@@ -160,13 +160,13 @@ Serial/SCPI devices (IPG laser, Thorlabs PM400) use `driver-universal` TOML mani
 **Commands:**
 ```bash
 # Full deploy (pull, build, daemon, GUI):
-bash scripts/deploy-leabs.sh
+bash scripts/deploy/deploy-leabs.sh
 
 # With WASM GUI:
-bash scripts/deploy-leabs.sh --wasm-gui
+bash scripts/deploy/deploy-leabs.sh --wasm-gui
 
 # Deploy a feature branch:
-bash scripts/deploy-leabs.sh --branch feat/my-feature
+bash scripts/deploy/deploy-leabs.sh --branch feat/my-feature
 ```
 
 **CI mapping:** `nightly-hardware-smoke.yml` (scheduled daily + manual dispatch). Deploys to leabs-dev, runs gRPC hardware smoke validation.
@@ -208,7 +208,7 @@ Tests that require physical devices. Gated by `#[cfg(feature = "hardware_tests")
 **Commands:**
 ```bash
 # On maitai:
-source scripts/env-check.sh
+source scripts/ops/env-check.sh
 cargo nextest run --profile hardware --features hardware_tests
 
 # Specific driver:
@@ -227,7 +227,7 @@ Runs the daemon with mock hardware for demonstration and local testing. No hardw
 
 **Commands:**
 ```bash
-bash scripts/demo.sh
+bash scripts/ops/demo.sh
 ```
 
 The script builds the daemon, starts it with `config/demo.toml`, and offers options to run a scripted scan, launch the GUI, or keep the daemon running for manual interaction.

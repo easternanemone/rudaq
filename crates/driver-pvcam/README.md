@@ -133,9 +133,9 @@ For deeper setup and debugging, see [PVCAM Setup & Troubleshooting](../../docs/h
 Use the helper to run upstream SDK binaries on the hardware host (defaults to `maitai@100.117.5.12`):
 
 ```bash
-scripts/pvcam_sdk_examples.sh LiveImage
-scripts/pvcam_sdk_examples.sh LiveImage_SmartStreaming
-TIMEOUT_SECONDS=20 scripts/pvcam_sdk_examples.sh FastStreamingToDisk
+scripts/ops/pvcam_sdk_examples.sh LiveImage
+scripts/ops/pvcam_sdk_examples.sh LiveImage_SmartStreaming
+TIMEOUT_SECONDS=20 scripts/ops/pvcam_sdk_examples.sh FastStreamingToDisk
 ```
 
 The helper applies the required env vars and runs binaries from `/opt/pvcam/sdk/examples/code_samples/bin/linux-x86_64/release`.
@@ -169,4 +169,4 @@ Notes:
 
 ## Examples
 
-- SDK reference binaries: run via `scripts/pvcam_sdk_examples.sh` (see above) when comparing driver behavior to the vendor samples.
+- SDK reference binaries: run via `scripts/ops/pvcam_sdk_examples.sh` (see above) when comparing driver behavior to the vendor samples.

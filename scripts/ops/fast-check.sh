@@ -3,7 +3,7 @@
 # fast-check.sh — Quick developer smoke test (convenience, NOT a gate)
 #
 # Use this for fast iteration feedback during development.
-# For the canonical pre-push quality gate, use: scripts/pre-push-gate.sh
+# For the canonical pre-push quality gate, use: scripts/ci/pre-push-gate.sh
 #
 # Differences from pre-push-gate.sh:
 #   - Runs cargo check instead of clippy (faster, no lint)

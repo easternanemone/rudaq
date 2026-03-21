@@ -217,7 +217,7 @@ cargo build -p bin --features "full,storage_hdf5"
 #### Maitai Hardware Build
 ```bash
 # Use build script for real hardware (CRITICAL: full clean + all drivers)
-bash scripts/build-maitai.sh
+bash scripts/ops/build-maitai.sh
 
 # Verify: daemon log should show the expected hardware profile loading
 # including camera, laser, power meter, rotators, motion, and DAQ devices
@@ -345,7 +345,7 @@ cargo nextest run --profile ci
 cargo test --doc
 
 # Run hardware tests (requires real hardware + maitai environment)
-source scripts/env-check.sh && cargo nextest run --features hardware_tests
+source scripts/ops/env-check.sh && cargo nextest run --features hardware_tests
 ```
 
 See [Testing Guide](docs/how-to/testing.md) for comprehensive testing documentation.
@@ -477,8 +477,8 @@ See [Plugin Quick Start](docs/how-to/plugins.md).
 cargo build -p bin --features ?
 
 # Use env-check.sh on maitai
-source scripts/env-check.sh
-bash scripts/build-maitai.sh
+source scripts/ops/env-check.sh
+bash scripts/ops/build-maitai.sh
 ```
 
 ### Local Target Cache Maintenance
@@ -488,19 +488,19 @@ switches, use the maintenance scripts:
 
 ```bash
 # Run immediately (full cleanup when target >= 30 GiB by default)
-bash scripts/target-maintenance.sh
+bash scripts/hygiene/target-maintenance.sh
 
 # Force cleanup now
-bash scripts/target-maintenance.sh --force --mode full
+bash scripts/hygiene/target-maintenance.sh --force --mode full
 
 # Install periodic cleanup (weekly, local machine only)
-bash scripts/install-target-maintenance.sh
+bash scripts/hygiene/install-target-maintenance.sh
 
 # Optional: lighter partial mode
-bash scripts/install-target-maintenance.sh --mode partial --threshold-gb 20
+bash scripts/hygiene/install-target-maintenance.sh --mode partial --threshold-gb 20
 
 # Uninstall scheduled cleanup
-bash scripts/install-target-maintenance.sh --uninstall
+bash scripts/hygiene/install-target-maintenance.sh --uninstall
 ```
 
 ### Hardware Not Detected

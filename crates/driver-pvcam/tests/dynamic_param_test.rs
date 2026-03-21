@@ -17,7 +17,7 @@
 //! cargo nextest run -p driver-pvcam --test dynamic_param_test
 //!
 //! # Hardware mode (on maitai)
-//! source scripts/env-check.sh
+//! source scripts/ops/env-check.sh
 //! export PVCAM_SMOKE_TEST=1
 //! cargo nextest run -p driver-pvcam --test dynamic_param_test --features "pvcam_sdk,hardware_tests"
 //! ```

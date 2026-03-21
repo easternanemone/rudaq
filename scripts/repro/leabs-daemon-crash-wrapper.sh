@@ -12,7 +12,7 @@
 # Example (run on leabs-dev inside repo):
 #   source "$HOME/.cargo/env"
 #   source config/hosts/leabs-dev.env
-#   nohup bash scripts/leabs-daemon-crash-wrapper.sh \
+#   nohup bash scripts/repro/leabs-daemon-crash-wrapper.sh \
 #     --capture-root /tmp/rust-daq-daemon-crash \
 #     --label istar_stream_repro \
 #     -- ./target/release/rust-daq-daemon daemon --port 50051 \

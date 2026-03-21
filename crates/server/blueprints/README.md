@@ -17,7 +17,7 @@ export RERUN_BLUEPRINT=none
 Run the helper script (creates a local venv and installs rerun-sdk):
 
 ```
-scripts/regenerate_blueprints.sh
+scripts/ops/regenerate_blueprints.sh
 ```
 
 Outputs:

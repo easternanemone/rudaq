@@ -89,7 +89,7 @@ production = ["db-surreal-rocksdb", "modules", "all_hardware"]
 # This feature flag enables ALL real hardware on the maitai machine.
 # CRITICAL: This must include EVERY hardware driver, not just PVCAM!
 #
-# Build command: bash scripts/build-maitai.sh
+# Build command: bash scripts/ops/build-maitai.sh
 # or manually: cargo build --release -p bin --features maitai
 #
 # Enabled drivers:
@@ -116,7 +116,7 @@ maitai = [
 # LEABS LAB PROFILE - LASER ENERGY ASSISTED BREAKDOWN SPECTROSCOPY
 # ============================================================================
 # Build (mock):     cargo build --release -p bin --features leabs
-# Build (hardware): bash scripts/deploy-leabs.sh
+# Build (hardware): bash scripts/deploy/deploy-leabs.sh
 #   or on leabs-dev: source config/hosts/leabs-dev.env && cargo build --release -p bin --features leabs_hardware
 #
 # Enabled drivers:

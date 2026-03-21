@@ -19,7 +19,7 @@ fn print_env_error(title: &str, details: &[&str], fixes: &[&str]) {
     }
     eprintln!("╠══════════════════════════════════════════════════════════════════╣");
     eprintln!("║ Quick setup on maitai:                                           ║");
-    eprintln!("║   source scripts/env-check.sh                                    ║");
+    eprintln!("║   source scripts/ops/env-check.sh                                    ║");
     eprintln!("╚══════════════════════════════════════════════════════════════════╝");
     eprintln!();
 }
@@ -112,7 +112,7 @@ fn main() {
                         ],
                         &[
                             "export PVCAM_SDK_DIR=/opt/pvcam/sdk",
-                            "Or run: source scripts/env-check.sh",
+                            "Or run: source scripts/ops/env-check.sh",
                         ],
                     );
                     panic!("PVCAM_SDK_DIR environment variable must be set when `pvcam-sdk` feature is enabled.");

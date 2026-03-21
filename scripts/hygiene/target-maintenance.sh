@@ -2,9 +2,9 @@
 # Periodic target/ cleanup helper to keep local disk usage under control.
 #
 # Usage examples:
-#   scripts/target-maintenance.sh
-#   scripts/target-maintenance.sh --mode partial --threshold-gb 20
-#   scripts/target-maintenance.sh --force --mode full
+#   scripts/hygiene/target-maintenance.sh
+#   scripts/hygiene/target-maintenance.sh --mode partial --threshold-gb 20
+#   scripts/hygiene/target-maintenance.sh --force --mode full
 
 set -euo pipefail
 
@@ -15,7 +15,7 @@ DRY_RUN=false
 
 usage() {
   cat <<'EOF'
-Usage: scripts/target-maintenance.sh [options]
+Usage: scripts/hygiene/target-maintenance.sh [options]
 
 Options:
   --mode <full|partial>    Cleanup mode (default: full)

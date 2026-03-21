@@ -13,13 +13,13 @@
 #
 # Invocation paths:
 #   - Automatic: .beads/hooks/pre-push calls this script
-#   - Manual:    bash scripts/pre-push-gate.sh
+#   - Manual:    bash scripts/ci/pre-push-gate.sh
 #
 # Related but NOT overlapping:
 #   - .pre-commit-config.yaml  — pre-COMMIT hooks (fmt, ast-grep, fast unit tests)
 #   - .pre-commit-quick.yaml   — lightweight pre-commit (fmt + ast-grep only)
-#   - scripts/fast-check.sh    — quick developer smoke test (check + test + doctest)
-#   - scripts/install-hooks.sh — one-time setup to wire hooks into place
+#   - scripts/ops/fast-check.sh    — quick developer smoke test (check + test + doctest)
+#   - scripts/ops/install-hooks.sh — one-time setup to wire hooks into place
 #
 # Exit code 0 = all checks passed, nonzero = push blocked.
 

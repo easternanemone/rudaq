@@ -38,7 +38,7 @@ cargo build
 cargo build --all-features
 
 # IMPORTANT: For real hardware on maitai, use the build script:
-# bash scripts/build-maitai.sh
+# bash scripts/ops/build-maitai.sh
 # See CLAUDE.md for details — plain `cargo build` produces mock-mode binaries.
 ```
 

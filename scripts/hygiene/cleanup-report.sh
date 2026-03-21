@@ -55,22 +55,22 @@ fi
 
 section "Documentation Drift"
 
-if [ -x scripts/check-doc-drift.sh ]; then
+if [ -x scripts/hygiene/check-doc-drift.sh ]; then
     echo "--- check-doc-drift.sh ---"
-    bash scripts/check-doc-drift.sh 2>&1 | sed 's/^/  /'
+    bash scripts/hygiene/check-doc-drift.sh 2>&1 | sed 's/^/  /'
     echo "  Exit code: $?"
 else
-    echo "  scripts/check-doc-drift.sh not found or not executable — skipping."
+    echo "  scripts/hygiene/check-doc-drift.sh not found or not executable — skipping."
 fi
 
 echo ""
 
-if [ -x scripts/check-inventory-drift.sh ]; then
+if [ -x scripts/hygiene/check-inventory-drift.sh ]; then
     echo "--- check-inventory-drift.sh ---"
-    bash scripts/check-inventory-drift.sh 2>&1 | sed 's/^/  /'
+    bash scripts/hygiene/check-inventory-drift.sh 2>&1 | sed 's/^/  /'
     echo "  Exit code: $?"
 else
-    echo "  scripts/check-inventory-drift.sh not found or not executable — skipping."
+    echo "  scripts/hygiene/check-inventory-drift.sh not found or not executable — skipping."
 fi
 
 # ---------------------------------------------------------------------------

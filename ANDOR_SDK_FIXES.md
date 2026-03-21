@@ -122,8 +122,8 @@ When adding a new entry, include:
   - `/Users/briansquires/.codex/worktrees/5385/rust-daq/ANDOR_SDK_FIXES.md` (this entry; includes exact observed kernel message text)
   - `journalctl` on `leabs-dev` (`2026-02-26 21:09:59`) showing `general protection fault` in `rust-daq-daemon`
   - `/tmp/rust-daq-daemon.log` on `leabs-dev` (startup-only log with no Rust panic output)
-  - `/Users/briansquires/.codex/worktrees/5385/rust-daq/scripts/leabs-daemon-crash-wrapper.sh` (wrapped daemon crash-capture harness)
-  - `/Users/briansquires/.codex/worktrees/5385/rust-daq/scripts/repro-istar-stream-crash.sh` (local repro driver with health polling + artifact collection)
+  - `/Users/briansquires/.codex/worktrees/5385/rust-daq/scripts/repro/leabs-daemon-crash-wrapper.sh` (wrapped daemon crash-capture harness)
+  - `/Users/briansquires/.codex/worktrees/5385/rust-daq/scripts/repro/repro-istar-stream-crash.sh` (local repro driver with health polling + artifact collection)
 
 ## Notes
 

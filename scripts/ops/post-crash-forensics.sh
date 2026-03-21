@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Collect diagnostic information after a rust-daq-daemon crash has already happened.
-# Complementary to `scripts/leabs-daemon-crash-wrapper.sh` (which wraps a live
+# Complementary to `scripts/repro/leabs-daemon-crash-wrapper.sh` (which wraps a live
 # daemon process to capture artifacts at crash-time). This script is run manually
 # after discovering a crash — it vacuums up system state, journal excerpts,
 # core dump metadata, network state, and deployment info into a single timestamped
@@ -10,9 +10,9 @@
 # best-effort (`|| true`) so the script never fails on missing commands.
 #
 # Examples:
-#   bash scripts/post-crash-forensics.sh
-#   bash scripts/post-crash-forensics.sh --since "2h ago" --output-dir /data/crashes
-#   bash scripts/post-crash-forensics.sh --service-name rust-daq-daemon
+#   bash scripts/ops/post-crash-forensics.sh
+#   bash scripts/ops/post-crash-forensics.sh --since "2h ago" --output-dir /data/crashes
+#   bash scripts/ops/post-crash-forensics.sh --service-name rust-daq-daemon
 
 set -euo pipefail
 

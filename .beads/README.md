@@ -37,7 +37,7 @@ In git worktrees, use the canonical DB wrapper to avoid stale local `.beads` dri
 ```bash
 scripts/bd-safe.sh where --json
 scripts/bd-safe.sh ready --json
-scripts/beads-worktree-hygiene.sh status
+scripts/hygiene/beads-worktree-hygiene.sh status
 ```
 
 In `rust-daq`, bead state is pushed to BeadHub through `bdh`'s sync endpoint.

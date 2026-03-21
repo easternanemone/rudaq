@@ -7,7 +7,7 @@
 # Usage:
 #   source scripts/ops/env-check.sh       # Validate AND set up environment
 #   ./scripts/ops/env-check.sh --check   # Validate only (no modification)
-#   ./scripts/env-check.sh --help        # Show help
+#   ./scripts/ops/env-check.sh --help        # Show help
 #
 # Exit codes:
 #   0 - All checks passed (or environment was set up successfully)
@@ -50,18 +50,18 @@ show_help() {
 rust-daq Environment Validation Script
 
 USAGE:
-    source scripts/env-check.sh     # Validate AND set up environment (recommended)
-    ./scripts/env-check.sh --check  # Validate only, don't modify environment
-    ./scripts/env-check.sh --help   # Show this help
+    source scripts/ops/env-check.sh     # Validate AND set up environment (recommended)
+    ./scripts/ops/env-check.sh --check  # Validate only, don't modify environment
+    ./scripts/ops/env-check.sh --help   # Show this help
 
 MODES:
-    Sourced mode (source scripts/env-check.sh):
+    Sourced mode (source scripts/ops/env-check.sh):
         - Validates all environment requirements
         - Sets missing environment variables to defaults
         - Sources /etc/profile.d/pvcam.sh if available
         - Ready to build immediately after
 
-    Check-only mode (./scripts/env-check.sh --check):
+    Check-only mode (./scripts/ops/env-check.sh --check):
         - Validates all environment requirements
         - Reports issues but doesn't modify environment
         - Returns exit code 0 (success) or 1 (errors)
@@ -84,13 +84,13 @@ ENVIRONMENT VARIABLES:
 
 EXAMPLES:
     # Set up environment and build
-    source scripts/env-check.sh && cargo build --features pvcam_sdk
+    source scripts/ops/env-check.sh && cargo build --features pvcam_sdk
 
     # Validate before running tests
-    source scripts/env-check.sh && cargo test --features hardware_tests
+    source scripts/ops/env-check.sh && cargo test --features hardware_tests
 
     # CI/pre-commit validation
-    ./scripts/env-check.sh --check || exit 1
+    ./scripts/ops/env-check.sh --check || exit 1
 
 EOF
     exit 0

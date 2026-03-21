@@ -147,11 +147,11 @@ ensure_tunnel() {
 
 install_remote_wrapper() {
   log "Installing crash wrapper on remote"
-  scp -q "$REMOTE_WRAPPER" "${SSH_HOST}:${REMOTE_DIR}/scripts/leabs-daemon-crash-wrapper.sh"
+  scp -q "$REMOTE_WRAPPER" "${SSH_HOST}:${REMOTE_DIR}/scripts/repro/leabs-daemon-crash-wrapper.sh"
   ssh_remote bash -s -- "$REMOTE_DIR" <<'EOS'
 set -euo pipefail
 remote_dir="$1"
-chmod +x "${remote_dir}/scripts/leabs-daemon-crash-wrapper.sh"
+chmod +x "${remote_dir}/scripts/repro/leabs-daemon-crash-wrapper.sh"
 EOS
 }
 
@@ -208,7 +208,7 @@ daemon_cmd=(
 source "$HOME/.cargo/env"
 cd "$remote_dir"
 source "$env_file"
-setsid -f bash scripts/leabs-daemon-crash-wrapper.sh \
+setsid -f bash scripts/repro/leabs-daemon-crash-wrapper.sh \
   --capture-root "$capture_root" \
   --label watchdog \
   -- "${daemon_cmd[@]}" \

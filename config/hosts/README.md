@@ -17,7 +17,7 @@ cargo test --features hardware_tests
 
 ### Automatic Detection
 
-The `scripts/env-check.sh` script will auto-detect common configurations.
+The `scripts/ops/env-check.sh` script will auto-detect common configurations.
 For automatic loading on every shell session, source from your shell profile:
 
 ```bash

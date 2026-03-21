@@ -35,7 +35,7 @@ The project is a Rust workspace with 26 crates organized into layers:
 ### Building
 - **Mock Mode (Development)**: `cargo build -p bin`
 - **GUI**: `cargo build -p ui --release`
-- **Maitai Hardware (Production)**: `bash scripts/build-maitai.sh` (Required for real hardware to ensure feature flags and environment are correct).
+- **Maitai Hardware (Production)**: `bash scripts/ops/build-maitai.sh` (Required for real hardware to ensure feature flags and environment are correct).
 
 ### Running
 See [Project Inventory](docs/reference/inventory.md) for canonical binaries and config paths.
@@ -48,7 +48,7 @@ See [Project Inventory](docs/reference/inventory.md) for canonical binaries and 
 ### Testing
 - **Test Runner**: `cargo nextest run` (Parallel execution)
 - **Doc Tests**: `cargo test --doc`
-- **Hardware Tests**: Requires `maitai` features and environment: `source scripts/env-check.sh && cargo nextest run --features hardware_tests`
+- **Hardware Tests**: Requires `maitai` features and environment: `source scripts/ops/env-check.sh && cargo nextest run --features hardware_tests`
 
 ---
 
@@ -86,4 +86,4 @@ See [Project Inventory](docs/reference/inventory.md) for canonical binaries and 
 2.  **Consult `CLAUDE.md`** for project-specific fast-start commands.
 3.  **Respect Feature Flags**: Do not assume all hardware drivers are available; check `Cargo.toml` or `config/feature_flags.toml`.
 4.  **Verification**: After significant changes, run `cargo nextest run` and `cargo clippy`.
-5.  **Maitai Builds**: Always remind the user to use `scripts/build-maitai.sh` when working with real hardware.
+5.  **Maitai Builds**: Always remind the user to use `scripts/ops/build-maitai.sh` when working with real hardware.

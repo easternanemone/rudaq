@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Helper: run PVCAM SDK example binaries on the maitai host with correct env.
-# Usage: scripts/pvcam_sdk_examples.sh [ExampleBinary] [args...]
+# Usage: scripts/ops/pvcam_sdk_examples.sh [ExampleBinary] [args...]
 # Env: PVCAM_HOST (default maitai@maitai-eos), TIMEOUT_SECONDS (default 12)
 
 HOST="${PVCAM_HOST:-maitai@maitai-eos}"

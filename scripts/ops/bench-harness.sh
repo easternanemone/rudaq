@@ -24,10 +24,10 @@ echo ""
 
 echo "[4/4] Measuring Mock Daemon Startup Latency..."
 # Use our standalone measurement script for mock mode
-if [ -x "scripts/measure-startup.sh" ]; then
-    ./scripts/measure-startup.sh mock | grep -E "Ready in|Registrations|Database" || true
+if [ -x "scripts/ops/measure-startup.sh" ]; then
+    ./scripts/ops/measure-startup.sh mock | grep -E "Ready in|Registrations|Database" || true
 else
-    echo "Warning: scripts/measure-startup.sh not found."
+    echo "Warning: scripts/ops/measure-startup.sh not found."
 fi
 
 echo "=========================================================="
