@@ -953,7 +953,7 @@ impl NiDaqService for NiDaqServiceImpl {
                     s.get_value(&pin.to_string()).await
                 })
                 .await?;
-            let value = u32::from(json_value.as_bool().unwrap_or(false));
+            let value = json_value.as_bool().unwrap_or(false);
 
             Ok(Response::new(ReadDigitalIoResponse {
                 success: true,
