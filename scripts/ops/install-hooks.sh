@@ -9,12 +9,12 @@
 #
 # Hook architecture:
 #   - core.hooksPath = .beads/hooks (managed by beads, tracked in git)
-#   - pre-commit: beads export → pre-commit framework (fmt/lint) → ast-grep
-#   - pre-push:   beads sync check → quality gate (fmt + clippy + tests)
+#   - pre-commit: beads export -> pre-commit framework (fmt/lint) -> ast-grep
+#   - pre-push:   beads sync check -> CANONICAL quality gate (fmt + clippy + tests)
 #   - post-merge/post-checkout/prepare-commit-msg: beads only
 #
-# The pre-push quality gate mirrors CI to prevent push failures.
-# See scripts/ci/pre-push-gate.sh for the quality gate implementation.
+# The CANONICAL quality gate is scripts/ci/pre-push-gate.sh. It mirrors the
+# `validate` job in .github/workflows/ci.yml so failures are caught locally.
 
 set -e
 

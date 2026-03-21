@@ -45,6 +45,8 @@ rust_depr_test*
 
 # Backups and Temp
 *.toml.backup
+config/*_local.toml
+config/*_test.toml
 check_output.txt
 test_compile_output.txt
 

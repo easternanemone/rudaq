@@ -1,8 +1,25 @@
 #!/usr/bin/env bash
-# pre-push-gate.sh — Quality gate that mirrors CI checks
+# pre-push-gate.sh — CANONICAL quality gate (mirrors CI)
 #
-# Runs: cargo fmt --check, cargo clippy -D warnings, cargo nextest run
-# Called by the composite pre-push hook in .beads/hooks/pre-push
+# This is the ONE script that gates pushes. It mirrors the `validate` job
+# in .github/workflows/ci.yml so that failures are caught locally before
+# hitting CI.
+#
+# Checks (in order):
+#   1. cargo fmt --check
+#   2. mdBook docs build (if mdbook is installed)
+#   3. cargo clippy (workspace, -D warnings, excluding ui/comedi)
+#   4. cargo nextest run (workspace, excluding ui)
+#
+# Invocation paths:
+#   - Automatic: .beads/hooks/pre-push calls this script
+#   - Manual:    bash scripts/pre-push-gate.sh
+#
+# Related but NOT overlapping:
+#   - .pre-commit-config.yaml  — pre-COMMIT hooks (fmt, ast-grep, fast unit tests)
+#   - .pre-commit-quick.yaml   — lightweight pre-commit (fmt + ast-grep only)
+#   - scripts/fast-check.sh    — quick developer smoke test (check + test + doctest)
+#   - scripts/install-hooks.sh — one-time setup to wire hooks into place
 #
 # Exit code 0 = all checks passed, nonzero = push blocked.
 
