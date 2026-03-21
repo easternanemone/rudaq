@@ -181,7 +181,7 @@ registry.register_from_config(DeviceConfig { id, name, driver: DriverConfig { ty
 
 **Worktree safety**: Use `bd worktree create/remove` for managed worktrees. Fallback: `bash scripts/bd-safe.sh ...`.
 
-**Code search**: Primary tool is `grepai search "query" --json --compact`. Trace calls with `grepai trace callers/callees "Symbol" --json`. Fall back to `rg`/`grep` if grepai is unavailable.
+**Code search**: Primary tool is `colgrep`. Use semantic search first (`colgrep "<query>" -k 25`) and narrow with include/exclude patterns as needed. Fall back to `rg` for exact text matches or when `colgrep` is unavailable.
 
 **Structural search**: `sg` (ast-grep) for AST-aware code patterns. E.g., `sg -p '$EXPR.unwrap()' --lang rust`.
 
@@ -196,7 +196,7 @@ Claude Code can directly interact with real DAQ hardware through the WASM GUI in
 | Machine | SSH | Daemon URL | Devices |
 |---------|-----|-----------|---------|
 | **maitai** | `maitai@100.117.5.12` | `http://100.117.5.12:50051` | 12 (PVCAM, Comedi, ELL14 x3, MaiTai, ESP300, Newport PM) |
-| **leabs-dev** | `ssh leabs-dev` | `http://10.0.0.40:50051` | 3 (Andor iStar, IPG YLPP-200, Thorlabs PM400) |
+| **leabs-dev** | `ssh leabs-dev` | `http://100.109.21.118:50051` | 3 (Andor iStar, IPG YLPP-200, Thorlabs PM400) |
 
 WASM GUI: `http://100.117.5.12:8080` (maitai) or `http://100.109.21.118:8080` (leabs-dev, requires `--wasm-gui` deploy flag). Known reconnect bug (beefcake-48ad): must reload page to change daemon URL.
 
@@ -264,13 +264,13 @@ pub fn set_page_title(title: &str) {
 | Script | Purpose |
 |--------|---------|
 | `scripts/deploy-maitai.sh` | Full deploy to maitai (pull, clean, build, daemon, GUI) |
-| `scripts/deploy-leabs.sh` | Full deploy to leabs-dev (pull, build, daemon, GUI). Use `--wasm-gui` to build+serve WASM GUI on leabs-dev:8080 |
+| `scripts/deploy-leabs.sh` | Full deploy to leabs-dev (single-command remote checkout+pull+build, daemon restart, optional GUI). Use `--wasm-gui` to build+serve WASM GUI on leabs-dev:8080 |
 | `scripts/build-maitai.sh` | Full hardware build for maitai machine |
 | `scripts/build-lab.sh [--release]` | Build daemon with pvcam_sdk for lab |
 | `scripts/demo.sh` | Mock-hardware demo (daemon + GUI/script) |
 | `scripts/env-check.sh` | Source before hardware tests |
 | `scripts/install-hooks.sh [quick]` | Pre-commit hooks (full or format-only) |
-| `scripts/pre-push-gate.sh` | Pre-commit/push quality gate |
+| `scripts/pre-push-gate.sh` | Pre-push quality gate (fmt, optional mdBook build, clippy, tests) |
 | `scripts/install-service.sh` | Install daemon as systemd service |
 | `scripts/calibrate-comedi.sh` | Comedi DAQ calibration |
 | `scripts/leabs-daemon-watchdog.sh` | Leabs daemon health monitor |
@@ -345,7 +345,7 @@ bash scripts/istar-stream-overnight-matrix.sh --hours 10 --batch-size 6       # 
 - Driver guide: `docs/how-to/hardware-drivers.md`
 - Echelle calibration config: `config/calibration/mechelle_5000.toml`
 - Build config: `.cargo/config.toml`
-- Custom commands: `.claude/commands/`
+- Prompt bundles: `.prompts/`
 
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:b9766037 -->
 ## Beads Issue Tracker
