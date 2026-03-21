@@ -301,6 +301,7 @@ impl ImageViewerPanel {
                 }
                 Err(err) => {
                     self.echelle_extract_errors = self.echelle_extract_errors.saturating_add(1);
+                    self.echelle_preview = None;
                     self.echelle_preview_error = Some(err);
                 }
             }

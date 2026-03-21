@@ -175,7 +175,6 @@ impl ImageViewerPanel {
         };
 
         let mut plot = Plot::new(plot_id)
-            .auto_bounds(egui::Vec2b::FALSE)
             .allow_scroll(false)
             .allow_drag(true)
             .allow_zoom(true)
@@ -455,7 +454,6 @@ impl ImageViewerPanel {
 
         Plot::new("image_viewer_echelle_preview_plot")
             .height(180.0)
-            .auto_bounds(egui::Vec2b::FALSE)
             .allow_scroll(false)
             .allow_drag(true)
             .allow_zoom(true)
