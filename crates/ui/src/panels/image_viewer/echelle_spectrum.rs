@@ -230,7 +230,9 @@ impl ImageViewerPanel {
         }
 
         let response = plot.show(ui, |plot_ui| {
-            // When Y is locked, restore saved bounds to override auto-scaling
+            plot_ui.line(line);
+            // AFTER line(): restore saved Y bounds to override auto-scaling.
+            // Must come after line() because line() expands bounds to fit data.
             if y_locked {
                 if let Some((y_min, y_max)) = saved_y {
                     let current = plot_ui.plot_bounds();
@@ -240,7 +242,6 @@ impl ImageViewerPanel {
                     ));
                 }
             }
-            plot_ui.line(line);
             if let (Some(order), Some(w_lookup), Some(f_lookup)) = (
                 selected_order_for_hover,
                 wavelength_lookup_for_hover,
@@ -549,6 +550,8 @@ impl ImageViewerPanel {
             })
             .y_axis_label("counts")
             .show(ui, |plot_ui| {
+                plot_ui.line(line);
+                // AFTER line(): restore saved Y bounds
                 if sidebar_y_locked {
                     if let Some((y_min, y_max)) = sidebar_saved_y {
                         let current = plot_ui.plot_bounds();
@@ -558,7 +561,6 @@ impl ImageViewerPanel {
                         ));
                     }
                 }
-                plot_ui.line(line);
                 if let (Some(order), Some(w_lookup), Some(f_lookup)) = (
                     selected_order_for_hover,
                     wavelength_lookup_for_hover,
