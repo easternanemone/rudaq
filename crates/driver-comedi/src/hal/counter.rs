@@ -1,22 +1,25 @@
-//! Readable trait implementation for counter/timer.
+//! Readable and CounterConfigurable trait implementations for counter/timer.
 
 use anyhow::Result;
 use async_trait::async_trait;
-use common::capabilities::{Readable, Settable};
+use common::capabilities::{
+    CounterConfig, CounterConfigurable, CounterEdge, CounterMode, Readable, Settable,
+};
 use serde_json::Value;
+use tokio::sync::RwLock;
 
 use crate::subsystem::counter::Counter;
 
-/// A wrapper that implements [`Readable`] for a Comedi counter channel.
+/// A wrapper that implements [`Readable`] and [`CounterConfigurable`] for a Comedi counter channel.
 ///
-/// This allows counter channels to be read generically through the DAQ
-/// framework's capability system. The counter value is returned as a
+/// This allows counter channels to be read and configured generically through
+/// the DAQ framework's capability system. The counter value is returned as a
 /// floating-point number for compatibility with the `Readable` trait.
 ///
 /// # Thread Safety
 ///
 /// Counter operations are synchronized through the underlying Comedi
-/// device handle.
+/// device handle. Configuration state is protected by an `RwLock`.
 ///
 /// # Example
 ///
@@ -36,6 +39,8 @@ pub struct ReadableCounter {
     inner: Counter,
     /// Channel to read from
     channel: u32,
+    /// Stored counter configuration (applied via `CounterConfigurable`)
+    config: RwLock<CounterConfig>,
 }
 
 impl ReadableCounter {
@@ -46,7 +51,16 @@ impl ReadableCounter {
     /// * `inner` - The counter subsystem
     /// * `channel` - Counter channel to read from
     pub fn new(inner: Counter, channel: u32) -> Self {
-        Self { inner, channel }
+        Self {
+            inner,
+            channel,
+            config: RwLock::new(CounterConfig {
+                mode: CounterMode::EventCounting,
+                edge: CounterEdge::Rising,
+                gate_source: None,
+                clock_source: None,
+            }),
+        }
     }
 
     /// Set the channel to read from.
@@ -182,16 +196,39 @@ impl Settable for ReadableCounter {
     }
 }
 
+#[async_trait]
+impl CounterConfigurable for ReadableCounter {
+    async fn configure_counter(&self, config: CounterConfig) -> Result<()> {
+        // Store the configuration. The Comedi counter subsystem does not yet
+        // expose `insn_config` FFI, so we persist the config for readback and
+        // reset the counter to prepare for the new mode.
+        let inner = self.inner.clone();
+        let channel = self.channel;
+        tokio::task::spawn_blocking(move || inner.reset(channel))
+            .await
+            .map_err(|e| anyhow::anyhow!("Task join error: {e}"))?
+            .map_err(|e| anyhow::anyhow!("Counter reset error: {e}"))?;
+
+        *self.config.write().await = config;
+        Ok(())
+    }
+
+    async fn get_counter_config(&self) -> Result<CounterConfig> {
+        Ok(self.config.read().await.clone())
+    }
+}
+
 impl std::fmt::Debug for ReadableCounter {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ReadableCounter")
             .field("channel", &self.channel)
             .field("bit_width", &self.inner.bit_width())
             .field("n_channels", &self.inner.n_channels())
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
 // Send + Sync are derived from the inner types:
 // - Counter contains ComediDevice which is Send + Sync (via Arc<DeviceInner> with Mutex)
+// - RwLock<CounterConfig> is Send + Sync
 // No unsafe impl needed.

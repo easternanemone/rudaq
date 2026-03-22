@@ -27,9 +27,13 @@
 mod analog_input;
 mod analog_output;
 mod counter;
+mod device_introspect;
 mod digital_io;
+mod range_introspect;
 
 pub use analog_input::ReadableAnalogInput;
 pub use analog_output::SettableAnalogOutput;
 pub use counter::ReadableCounter;
+pub use device_introspect::IntrospectableDevice;
 pub use digital_io::SwitchableDigitalIO;
+pub use range_introspect::{RangeIntrospectableAnalogInput, RangeIntrospectableAnalogOutput};

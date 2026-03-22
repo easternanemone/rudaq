@@ -2,7 +2,7 @@
 
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
-use common::capabilities::{Parameterized, Settable};
+use common::capabilities::{AnalogRange, Parameterized, RangeIntrospectable, RangeUnit, Settable};
 use common::driver::{Capability, DeviceComponents, DeviceMetadata, DriverFactory};
 use common::observable::ParameterSet;
 use common::parameter::Parameter;
@@ -66,8 +66,11 @@ impl Default for MockDAQOutputConfig {
 pub struct MockDAQOutputFactory;
 
 /// Static capabilities for MockDAQOutput
-static MOCK_DAQ_OUTPUT_CAPABILITIES: &[Capability] =
-    &[Capability::Settable, Capability::Parameterized];
+static MOCK_DAQ_OUTPUT_CAPABILITIES: &[Capability] = &[
+    Capability::Settable,
+    Capability::Parameterized,
+    Capability::RangeIntrospectable,
+];
 
 impl DriverFactory for MockDAQOutputFactory {
     fn driver_type(&self) -> &'static str {
@@ -107,7 +110,8 @@ impl DriverFactory for MockDAQOutputFactory {
 
             Ok(DeviceComponents {
                 settable: Some(output.clone()),
-                parameterized: Some(output),
+                parameterized: Some(output.clone()),
+                range_introspectable: Some(output),
                 metadata: DeviceMetadata {
                     panel_kind: Some(common::panel_kind::COMEDI.to_string()),
                     ..Default::default()
@@ -340,6 +344,18 @@ impl Settable for MockDAQOutput {
     }
 }
 
+#[async_trait]
+impl RangeIntrospectable for MockDAQOutput {
+    async fn get_ranges(&self, _subdevice: u32) -> Result<Vec<AnalogRange>> {
+        Ok(vec![AnalogRange {
+            index: 0,
+            min: self.range.min(),
+            max: self.range.max(),
+            unit: RangeUnit::Volts,
+        }])
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -534,5 +550,33 @@ mod tests {
 
         assert_eq!(VoltageRange::Unipolar5V.min(), 0.0);
         assert_eq!(VoltageRange::Unipolar5V.max(), 5.0);
+    }
+
+    #[tokio::test]
+    async fn test_range_introspectable_returns_expected_range() {
+        use common::capabilities::RangeIntrospectable;
+
+        let output = MockDAQOutput::new_with_range(0, VoltageRange::Bipolar10V);
+        let ranges = output.get_ranges(0).await.unwrap();
+
+        assert_eq!(ranges.len(), 1);
+        let range = &ranges[0];
+        assert_eq!(range.index, 0);
+        assert!((range.min - (-10.0)).abs() < f64::EPSILON);
+        assert!((range.max - 10.0).abs() < f64::EPSILON);
+        assert_eq!(range.unit, RangeUnit::Volts);
+    }
+
+    #[tokio::test]
+    async fn test_range_introspectable_unipolar() {
+        use common::capabilities::RangeIntrospectable;
+
+        let output = MockDAQOutput::new_with_range(0, VoltageRange::Unipolar5V);
+        let ranges = output.get_ranges(0).await.unwrap();
+
+        assert_eq!(ranges.len(), 1);
+        let range = &ranges[0];
+        assert!((range.min).abs() < f64::EPSILON);
+        assert!((range.max - 5.0).abs() < f64::EPSILON);
     }
 }

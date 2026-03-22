@@ -156,7 +156,10 @@ pub use device::{
     comedi_discover, ComediDevice, DeviceInfo, DiscoveredDevice, SubdeviceInfo, SubdeviceType,
 };
 pub use error::{ComediError, Result};
-pub use hal::{ReadableAnalogInput, ReadableCounter, SettableAnalogOutput, SwitchableDigitalIO};
+pub use hal::{
+    IntrospectableDevice, RangeIntrospectableAnalogInput, RangeIntrospectableAnalogOutput,
+    ReadableAnalogInput, ReadableCounter, SettableAnalogOutput, SwitchableDigitalIO,
+};
 pub use multi_channel::ComediMultiChannelAcquisition;
 pub use streaming::{
     BackpressureMetrics, ChannelSpec, SharedStreamAcquisition, StopCondition, StreamAcquisition,

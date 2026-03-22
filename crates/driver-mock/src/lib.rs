@@ -11,6 +11,7 @@
 //! - [`MockLaser`] - Simulated tunable laser (MaiTai-like) with wavelength tuning and safety interlocks
 //! - [`MockRotator`] - Simulated rotary stage (ELL14-like) with velocity control
 //! - [`MockDAQOutput`] - Simulated analog output with voltage range validation
+//! - [`MockCounter`] - Simulated counter/timer with configurable mode
 //!
 //! # Performance Characteristics
 //!
@@ -37,11 +38,14 @@
 //! registry.register_factory(Box::new(MockLaserFactory));
 //! registry.register_factory(Box::new(MockRotatorFactory));
 //! registry.register_factory(Box::new(MockDAQOutputFactory));
+//! registry.register_factory(Box::new(MockCounterFactory));
 //! ```
 
 pub mod common;
 mod mock_camera;
+mod mock_counter;
 mod mock_daq_output;
+mod mock_introspection;
 mod mock_laser;
 mod mock_power_meter;
 mod mock_rotator;
@@ -52,10 +56,14 @@ pub mod scenario;
 // Re-export common types
 pub use common::{ErrorConfig, ErrorScenario, MockMode, MockRng, TimingConfig};
 
+// Re-export mock introspection
+pub use mock_introspection::MockDeviceIntrospection;
+
 // Re-export driver types
 pub use mock_camera::{
     CameraDeviceState, MockCamera, MockCameraConfig, MockCameraFactory, MockCameraProfile,
 };
+pub use mock_counter::{MockCounter, MockCounterFactory};
 pub use mock_daq_output::{MockDAQOutput, MockDAQOutputFactory, VoltageRange};
 pub use mock_laser::{MockLaser, MockLaserFactory};
 pub use mock_power_meter::{MockPowerMeter, MockPowerMeterFactory};
@@ -86,6 +94,7 @@ pub fn link() {
     std::hint::black_box(std::any::TypeId::of::<MockLaser>());
     std::hint::black_box(std::any::TypeId::of::<MockRotator>());
     std::hint::black_box(std::any::TypeId::of::<MockDAQOutput>());
+    std::hint::black_box(std::any::TypeId::of::<MockCounter>());
 }
 
 /// Register all mock driver factories with a device registry.
@@ -108,6 +117,7 @@ pub fn register_all(registry: &impl FactoryRegistry) {
     registry.register_factory(Box::new(MockLaserFactory));
     registry.register_factory(Box::new(MockRotatorFactory));
     registry.register_factory(Box::new(MockDAQOutputFactory));
+    registry.register_factory(Box::new(MockCounterFactory));
 }
 
 /// Trait for registries that can accept driver factories.

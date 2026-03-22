@@ -41,7 +41,10 @@
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use common::capabilities::{Parameterized, Readable, Settable};
+use common::capabilities::{
+    CounterConfig, CounterConfigurable, CounterEdge, CounterMode, Parameterized, ReadResult,
+    Readable, ReadableWithMetadata, Settable,
+};
 use common::driver::{Capability, DeviceComponents, DeviceMetadata, DriverFactory};
 use common::observable::ParameterSet;
 use common::parameter::Parameter;
@@ -52,6 +55,7 @@ use tokio::sync::RwLock;
 use tracing::{debug, info};
 
 use crate::device::ComediDevice;
+use crate::hal::IntrospectableDevice;
 use crate::subsystem::analog_input::AnalogInput;
 use crate::subsystem::analog_output::AnalogOutput;
 use crate::subsystem::{AnalogReference, Range};
@@ -476,6 +480,16 @@ impl ComediAnalogInputDriver {
             .map(|d| d.board_name())
             .unwrap_or_else(|| "mock".to_string())
     }
+
+    /// Get the underlying Comedi device handle (if not mock).
+    pub(crate) fn comedi_device(&self) -> Option<ComediDevice> {
+        self.device.clone()
+    }
+
+    /// Get the underlying analog input subsystem (if using real hardware).
+    pub fn analog_input(&self) -> Option<&AnalogInput> {
+        self.analog_input.as_ref()
+    }
 }
 
 impl Parameterized for ComediAnalogInputDriver {
@@ -488,6 +502,64 @@ impl Parameterized for ComediAnalogInputDriver {
 impl Readable for ComediAnalogInputDriver {
     async fn read(&self) -> Result<f64> {
         self.read_voltage().await
+    }
+}
+
+#[async_trait]
+impl ReadableWithMetadata for ComediAnalogInputDriver {
+    async fn read_with_metadata(&self, _channel: u32) -> Result<ReadResult> {
+        if let Some(mock) = &self.mock {
+            let voltage = mock.read_voltage().await?;
+            #[allow(clippy::cast_possible_truncation)]
+            // Nanoseconds since epoch fit in u64 until ~2554
+            let timestamp_ns = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock before UNIX epoch")
+                .as_nanos() as u64;
+            return Ok(ReadResult {
+                raw_value: 32768,
+                voltage,
+                timestamp_ns,
+                range_index: self.range_index,
+            });
+        }
+
+        let ai = self
+            .analog_input
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("No analog input subsystem"))?;
+
+        let channel = self.channel;
+        let aref = self.aref;
+        let range = Range {
+            index: self.range_index,
+            ..Range::default()
+        };
+
+        let ai_clone = ai.clone();
+        let raw =
+            tokio::task::spawn_blocking(move || ai_clone.read_raw(channel, range.index, aref))
+                .await
+                .context("Task join error")?
+                .context("Failed to read raw value")?;
+
+        let voltage = ai.raw_to_voltage(raw, &range);
+
+        #[allow(clippy::cast_possible_truncation)] // Nanoseconds since epoch fit in u64 until ~2554
+        let timestamp_ns = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock before UNIX epoch")
+            .as_nanos() as u64;
+
+        #[allow(clippy::cast_possible_wrap)]
+        let raw_value = raw as i32;
+
+        Ok(ReadResult {
+            raw_value,
+            voltage,
+            timestamp_ns,
+            range_index: self.range_index,
+        })
     }
 }
 
@@ -632,6 +704,16 @@ impl ComediAnalogOutputDriver {
     pub fn output(&self) -> &Parameter<f64> {
         &self.output
     }
+
+    /// Get the underlying Comedi device handle (if not mock).
+    pub(crate) fn comedi_device(&self) -> Option<ComediDevice> {
+        self.device.clone()
+    }
+
+    /// Get the underlying analog output subsystem (if using real hardware).
+    pub fn analog_output(&self) -> Option<&AnalogOutput> {
+        self.analog_output.as_ref()
+    }
 }
 
 impl Parameterized for ComediAnalogOutputDriver {
@@ -673,7 +755,12 @@ impl Settable for ComediAnalogOutputDriver {
 /// voltage measurements, and general signal acquisition.
 pub struct ComediAnalogInputFactory;
 
-static AI_CAPABILITIES: &[Capability] = &[Capability::Readable, Capability::Parameterized];
+static AI_CAPABILITIES: &[Capability] = &[
+    Capability::Readable,
+    Capability::ReadableWithMetadata,
+    Capability::Parameterized,
+    Capability::RangeIntrospectable,
+];
 
 impl DriverFactory for ComediAnalogInputFactory {
     fn driver_type(&self) -> &'static str {
@@ -723,16 +810,29 @@ impl DriverFactory for ComediAnalogInputFactory {
             )
             .await?;
 
-            Ok(DeviceComponents {
+            let range_introspectable = driver.analog_input().map(|ai| {
+                Arc::new(crate::hal::RangeIntrospectableAnalogInput::new(ai.clone()))
+                    as Arc<dyn common::capabilities::RangeIntrospectable>
+            });
+
+            let mut components = DeviceComponents {
                 readable: Some(driver.clone()),
-                parameterized: Some(driver),
+                readable_with_metadata: Some(driver.clone()),
+                parameterized: Some(driver.clone()),
+                range_introspectable,
                 metadata: DeviceMetadata {
                     measurement_units: Some(cfg.units),
                     panel_kind: Some(common::panel_kind::COMEDI.to_string()),
                     ..Default::default()
                 },
                 ..Default::default()
-            })
+            };
+
+            if let Some(device) = driver.comedi_device() {
+                components.device_introspection = Some(Arc::new(IntrospectableDevice::new(device)));
+            }
+
+            Ok(components)
         })
     }
 }
@@ -740,7 +840,11 @@ impl DriverFactory for ComediAnalogInputFactory {
 /// Factory for Comedi analog output drivers.
 pub struct ComediAnalogOutputFactory;
 
-static AO_CAPABILITIES: &[Capability] = &[Capability::Settable, Capability::Parameterized];
+static AO_CAPABILITIES: &[Capability] = &[
+    Capability::Settable,
+    Capability::Parameterized,
+    Capability::RangeIntrospectable,
+];
 
 impl DriverFactory for ComediAnalogOutputFactory {
     fn driver_type(&self) -> &'static str {
@@ -782,16 +886,28 @@ impl DriverFactory for ComediAnalogOutputFactory {
             )
             .await?;
 
-            Ok(DeviceComponents {
+            let range_introspectable = driver.analog_output().map(|ao| {
+                Arc::new(crate::hal::RangeIntrospectableAnalogOutput::new(ao.clone()))
+                    as Arc<dyn common::capabilities::RangeIntrospectable>
+            });
+
+            let mut components = DeviceComponents {
                 settable: Some(driver.clone()),
-                parameterized: Some(driver),
+                parameterized: Some(driver.clone()),
+                range_introspectable,
                 metadata: DeviceMetadata {
                     measurement_units: Some(cfg.units),
                     panel_kind: Some(common::panel_kind::COMEDI.to_string()),
                     ..Default::default()
                 },
                 ..Default::default()
-            })
+            };
+
+            if let Some(device) = driver.comedi_device() {
+                components.device_introspection = Some(Arc::new(IntrospectableDevice::new(device)));
+            }
+
+            Ok(components)
         })
     }
 }
@@ -871,6 +987,11 @@ impl ComediDigitalIODriver {
         };
 
         Ok(Arc::new(driver))
+    }
+
+    /// Get the underlying Comedi device handle (if not mock).
+    pub(crate) fn comedi_device(&self) -> Option<ComediDevice> {
+        self.device.clone()
     }
 }
 
@@ -1002,14 +1123,20 @@ impl DriverFactory for ComediDigitalIOFactory {
                 ComediDigitalIODriver::new_async(&cfg.device, &cfg.output_channels, cfg.mock)
                     .await?;
 
-            Ok(DeviceComponents {
-                settable: Some(driver),
+            let mut components = DeviceComponents {
+                settable: Some(driver.clone()),
                 metadata: DeviceMetadata {
                     panel_kind: Some(common::panel_kind::COMEDI.to_string()),
                     ..Default::default()
                 },
                 ..Default::default()
-            })
+            };
+
+            if let Some(device) = driver.comedi_device() {
+                components.device_introspection = Some(Arc::new(IntrospectableDevice::new(device)));
+            }
+
+            Ok(components)
         })
     }
 }
@@ -1032,12 +1159,19 @@ pub struct ComediCounterDriver {
 /// Mock counter for testing.
 struct MockCounter {
     value: RwLock<u32>,
+    config: RwLock<CounterConfig>,
 }
 
 impl MockCounter {
     fn new() -> Self {
         Self {
             value: RwLock::new(0),
+            config: RwLock::new(CounterConfig {
+                mode: CounterMode::EventCounting,
+                edge: CounterEdge::Rising,
+                gate_source: None,
+                clock_source: None,
+            }),
         }
     }
 }
@@ -1084,6 +1218,11 @@ impl ComediCounterDriver {
         };
 
         Ok(Arc::new(driver))
+    }
+
+    /// Get the underlying Comedi device handle (if not mock).
+    pub(crate) fn comedi_device(&self) -> Option<ComediDevice> {
+        self.device.clone()
     }
 }
 
@@ -1146,10 +1285,38 @@ impl Settable for ComediCounterDriver {
     }
 }
 
+#[async_trait]
+impl CounterConfigurable for ComediCounterDriver {
+    async fn configure_counter(&self, config: CounterConfig) -> Result<()> {
+        if let Some(counter) = &self.counter {
+            return counter.configure_counter(config).await;
+        }
+        if let Some(mock) = &self.mock {
+            *mock.config.write().await = config;
+            return Ok(());
+        }
+        anyhow::bail!("No counter subsystem available")
+    }
+
+    async fn get_counter_config(&self) -> Result<CounterConfig> {
+        if let Some(counter) = &self.counter {
+            return counter.get_counter_config().await;
+        }
+        if let Some(mock) = &self.mock {
+            return Ok(mock.config.read().await.clone());
+        }
+        anyhow::bail!("No counter subsystem available")
+    }
+}
+
 /// Factory for Comedi counter/timer drivers.
 pub struct ComediCounterFactory;
 
-static COUNTER_CAPABILITIES: &[Capability] = &[Capability::Readable, Capability::Settable];
+static COUNTER_CAPABILITIES: &[Capability] = &[
+    Capability::Readable,
+    Capability::Settable,
+    Capability::CounterConfigurable,
+];
 
 impl DriverFactory for ComediCounterFactory {
     fn driver_type(&self) -> &'static str {
@@ -1184,15 +1351,22 @@ impl DriverFactory for ComediCounterFactory {
 
             let driver = ComediCounterDriver::new_async(&cfg.device, cfg.channel, cfg.mock).await?;
 
-            Ok(DeviceComponents {
+            let mut components = DeviceComponents {
                 readable: Some(driver.clone()),
-                settable: Some(driver),
+                settable: Some(driver.clone()),
+                counter_configurable: Some(driver.clone()),
                 metadata: DeviceMetadata {
                     panel_kind: Some(common::panel_kind::COMEDI.to_string()),
                     ..Default::default()
                 },
                 ..Default::default()
-            })
+            };
+
+            if let Some(device) = driver.comedi_device() {
+                components.device_introspection = Some(Arc::new(IntrospectableDevice::new(device)));
+            }
+
+            Ok(components)
         })
     }
 }

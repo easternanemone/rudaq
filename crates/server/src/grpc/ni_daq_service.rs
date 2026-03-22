@@ -19,28 +19,29 @@
 //! - `set_analog_output`: Uses `registry.get_settable()` -> `Settable::set_value()`
 //! - `configure_digital_io`, `read_digital_io`, `write_digital_io`,
 //!   `read_digital_port`, `write_digital_port`: Uses registry DIO device (bd-u0lg)
-//! - `read_counter`, `reset_counter`, `configure_counter`: Uses registry counter
-//!   devices (bd-u0lg)
+//! - `read_counter`, `reset_counter`: Uses registry counter devices (bd-u0lg)
+//! - `configure_counter`: Uses `registry.get_counter_configurable()` ->
+//!   `CounterConfigurable::configure_counter()` (bd-f3pq)
+//! - `read_analog_input`: Uses `registry.get_readable_with_metadata()` ->
+//!   `ReadableWithMetadata::read_with_metadata()` (bd-09ls)
+//! - `configure_analog_output`: Primary path uses `registry.get_range_introspectable()`
+//!   -> `RangeIntrospectable::get_ranges()` with Comedi FFI fallback (bd-3bjp)
+//! - `get_daq_status`: Uses `registry.get_device_introspection()` ->
+//!   `DeviceIntrospection::introspect()` (bd-sa9p). Resolution and voltage ranges
+//!   are not yet populated (needs RangeIntrospectable, bd-3bjp).
 //!
 //! ## Still Using Direct Comedi Access
 //! The following RPCs still use `get_or_open_device()` for direct Comedi FFI.
 //! Each has a specific blocker documented inline:
 //!
-//! - `read_analog_input`: `Readable::read()` returns only `f64` voltage; proto
-//!   requires `raw_value` (u32) and per-call `channel`/`range_index` selection (bd-09ls).
-//! - `configure_analog_output`: Queries Comedi range info (min/max voltage) which
-//!   has no generic trait equivalent (bd-3bjp).
-//! - `get_daq_status`: Deep Comedi device introspection (board name, subdevice
-//!   summaries, resolution, ranges) with no generic trait equivalent (bd-sa9p).
+//! - `configure_analog_output`: Fallback path only; primary path now uses
+//!   `RangeIntrospectable` trait via registry (bd-3bjp, migrated).
 //! - `stream_analog_input`: Multi-channel continuous acquisition via
 //!   `ComediMultiChannelAcquisition` -- no registry equivalent.
 //!
 //! ## Forward Path
-//! To complete the migration (4 RPCs remaining):
-//! 1. `read_analog_input`: Extend `Readable` or add `ReadableWithMetadata` trait (bd-09ls)
-//! 2. `configure_analog_output`: Add range introspection trait (bd-3bjp)
-//! 3. `get_daq_status`: Add `DeviceIntrospection` trait (bd-sa9p)
-//! 4. `stream_analog_input`: Add `StreamingAcquisition` trait (deeply Comedi-specific)
+//! To complete the migration (1 RPC remaining):
+//! 1. `stream_analog_input`: Add `StreamingAcquisition` trait (deeply Comedi-specific)
 
 use anyhow::Error as AnyError;
 use common::limits::RPC_TIMEOUT;
@@ -71,9 +72,9 @@ use tracing::instrument;
 /// and its internal `ffi_lock` serializes all FFI calls, so sharing a single handle
 /// across RPCs is both safe and eliminates the kernel deadlock risk from concurrent opens.
 ///
-/// # TODO(bd-krmn): Remove `device_cache` once remaining 4 RPCs use registry handles.
-/// Only used by: `read_analog_input`, `configure_analog_output`, `get_daq_status`,
-/// `stream_analog_input`. DIO and counter RPCs are now migrated (bd-u0lg).
+/// # TODO(bd-krmn): Remove `device_cache` once remaining 2 RPCs use registry handles.
+/// Only used by: `configure_analog_output` (fallback path) and `stream_analog_input`.
+/// All other RPCs now use registry traits.
 #[derive(Clone)]
 pub struct NiDaqServiceImpl {
     /// Device registry for looking up Comedi devices
@@ -600,80 +601,45 @@ impl NiDaqService for NiDaqServiceImpl {
         &self,
         request: Request<ReadAnalogInputRequest>,
     ) -> Result<Response<ReadAnalogInputResponse>, Status> {
-        #[cfg(feature = "comedi")]
-        {
-            let req = request.into_inner();
+        let req = request.into_inner();
 
-            if req.device_id.is_empty() {
-                return Err(Status::invalid_argument("device_id is required"));
-            }
-
-            // NI PCI-MIO-16XE-10 has 16 single-ended AI channels
-            if req.channel > 15 {
-                return Err(Status::invalid_argument(format!(
-                    "Invalid channel {}. NI PCI-MIO-16XE-10 supports channels 0-15",
-                    req.channel
-                )));
-            }
-
-            self.registry
-                .get_device_info(&req.device_id)
-                .ok_or_else(|| {
-                    Status::not_found(format!("Device '{}' not found", req.device_id))
-                })?;
-
-            // TODO(bd-krmn): Migrate to registry.get_readable(device_id).read().
-            // Blockers:
-            //   1. Readable::read() returns f64 (voltage only); proto requires raw_value (u32).
-            //   2. Per-RPC channel/range_index selection: the registered ReadableAnalogInput
-            //      is bound to a fixed channel+range at registration time.
-            // Fix: Extend Readable or add ReadableWithMetadata trait that returns
-            //   (voltage, raw_value, timestamp) tuple, and support runtime channel selection.
-            let device_path = self.resolve_device_path(&req.device_id);
-            let device = self.get_or_open_device(&device_path).await?;
-
-            let channel = req.channel;
-            let range_index = req.range_index;
-
-            let (voltage, raw_value, timestamp_ns) = self
-                .await_with_timeout("ReadAnalogInput", async move {
-                    tokio::task::spawn_blocking(move || {
-                        let ai = device.analog_input()?;
-
-                        // Get the range for voltage conversion
-                        let range = ai.range_info(channel, range_index)?;
-                        let raw = ai.read_raw(
-                            channel,
-                            range_index,
-                            driver_comedi::subsystem::AnalogReference::Ground,
-                        )?;
-                        let voltage = ai.raw_to_voltage(raw, &range);
-
-                        let timestamp_ns = now_ns();
-
-                        Ok((voltage, raw, timestamp_ns))
-                    })
-                    .await
-                    .map_err(|e| anyhow::anyhow!("Task join error: {}", e))?
-                })
-                .await?;
-
-            Ok(Response::new(ReadAnalogInputResponse {
-                success: true,
-                error_message: String::new(),
-                voltage,
-                raw_value,
-                timestamp_ns,
-            }))
+        if req.device_id.is_empty() {
+            return Err(Status::invalid_argument("device_id is required"));
         }
 
-        #[cfg(not(feature = "comedi"))]
-        {
-            let _ = request;
-            Err(Status::unimplemented(
-                "ReadAnalogInput requires 'comedi' feature to be enabled",
-            ))
+        // NI PCI-MIO-16XE-10 has 16 single-ended AI channels
+        if req.channel > 15 {
+            return Err(Status::invalid_argument(format!(
+                "Invalid channel {}. NI PCI-MIO-16XE-10 supports channels 0-15",
+                req.channel
+            )));
         }
+
+        let reader = self
+            .registry
+            .get_readable_with_metadata(&req.device_id)
+            .ok_or_else(|| {
+                Status::not_found(format!(
+                    "Device '{}' not found or does not support ReadableWithMetadata",
+                    req.device_id
+                ))
+            })?;
+
+        let result = reader
+            .read_with_metadata(req.channel)
+            .await
+            .map_err(|e| Status::internal(format!("ReadAnalogInput failed: {e}")))?;
+
+        #[allow(clippy::cast_sign_loss)]
+        let raw_value = result.raw_value as u32;
+
+        Ok(Response::new(ReadAnalogInputResponse {
+            success: true,
+            error_message: String::new(),
+            voltage: result.voltage,
+            raw_value,
+            timestamp_ns: result.timestamp_ns,
+        }))
     }
 
     // ==========================================================================
@@ -770,29 +736,65 @@ impl NiDaqService for NiDaqServiceImpl {
         &self,
         request: Request<ConfigureAnalogOutputRequest>,
     ) -> Result<Response<ConfigureAnalogOutputResponse>, Status> {
-        #[cfg(feature = "comedi")]
-        {
-            let req = request.into_inner();
+        let req = request.into_inner();
 
-            if req.device_id.is_empty() {
-                return Err(Status::invalid_argument("device_id is required"));
-            }
-            if req.channel > 1 {
-                return Err(Status::invalid_argument(format!(
-                    "Invalid channel {}. NI PCI-MIO-16XE-10 supports channels 0-1",
-                    req.channel
-                )));
-            }
+        if req.device_id.is_empty() {
+            return Err(Status::invalid_argument("device_id is required"));
+        }
+        if req.channel > 1 {
+            return Err(Status::invalid_argument(format!(
+                "Invalid channel {}. NI PCI-MIO-16XE-10 supports channels 0-1",
+                req.channel
+            )));
+        }
 
-            self.registry
-                .get_device_info(&req.device_id)
+        self.registry
+            .get_device_info(&req.device_id)
+            .ok_or_else(|| Status::not_found(format!("Device '{}' not found", req.device_id)))?;
+
+        // Migrated from direct Comedi FFI to RangeIntrospectable trait (bd-3bjp).
+        // Falls back to direct Comedi access when the device lacks the capability.
+        if let Some(range_cap) = self.registry.get_range_introspectable(&req.device_id) {
+            let channel = req.channel;
+            let range_index = req.range_index;
+
+            let ranges = self
+                .await_with_timeout("ConfigureAnalogOutput", range_cap.get_ranges(channel))
+                .await?;
+
+            let range = ranges
+                .into_iter()
+                .find(|r| r.index == range_index)
                 .ok_or_else(|| {
-                    Status::not_found(format!("Device '{}' not found", req.device_id))
+                    Status::invalid_argument(format!(
+                        "Invalid range_index {} for channel {}",
+                        range_index, channel
+                    ))
                 })?;
 
-            // TODO(bd-krmn): Migrate to registry trait once range introspection is available.
-            // Blocker: No generic trait exposes voltage range info (min/max/unit per range_index).
-            // Fix: Add Settable::get_value("range_info") or a DeviceIntrospection trait.
+            let unit = match range.unit {
+                common::capabilities::RangeUnit::Volts => "V",
+                common::capabilities::RangeUnit::MilliAmps => "mA",
+                common::capabilities::RangeUnit::None => "",
+            };
+
+            let actual_range = Some(VoltageRange {
+                index: range_index,
+                min_voltage: range.min,
+                max_voltage: range.max,
+                unit: unit.to_string(),
+            });
+
+            return Ok(Response::new(ConfigureAnalogOutputResponse {
+                success: true,
+                error_message: String::new(),
+                actual_range,
+            }));
+        }
+
+        // Fallback: direct Comedi FFI for devices that predate RangeIntrospectable wiring.
+        #[cfg(feature = "comedi")]
+        {
             let device_path = self.resolve_device_path(&req.device_id);
             let device = self.get_or_open_device(&device_path).await?;
             let channel = req.channel;
@@ -803,7 +805,6 @@ impl NiDaqService for NiDaqServiceImpl {
                     tokio::task::spawn_blocking(move || {
                         let ao = device.analog_output()?;
 
-                        // Validate range_index
                         let n_ranges = ao.n_ranges(channel)?;
                         if range_index >= n_ranges {
                             return Err(anyhow::anyhow!(
@@ -838,9 +839,8 @@ impl NiDaqService for NiDaqServiceImpl {
 
         #[cfg(not(feature = "comedi"))]
         {
-            let _ = request;
             Err(Status::unimplemented(
-                "ConfigureAnalogOutput requires 'comedi' feature to be enabled",
+                "ConfigureAnalogOutput requires 'comedi' feature or RangeIntrospectable capability",
             ))
         }
     }
@@ -1306,41 +1306,84 @@ impl NiDaqService for NiDaqServiceImpl {
         &self,
         request: Request<ConfigureCounterRequest>,
     ) -> Result<Response<ConfigureCounterResponse>, Status> {
+        let req = request.into_inner();
+
+        // Validate device_id
+        if req.device_id.is_empty() {
+            return Err(Status::invalid_argument("device_id is required"));
+        }
+
+        // Verify device exists in registry
+        self.registry
+            .get_device_info(&req.device_id)
+            .ok_or_else(|| Status::not_found(format!("Device '{}' not found", req.device_id)))?;
+
+        // Find the counter device for this channel
         #[cfg(feature = "comedi")]
-        {
-            let req = request.into_inner();
-
-            // Validate device_id
-            if req.device_id.is_empty() {
-                return Err(Status::invalid_argument("device_id is required"));
-            }
-
-            // Verify device exists in registry
-            let _device_info = self
-                .registry
-                .get_device_info(&req.device_id)
-                .ok_or_else(|| {
-                    Status::not_found(format!("Device '{}' not found", req.device_id))
-                })?;
-
-            // MIGRATED (bd-u0lg): Validates counter device exists in registry.
-            // NOTE(bd-f3pq): Full INSN_CONFIG support (mode, edge, gate/source)
-            // requires a CounterConfigurable trait — not yet implemented.
-            let _counter_id = self.find_counter_device(&req.device_id, req.counter)?;
-
-            Ok(Response::new(ConfigureCounterResponse {
-                success: true,
-                error_message: String::new(),
-            }))
-        }
-
+        let counter_id = self.find_counter_device(&req.device_id, req.counter)?;
         #[cfg(not(feature = "comedi"))]
-        {
-            let _ = request;
-            Err(Status::unimplemented(
-                "ConfigureCounter requires 'comedi' feature to be enabled",
-            ))
-        }
+        let counter_id = format!("ni_daq_counter_{}", req.counter);
+
+        // MIGRATED (bd-f3pq): Use CounterConfigurable trait via registry.
+        let counter = self
+            .registry
+            .get_counter_configurable(&counter_id)
+            .ok_or_else(|| {
+                Status::failed_precondition(format!(
+                    "Device '{counter_id}' does not support CounterConfigurable"
+                ))
+            })?;
+
+        // Map proto CounterMode -> common CounterMode
+        let mode = match CounterMode::try_from(req.mode) {
+            Ok(CounterMode::EventCount) => common::capabilities::CounterMode::EventCounting,
+            Ok(CounterMode::Frequency) => common::capabilities::CounterMode::FrequencyMeasurement,
+            Ok(CounterMode::Period) => common::capabilities::CounterMode::PeriodMeasurement,
+            Ok(CounterMode::PulseWidth) => common::capabilities::CounterMode::PulseWidth,
+            Ok(CounterMode::Encoder) => common::capabilities::CounterMode::QuadratureEncoder,
+            Err(_) => {
+                return Err(Status::invalid_argument(format!(
+                    "Invalid counter mode: {}",
+                    req.mode
+                )));
+            }
+        };
+
+        // Map proto CounterEdge -> common CounterEdge
+        let edge = match CounterEdge::try_from(req.edge) {
+            Ok(CounterEdge::Rising) => common::capabilities::CounterEdge::Rising,
+            Ok(CounterEdge::Falling) => common::capabilities::CounterEdge::Falling,
+            Ok(CounterEdge::Both) => common::capabilities::CounterEdge::Both,
+            Err(_) => {
+                return Err(Status::invalid_argument(format!(
+                    "Invalid counter edge: {}",
+                    req.edge
+                )));
+            }
+        };
+
+        let config = common::capabilities::CounterConfig {
+            mode,
+            edge,
+            gate_source: if req.gate_pin > 0 {
+                Some(req.gate_pin)
+            } else {
+                None
+            },
+            clock_source: if req.source_pin > 0 {
+                Some(req.source_pin)
+            } else {
+                None
+            },
+        };
+
+        self.await_with_timeout("configure_counter", counter.configure_counter(config))
+            .await?;
+
+        Ok(Response::new(ConfigureCounterResponse {
+            success: true,
+            error_message: String::new(),
+        }))
     }
 
     // ==========================================================================
@@ -1423,153 +1466,121 @@ impl NiDaqService for NiDaqServiceImpl {
             .get_device_info(&device_id)
             .ok_or_else(|| Status::not_found(format!("Device '{}' not found", device_id)))?;
 
-        // Comedi support is only available when the 'comedi' feature is enabled
-        #[cfg(feature = "comedi")]
-        {
-            // TODO(bd-krmn): Deeply Comedi-specific device introspection (board name,
-            // subdevice summaries, resolution, voltage ranges). No generic trait equivalent.
-            // Fix: Add a DeviceIntrospection trait or expose this info through Parameterized.
-            let device_path = self.resolve_device_path(&device_id);
-            let device = self.get_or_open_device(&device_path).await?;
+        // Use the generic DeviceIntrospection trait (bd-sa9p) instead of direct Comedi FFI.
+        // This works for any driver that wires DeviceIntrospection into its DeviceComponents.
+        let introspection = self
+            .registry
+            .get_device_introspection(&device_id)
+            .ok_or_else(|| {
+                Status::unimplemented(format!(
+                    "Device '{}' does not support DeviceIntrospection",
+                    device_id
+                ))
+            })?;
 
-            let status = self
-                .await_with_timeout("GetDAQStatus", async move {
-                    tokio::task::spawn_blocking(move || {
-                        // Get comprehensive device info
-                        let info = device.info()?;
+        // Resolve device path from driver config (e.g., Comedi's "device" field).
+        // Falls back to empty string for drivers that don't have a filesystem path.
+        let device_path = self
+            .registry
+            .get_driver_config_str(&device_id, "device")
+            .unwrap_or_default();
 
-                        // Build subdevice summaries
-                        let subdevices: Vec<SubdeviceSummary> = info
-                            .subdevices
-                            .iter()
-                            .map(|sub| {
-                                use driver_comedi::SubdeviceType;
-                                let type_str = match sub.subdev_type {
-                                    SubdeviceType::AnalogInput => "ai",
-                                    SubdeviceType::AnalogOutput => "ao",
-                                    SubdeviceType::DigitalIO => "dio",
-                                    SubdeviceType::Counter => "counter",
-                                    SubdeviceType::Timer => "timer",
-                                    _ => "other",
-                                };
-
-                                SubdeviceSummary {
-                                    index: sub.index,
-                                    r#type: type_str.to_string(),
-                                    n_channels: sub.n_channels,
-                                    busy: sub.is_busy(),
-                                    supports_commands: sub.supports_commands(),
-                                }
-                            })
-                            .collect();
-
-                        // Count channels by type
-                        use driver_comedi::SubdeviceType;
-                        let ai_info = info
-                            .subdevices
-                            .iter()
-                            .find(|s| s.subdev_type == SubdeviceType::AnalogInput);
-                        let ao_info = info
-                            .subdevices
-                            .iter()
-                            .find(|s| s.subdev_type == SubdeviceType::AnalogOutput);
-                        let dio_info = info
-                            .subdevices
-                            .iter()
-                            .find(|s| s.subdev_type == SubdeviceType::DigitalIO);
-                        let counter_count = info
-                            .subdevices
-                            .iter()
-                            .filter(|s| s.subdev_type == SubdeviceType::Counter)
-                            .count();
-
-                        let ai_channels = ai_info.map(|s| s.n_channels).unwrap_or(0);
-                        let ao_channels = ao_info.map(|s| s.n_channels).unwrap_or(0);
-                        let dio_channels = dio_info.map(|s| s.n_channels).unwrap_or(0);
-
-                        // Get AI/AO resolution
-                        let ai_resolution = ai_info.map(|s| s.resolution_bits()).unwrap_or(0);
-                        let ao_resolution = ao_info.map(|s| s.resolution_bits()).unwrap_or(0);
-
-                        // Get voltage ranges for AI
-                        let ai_ranges = if let Some(ai_sub) = ai_info {
-                            let ai = device.analog_input_subdevice(ai_sub.index)?;
-                            ai.ranges(0)?
-                                .into_iter()
-                                .map(|r| VoltageRange {
-                                    index: r.index,
-                                    min_voltage: r.min,
-                                    max_voltage: r.max,
-                                    unit: match r.unit {
-                                        0 => "V".to_string(),
-                                        1 => "mA".to_string(),
-                                        _ => String::new(),
-                                    },
-                                })
-                                .collect()
-                        } else {
-                            Vec::new()
-                        };
-
-                        // Get voltage ranges for AO
-                        let ao_ranges = if ao_info.is_some() {
-                            if let Ok(ao) = device.analog_output() {
-                                ao.ranges(0)?
-                                    .into_iter()
-                                    .map(|r| VoltageRange {
-                                        index: r.index,
-                                        min_voltage: r.min,
-                                        max_voltage: r.max,
-                                        unit: match r.unit {
-                                            0 => "V".to_string(),
-                                            1 => "mA".to_string(),
-                                            _ => String::new(),
-                                        },
-                                    })
-                                    .collect()
-                            } else {
-                                Vec::new()
-                            }
-                        } else {
-                            Vec::new()
-                        };
-
-                        Ok(DaqStatus {
-                            device_id: device_id.clone(),
-                            board_name: info.board_name,
-                            driver_name: info.driver_name,
-                            online: true,
-                            device_path: device_path.clone(),
-                            n_subdevices: info.n_subdevices,
-                            subdevices,
-                            ai_busy: ai_info.map(|s| s.is_busy()).unwrap_or(false),
-                            ao_busy: ao_info.map(|s| s.is_busy()).unwrap_or(false),
-                            dio_configured: dio_info.is_some(),
-                            active_counters: 0, // TODO(bd-krmn): track active counters in ComediDeviceState
-                            ai_channels,
-                            ao_channels,
-                            dio_channels,
-                            counter_channels: u32::try_from(counter_count).unwrap_or(0),
-                            ai_resolution_bits: ai_resolution,
-                            ao_resolution_bits: ao_resolution,
-                            ai_ranges,
-                            ao_ranges,
-                        })
-                    })
-                    .await
-                    .map_err(|e| anyhow::anyhow!("Task join error: {}", e))?
-                })
-                .await?;
-
-            Ok(Response::new(status))
-        }
-
-        #[cfg(not(feature = "comedi"))]
-        {
-            Err(Status::unimplemented(
-                "GetDAQStatus requires 'comedi' feature to be enabled",
+        let info = introspection.introspect().await.map_err(|e| {
+            Status::internal(format!(
+                "DeviceIntrospection failed for '{}': {}",
+                device_id, e
             ))
-        }
+        })?;
+
+        // Map generic subdevice info to proto SubdeviceSummary.
+        // Fields not available from the generic trait (busy, supports_commands)
+        // default to false — use RangeIntrospectable (bd-3bjp) for voltage ranges.
+        let n_subdevices = u32::try_from(info.subdevices.len()).unwrap_or(u32::MAX);
+
+        let subdevices: Vec<SubdeviceSummary> = info
+            .subdevices
+            .iter()
+            .map(|sub| {
+                // Map full type names to short proto labels
+                let type_str = match sub.subdevice_type.as_str() {
+                    "analog_input" => "ai",
+                    "analog_output" => "ao",
+                    "digital_io" | "digital_input" | "digital_output" => "dio",
+                    "counter" => "counter",
+                    "timer" => "timer",
+                    other => other,
+                };
+
+                SubdeviceSummary {
+                    index: sub.index,
+                    r#type: type_str.to_string(),
+                    n_channels: sub.n_channels,
+                    busy: false,
+                    supports_commands: false,
+                }
+            })
+            .collect();
+
+        // Derive per-type channel counts from the subdevice list
+        let ai_channels = info
+            .subdevices
+            .iter()
+            .find(|s| s.subdevice_type == "analog_input")
+            .map(|s| s.n_channels)
+            .unwrap_or(0);
+        let ao_channels = info
+            .subdevices
+            .iter()
+            .find(|s| s.subdevice_type == "analog_output")
+            .map(|s| s.n_channels)
+            .unwrap_or(0);
+        let dio_channels = info
+            .subdevices
+            .iter()
+            .filter(|s| {
+                matches!(
+                    s.subdevice_type.as_str(),
+                    "digital_io" | "digital_input" | "digital_output"
+                )
+            })
+            .map(|s| s.n_channels)
+            .sum();
+        let counter_channels = u32::try_from(
+            info.subdevices
+                .iter()
+                .filter(|s| s.subdevice_type == "counter")
+                .count(),
+        )
+        .unwrap_or(0);
+        let dio_configured = info.subdevices.iter().any(|s| {
+            matches!(
+                s.subdevice_type.as_str(),
+                "digital_io" | "digital_input" | "digital_output"
+            )
+        });
+
+        Ok(Response::new(DaqStatus {
+            device_id,
+            board_name: info.board_name,
+            driver_name: info.driver_name,
+            online: true,
+            device_path,
+            n_subdevices,
+            subdevices,
+            ai_busy: false,
+            ao_busy: false,
+            dio_configured,
+            active_counters: 0,
+            ai_channels,
+            ao_channels,
+            dio_channels,
+            counter_channels,
+            // Resolution and ranges require RangeIntrospectable (bd-3bjp)
+            ai_resolution_bits: 0,
+            ao_resolution_bits: 0,
+            ai_ranges: Vec::new(),
+            ao_ranges: Vec::new(),
+        }))
     }
 
     #[instrument(skip(self))]

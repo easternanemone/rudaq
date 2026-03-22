@@ -29,7 +29,7 @@
 use crate::common::{ErrorConfig, MockMode, MockRng};
 use anyhow::Result;
 use async_trait::async_trait;
-use common::capabilities::{Parameterized, Readable};
+use common::capabilities::{Parameterized, ReadResult, Readable, ReadableWithMetadata};
 use common::driver::{Capability, DeviceComponents, DeviceMetadata, DriverFactory};
 use common::observable::ParameterSet;
 use common::parameter::Parameter;
@@ -64,8 +64,11 @@ impl Default for MockPowerMeterConfig {
 pub struct MockPowerMeterFactory;
 
 /// Static capabilities for MockPowerMeter
-static MOCK_POWER_METER_CAPABILITIES: &[Capability] =
-    &[Capability::Readable, Capability::Parameterized];
+static MOCK_POWER_METER_CAPABILITIES: &[Capability] = &[
+    Capability::Readable,
+    Capability::ReadableWithMetadata,
+    Capability::Parameterized,
+];
 
 impl DriverFactory for MockPowerMeterFactory {
     fn driver_type(&self) -> &'static str {
@@ -93,6 +96,7 @@ impl DriverFactory for MockPowerMeterFactory {
 
             Ok(DeviceComponents {
                 readable: Some(meter.clone()),
+                readable_with_metadata: Some(meter.clone()),
                 parameterized: Some(meter),
                 metadata: DeviceMetadata {
                     measurement_units: Some("W".into()),
@@ -572,6 +576,24 @@ impl Readable for MockPowerMeter {
         let reading = self.convert_to_unit(attenuated);
 
         Ok(reading)
+    }
+}
+
+#[async_trait]
+impl ReadableWithMetadata for MockPowerMeter {
+    async fn read_with_metadata(&self, _channel: u32) -> Result<ReadResult> {
+        #[allow(clippy::cast_possible_truncation)] // Nanoseconds since epoch fit in u64 until ~2554
+        let timestamp_ns = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock before UNIX epoch")
+            .as_nanos() as u64;
+
+        Ok(ReadResult {
+            raw_value: 32768,
+            voltage: 0.5,
+            timestamp_ns,
+            range_index: 0,
+        })
     }
 }
 
@@ -1160,5 +1182,18 @@ mod tests {
             meter.start_reading_stream().is_none(),
             "Instant mode should not start reading stream"
         );
+    }
+
+    #[tokio::test]
+    async fn test_read_with_metadata_returns_valid_data() {
+        use common::capabilities::ReadableWithMetadata;
+
+        let meter = MockPowerMeter::new(1.0);
+        let result = meter.read_with_metadata(0).await.unwrap();
+
+        assert_eq!(result.raw_value, 32768);
+        assert!((result.voltage - 0.5).abs() < f64::EPSILON);
+        assert!(result.timestamp_ns > 0);
+        assert_eq!(result.range_index, 0);
     }
 }

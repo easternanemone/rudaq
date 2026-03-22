@@ -1,8 +1,10 @@
 //! Readable trait implementation for analog input.
 
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use anyhow::Result;
 use async_trait::async_trait;
-use common::capabilities::Readable;
+use common::capabilities::{ReadResult, Readable, ReadableWithMetadata};
 use parking_lot::RwLock;
 
 use crate::subsystem::analog_input::AnalogInput;
@@ -133,6 +135,41 @@ impl Readable for ReadableAnalogInput {
             .map_err(|e| anyhow::anyhow!("Read error: {}", e))?;
 
         Ok(voltage)
+    }
+}
+
+#[async_trait]
+impl ReadableWithMetadata for ReadableAnalogInput {
+    async fn read_with_metadata(&self, _channel: u32) -> Result<ReadResult> {
+        let range = self.get_range()?;
+        let inner = self.inner.clone();
+        let channel = self.channel;
+        let range_index = self.range_index;
+        let aref = self.aref;
+
+        let (raw, voltage) = tokio::task::spawn_blocking(move || {
+            let raw = inner.read_raw(channel, range.index, aref)?;
+            let voltage = inner.raw_to_voltage(raw, &range);
+            Ok::<_, anyhow::Error>((raw, voltage))
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("Task join error: {}", e))??;
+
+        #[allow(clippy::cast_possible_wrap)]
+        let raw_value = raw as i32;
+
+        #[allow(clippy::cast_possible_truncation)] // Nanoseconds since epoch fit in u64 until ~2554
+        let timestamp_ns = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock before UNIX epoch")
+            .as_nanos() as u64;
+
+        Ok(ReadResult {
+            raw_value,
+            voltage,
+            timestamp_ns,
+            range_index,
+        })
     }
 }
 
