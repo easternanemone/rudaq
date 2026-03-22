@@ -551,8 +551,7 @@ impl ReadableWithMetadata for ComediAnalogInputDriver {
             .expect("system clock before UNIX epoch")
             .as_nanos() as u64;
 
-        #[allow(clippy::cast_possible_wrap)]
-        let raw_value = raw as i32;
+        let raw_value = i32::try_from(raw).context("raw ADC value exceeded i32 range")?;
 
         Ok(ReadResult {
             raw_value,

@@ -198,7 +198,23 @@ impl Settable for ReadableCounter {
 
 #[async_trait]
 impl CounterConfigurable for ReadableCounter {
+    /// Configure the counter mode and edge.
+    ///
+    /// **Limitation**: The Comedi `insn_config` FFI is not yet exposed, so
+    /// non-default mode/edge settings are stored for readback but not
+    /// programmed into hardware. The counter is reset on every configure call.
     async fn configure_counter(&self, config: CounterConfig) -> Result<()> {
+        // Warn when the caller requests non-default settings that we cannot
+        // actually program into hardware yet.
+        if config.mode != CounterMode::EventCounting || config.edge != CounterEdge::Rising {
+            tracing::warn!(
+                mode = ?config.mode,
+                edge = ?config.edge,
+                "CounterConfigurable: requested mode/edge stored for readback but NOT \
+                 applied to hardware (insn_config FFI not yet exposed)"
+            );
+        }
+
         // Store the configuration. The Comedi counter subsystem does not yet
         // expose `insn_config` FFI, so we persist the config for readback and
         // reset the counter to prepare for the new mode.

@@ -77,6 +77,11 @@ impl DriverFactory for MockCounterFactory {
 ///
 /// Stores a count value and counter configuration in memory.
 /// Useful for testing counter-related workflows without hardware.
+// TODO(bd-cpjg): Migrate `value` and `config` from raw `RwLock<T>` to
+// `Parameter<T>` for reactive state management, hardware-callback
+// consistency, and subscriber notifications. This is a non-trivial
+// refactor because `Parameter<T>` requires `BoxFuture` callbacks and
+// the current mock has no async side-effects to drive.
 pub struct MockCounter {
     channel: u32,
     value: RwLock<u32>,

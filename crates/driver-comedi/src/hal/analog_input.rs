@@ -155,8 +155,9 @@ impl ReadableWithMetadata for ReadableAnalogInput {
         .await
         .map_err(|e| anyhow::anyhow!("Task join error: {}", e))??;
 
-        #[allow(clippy::cast_possible_wrap)]
-        let raw_value = raw as i32;
+        let raw_value = i32::try_from(raw).map_err(|_| {
+            anyhow::anyhow!("ADC raw sample {raw} exceeds i32::MAX; cannot represent as i32")
+        })?;
 
         #[allow(clippy::cast_possible_truncation)] // Nanoseconds since epoch fit in u64 until ~2554
         let timestamp_ns = SystemTime::now()

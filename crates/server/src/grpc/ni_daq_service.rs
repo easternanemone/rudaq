@@ -27,8 +27,13 @@
 //! - `configure_analog_output`: Primary path uses `registry.get_range_introspectable()`
 //!   -> `RangeIntrospectable::get_ranges()` with Comedi FFI fallback (bd-3bjp)
 //! - `get_daq_status`: Uses `registry.get_device_introspection()` ->
-//!   `DeviceIntrospection::introspect()` (bd-sa9p). Resolution and voltage ranges
-//!   are not yet populated (needs RangeIntrospectable, bd-3bjp).
+//!   `DeviceIntrospection::introspect()` (bd-sa9p), plus
+//!   `registry.get_range_introspectable()` for AI voltage ranges (bd-3bjp).
+//!   Resolution bits not yet populated (needs trait extension).
+//! - `read_analog_input`: Uses `registry.get_readable_with_metadata()` ->
+//!   `ReadableWithMetadata::read_with_metadata()` (bd-09ls)
+//! - `configure_analog_output`: Primary path uses `registry.get_range_introspectable()`
+//!   (bd-3bjp); Comedi FFI fallback for devices without the trait.
 //!
 //! ## Still Using Direct Comedi Access
 //! The following RPCs still use `get_or_open_device()` for direct Comedi FFI.
@@ -630,8 +635,12 @@ impl NiDaqService for NiDaqServiceImpl {
             .await
             .map_err(|e| Status::internal(format!("ReadAnalogInput failed: {e}")))?;
 
-        #[allow(clippy::cast_sign_loss)]
-        let raw_value = result.raw_value as u32;
+        let raw_value = u32::try_from(result.raw_value).map_err(|_| {
+            Status::internal(format!(
+                "raw ADC value {} is negative or out of u32 range",
+                result.raw_value
+            ))
+        })?;
 
         Ok(Response::new(ReadAnalogInputResponse {
             success: true,
@@ -1559,6 +1568,41 @@ impl NiDaqService for NiDaqServiceImpl {
             )
         });
 
+        // Populate AI ranges via RangeIntrospectable when available (bd-3bjp).
+        let ai_ranges =
+            if let Some(range_intro) = self.registry.get_range_introspectable(&device_id) {
+                let ai_subdevice_index = info
+                    .subdevices
+                    .iter()
+                    .find(|s| s.subdevice_type == "analog_input")
+                    .map(|s| s.index)
+                    .unwrap_or(0);
+                match range_intro.get_ranges(ai_subdevice_index).await {
+                    Ok(ranges) => ranges
+                        .into_iter()
+                        .map(|r| {
+                            let unit = match r.unit {
+                                common::capabilities::RangeUnit::Volts => "V",
+                                common::capabilities::RangeUnit::MilliAmps => "mA",
+                                common::capabilities::RangeUnit::None => "",
+                            };
+                            VoltageRange {
+                                index: r.index,
+                                min_voltage: r.min,
+                                max_voltage: r.max,
+                                unit: unit.to_string(),
+                            }
+                        })
+                        .collect(),
+                    Err(e) => {
+                        tracing::warn!("Failed to query AI ranges for '{}': {}", device_id, e);
+                        Vec::new()
+                    }
+                }
+            } else {
+                Vec::new()
+            };
+
         Ok(Response::new(DaqStatus {
             device_id,
             board_name: info.board_name,
@@ -1575,10 +1619,12 @@ impl NiDaqService for NiDaqServiceImpl {
             ao_channels,
             dio_channels,
             counter_channels,
-            // Resolution and ranges require RangeIntrospectable (bd-3bjp)
+            // TODO: ai/ao_resolution_bits require extending the trait to expose
+            // per-subdevice maxdata/bit-width — not available from current
+            // RangeIntrospectable or DeviceIntrospection.
             ai_resolution_bits: 0,
             ao_resolution_bits: 0,
-            ai_ranges: Vec::new(),
+            ai_ranges,
             ao_ranges: Vec::new(),
         }))
     }

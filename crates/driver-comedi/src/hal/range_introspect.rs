@@ -17,7 +17,8 @@ fn comedi_unit_to_range_unit(unit: u32) -> RangeUnit {
     match unit {
         0 => RangeUnit::Volts,
         1 => RangeUnit::MilliAmps,
-        _ => RangeUnit::Volts, // conservative default
+        2 => RangeUnit::None,
+        _ => RangeUnit::None,
     }
 }
 
