@@ -237,6 +237,10 @@ pub struct DaqApp {
     /// Automation state snapshot — `update()` writes, JS reads via `getStatus()`
     #[cfg(target_arch = "wasm32")]
     automation_state: crate::automation::StateHolder,
+
+    /// Ghost DOM overlay for AI agent discoverability (bd-dmk8)
+    #[cfg(target_arch = "wasm32")]
+    ghost_dom: Option<crate::ghost_dom::GhostDom>,
 }
 
 impl DaqApp {
@@ -743,6 +747,13 @@ impl DaqApp {
             touch_style_applied: false,
             automation_commands,
             automation_state,
+            ghost_dom: match crate::ghost_dom::GhostDom::new() {
+                Ok(gd) => Some(gd),
+                Err(e) => {
+                    tracing::warn!("Failed to initialize Ghost DOM: {:?}", e);
+                    None
+                }
+            },
         };
 
         // Restore last echelle profile path and auto-trigger load on next connection

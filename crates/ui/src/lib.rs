@@ -14,6 +14,10 @@ pub mod web_schema;
 #[cfg(target_arch = "wasm32")]
 pub mod automation;
 
+// Ghost DOM overlay for AI agent discoverability (bd-dmk8)
+#[cfg(target_arch = "wasm32")]
+pub mod ghost_dom;
+
 // These modules use native deps (clap, tokio runtime, process spawning, etc.)
 // and are not available on WASM targets.
 #[cfg(not(target_arch = "wasm32"))]

@@ -250,6 +250,12 @@ impl eframe::App for DaqApp {
         #[cfg(target_arch = "wasm32")]
         self.update_automation_state();
 
+        // --- Ghost DOM: sync hidden HTML overlay for automation discovery (bd-dmk8) ---
+        #[cfg(target_arch = "wasm32")]
+        if let Some(ref mut ghost) = self.ghost_dom {
+            ghost.sync(&self.automation_state.borrow());
+        }
+
         // Render cheat sheet panel if visible
         if self.show_cheat_sheet {
             self.cheat_sheet_panel
