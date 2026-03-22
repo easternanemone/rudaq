@@ -305,8 +305,12 @@ pub struct ImageViewerPanel {
     /// Separate flags for the full-width (Spectrum/Split view) and sidebar plots since
     /// they have independent egui_plot memory.
     pub(super) echelle_plot_y_locked: bool,
+    /// Saved Y-axis bounds for the full-width plot (bd-zy7y.4).
+    pub(super) echelle_plot_saved_y: Option<(f64, f64)>,
     /// Lock Y-axis bounds on the sidebar echelle preview plot (bd-zy7y.4).
     pub(super) echelle_sidebar_plot_y_locked: bool,
+    /// Saved Y-axis bounds for the sidebar plot (bd-zy7y.4).
+    pub(super) echelle_sidebar_saved_y: Option<(f64, f64)>,
     /// Last rendered order index + merged state, used to detect user-initiated data
     /// changes that should reset Y zoom (bd-zy7y.4).
     pub(super) echelle_plot_last_rendered: Option<(usize, bool)>,
@@ -458,7 +462,9 @@ impl Default for ImageViewerPanel {
             echelle_plot_smoothing_window: 1,
             echelle_plot_x_axis_mode: EchellePlotXAxisMode::Wavelength,
             echelle_plot_y_locked: false,
+            echelle_plot_saved_y: None,
             echelle_sidebar_plot_y_locked: false,
+            echelle_sidebar_saved_y: None,
             echelle_plot_last_rendered: None,
             echelle_extract_runs: 0,
             echelle_extract_errors: 0,

@@ -4,6 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `AGENTS.md` is the canonical agent policy (local/gitignored, auto-injected by Claude Code hooks). `bd prime` provides the authoritative beads workflow.
 
+## Worktree Isolation (MANDATORY for Agents)
+
+**Agents MUST NOT work directly on `main` in the primary checkout.** Always use a worktree or feature branch to avoid destroying concurrent work. Use `isolation: "worktree"` when spawning sub-agents, or `bd worktree create <name>` for manual work. Never squash-merge large changes directly onto main — use feature branches. See AGENTS.md "Worktree Isolation" section for full rules.
+
 ## Build / Test / Lint
 
 ```bash

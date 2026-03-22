@@ -93,6 +93,7 @@ impl ImageViewerPanel {
                         .clicked()
                 {
                     self.echelle_plot_y_locked = false;
+                    self.echelle_plot_saved_y = None;
                 }
 
                 // Frame/profile info on the right
@@ -201,17 +202,20 @@ impl ImageViewerPanel {
             .is_some_and(|prev| prev != current_render_key)
         {
             self.echelle_plot_y_locked = false;
+            self.echelle_plot_saved_y = None;
             self.echelle_sidebar_plot_y_locked = false;
+            self.echelle_sidebar_saved_y = None;
         }
         self.echelle_plot_last_rendered = Some(current_render_key);
 
-        // Lock Y auto-bounds after first data to prevent auto-rescale on new frames.
-        // X remains auto to always show the full wavelength range.
-        // Double-click the plot or click "Reset Y" to re-fit (bd-zy7y.4).
-        let y_auto = !self.echelle_plot_y_locked;
+        // Persist Y bounds across frames to prevent auto-rescale (bd-zy7y.4).
+        // When locked, we explicitly clamp via set_plot_bounds inside the closure.
+        // X always auto-scales (wavelength range is stable per profile).
+        let y_locked = self.echelle_plot_y_locked;
+        let saved_y = self.echelle_plot_saved_y;
         let mut plot = Plot::new(plot_id)
             .id(egui::Id::new(plot_id))
-            .auto_bounds(egui::Vec2b::new(true, y_auto))
+            .auto_bounds(egui::Vec2b::new(true, !y_locked))
             .allow_scroll(false)
             .allow_drag(true)
             .allow_zoom(true)
@@ -226,6 +230,16 @@ impl ImageViewerPanel {
         }
 
         let response = plot.show(ui, |plot_ui| {
+            // When Y is locked, restore saved bounds to override auto-scaling
+            if y_locked {
+                if let Some((y_min, y_max)) = saved_y {
+                    let current = plot_ui.plot_bounds();
+                    plot_ui.set_plot_bounds(egui_plot::PlotBounds::from_min_max(
+                        [current.min()[0], y_min],
+                        [current.max()[0], y_max],
+                    ));
+                }
+            }
             plot_ui.line(line);
             if let (Some(order), Some(w_lookup), Some(f_lookup)) = (
                 selected_order_for_hover,
@@ -261,14 +275,22 @@ impl ImageViewerPanel {
         });
         self.echelle_plot_hover_link = hover_link;
 
-        // Lock Y auto-bounds after first render so panel resizing doesn't rescale.
-        // Double-click resets zoom (egui_plot built-in sets mem.auto_bounds = true).
+        // Save Y bounds after render, then lock for subsequent frames (bd-zy7y.4).
+        let bounds = response.transform.bounds();
         if !self.echelle_plot_y_locked {
+            // First render or after reset: save the auto-fitted Y range, then lock
+            self.echelle_plot_saved_y = Some((bounds.min()[1], bounds.max()[1]));
             self.echelle_plot_y_locked = true;
+        } else if response.response.dragged()
+            || response.response.hovered() && ui.input(|i| i.zoom_delta() != 1.0)
+        {
+            // User manually zoomed/dragged: update saved bounds to their choice
+            self.echelle_plot_saved_y = Some((bounds.min()[1], bounds.max()[1]));
         }
-        // Double-click unlocks Y for re-auto-fit, then re-locks next frame.
+        // Double-click or "Reset Y" unlocks for one frame to re-auto-fit.
         if response.response.double_clicked() {
             self.echelle_plot_y_locked = false;
+            self.echelle_plot_saved_y = None;
         }
 
         // Coverage/hover info below the plot
@@ -510,13 +532,14 @@ impl ImageViewerPanel {
         };
         let mut hover_link = None;
 
-        // Lock Y auto-bounds after first data, same as the full-width plot (bd-zy7y.4).
-        let sidebar_y_auto = !self.echelle_sidebar_plot_y_locked;
+        // Persist Y bounds for sidebar plot (bd-zy7y.4).
+        let sidebar_y_locked = self.echelle_sidebar_plot_y_locked;
+        let sidebar_saved_y = self.echelle_sidebar_saved_y;
 
         let sidebar_response = Plot::new("image_viewer_echelle_preview_plot")
             .id(egui::Id::new("image_viewer_echelle_preview_plot"))
             .height(180.0)
-            .auto_bounds(egui::Vec2b::new(true, sidebar_y_auto))
+            .auto_bounds(egui::Vec2b::new(true, !sidebar_y_locked))
             .allow_scroll(false)
             .allow_drag(true)
             .allow_zoom(true)
@@ -526,6 +549,15 @@ impl ImageViewerPanel {
             })
             .y_axis_label("counts")
             .show(ui, |plot_ui| {
+                if sidebar_y_locked {
+                    if let Some((y_min, y_max)) = sidebar_saved_y {
+                        let current = plot_ui.plot_bounds();
+                        plot_ui.set_plot_bounds(egui_plot::PlotBounds::from_min_max(
+                            [current.min()[0], y_min],
+                            [current.max()[0], y_max],
+                        ));
+                    }
+                }
                 plot_ui.line(line);
                 if let (Some(order), Some(w_lookup), Some(f_lookup)) = (
                     selected_order_for_hover,
@@ -562,13 +594,17 @@ impl ImageViewerPanel {
             });
         self.echelle_plot_hover_link = hover_link;
 
-        // Lock sidebar Y after first render, same pattern as full-width plot (bd-zy7y.4).
+        // Save sidebar Y bounds after render, then lock (bd-zy7y.4).
+        let sb_bounds = sidebar_response.transform.bounds();
         if !self.echelle_sidebar_plot_y_locked {
+            self.echelle_sidebar_saved_y = Some((sb_bounds.min()[1], sb_bounds.max()[1]));
             self.echelle_sidebar_plot_y_locked = true;
+        } else if sidebar_response.response.dragged() {
+            self.echelle_sidebar_saved_y = Some((sb_bounds.min()[1], sb_bounds.max()[1]));
         }
-        // Double-click unlocks sidebar Y for re-auto-fit, then re-locks next frame.
         if sidebar_response.response.double_clicked() {
             self.echelle_sidebar_plot_y_locked = false;
+            self.echelle_sidebar_saved_y = None;
         }
 
         if let Some(order) = preview.orders.get(self.echelle_selected_order_plot) {

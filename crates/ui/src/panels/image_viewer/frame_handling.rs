@@ -12,9 +12,11 @@ impl ImageViewerPanel {
                 self.mark_echelle_run_engine_sync_dirty();
                 self.error = None;
                 self.echelle_preview_error = None;
-                // Reset Y zoom locks so the first frame auto-fits (bd-zy7y.4).
+                // Reset Y zoom locks and saved bounds so the first frame auto-fits (bd-zy7y.4).
                 self.echelle_plot_y_locked = false;
+                self.echelle_plot_saved_y = None;
                 self.echelle_sidebar_plot_y_locked = false;
+                self.echelle_sidebar_saved_y = None;
                 self.echelle_plot_last_rendered = None;
                 self.echelle_cal_ui.save_as_path_text = path.display().to_string();
                 if !self.echelle_cal_ui.editor_dirty {

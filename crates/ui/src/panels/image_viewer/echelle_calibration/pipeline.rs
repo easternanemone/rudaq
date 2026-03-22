@@ -40,9 +40,11 @@ impl ImageViewerPanel {
                             self.echelle_cal_ui.last_error = None;
                             self.echelle_profile_cache.activate_in_memory(profile);
                             self.mark_echelle_run_engine_sync_dirty();
-                            // Reset Y zoom so first frame auto-fits new profile (bd-zy7y.4).
+                            // Reset Y zoom and saved bounds so first frame auto-fits (bd-zy7y.4).
                             self.echelle_plot_y_locked = false;
+                            self.echelle_plot_saved_y = None;
                             self.echelle_sidebar_plot_y_locked = false;
+                            self.echelle_sidebar_saved_y = None;
                             self.echelle_plot_last_rendered = None;
                             self.remote_profile_load = RemoteProfileLoadState::Succeeded { path };
                         }
