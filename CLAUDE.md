@@ -153,6 +153,7 @@ registry.register_from_config(DeviceConfig { id, name, driver: DriverConfig { ty
 - Hardware state: always use `Parameter<T>` with `BoxFuture<'static, Result<()>>` callbacks.
 - Workspace clippy: pedantic lints enabled with project-specific allows (see `Cargo.toml` `[workspace.lints.clippy]`).
 - Non-trivial TODO/FIXME comments should include a beads reference (e.g., `TODO(bd-xxxx)`), matching repository policy enforcement.
+- **Fix pre-existing issues**: Do NOT dismiss test failures, warnings, or broken code as "pre-existing" and move on. If you encounter a failing test or warning in a file you're working in (or that blocks your verification), fix it immediately. If the fix is non-trivial, create a bead for it — but never leave the codebase in a worse or equally broken state. "It was already broken" is not an acceptable reason to ship broken code.
 
 ## Testing Patterns
 
