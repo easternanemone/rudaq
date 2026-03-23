@@ -63,6 +63,8 @@ impl PvcamAcquisition {
         // Avoid unused parameter warnings when hardware feature is disabled.
         let _ = conn;
         let _ = buffer_mode;
+        let _ = &host_summing_enabled;
+        let _ = &host_summing_count;
         if self.streaming.get() {
             tracing::warn!("start_stream: already streaming");
             bail!("Already streaming");
