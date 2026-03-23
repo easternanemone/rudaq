@@ -3164,6 +3164,270 @@ impl PvcamFeatures {
     }
 
     // =========================================================================
+    // Post-Processing Features (bd-oqo7.3)
+    // =========================================================================
+
+    /// Enumerate all available post-processing features on the camera.
+    pub fn enumerate_pp_features(_conn: &PvcamConnection) -> Result<Vec<PPFeature>> {
+        #[cfg(feature = "pvcam_sdk")]
+        if let Some(h) = _conn.handle() {
+            let mut features = Vec::new();
+
+            // Get number of PP features
+            let mut count: u32 = 0;
+            // SAFETY: h is valid; count is writable u32 on stack.
+            unsafe {
+                if pl_get_param(
+                    h,
+                    PARAM_PP_INDEX,
+                    ATTR_COUNT,
+                    &mut count as *mut _ as *mut _,
+                ) == 0
+                {
+                    // PP not supported — return empty
+                    return Ok(Vec::new());
+                }
+            }
+
+            for feat_idx in 0..count {
+                // Select this feature
+                // SAFETY: h valid; feat_idx pointer valid for call duration.
+                unsafe {
+                    if pl_set_param(h, PARAM_PP_INDEX, &feat_idx as *const _ as *mut _) == 0 {
+                        continue;
+                    }
+                }
+
+                // Read feature name
+                let mut name_buf = [0u8; 64];
+                // SAFETY: h valid; name_buf large enough for PP feature names.
+                unsafe {
+                    if pl_get_param(
+                        h,
+                        PARAM_PP_FEAT_NAME,
+                        ATTR_CURRENT,
+                        name_buf.as_mut_ptr() as *mut _,
+                    ) == 0
+                    {
+                        continue;
+                    }
+                }
+                let name = String::from_utf8_lossy(
+                    &name_buf[..name_buf
+                        .iter()
+                        .position(|&b| b == 0)
+                        .unwrap_or(name_buf.len())],
+                )
+                .to_string();
+
+                // Read feature ID
+                let mut feat_id: u32 = 0;
+                // SAFETY: h valid; feat_id writable u32 on stack.
+                unsafe {
+                    let _ = pl_get_param(
+                        h,
+                        PARAM_PP_FEAT_ID,
+                        ATTR_CURRENT,
+                        &mut feat_id as *mut _ as *mut _,
+                    );
+                }
+
+                // Enumerate parameters within this feature
+                let mut params = Vec::new();
+                let mut param_count: u32 = 0;
+                // SAFETY: h valid; param_count writable u32.
+                unsafe {
+                    if pl_get_param(
+                        h,
+                        PARAM_PP_PARAM_INDEX,
+                        ATTR_COUNT,
+                        &mut param_count as *mut _ as *mut _,
+                    ) != 0
+                    {
+                        for param_idx in 0..param_count {
+                            // SAFETY: h valid; param_idx pointer valid.
+                            if pl_set_param(
+                                h,
+                                PARAM_PP_PARAM_INDEX,
+                                &param_idx as *const _ as *mut _,
+                            ) == 0
+                            {
+                                continue;
+                            }
+
+                            let mut pname_buf = [0u8; 64];
+                            // SAFETY: h valid; pname_buf large enough.
+                            if pl_get_param(
+                                h,
+                                PARAM_PP_PARAM_NAME,
+                                ATTR_CURRENT,
+                                pname_buf.as_mut_ptr() as *mut _,
+                            ) == 0
+                            {
+                                continue;
+                            }
+                            let pname = String::from_utf8_lossy(
+                                &pname_buf[..pname_buf
+                                    .iter()
+                                    .position(|&b| b == 0)
+                                    .unwrap_or(pname_buf.len())],
+                            )
+                            .to_string();
+
+                            // Read current value
+                            let mut pval: u32 = 0;
+                            // SAFETY: h valid; pval writable u32.
+                            let _ = pl_get_param(
+                                h,
+                                PARAM_PP_PARAM,
+                                ATTR_CURRENT,
+                                &mut pval as *mut _ as *mut _,
+                            );
+
+                            // Read min/max
+                            let mut pmin: u32 = 0;
+                            let mut pmax: u32 = 0;
+                            // SAFETY: h valid; pmin/pmax writable u32.
+                            let _ = pl_get_param(
+                                h,
+                                PARAM_PP_PARAM,
+                                ATTR_MIN,
+                                &mut pmin as *mut _ as *mut _,
+                            );
+                            let _ = pl_get_param(
+                                h,
+                                PARAM_PP_PARAM,
+                                ATTR_MAX,
+                                &mut pmax as *mut _ as *mut _,
+                            );
+
+                            params.push(PPParam {
+                                name: pname,
+                                index: param_idx,
+                                value: pval,
+                                min: pmin,
+                                max: pmax,
+                            });
+                        }
+                    }
+                }
+
+                features.push(PPFeature {
+                    name,
+                    index: feat_idx,
+                    id: feat_id,
+                    params,
+                });
+            }
+
+            return Ok(features);
+        }
+        Ok(Vec::new())
+    }
+
+    /// Check if PrimeEnhance is available on this camera.
+    pub fn is_prime_enhance_available(_conn: &PvcamConnection) -> bool {
+        #[cfg(feature = "pvcam_sdk")]
+        if _conn.handle().is_some() {
+            if let Ok(features) = Self::enumerate_pp_features(_conn) {
+                return features.iter().any(|f| {
+                    let upper = f.name.to_uppercase();
+                    upper.contains("PRIMEENHANCE") || upper.contains("PRIME_ENHANCE")
+                });
+            }
+        }
+        false
+    }
+
+    /// Get whether PrimeEnhance is currently enabled.
+    pub fn get_prime_enhance_enabled(_conn: &PvcamConnection) -> Result<bool> {
+        #[cfg(feature = "pvcam_sdk")]
+        if _conn.handle().is_some() {
+            let features = Self::enumerate_pp_features(_conn)?;
+            let pe_feat = features.iter().find(|f| {
+                let upper = f.name.to_uppercase();
+                upper.contains("PRIMEENHANCE") || upper.contains("PRIME_ENHANCE")
+            });
+
+            if let Some(feat) = pe_feat {
+                // Check enable param (usually first param or one containing "Enable")
+                if let Some(ep) = feat
+                    .params
+                    .iter()
+                    .find(|p| p.name.to_uppercase().contains("ENABLE"))
+                {
+                    return Ok(ep.value != 0);
+                }
+                if let Some(first) = feat.params.first() {
+                    return Ok(first.value != 0);
+                }
+            }
+        }
+        Ok(false)
+    }
+
+    /// Enable or disable PrimeEnhance by name.
+    pub fn set_prime_enhance(_conn: &PvcamConnection, _enabled: bool) -> Result<()> {
+        #[cfg(feature = "pvcam_sdk")]
+        if let Some(h) = _conn.handle() {
+            let features = Self::enumerate_pp_features(_conn)?;
+            let pe_feat = features.iter().find(|f| {
+                let upper = f.name.to_uppercase();
+                upper.contains("PRIMEENHANCE") || upper.contains("PRIME_ENHANCE")
+            });
+
+            let feat = pe_feat
+                .ok_or_else(|| anyhow!("PrimeEnhance feature not available on this camera"))?;
+
+            // Select the feature
+            let feat_idx = feat.index;
+            // SAFETY: h valid; feat_idx pointer valid.
+            unsafe {
+                if pl_set_param(h, PARAM_PP_INDEX, &feat_idx as *const _ as *mut _) == 0 {
+                    return Err(anyhow!(
+                        "Failed to select PP feature: {}",
+                        get_pvcam_error()
+                    ));
+                }
+            }
+
+            // Find enable param
+            let enable_param_idx = feat
+                .params
+                .iter()
+                .find(|p| p.name.to_uppercase().contains("ENABLE"))
+                .map(|p| p.index)
+                .unwrap_or(0);
+
+            // SAFETY: h valid; pointers valid for call duration.
+            unsafe {
+                if pl_set_param(
+                    h,
+                    PARAM_PP_PARAM_INDEX,
+                    &enable_param_idx as *const _ as *mut _,
+                ) == 0
+                {
+                    return Err(anyhow!(
+                        "Failed to select PP param index: {}",
+                        get_pvcam_error()
+                    ));
+                }
+                let val: u32 = u32::from(_enabled);
+                if pl_set_param(h, PARAM_PP_PARAM, &val as *const _ as *mut _) == 0 {
+                    return Err(anyhow!("Failed to set PrimeEnhance: {}", get_pvcam_error()));
+                }
+            }
+
+            tracing::info!(
+                enabled = _enabled,
+                "PrimeEnhance {}",
+                if _enabled { "enabled" } else { "disabled" }
+            );
+        }
+        Ok(())
+    }
+
+    // =========================================================================
     // Private Implementation Helpers
     // =========================================================================
 

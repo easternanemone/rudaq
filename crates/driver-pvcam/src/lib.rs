@@ -242,6 +242,10 @@ pub struct PvcamDriver {
     ccs_status: Parameter<i16>,
     exp_min_time: Parameter<f64>,
 
+    // Post-Processing (bd-oqo7.3)
+    prime_enhance_enabled: Parameter<bool>,
+    prime_enhance_available: bool,
+
     // Metadata (Info)
     serial_number: Parameter<String>,
     firmware_version: Parameter<String>,
@@ -740,6 +744,26 @@ impl PvcamDriver {
             }
         }
 
+        // Post-Processing / PrimeEnhance (bd-oqo7.3)
+        let prime_enhance_available;
+        let prime_enhance_enabled;
+        {
+            let conn_guard = connection.lock().await;
+            prime_enhance_available = PvcamFeatures::is_prime_enhance_available(&conn_guard);
+            let pe_state = if prime_enhance_available {
+                PvcamFeatures::get_prime_enhance_enabled(&conn_guard).unwrap_or(false)
+            } else {
+                false
+            };
+            prime_enhance_enabled = Parameter::new("pp.prime_enhance_enabled", pe_state)
+                .with_description("PrimeEnhance real-time FPGA denoising (3-5x SNR improvement)");
+            if prime_enhance_available {
+                tracing::info!("PrimeEnhance available on this camera");
+            } else {
+                tracing::debug!("PrimeEnhance not available on this camera");
+            }
+        }
+
         // Metadata Info Group
         let serial_number = Parameter::new("info.serial_number", info.serial_number)
             .with_description("Camera Serial Number")
@@ -806,6 +830,8 @@ impl PvcamDriver {
         params.register(controller_alive.clone());
         params.register(ccs_status.clone());
         params.register(exp_min_time.clone());
+        // Post-Processing (bd-oqo7.3)
+        params.register(prime_enhance_enabled.clone());
         params.register(serial_number.clone());
         params.register(firmware_version.clone());
         params.register(model_name.clone());
@@ -871,6 +897,8 @@ impl PvcamDriver {
             controller_alive,
             ccs_status,
             exp_min_time,
+            prime_enhance_enabled,
+            prime_enhance_available,
             serial_number,
             firmware_version,
             model_name,
@@ -1680,6 +1708,25 @@ impl PvcamDriver {
                 })
             }
         });
+
+        // PrimeEnhance (bd-oqo7.3)
+        if self.prime_enhance_available {
+            self.prime_enhance_enabled.connect_to_hardware_write({
+                let conn = conn.clone();
+                move |val| {
+                    let conn = conn.clone();
+                    Box::pin(async move {
+                        let conn_guard = conn.lock_owned().await;
+                        tokio::task::spawn_blocking(move || {
+                            PvcamFeatures::set_prime_enhance(&conn_guard, val)
+                                .map_err(|e| DaqError::Instrument(e.to_string()))
+                        })
+                        .await
+                        .map_err(|e| DaqError::Instrument(e.to_string()))?
+                    })
+                }
+            });
+        }
     }
 
     /// Populate dynamic enum choices from the camera (bd-c4hf.2)
