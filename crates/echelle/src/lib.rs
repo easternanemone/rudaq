@@ -15,6 +15,7 @@
 //! - **Simulation** - Synthetic echelleogram generation for pipeline development
 
 pub mod calibration_pipeline;
+pub mod chebyshev_2d;
 pub mod optimal_extraction;
 pub mod rectification;
 pub mod scattered_light;
