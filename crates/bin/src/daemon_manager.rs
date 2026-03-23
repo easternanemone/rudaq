@@ -914,12 +914,19 @@ impl DaemonInstance {
     }
 }
 
-/// Restore last-known parameter values from SurrealDB to devices (bd-4wf7).
+/// Restore last-known parameter values from SurrealDB to devices (bd-4wf7, bd-oqo7.8).
 ///
 /// On daemon startup, reads `device_runtime_state` entries and applies them via
 /// `Parameter::set_json()`. If a value is rejected by the driver (e.g., constraint
 /// violation after a config change), the error is logged and the device keeps its
 /// hardware default. Returns the number of successfully restored parameters.
+///
+/// **Read-only parameters** are skipped (they reflect hardware state, not user preferences).
+///
+/// **Speed table ordering**: Parameters are applied in dependency order so that
+/// constrained choices (e.g., PVCAM readout Port -> Speed -> Gain) resolve correctly.
+/// Port must be set before Speed (which depends on available speeds for that port),
+/// and Speed before Gain (which depends on available gains for that speed).
 #[cfg(feature = "db-surreal")]
 async fn restore_parameter_state(db: &db::DaqDb, registry: &DeviceRegistry) -> Result<usize> {
     let mut restored = 0;
@@ -935,10 +942,25 @@ async fn restore_parameter_state(db: &db::DaqDb, registry: &DeviceRegistry) -> R
         };
         let param_set = parameterized.parameters();
 
-        for state in states {
+        // Sort states into dependency order for correct restoration.
+        // Speed table params must restore: Port -> Speed -> Gain.
+        let ordered_states = order_params_for_restore(states);
+
+        for state in ordered_states {
             let Some(param) = param_set.get(&state.param_name) else {
                 continue;
             };
+
+            // Skip read-only parameters — they reflect hardware state, not user preferences
+            if param.metadata().read_only {
+                tracing::trace!(
+                    device = %device_id,
+                    param = %state.param_name,
+                    "Skipped read-only parameter during restore"
+                );
+                continue;
+            }
+
             if let Err(e) = param.set_json(state.param_value.clone()) {
                 tracing::debug!(
                     device = %device_id,
@@ -958,6 +980,38 @@ async fn restore_parameter_state(db: &db::DaqDb, registry: &DeviceRegistry) -> R
         }
     }
     Ok(restored)
+}
+
+/// Sort persisted parameter states into dependency order for safe restoration.
+///
+/// Speed table parameters must be applied in order: Port -> Speed -> Gain,
+/// because each constrains the choices available to the next. All other parameters
+/// are applied after the speed table group, in their original (alphabetical) order.
+#[cfg(feature = "db-surreal")]
+fn order_params_for_restore(
+    states: Vec<db::config_store::DeviceParamState>,
+) -> Vec<db::config_store::DeviceParamState> {
+    // Priority tiers: lower number = applied first.
+    // Tier 0: readout port (constrains available speeds)
+    // Tier 1: readout speed (constrains available gains)
+    // Tier 2: readout gain
+    // Tier 10: everything else (alphabetical within tier)
+    fn priority(name: &str) -> u8 {
+        match name {
+            "readout.port" => 0,
+            "readout.speed_mode" => 1,
+            "readout.gain_mode" => 2,
+            _ => 10,
+        }
+    }
+
+    let mut sorted = states;
+    sorted.sort_by(|a, b| {
+        let pa = priority(&a.param_name);
+        let pb = priority(&b.param_name);
+        pa.cmp(&pb).then_with(|| a.param_name.cmp(&b.param_name))
+    });
+    sorted
 }
 
 #[cfg(test)]
