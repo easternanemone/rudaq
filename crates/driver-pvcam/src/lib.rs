@@ -1068,6 +1068,36 @@ impl PvcamDriver {
         Ok(driver)
     }
 
+    /// Start the background health monitor (bd-oqo7.9).
+    ///
+    /// Polls `get_controller_alive()` and `get_ccs_status()` every 5 seconds
+    /// and fires state-transition callbacks. The monitor stops automatically
+    /// when the driver is dropped (via the internal cancellation token).
+    ///
+    /// # Arguments
+    ///
+    /// * `device_id` - The device registry ID (e.g., "pvcam_0") for logging.
+    /// * `callback` - Receives state transition notifications for registry/DB.
+    pub fn start_health_monitor(
+        &self,
+        device_id: String,
+        callback: Arc<dyn crate::components::health_monitor::HealthMonitorCallback>,
+    ) -> tokio::task::JoinHandle<()> {
+        crate::components::health_monitor::spawn_health_monitor(
+            device_id,
+            self.connection.clone(),
+            callback,
+            self.health_monitor_cancel.clone(),
+        )
+    }
+
+    /// Get the cancellation token for the health monitor.
+    ///
+    /// Useful for wiring into a broader shutdown hierarchy.
+    pub fn health_monitor_cancel(&self) -> &tokio_util::sync::CancellationToken {
+        &self.health_monitor_cancel
+    }
+
     /// Wire hardware write callbacks for all PVCAM parameters.
     ///
     /// # bd-aruo.3: spawn_blocking for SDK FFI calls
