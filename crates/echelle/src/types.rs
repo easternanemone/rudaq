@@ -3,6 +3,7 @@
 //! This module defines the canonical, versioned calibration profile format used
 //! by rust-daq for echellegram-to-spectrum extraction workflows.
 
+use crate::scattered_light::{estimate_scatter_map_fast_f32, TraceInfo};
 use chrono::{DateTime, Utc};
 use common::core::Measurement;
 use serde::{Deserialize, Serialize};
@@ -13,6 +14,10 @@ use std::path::Path;
 use thiserror::Error;
 
 pub const ECHELLE_PROFILE_SCHEMA_MAJOR: u32 = 1;
+
+/// Minimum blaze curve value to prevent excessive amplification at order edges.
+/// Values below this floor are clamped before dividing science flux.
+const BLAZE_FLOOR: f64 = 0.1;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EchelleSchemaVersion {
@@ -106,6 +111,42 @@ pub struct EchelleExtractionConfig {
     pub default_aperture_half_width_px: f64,
     #[serde(default)]
     pub background: Option<EchelleBackgroundConfig>,
+    /// Live scattered-light subtraction applied before per-order extraction.
+    /// Disabled by default (`None`). When enabled, a coarse-grid CERES method
+    /// estimates the inter-order background and subtracts it from the decoded
+    /// frame in-place before extraction.
+    #[serde(default)]
+    pub scattered_light: Option<ScatteredLightLiveConfig>,
+}
+
+/// Configuration for live (per-frame) scattered light subtraction.
+///
+/// Uses a coarse grid of inter-order pixel medians with bilinear
+/// interpolation — fast enough for ~1 FPS at 2560×2160.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ScatteredLightLiveConfig {
+    /// Column stride for coarse sampling (default: 8).
+    #[serde(default = "default_col_stride")]
+    pub col_stride: u32,
+    /// Row stride for coarse sampling (default: 4).
+    #[serde(default = "default_row_stride")]
+    pub row_stride: u32,
+}
+
+impl Default for ScatteredLightLiveConfig {
+    fn default() -> Self {
+        Self {
+            col_stride: default_col_stride(),
+            row_stride: default_row_stride(),
+        }
+    }
+}
+
+const fn default_col_stride() -> u32 {
+    8
+}
+const fn default_row_stride() -> u32 {
+    4
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -186,6 +227,13 @@ pub struct EchelleCorrections {
     pub bad_pixel_mask: Option<EchelleArtifactRef>,
     #[serde(default)]
     pub excluded_regions: Vec<PixelRegion>,
+    /// Loaded per-order blaze curves (one `Vec<f64>` per order, indexed by
+    /// position in `EchelleCalibrationProfile::orders`). Each element is a
+    /// normalised blaze value in `[BLAZE_FLOOR, 1.0]`. Science flux is
+    /// divided by this curve during extraction to remove the grating
+    /// efficiency envelope.
+    #[serde(default)]
+    pub blaze_curves: Option<Vec<Vec<f64>>>,
 }
 
 /// Loaded bad-pixel mask: a 2D boolean grid where `true` marks a bad pixel
@@ -1173,6 +1221,19 @@ impl<'a> DecodedIntensityFrame<'a> {
             DecodedPixels::U16Owned(pixels) => pixels.get(idx).copied().map(u32::from),
         }
     }
+
+    /// Convert the full frame to a row-major `f32` array.
+    ///
+    /// Used by the scattered-light fast path which needs a contiguous f32
+    /// buffer for inter-order pixel sampling.
+    fn to_f32_vec(&self) -> Vec<f32> {
+        let n = self.width as usize * self.height as usize;
+        match &self.pixels {
+            DecodedPixels::U8(px) => px.iter().map(|&v| f32::from(v)).collect(),
+            DecodedPixels::U16Borrowed(px) => px[..n].iter().map(|&v| f32::from(v)).collect(),
+            DecodedPixels::U16Owned(px) => px[..n].iter().map(|&v| f32::from(v)).collect(),
+        }
+    }
 }
 
 pub fn extract_preview(
@@ -1313,10 +1374,52 @@ fn extract_preview_with_scratch_inner(
     mask: Option<&BadPixelMask>,
 ) -> Result<EchelleExtractionPreview, String> {
     let saturation_threshold = bit_depth_max(bit_depth);
-    let enabled_orders: Vec<_> = profile
+    let blaze_curves = profile.corrections.blaze_curves.as_ref();
+
+    // Scattered light: compute a full-resolution correction map if enabled.
+    let scatter_map: Option<Vec<f32>> =
+        profile
+            .extraction
+            .scattered_light
+            .as_ref()
+            .map(|sl_config| {
+                let f32_frame = decoded.to_f32_vec();
+                // NOTE: The scattered-light estimator evaluates trace models
+                // using frame-local pixel coordinates. When ROI offset is
+                // non-zero, trace polynomials (defined in sensor coordinates)
+                // would be evaluated at the wrong position. For now this is
+                // correct because the iStar forces full-frame AOI (roi=0).
+                // A proper fix for non-zero ROI would pass offsets into the
+                // estimator to map frame-local → sensor coordinates.
+                let traces: Vec<TraceInfo<'_>> = profile
+                    .orders
+                    .iter()
+                    .filter(|o| o.enabled)
+                    .map(|o| TraceInfo {
+                        trace: &o.trace,
+                        disp_start: o.sample_start,
+                        disp_end: o.sample_end,
+                    })
+                    .collect();
+                estimate_scatter_map_fast_f32(
+                    &f32_frame,
+                    decoded.width(),
+                    decoded.height(),
+                    &traces,
+                    profile.extraction.default_aperture_half_width_px,
+                    sl_config.col_stride,
+                    sl_config.row_stride,
+                )
+            });
+    let scatter_ref = scatter_map.as_deref();
+
+    // Collect (position_in_orders_vec, order) pairs so blaze_curves is
+    // indexed by position, not by relative_index (which may not be contiguous).
+    let enabled_orders: Vec<(usize, &EchelleOrderCalibration)> = profile
         .orders
         .iter()
-        .filter(|order| order.enabled)
+        .enumerate()
+        .filter(|(_, order)| order.enabled)
         .collect();
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -1324,14 +1427,36 @@ fn extract_preview_with_scratch_inner(
         use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
         enabled_orders
             .par_iter()
-            .map(|order| extract_order(profile, order, decoded, saturation_threshold, mask))
+            .map(|&(pos, order)| {
+                let blaze = blaze_curves.and_then(|c| c.get(pos)).map(Vec::as_slice);
+                extract_order(
+                    profile,
+                    order,
+                    decoded,
+                    saturation_threshold,
+                    mask,
+                    blaze,
+                    scatter_ref,
+                )
+            })
             .collect::<Result<Vec<_>, _>>()?
     };
 
     #[cfg(target_arch = "wasm32")]
     let orders: Vec<EchelleOrderPreview> = enabled_orders
         .iter()
-        .map(|order| extract_order(profile, order, decoded, saturation_threshold, mask))
+        .map(|&(pos, order)| {
+            let blaze = blaze_curves.and_then(|c| c.get(pos)).map(Vec::as_slice);
+            extract_order(
+                profile,
+                order,
+                decoded,
+                saturation_threshold,
+                mask,
+                blaze,
+                scatter_ref,
+            )
+        })
         .collect::<Result<Vec<_>, _>>()?;
 
     Ok(EchelleExtractionPreview {
@@ -1350,6 +1475,8 @@ fn extract_order(
     frame: &DecodedIntensityFrame<'_>,
     saturation_threshold: u32,
     mask: Option<&BadPixelMask>,
+    blaze: Option<&[f64]>,
+    scatter_map: Option<&[f32]>,
 ) -> Result<EchelleOrderPreview, String> {
     let half_width = order
         .aperture_half_width_px
@@ -1420,7 +1547,9 @@ fn extract_order(
                         && !is_excluded(profile, mask, x as u32, y as u32)
                     {
                         if let Some(pixel) = frame.get(x as u32, y as u32) {
-                            sample_sum = f64::from(pixel);
+                            let signal = f64::from(pixel)
+                                - scatter_at(scatter_map, x as u32, y as u32, frame.width());
+                            sample_sum = signal.max(0.0);
                             valid = 1;
                             saturated_sample = pixel >= saturation_threshold;
                         }
@@ -1448,7 +1577,9 @@ fn extract_order(
                             continue;
                         }
                         if let Some(pixel) = frame.get(x as u32, y as u32) {
-                            sample_sum += f64::from(pixel);
+                            let signal = f64::from(pixel)
+                                - scatter_at(scatter_map, x as u32, y as u32, frame.width());
+                            sample_sum += signal.max(0.0);
                             valid += 1;
                             saturated_sample |= pixel >= saturation_threshold;
                         }
@@ -1482,10 +1613,12 @@ fn extract_order(
                             continue;
                         }
                         if let Some(pixel) = frame.get(x as u32, y as u32) {
-                            let signal = f64::from(pixel);
+                            let signal = (f64::from(pixel)
+                                - scatter_at(scatter_map, x as u32, y as u32, frame.width()))
+                            .max(0.0);
                             // Variance: readnoise² + Poisson term (signal/gain)
-                            let variance = DEFAULT_READ_NOISE * DEFAULT_READ_NOISE
-                                + signal.max(0.0) / DEFAULT_GAIN;
+                            let variance =
+                                DEFAULT_READ_NOISE * DEFAULT_READ_NOISE + signal / DEFAULT_GAIN;
                             let weight = 1.0 / variance.sqrt();
                             sample_sum += signal * weight;
                             weight_sum += weight;
@@ -1529,6 +1662,17 @@ fn extract_order(
                         sample_sum = sample_sum.max(0.0); // Clamp to non-negative
                     }
                 }
+            }
+        }
+
+        // Blaze correction: divide by normalised flat-lamp blaze function.
+        // Applied after background subtraction so both additive (sky) and
+        // multiplicative (blaze) corrections compose correctly.
+        if let Some(blaze_curve) = blaze {
+            let sample_idx = (sample_local - order.sample_start) as usize;
+            if let Some(&bval) = blaze_curve.get(sample_idx) {
+                let bval = bval.max(BLAZE_FLOOR);
+                sample_sum /= bval;
             }
         }
 
@@ -1700,6 +1844,15 @@ fn bit_depth_max(bit_depth: u32) -> u32 {
     }
 }
 
+/// Look up the scatter correction value at pixel (x, y).
+/// Returns 0.0 if no scatter map is provided or coordinates are out of range.
+#[inline]
+fn scatter_at(scatter_map: Option<&[f32]>, x: u32, y: u32, width: u32) -> f64 {
+    scatter_map
+        .and_then(|m| m.get((y * width + x) as usize).copied())
+        .map_or(0.0, f64::from)
+}
+
 #[inline]
 fn map_disp_cross_to_local_xy(
     dispersion_axis: DetectorAxis,
@@ -1821,6 +1974,95 @@ fn eval_polynomial(
     })
 }
 
+// ─── Blaze correction ──────────────────────────────────────────────────────
+
+/// Extract per-order blaze curves from a flat-lamp frame.
+///
+/// For each calibrated order the function:
+/// 1. Extracts the flat spectrum using simple-sum mode (no background,
+///    no blaze correction, no scattered-light subtraction).
+/// 2. Normalises the per-order flat spectrum so that its peak value is 1.0.
+/// 3. Clamps values below [`BLAZE_FLOOR`] to that floor to prevent
+///    excessive amplification at order edges.
+///
+/// Note: this is a simple per-order normalisation; it does not perform
+/// lamp SED removal via continuum modelling or median smoothing. Within
+/// a single echelle order the lamp SED varies negligibly (~10 nm range).
+///
+/// Store the result in `profile.corrections.blaze_curves` so subsequent
+/// calls to [`extract_preview`] will automatically divide science flux
+/// by the blaze function.
+pub fn extract_flat_blaze_curves(
+    profile: &EchelleCalibrationProfile,
+    flat_data: &[u8],
+    width: u32,
+    height: u32,
+    bit_depth: u32,
+) -> Result<Vec<Vec<f64>>, String> {
+    // Build a throw-away profile copy that always uses SimpleSum without
+    // background or blaze corrections – we want the raw flat shape.
+    let mut flat_profile = profile.clone();
+    flat_profile.corrections.blaze_curves = None;
+    flat_profile.extraction.summation_mode = EchelleSummationMode::SimpleSum;
+    flat_profile.extraction.background = None;
+    flat_profile.extraction.scattered_light = None;
+
+    let preview = extract_preview(&flat_profile, flat_data, width, height, bit_depth, 0)?;
+
+    // Map relative_index → extracted flux for quick lookup.
+    let flux_map: std::collections::HashMap<u32, &[f64]> = preview
+        .orders
+        .iter()
+        .map(|o| (o.relative_index, o.flux.as_slice()))
+        .collect();
+
+    let mut curves = Vec::with_capacity(profile.orders.len());
+    for order in &profile.orders {
+        if let Some(flux) = flux_map.get(&order.relative_index) {
+            curves.push(compute_blaze_from_flat(flux));
+        } else {
+            // Disabled or failed order – identity curve (no correction).
+            let n = (order.sample_end.saturating_sub(order.sample_start) + 1) as usize;
+            curves.push(vec![1.0; n]);
+        }
+    }
+    Ok(curves)
+}
+
+/// Derive a normalised blaze curve from raw flat-lamp flux.
+///
+/// Within a single echelle order the lamp SED varies negligibly (~10 nm
+/// range), so the flat spectrum is dominated by the blaze function.
+/// Normalising to peak = 1.0 and clamping to [`BLAZE_FLOOR`] is the
+/// standard per-order approach used by CERES, PypeIt and others.
+fn compute_blaze_from_flat(flat_flux: &[f64]) -> Vec<f64> {
+    let n = flat_flux.len();
+    if n == 0 {
+        return Vec::new();
+    }
+
+    let peak = flat_flux
+        .iter()
+        .copied()
+        .filter(|x| x.is_finite() && *x > 0.0)
+        .fold(0.0_f64, f64::max);
+
+    if peak <= 0.0 {
+        return vec![BLAZE_FLOOR; n];
+    }
+
+    flat_flux
+        .iter()
+        .map(|&f| {
+            if f.is_finite() && f > 0.0 {
+                (f / peak).max(BLAZE_FLOOR)
+            } else {
+                BLAZE_FLOOR
+            }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1856,6 +2098,7 @@ mod tests {
                     inter_order_gap_min_px: 5,
                     baseline_window_px: 15,
                 }),
+                scattered_light: None,
             },
             orders: vec![
                 EchelleOrderCalibration {
@@ -1914,6 +2157,7 @@ mod tests {
                     width: 3,
                     height: 4,
                 }],
+                blaze_curves: None,
             },
             provenance: EchelleProvenance {
                 creator_tool: "rust-daq-importer".to_string(),
@@ -2138,6 +2382,7 @@ mod tests {
                 summation_mode: EchelleSummationMode::SimpleSum,
                 default_aperture_half_width_px: 1.0,
                 background: None,
+                scattered_light: None,
             },
             orders: vec![EchelleOrderCalibration {
                 relative_index: 0,
@@ -2488,6 +2733,7 @@ mod tests {
                 summation_mode: mode,
                 default_aperture_half_width_px: 1.0,
                 background: None,
+                scattered_light: None,
             },
             orders: vec![EchelleOrderCalibration {
                 relative_index: 0,
@@ -2664,6 +2910,7 @@ mod tests {
                 summation_mode: EchelleSummationMode::SimpleSum,
                 default_aperture_half_width_px: 1.0,
                 background: None,
+                scattered_light: None,
             },
             orders: vec![
                 EchelleOrderCalibration {
@@ -2816,6 +3063,7 @@ mod tests {
                 summation_mode: EchelleSummationMode::SimpleSum,
                 default_aperture_half_width_px: 3.0,
                 background: None,
+                scattered_light: None,
             },
             orders,
             corrections: EchelleCorrections::default(),
@@ -2974,5 +3222,149 @@ mod tests {
                 );
             }
         }
+    }
+
+    // ====================================================================
+    // Blaze correction tests
+    // ====================================================================
+
+    #[test]
+    #[allow(clippy::cast_precision_loss)]
+    fn compute_blaze_normalises_to_peak_one_and_clamps() {
+        // Bell-shaped flat spectrum simulating the grating blaze envelope.
+        let n = 100;
+        let flat: Vec<f64> = (0..n)
+            .map(|i| {
+                let x = (i as f64 - 50.0) / 20.0;
+                let blaze = (-x * x).exp(); // Gaussian bell
+                (blaze * 10000.0).max(1.0) // Ensure positive
+            })
+            .collect();
+
+        let blaze = compute_blaze_from_flat(&flat);
+
+        assert_eq!(blaze.len(), n);
+        // Peak should be 1.0
+        let peak = blaze.iter().copied().fold(0.0_f64, f64::max);
+        assert!((peak - 1.0).abs() < 1e-6, "peak should be 1.0, got {peak}");
+        // All values ≥ BLAZE_FLOOR
+        assert!(blaze.iter().all(|&b| b >= BLAZE_FLOOR));
+        // Center (i=50) is the bell peak → normalised to 1.0
+        assert!(
+            blaze[50] > 0.99,
+            "center blaze should be ~1.0, got {}",
+            blaze[50]
+        );
+        // Edges are low (bell drops to ~exp(-6.25) ≈ 0.002) → clamped to floor
+        assert!(
+            (blaze[0] - BLAZE_FLOOR).abs() < 1e-6,
+            "far edge should be clamped to BLAZE_FLOOR, got {}",
+            blaze[0]
+        );
+    }
+
+    #[test]
+    fn blaze_correction_divides_flux_during_extraction() {
+        let width = 16u32;
+        let height = 10u32;
+        // All aperture pixels set to 1000 → raw flux = 3 × 1000 = 3000 per sample
+        // (aperture radius 1 = 3 pixels)
+        let frame = non_uniform_frame(width, height);
+        let mut profile = small_extraction_profile(EchelleSummationMode::SimpleSum);
+
+        // Extract WITHOUT blaze → raw flux
+        let raw = extract_preview(&profile, &frame, width, height, 16, 0).unwrap();
+        let raw_flux: Vec<f64> = raw.orders[0].flux.clone();
+
+        // Now set a uniform blaze curve of 0.5 → flux should double
+        profile.corrections.blaze_curves = Some(vec![vec![0.5; width as usize]]);
+
+        let corrected = extract_preview(&profile, &frame, width, height, 16, 1).unwrap();
+        let corrected_flux = &corrected.orders[0].flux;
+
+        for (i, (&raw_val, &corr_val)) in raw_flux.iter().zip(corrected_flux.iter()).enumerate() {
+            if raw_val > 0.0 {
+                let ratio = corr_val / raw_val;
+                assert!(
+                    (ratio - 2.0).abs() < 1e-6,
+                    "sample {i}: expected 2× amplification, got ratio {ratio}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn blaze_floor_prevents_extreme_amplification() {
+        let width = 16u32;
+        let height = 10u32;
+        let frame = non_uniform_frame(width, height);
+        let mut profile = small_extraction_profile(EchelleSummationMode::SimpleSum);
+
+        // Extract without blaze for reference
+        let raw = extract_preview(&profile, &frame, width, height, 16, 0).unwrap();
+        let raw_flux: Vec<f64> = raw.orders[0].flux.clone();
+
+        // Blaze curve with a near-zero value → should be clamped to BLAZE_FLOOR
+        let mut blaze = vec![1.0; width as usize];
+        blaze[8] = 0.001; // Would cause 1000× amplification without floor
+        profile.corrections.blaze_curves = Some(vec![blaze]);
+
+        let corrected = extract_preview(&profile, &frame, width, height, 16, 1).unwrap();
+        let max_ratio = corrected.orders[0]
+            .flux
+            .iter()
+            .zip(raw_flux.iter())
+            .filter(|(_, &r)| r > 0.0)
+            .map(|(&c, &r)| c / r)
+            .fold(0.0_f64, f64::max);
+
+        // Maximum amplification should be 1/BLAZE_FLOOR = 10×
+        assert!(
+            max_ratio <= 1.0 / BLAZE_FLOOR + 1e-6,
+            "max amplification {max_ratio} exceeds floor limit {}",
+            1.0 / BLAZE_FLOOR
+        );
+    }
+
+    #[test]
+    fn extract_flat_blaze_curves_produces_valid_output() {
+        let width = 16u32;
+        let height = 10u32;
+        let profile = small_extraction_profile(EchelleSummationMode::SimpleSum);
+        // Use the non_uniform_frame as a "flat" — it has constant signal
+        // across the dispersion axis in the aperture.
+        let flat_frame = non_uniform_frame(width, height);
+
+        let curves = extract_flat_blaze_curves(&profile, &flat_frame, width, height, 16).unwrap();
+
+        assert_eq!(curves.len(), 1, "one order → one blaze curve");
+        assert_eq!(curves[0].len(), width as usize);
+        // All values should be in [BLAZE_FLOOR, 1.0]
+        for &b in &curves[0] {
+            assert!(b >= BLAZE_FLOOR, "blaze {b} < floor");
+            assert!(b <= 1.0 + 1e-10, "blaze {b} > 1.0");
+        }
+        // Peak should be 1.0
+        let peak = curves[0].iter().copied().fold(0.0_f64, f64::max);
+        assert!((peak - 1.0).abs() < 1e-6, "peak should be 1.0, got {peak}");
+    }
+
+    #[test]
+    fn blaze_curves_roundtrip_through_serialisation() {
+        let mut profile = minimal_profile();
+        profile.corrections.blaze_curves = Some(vec![
+            vec![0.1, 0.5, 1.0, 0.5, 0.1],
+            vec![0.2, 0.8, 1.0, 0.8, 0.2],
+        ]);
+
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("blaze_test.json");
+        profile.save_to_path(&path).unwrap();
+        let loaded = EchelleCalibrationProfile::load_from_path(&path).unwrap();
+
+        assert_eq!(
+            loaded.corrections.blaze_curves,
+            profile.corrections.blaze_curves
+        );
     }
 }

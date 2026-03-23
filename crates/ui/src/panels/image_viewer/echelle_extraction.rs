@@ -720,6 +720,7 @@ mod tests {
                     inter_order_gap_min_px: 3,
                     baseline_window_px: 7,
                 }),
+                scattered_light: None,
             },
             orders: vec![EchelleOrderCalibration {
                 relative_index: 0,

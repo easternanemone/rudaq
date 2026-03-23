@@ -299,6 +299,7 @@ impl ImageViewerPanel {
                 summation_mode: EchelleSummationMode::SimpleSum,
                 default_aperture_half_width_px: 4.0,
                 background: None,
+                scattered_light: None,
             },
             orders,
             corrections: Default::default(),

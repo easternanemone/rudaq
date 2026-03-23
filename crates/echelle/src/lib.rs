@@ -20,6 +20,7 @@ pub mod rectification;
 pub mod scattered_light;
 pub mod simulation;
 pub mod trace_fitting;
+pub mod trace_validation;
 pub mod types;
 pub mod wavelength_fitting;
 

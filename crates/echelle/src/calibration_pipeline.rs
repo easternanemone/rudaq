@@ -94,6 +94,8 @@ pub struct SeedAnchor {
 pub struct CalibrationPipelineConfig {
     /// Trace detection parameters.
     pub trace_config: TraceFitConfig,
+    /// Post-detection trace validation (all filters disabled by default).
+    pub trace_validation: crate::trace_validation::TraceValidationConfig,
     /// Arc line detection parameters.
     pub arc_config: ArcDetectConfig,
     /// Wavelength fitting parameters.
@@ -124,6 +126,7 @@ impl Default for CalibrationPipelineConfig {
     fn default() -> Self {
         Self {
             trace_config: TraceFitConfig::default(),
+            trace_validation: crate::trace_validation::TraceValidationConfig::default(),
             arc_config: ArcDetectConfig::default(),
             wl_config: WlFitConfig::default(),
             scatter_config: None,
@@ -312,13 +315,37 @@ fn run_calibration_pipeline_impl(
     // Use flat frame for trace detection if provided (broadband source
     // illuminates all orders); otherwise detect from the arc frame.
     let trace_source = flat_frame.unwrap_or(frame_ref);
-    let traces = detect_orders(trace_source, width, height, &config.trace_config);
-    if traces.is_empty() {
+    let raw_traces = detect_orders(trace_source, width, height, &config.trace_config);
+    if raw_traces.is_empty() {
         return Err(if flat_frame.is_some() {
             "no echelle orders detected in flat frame".to_string()
         } else {
             "no echelle orders detected in frame".to_string()
         });
+    }
+
+    // Optionally filter spurious traces.
+    let traces = if config.trace_validation.is_empty() {
+        raw_traces
+    } else {
+        let validated = crate::trace_validation::validate_traces(
+            &raw_traces,
+            &config.trace_validation,
+            trace_source,
+            width,
+            height,
+            config.rectify_config.aperture_half_width,
+        );
+        tracing::info!(
+            "trace validation: {} → {} traces",
+            raw_traces.len(),
+            validated.len()
+        );
+        validated
+    };
+
+    if traces.is_empty() {
+        return Err("all traces rejected by validation filters".to_string());
     }
     let n_orders = traces.len();
 
@@ -516,6 +543,7 @@ fn run_calibration_pipeline_impl(
             summation_mode,
             default_aperture_half_width_px: config.rectify_config.aperture_half_width,
             background: None,
+            scattered_light: None,
         },
         orders: order_calibrations,
         corrections: EchelleCorrections::default(),
@@ -1723,6 +1751,7 @@ mod tests {
                     summation_mode: EchelleSummationMode::SimpleSum,
                     default_aperture_half_width_px: 4.0,
                     background: None,
+                    scattered_light: None,
                 },
                 orders: Vec::new(),
                 corrections: EchelleCorrections::default(),

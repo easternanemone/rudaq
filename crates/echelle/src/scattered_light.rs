@@ -406,6 +406,150 @@ fn eval_trace_safe(trace: &EchelleTraceModel, x: f64) -> Option<f64> {
     }
 }
 
+// ─── Fast path for live extraction ─────────────────────────────────────────
+
+/// Estimate a full-resolution scattered-light map using the CERES coarse-grid method.
+///
+/// 1. On a coarse grid (`col_stride × row_stride`), sample the median of
+///    inter-order pixel values.
+/// 2. Bilinearly interpolate to full resolution.
+///
+/// Returns a `Vec<f32>` of size `width × height` containing the estimated
+/// scatter value at each pixel. Use this with [`subtract_scatter_map`] or
+/// pass it into the extraction pipeline for per-pixel correction.
+pub fn estimate_scatter_map_fast_f32(
+    frame: &[f32],
+    width: u32,
+    height: u32,
+    traces: &[TraceInfo<'_>],
+    aperture_half_width: f64,
+    col_stride: u32,
+    row_stride: u32,
+) -> Vec<f32> {
+    let w = width as usize;
+    let h = height as usize;
+    if frame.len() < w * h || w < 2 || h < 2 {
+        return vec![0.0; w * h];
+    }
+
+    let cs = col_stride.max(1) as usize;
+    let rs = row_stride.max(1) as usize;
+    let grid_cols = w.div_ceil(cs);
+    let grid_rows = h.div_ceil(rs);
+
+    // Build coarse scattered-light map: for each grid cell, compute the
+    // median of inter-order pixels in a small window around the grid point.
+    let mut coarse_map = vec![0.0f32; grid_cols * grid_rows];
+    let mut scratch = Vec::new();
+
+    for gy in 0..grid_rows {
+        let cy = (gy * rs + rs / 2).min(h - 1);
+        let row_lo = cy.saturating_sub(rs / 2);
+        let row_hi = (cy + rs / 2 + 1).min(h);
+
+        for gx in 0..grid_cols {
+            let cx = (gx * cs + cs / 2).min(w - 1);
+            let col_lo = cx.saturating_sub(cs / 2);
+            let col_hi = (cx + cs / 2 + 1).min(w);
+
+            scratch.clear();
+            for row in row_lo..row_hi {
+                for col in col_lo..col_hi {
+                    if is_inter_order(col as f64, row as f64, traces, aperture_half_width) {
+                        let val = frame[row * w + col];
+                        if val.is_finite() {
+                            scratch.push(val);
+                        }
+                    }
+                }
+            }
+
+            coarse_map[gy * grid_cols + gx] = if scratch.is_empty() {
+                0.0
+            } else {
+                scratch
+                    .sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                scratch[scratch.len() / 2]
+            };
+        }
+    }
+
+    // Bilinear interpolation → full resolution scatter map.
+    let mut scatter_map = vec![0.0f32; w * h];
+    for row in 0..h {
+        let gy_f = row as f64 / rs as f64;
+        let gy0 = (gy_f.floor() as usize).min(grid_rows.saturating_sub(2));
+        let gy1 = (gy0 + 1).min(grid_rows - 1);
+        let ty = (gy_f - gy0 as f64).clamp(0.0, 1.0) as f32;
+
+        for col in 0..w {
+            let gx_f = col as f64 / cs as f64;
+            let gx0 = (gx_f.floor() as usize).min(grid_cols.saturating_sub(2));
+            let gx1 = (gx0 + 1).min(grid_cols - 1);
+            let tx = (gx_f - gx0 as f64).clamp(0.0, 1.0) as f32;
+
+            let v00 = coarse_map[gy0 * grid_cols + gx0];
+            let v10 = coarse_map[gy0 * grid_cols + gx1];
+            let v01 = coarse_map[gy1 * grid_cols + gx0];
+            let v11 = coarse_map[gy1 * grid_cols + gx1];
+
+            scatter_map[row * w + col] = v00 * (1.0 - tx) * (1.0 - ty)
+                + v10 * tx * (1.0 - ty)
+                + v01 * (1.0 - tx) * ty
+                + v11 * tx * ty;
+        }
+    }
+    scatter_map
+}
+
+/// Subtract a pre-computed scatter map from a frame in-place.
+pub fn subtract_scatter_map(frame: &mut [f32], scatter_map: &[f32]) {
+    for (pixel, &scatter) in frame.iter_mut().zip(scatter_map.iter()) {
+        *pixel = (*pixel - scatter).max(0.0);
+    }
+}
+
+/// Fast scattered light subtraction for live frame preview.
+///
+/// Convenience wrapper: estimates + subtracts in one call.
+/// See [`estimate_scatter_map_fast_f32`] for the algorithm details.
+pub fn subtract_scattered_light_fast_f32(
+    frame: &mut [f32],
+    width: u32,
+    height: u32,
+    traces: &[TraceInfo<'_>],
+    aperture_half_width: f64,
+    col_stride: u32,
+    row_stride: u32,
+) {
+    let scatter_map = estimate_scatter_map_fast_f32(
+        frame,
+        width,
+        height,
+        traces,
+        aperture_half_width,
+        col_stride,
+        row_stride,
+    );
+    subtract_scatter_map(frame, &scatter_map);
+}
+
+/// Check whether a pixel is inter-order (not within any trace aperture).
+fn is_inter_order(col: f64, row: f64, traces: &[TraceInfo<'_>], aperture_half_width: f64) -> bool {
+    for trace_info in traces {
+        let col_u32 = col as u32;
+        if col_u32 < trace_info.disp_start || col_u32 > trace_info.disp_end {
+            continue;
+        }
+        if let Some(center) = eval_trace_safe(trace_info.trace, col) {
+            if (row - center).abs() <= aperture_half_width {
+                return false;
+            }
+        }
+    }
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -623,5 +767,68 @@ mod tests {
         // This may or may not return None depending on how many inter-order
         // pixels survive. The key is it doesn't panic.
         let _result = estimate_scattered_light(&frame, width, height, &traces, &config);
+    }
+
+    #[test]
+    fn test_fast_scatter_uniform_background() {
+        let width: u32 = 64;
+        let height: u32 = 32;
+        let background = 100.0f32;
+        let frame = vec![background; width as usize * height as usize];
+
+        let map = estimate_scatter_map_fast_f32(&frame, width, height, &[], 3.0, 8, 4);
+
+        assert_eq!(map.len(), width as usize * height as usize);
+        // With no traces, all pixels are inter-order → scatter ≈ background.
+        for &v in &map {
+            assert!(
+                (v - background).abs() < 5.0,
+                "scatter estimate {v} should be ~{background}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_fast_scatter_subtracts_background() {
+        let width: u32 = 200;
+        let height: u32 = 100;
+        let background = 50.0f32;
+        let trace_center = 50.0;
+        let trace = flat_trace(trace_center);
+        let signal = 1000.0f32;
+
+        let mut frame = vec![background; width as usize * height as usize];
+        // Add bright signal along the trace.
+        for col in 0..width as usize {
+            for offset in -5i32..=5 {
+                let row = (trace_center as i32 + offset) as usize;
+                if row < height as usize {
+                    frame[row * width as usize + col] = signal;
+                }
+            }
+        }
+
+        let traces = [TraceInfo {
+            trace: &trace,
+            disp_start: 0,
+            disp_end: width - 1,
+        }];
+
+        let mut corrected = frame.clone();
+        subtract_scattered_light_fast_f32(&mut corrected, width, height, &traces, 6.0, 8, 4);
+
+        // Inter-order pixels should be near zero after subtraction.
+        let inter_order_val = corrected[10 * width as usize + 50]; // row 10, far from trace
+        assert!(
+            inter_order_val < 10.0,
+            "inter-order pixel should be near 0, got {inter_order_val}"
+        );
+
+        // On-trace pixels should retain most of the signal.
+        let on_trace_val = corrected[50 * width as usize + 100];
+        assert!(
+            on_trace_val > signal - background - 10.0,
+            "on-trace pixel should retain signal, got {on_trace_val}"
+        );
     }
 }
