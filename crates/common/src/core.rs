@@ -251,6 +251,7 @@ impl From<&ImageMetadata> for HumanReadableImageMetadata {
             roi_origin: value.roi_origin,
             frame_number: value.frame_number,
             sequence_gap_from_previous: value.sequence_gap_from_previous,
+            summing_count: value.summing_count,
         }
     }
 }
