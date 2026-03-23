@@ -236,6 +236,7 @@ struct BinaryImageMetadata {
     roi_origin: Option<(u32, u32)>,
     frame_number: Option<u64>,
     sequence_gap_from_previous: Option<u64>,
+    summing_count: Option<u32>,
 }
 
 impl From<&ImageMetadata> for HumanReadableImageMetadata {
