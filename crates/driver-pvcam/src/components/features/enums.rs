@@ -59,7 +59,7 @@ impl std::fmt::Display for PvcamDeviceState {
 impl TryFrom<&str> for PvcamDeviceState {
     type Error = String;
 
-    fn try_from(s: &str) -> Result<Self, Self::Error> {
+    fn try_from(s: &str) -> Result<Self, <Self as TryFrom<&str>>::Error> {
         match s {
             "offline" => Ok(Self::Offline),
             "initializing" => Ok(Self::Initializing),
