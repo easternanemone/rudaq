@@ -2251,6 +2251,8 @@ impl FrameProducer for PvcamDriver {
                 self.binning.get(),
                 self.exposure_ms.get(),
                 self.buffer_mode.get(),
+                self.host_summing_enabled.clone(),
+                self.host_summing_count.clone(),
             )
             .await
     }
