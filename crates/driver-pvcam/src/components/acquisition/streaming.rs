@@ -11,6 +11,7 @@ use super::{get_pvcam_error, PvcamFeatures};
 use anyhow::{anyhow, bail, Result};
 use common::core::Roi;
 use common::data::Frame;
+use common::parameter::Parameter;
 use pool::{FrameData, Pool};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
