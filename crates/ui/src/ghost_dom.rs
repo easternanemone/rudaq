@@ -242,9 +242,13 @@ mod wasm_impl {
         // ── Private helpers ────────────────────────────────────────────
 
         /// Get or create an element by widget ID.
-        fn get_or_create(&mut self, id: &str, tag: &str) -> web_sys::Element {
+        ///
+        /// Returns `(element, created)` where `created` is `true` when the element
+        /// was freshly inserted into the DOM. Callers use this to skip redundant
+        /// `set_attribute` calls for immutable attributes on existing elements.
+        fn get_or_create(&mut self, id: &str, tag: &str) -> (web_sys::Element, bool) {
             if let Some(el) = self.nodes.get(id) {
-                return el.clone();
+                return (el.clone(), false);
             }
             let document = web_sys::window().unwrap().document().unwrap();
             let el = document.create_element(tag).unwrap();
@@ -256,7 +260,7 @@ mod wasm_impl {
             }
             self.root.append_child(&el).unwrap();
             self.nodes.insert(id.to_string(), el.clone());
-            el
+            (el, true)
         }
 
         /// Remove a ghost element by widget ID.
@@ -289,20 +293,24 @@ mod wasm_impl {
 
         /// Create/update a status indicator (`role="status"`).
         fn upsert_status(&mut self, id: &str, label: &str, value: &str) {
-            let el = self.get_or_create(id, "div");
-            let _ = el.set_attribute("role", "status");
-            let _ = el.set_attribute("aria-label", label);
-            let _ = el.set_attribute("data-widget-type", widget_type::STATUS);
+            let (el, created) = self.get_or_create(id, "div");
+            if created {
+                let _ = el.set_attribute("role", "status");
+                let _ = el.set_attribute("aria-label", label);
+                let _ = el.set_attribute("data-widget-type", widget_type::STATUS);
+            }
             let _ = el.set_attribute("data-value", value);
             el.set_text_content(Some(&format!("{label}: {value}")));
         }
 
         /// Create/update a button element.
         fn update_button(&mut self, id: &str, label: &str, enabled: bool) {
-            let el = self.get_or_create(id, "button");
-            let _ = el.set_attribute("aria-label", label);
-            let _ = el.set_attribute("data-widget-type", widget_type::BUTTON);
-            let _ = el.set_attribute("tabindex", "-1");
+            let (el, created) = self.get_or_create(id, "button");
+            if created {
+                let _ = el.set_attribute("aria-label", label);
+                let _ = el.set_attribute("data-widget-type", widget_type::BUTTON);
+                let _ = el.set_attribute("tabindex", "-1");
+            }
             if enabled {
                 let _ = el.remove_attribute("aria-disabled");
                 let _ = el.set_attribute("data-widget-state", "enabled");
@@ -315,9 +323,11 @@ mod wasm_impl {
 
         /// Create/update an element with multiple data attributes.
         fn upsert_data(&mut self, id: &str, label: &str, attrs: &[(&str, &str)]) {
-            let el = self.get_or_create(id, "div");
-            let _ = el.set_attribute("aria-label", label);
-            let _ = el.set_attribute("data-widget-type", widget_type::DATA);
+            let (el, created) = self.get_or_create(id, "div");
+            if created {
+                let _ = el.set_attribute("aria-label", label);
+                let _ = el.set_attribute("data-widget-type", widget_type::DATA);
+            }
             for (key, value) in attrs {
                 let _ = el.set_attribute(key, value);
             }
@@ -327,19 +337,23 @@ mod wasm_impl {
         fn sync_camera_list(&mut self, cameras: &[String], selected: Option<&str>) {
             self.remove_stale_nodes(PREFIX_CAMERA, cameras);
 
-            let list = self.get_or_create("camera_list", "div");
-            let _ = list.set_attribute("role", "listbox");
-            let _ = list.set_attribute("aria-label", "Available Cameras");
-            let _ = list.set_attribute("data-widget-type", widget_type::CAMERA_LIST);
+            let (list, list_created) = self.get_or_create("camera_list", "div");
+            if list_created {
+                let _ = list.set_attribute("role", "listbox");
+                let _ = list.set_attribute("aria-label", "Available Cameras");
+                let _ = list.set_attribute("data-widget-type", widget_type::CAMERA_LIST);
+            }
             let _ = list.set_attribute("data-count", &cameras.len().to_string());
 
             for camera_id in cameras {
                 let node_id = format!("{PREFIX_CAMERA}{camera_id}");
-                let el = self.get_or_create(&node_id, "div");
-                let _ = el.set_attribute("role", "option");
-                let _ = el.set_attribute("aria-label", camera_id);
-                let _ = el.set_attribute("data-widget-type", widget_type::CAMERA_OPTION);
-                let _ = el.set_attribute("data-device-id", camera_id);
+                let (el, created) = self.get_or_create(&node_id, "div");
+                if created {
+                    let _ = el.set_attribute("role", "option");
+                    let _ = el.set_attribute("aria-label", camera_id);
+                    let _ = el.set_attribute("data-widget-type", widget_type::CAMERA_OPTION);
+                    let _ = el.set_attribute("data-device-id", camera_id);
+                }
 
                 let is_selected = selected == Some(camera_id.as_str());
                 let _ =
@@ -350,19 +364,23 @@ mod wasm_impl {
 
         /// Sync view mode radio group.
         fn sync_view_mode(&mut self, current: &str) {
-            let group = self.get_or_create("view_mode_group", "div");
-            let _ = group.set_attribute("role", "radiogroup");
-            let _ = group.set_attribute("aria-label", "View Mode");
-            let _ = group.set_attribute("data-widget-type", widget_type::VIEW_MODE);
+            let (group, group_created) = self.get_or_create("view_mode_group", "div");
+            if group_created {
+                let _ = group.set_attribute("role", "radiogroup");
+                let _ = group.set_attribute("aria-label", "View Mode");
+                let _ = group.set_attribute("data-widget-type", widget_type::VIEW_MODE);
+            }
             let _ = group.set_attribute("data-value", current);
 
             for mode in &["2D", "1D", "Split"] {
                 let id = format!("{PREFIX_VIEW_MODE}{mode}");
-                let el = self.get_or_create(&id, "div");
-                let _ = el.set_attribute("role", "radio");
-                let _ = el.set_attribute("aria-label", &format!("View Mode: {mode}"));
-                let _ = el.set_attribute("data-widget-type", widget_type::VIEW_MODE_OPTION);
-                let _ = el.set_attribute("data-value", mode);
+                let (el, created) = self.get_or_create(&id, "div");
+                if created {
+                    let _ = el.set_attribute("role", "radio");
+                    let _ = el.set_attribute("aria-label", &format!("View Mode: {mode}"));
+                    let _ = el.set_attribute("data-widget-type", widget_type::VIEW_MODE_OPTION);
+                    let _ = el.set_attribute("data-value", mode);
+                }
                 let is_checked = *mode == current;
                 let _ = el.set_attribute("aria-checked", if is_checked { "true" } else { "false" });
                 el.set_text_content(Some(mode));
@@ -376,18 +394,20 @@ mod wasm_impl {
 
             for param in params {
                 let id = format!("{PREFIX_PARAM}{}", param.name);
-                let el = self.get_or_create(&id, "div");
+                let (el, created) = self.get_or_create(&id, "div");
 
                 let role = match param.param_type.as_str() {
                     "Int" | "Float" | "Enumerated" => "slider",
                     _ => "textbox",
                 };
-                let _ = el.set_attribute("role", role);
-                let _ = el.set_attribute("aria-label", &param.name);
-                let _ = el.set_attribute("data-widget-type", widget_type::PARAMETER);
-                let _ = el.set_attribute("data-param-name", &param.name);
+                if created {
+                    let _ = el.set_attribute("role", role);
+                    let _ = el.set_attribute("aria-label", &param.name);
+                    let _ = el.set_attribute("data-widget-type", widget_type::PARAMETER);
+                    let _ = el.set_attribute("data-param-name", &param.name);
+                    let _ = el.set_attribute("data-param-type", &param.param_type);
+                }
                 let _ = el.set_attribute("data-value", &param.value);
-                let _ = el.set_attribute("data-param-type", &param.param_type);
                 let _ = el.set_attribute(
                     "aria-readonly",
                     if param.read_only { "true" } else { "false" },
@@ -402,9 +422,11 @@ mod wasm_impl {
 
         /// Sync echelle spectroscopy state.
         fn sync_echelle(&mut self, state: &AutomationState) {
-            let el = self.get_or_create("echelle_state", "div");
-            let _ = el.set_attribute("aria-label", "Echelle Spectrometer");
-            let _ = el.set_attribute("data-widget-type", widget_type::ECHELLE);
+            let (el, created) = self.get_or_create("echelle_state", "div");
+            if created {
+                let _ = el.set_attribute("aria-label", "Echelle Spectrometer");
+                let _ = el.set_attribute("data-widget-type", widget_type::ECHELLE);
+            }
             let _ = el.set_attribute(
                 "data-profile-loaded",
                 &state.echelle_profile_loaded.to_string(),
@@ -421,13 +443,16 @@ mod wasm_impl {
             }
 
             if state.echelle_profile_loaded && state.echelle_orders_count > 0 {
-                let selector = self.get_or_create("echelle_order_selector", "div");
-                let _ = selector.set_attribute("role", "spinbutton");
-                let _ = selector.set_attribute("aria-label", "Echelle Order");
-                let _ = selector.set_attribute("data-widget-type", widget_type::ECHELLE_ORDER);
+                let (selector, selector_created) =
+                    self.get_or_create("echelle_order_selector", "div");
+                if selector_created {
+                    let _ = selector.set_attribute("role", "spinbutton");
+                    let _ = selector.set_attribute("aria-label", "Echelle Order");
+                    let _ = selector.set_attribute("data-widget-type", widget_type::ECHELLE_ORDER);
+                    let _ = selector.set_attribute("aria-valuemin", "0");
+                }
                 let _ = selector
                     .set_attribute("aria-valuenow", &state.echelle_selected_order.to_string());
-                let _ = selector.set_attribute("aria-valuemin", "0");
                 let _ = selector.set_attribute(
                     "aria-valuemax",
                     &state.echelle_orders_count.saturating_sub(1).to_string(),
