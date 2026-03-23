@@ -23,6 +23,13 @@ pub struct FrameMetadata {
     /// Trigger mode (e.g., "Timed", "Trigger First")
     pub trigger_mode: Option<String>,
 
+    /// Number of frames summed into this single output frame (host-side summing).
+    ///
+    /// `None` or `Some(1)` means no summing was applied. `Some(N)` where N > 1 means
+    /// N raw frames were accumulated on the host before emission. Downstream consumers
+    /// should divide pixel values by this count to recover per-frame intensity.
+    pub summing_count: Option<u32>,
+
     /// Extensible key-value metadata for driver-specific properties
     pub extra: HashMap<String, String>,
 }
