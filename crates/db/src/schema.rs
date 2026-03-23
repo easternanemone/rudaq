@@ -347,6 +347,7 @@ mod tests {
             "uses_instrument",
             "device_feature",
             "device_runtime_state",
+            "device_lifecycle_event",
         ] {
             assert!(
                 info_str.contains(table),
