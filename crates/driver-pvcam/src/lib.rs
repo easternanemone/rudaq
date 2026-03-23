@@ -936,6 +936,7 @@ impl PvcamDriver {
             sensor_width: width,
             sensor_height: height,
             speed_table: speed_table.clone(),
+            health_monitor_cancel: tokio_util::sync::CancellationToken::new(),
         };
 
         driver.connect_params();
