@@ -1842,6 +1842,7 @@ mod tests {
             aperture_half_width: 5.0,
             fit_rms: 0.1,
             n_samples: 50,
+            order_number: None,
         };
 
         // Wavelength solution centered at 577nm → m = round(36300 / 577) = 63
@@ -2097,6 +2098,7 @@ mod tests {
                 aperture_half_width: 5.0,
                 fit_rms: 0.1,
                 n_samples: 50,
+                order_number: None,
             })
             .collect();
 
@@ -2417,6 +2419,7 @@ mod tests {
                 aperture_half_width: 5.0,
                 fit_rms: 0.1,
                 n_samples: 50,
+                order_number: None,
             })
             .collect();
 
@@ -2547,6 +2550,7 @@ mod tests {
                 aperture_half_width: 5.0,
                 fit_rms: 0.1,
                 n_samples: 50,
+                order_number: None,
             })
             .collect();
 
@@ -2674,6 +2678,7 @@ mod tests {
                 aperture_half_width: 5.0,
                 fit_rms: 0.1,
                 n_samples: 50,
+                order_number: None,
             })
             .collect();
 

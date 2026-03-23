@@ -402,6 +402,7 @@ mod tests {
             aperture_half_width: 4.0,
             fit_rms: 0.5,
             n_samples: 100,
+            order_number: None,
         }
     }
 

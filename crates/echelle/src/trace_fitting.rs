@@ -77,6 +77,13 @@ pub struct OrderTrace {
     pub fit_rms: f64,
     /// Number of centroid samples used in the final fit.
     pub n_samples: usize,
+    /// Physical diffraction order number (m), assigned by geometric sorting.
+    ///
+    /// For a Mechelle 5000 spectrograph, orders range from m=43 (NIR, low Y)
+    /// to m=116 (UV, high Y). Populated by [`extract_order_geometry`] from a
+    /// flat-field frame; `None` when detected from an arc frame without a
+    /// flat-field reference.
+    pub order_number: Option<u32>,
 }
 
 /// Detect order traces from a flat-field frame.
@@ -393,6 +400,7 @@ fn trace_order(
         aperture_half_width: half_w,
         fit_rms: rms,
         n_samples: xs2.len(),
+        order_number: None,
     })
 }
 
@@ -652,6 +660,307 @@ fn denormalize_coefficients(norm_coeffs: &[f64], alpha: f64, beta: f64) -> Vec<f
     orig
 }
 
+// ---------------------------------------------------------------------------
+// Geometric flat-field order tracing (u16 raw frames)
+// ---------------------------------------------------------------------------
+//
+// These functions decouple order identification from wavelength calibration
+// by tracing order positions purely from a flat-field (white-light) exposure.
+// The pipeline: find peaks at center column -> trace each ridge across X ->
+// fit polynomial -> sort by Y -> assign absolute order numbers.
+
+/// Default Mechelle 5000 order range: m=43 (NIR, top/low-Y) to m=116 (UV, bottom/high-Y).
+const MECHELLE_ORDER_MAX: u32 = 116;
+const MECHELLE_ORDER_MIN: u32 = 43;
+
+/// Find local Y maxima in a single column of a u16 image.
+///
+/// Scans column `x_col` for intensity peaks that are local maxima (greater
+/// than both neighbors) and enforces a minimum separation between peaks.
+/// When peaks are closer than `min_separation`, only the brightest survives.
+///
+/// Returns peak Y positions in ascending order.
+pub fn find_peaks_at_column(
+    image: &[u16],
+    width: u32,
+    height: u32,
+    x_col: u32,
+    min_separation: u32,
+) -> Vec<u32> {
+    let w = width as usize;
+    let h = height as usize;
+    let col = x_col as usize;
+
+    if image.len() < w * h || col >= w || h < 3 {
+        return Vec::new();
+    }
+
+    // Extract column intensities.
+    let col_vals: Vec<f64> = (0..h).map(|row| f64::from(image[row * w + col])).collect();
+
+    // Estimate a noise threshold via MAD to reject background peaks.
+    let noise = estimate_noise(&col_vals);
+    // Use a mild threshold (3-sigma above median) to catch faint orders.
+    let mut sorted = col_vals.clone();
+    sorted.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let median = sorted[sorted.len() / 2];
+    let threshold = median + 3.0 * noise.max(1.0);
+
+    // Find all local maxima above threshold.
+    let mut candidates: Vec<usize> = Vec::new();
+    for i in 1..h - 1 {
+        if col_vals[i] > threshold && col_vals[i] > col_vals[i - 1] && col_vals[i] > col_vals[i + 1]
+        {
+            candidates.push(i);
+        }
+    }
+
+    let sep = min_separation.max(1) as usize;
+
+    // Sort by descending intensity, greedily keep tallest with separation.
+    candidates.sort_by(|&a, &b| {
+        col_vals[b]
+            .partial_cmp(&col_vals[a])
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    let mut kept = Vec::new();
+    let mut suppressed = vec![false; h];
+
+    for &idx in &candidates {
+        if suppressed[idx] {
+            continue;
+        }
+        kept.push(idx as u32);
+        let lo = idx.saturating_sub(sep);
+        let hi = (idx + sep + 1).min(h);
+        for s in &mut suppressed[lo..hi] {
+            *s = true;
+        }
+    }
+
+    kept.sort_unstable();
+    kept
+}
+
+/// Trace an order ridge across X from a starting position.
+///
+/// Starting at `(start_x, start_y)`, traces left to x=0 then right to
+/// x=width-1, using an intensity-weighted centroid within `radius` pixels
+/// of the current Y position at each column. Steps one column at a time
+/// for maximum fidelity.
+///
+/// Returns `(x, y_centroid)` pairs sorted by X, representing the ridge
+/// center at each column where a valid centroid was found.
+pub fn trace_ridge(
+    image: &[u16],
+    w: u32,
+    h: u32,
+    start_x: u32,
+    start_y: f64,
+    radius: u32,
+) -> Vec<(u32, f64)> {
+    let width = w as usize;
+    let height = h as usize;
+
+    if image.len() < width * height || (start_x as usize) >= width {
+        return Vec::new();
+    }
+
+    let rad = radius as usize;
+
+    // Compute centroid at a given column around an estimated Y center.
+    let centroid_at = |col: usize, y_est: f64| -> Option<f64> {
+        let center_row = y_est.round().max(0.0) as usize;
+        if center_row >= height {
+            return None;
+        }
+        let lo = center_row.saturating_sub(rad);
+        let hi = (center_row + rad + 1).min(height);
+
+        let mut sum_val = 0.0_f64;
+        let mut sum_y = 0.0_f64;
+
+        for row in lo..hi {
+            let val = f64::from(image[row * width + col]);
+            if val > 0.0 {
+                sum_val += val;
+                sum_y += val * (row as f64);
+            }
+        }
+
+        if sum_val > 0.0 {
+            Some(sum_y / sum_val)
+        } else {
+            None
+        }
+    };
+
+    let mut points = Vec::new();
+
+    // Trace leftward from start_x to 0.
+    let mut y_est = start_y;
+    let sx = start_x as usize;
+    // Include start_x itself in the leftward pass.
+    for col in (0..=sx).rev() {
+        if let Some(cy) = centroid_at(col, y_est) {
+            // Reject jumps larger than radius -- the ridge is broken.
+            if (cy - y_est).abs() > f64::from(radius) {
+                break;
+            }
+            points.push((col as u32, cy));
+            y_est = cy;
+        } else {
+            break;
+        }
+    }
+
+    // Trace rightward from start_x+1 to width-1.
+    y_est = start_y;
+    for col in (sx + 1)..width {
+        if let Some(cy) = centroid_at(col, y_est) {
+            if (cy - y_est).abs() > f64::from(radius) {
+                break;
+            }
+            points.push((col as u32, cy));
+            y_est = cy;
+        } else {
+            break;
+        }
+    }
+
+    points.sort_by_key(|&(x, _)| x);
+    points
+}
+
+/// Fit a polynomial of given degree to trace points using least squares.
+///
+/// `points` is a slice of `(x, y)` pairs from [`trace_ridge`].
+/// Returns monomial coefficients `[c0, c1, ..., cn]` such that
+/// `y = c0 + c1*x + c2*x^2 + ...`, or `None` if the fit is under-determined.
+pub fn fit_trace_polynomial(points: &[(u32, f64)], degree: usize) -> Option<Vec<f64>> {
+    if points.len() < degree + 1 {
+        return None;
+    }
+
+    let xs: Vec<f64> = points.iter().map(|&(x, _)| f64::from(x)).collect();
+    let ys: Vec<f64> = points.iter().map(|&(_, y)| y).collect();
+
+    let x_min = xs.iter().copied().fold(f64::INFINITY, f64::min);
+    let x_max = xs.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+
+    fit_polynomial(&xs, &ys, degree, x_min, x_max)
+}
+
+/// Extract order geometry from a flat-field (white-light) frame.
+///
+/// Full pipeline:
+/// 1. Find intensity peaks at the center column (X = width/2)
+/// 2. Trace each peak left and right across the full frame
+/// 3. Fit a cubic polynomial to each trace
+/// 4. Sort traces by Y position at center (ascending = top to bottom)
+/// 5. Assign absolute order numbers: highest Y (bottom) = m=116 (UV),
+///    lowest Y (top) = m=43 (NIR), matching the Mechelle 5000 orientation
+///
+/// The `min_separation` parameter sets the minimum Y distance between peaks
+/// (typically ~10 for a Mechelle 5000 with ~30px order spacing).
+///
+/// Returns `OrderTrace` entries with `order_number` populated. Traces that
+/// span less than 25% of the frame width are discarded as spurious.
+pub fn extract_order_geometry(
+    flat: &[u16],
+    w: u32,
+    h: u32,
+    min_separation: u32,
+) -> Vec<OrderTrace> {
+    let width = w as usize;
+    let height = h as usize;
+
+    if flat.len() < width * height || width < 3 || height < 3 {
+        return Vec::new();
+    }
+
+    // Step 1: Find peaks at center column.
+    let center_x = w / 2;
+    let peaks = find_peaks_at_column(flat, w, h, center_x, min_separation);
+
+    if peaks.is_empty() {
+        return Vec::new();
+    }
+
+    // Step 2 & 3: Trace each peak and fit a cubic polynomial.
+    let poly_degree = 3;
+    let trace_radius = min_separation / 2;
+    let trace_radius = trace_radius.max(3); // at least 3 pixels
+    let min_span = w / 4; // require at least 25% frame coverage
+
+    let mut traces = Vec::new();
+    let domain_end = f64::from(w - 1);
+
+    for &peak_y in &peaks {
+        let ridge = trace_ridge(flat, w, h, center_x, f64::from(peak_y), trace_radius);
+
+        // Skip traces that are too short.
+        if ridge.len() < (poly_degree + 1).max(10) {
+            continue;
+        }
+
+        let x_min = ridge.first().map_or(0, |p| p.0);
+        let x_max = ridge.last().map_or(0, |p| p.0);
+
+        if x_max - x_min < min_span {
+            continue;
+        }
+
+        if let Some(coeffs) = fit_trace_polynomial(&ridge, poly_degree) {
+            // Compute fit RMS.
+            let rms = {
+                let residuals: Vec<f64> = ridge
+                    .iter()
+                    .map(|&(x, y)| y - eval_monomial(&coeffs, f64::from(x)))
+                    .collect();
+                let sum_sq: f64 = residuals.iter().map(|r| r * r).sum();
+                (sum_sq / residuals.len() as f64).sqrt()
+            };
+
+            traces.push(OrderTrace {
+                trace: EchelleTraceModel::Polynomial {
+                    basis: PolynomialBasis::Monomial,
+                    coefficients: coeffs,
+                    domain_start: 0.0,
+                    domain_end,
+                },
+                aperture_half_width: f64::from(trace_radius),
+                fit_rms: rms,
+                n_samples: ridge.len(),
+                order_number: None, // assigned below
+            });
+        }
+    }
+
+    // Step 4: Sort by Y at center (ascending = top to bottom).
+    let mid_x = f64::from(w) / 2.0;
+    traces.sort_by(|a, b| {
+        let ya = eval_trace_model(&a.trace, mid_x).unwrap_or(0.0);
+        let yb = eval_trace_model(&b.trace, mid_x).unwrap_or(0.0);
+        ya.partial_cmp(&yb).unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    // Step 5: Assign order numbers.
+    // Mechelle orientation: low Y (top) = NIR = low m, high Y (bottom) = UV = high m.
+    // Assign m = ORDER_MAX down to ORDER_MIN, starting from the last (highest Y) trace.
+    let n = traces.len();
+    for (i, trace) in traces.iter_mut().enumerate() {
+        // Trace 0 is top (lowest Y) = lowest m, trace n-1 is bottom (highest Y) = highest m.
+        // m_bottom = MECHELLE_ORDER_MAX, m_top = MECHELLE_ORDER_MAX - (n-1)
+        let m = MECHELLE_ORDER_MAX.saturating_sub((n - 1 - i) as u32);
+        // Clamp to valid range.
+        trace.order_number = Some(m.max(MECHELLE_ORDER_MIN));
+    }
+
+    traces
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -769,5 +1078,262 @@ mod tests {
             (mean - 10.0).abs() < 0.1,
             "clipped mean should be ~10.0, got {mean}"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // Geometric tracing (u16) tests
+    // -----------------------------------------------------------------------
+
+    /// Create a synthetic u16 flat frame with horizontal Gaussian order traces.
+    fn synthetic_flat_u16(
+        width: usize,
+        height: usize,
+        traces: &[(f64, f64)], // (y_center, amplitude)
+        sigma: f64,
+    ) -> Vec<u16> {
+        let baseline = 100.0_f64;
+        let mut frame = vec![baseline as u16; width * height];
+        for &(y_center, amplitude) in traces {
+            for row in 0..height {
+                let y = row as f64;
+                let weight = (-(y - y_center).powi(2) / (2.0 * sigma * sigma)).exp();
+                let val = (baseline + amplitude * weight).min(65535.0) as u16;
+                for col in 0..width {
+                    frame[row * width + col] = frame[row * width + col].max(val);
+                }
+            }
+        }
+        frame
+    }
+
+    #[test]
+    fn test_find_peaks_at_column_known_positions() {
+        let width = 100;
+        let height = 300;
+        let peak_positions = vec![(50.0, 5000.0), (150.0, 8000.0), (250.0, 6000.0)];
+        let frame = synthetic_flat_u16(width, height, &peak_positions, 3.0);
+
+        let peaks = find_peaks_at_column(&frame, width as u32, height as u32, 50, 10);
+
+        assert_eq!(
+            peaks.len(),
+            3,
+            "expected 3 peaks, got {}: {:?}",
+            peaks.len(),
+            peaks
+        );
+
+        // Peaks should be within 1 pixel of true positions.
+        for (peak, &(true_y, _)) in peaks.iter().zip(&peak_positions) {
+            let err = (f64::from(*peak) - true_y).abs();
+            assert!(
+                err <= 1.0,
+                "peak at {} too far from true position {true_y}",
+                peak
+            );
+        }
+    }
+
+    #[test]
+    fn test_find_peaks_respects_min_separation() {
+        let width = 50;
+        let height = 200;
+        // Two peaks only 8 pixels apart -- min_separation=15 should merge them.
+        let frame = synthetic_flat_u16(width, height, &[(100.0, 5000.0), (108.0, 3000.0)], 2.0);
+        let peaks = find_peaks_at_column(&frame, width as u32, height as u32, 25, 15);
+
+        assert_eq!(
+            peaks.len(),
+            1,
+            "expected 1 peak after separation filter, got {}: {:?}",
+            peaks.len(),
+            peaks
+        );
+        // The surviving peak should be the brighter one at y=100.
+        assert!(
+            (f64::from(peaks[0]) - 100.0).abs() <= 1.0,
+            "surviving peak should be near y=100, got {}",
+            peaks[0]
+        );
+    }
+
+    #[test]
+    fn test_trace_ridge_on_horizontal_band() {
+        let width = 200;
+        let height = 100;
+        let true_y = 50.0;
+        let frame = synthetic_flat_u16(width, height, &[(true_y, 10000.0)], 3.0);
+
+        let ridge = trace_ridge(
+            &frame,
+            width as u32,
+            height as u32,
+            100, // start at center
+            true_y,
+            5, // radius
+        );
+
+        // Should trace across the full width.
+        assert!(
+            ridge.len() >= width - 2,
+            "ridge should span nearly full width, got {} points",
+            ridge.len()
+        );
+
+        // All Y centroids should be very close to true_y.
+        for &(x, y) in &ridge {
+            assert!(
+                (y - true_y).abs() < 0.5,
+                "ridge centroid at x={x} is {y}, expected ~{true_y}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_trace_ridge_on_tilted_band() {
+        // Create a tilted trace: y = 50 + 0.02*x (slight slope).
+        let width = 200;
+        let height = 100;
+        let sigma = 3.0;
+        let baseline = 100_u16;
+        let amplitude = 10000.0;
+
+        let mut frame = vec![baseline; width * height];
+        for col in 0..width {
+            let y_center = 50.0 + 0.02 * col as f64;
+            for row in 0..height {
+                let y = row as f64;
+                let weight = (-(y - y_center).powi(2) / (2.0 * sigma * sigma)).exp();
+                let val = (f64::from(baseline) + amplitude * weight).min(65535.0) as u16;
+                frame[row * width + col] = frame[row * width + col].max(val);
+            }
+        }
+
+        let ridge = trace_ridge(&frame, width as u32, height as u32, 100, 52.0, 5);
+
+        assert!(
+            ridge.len() >= width - 2,
+            "tilted ridge should span nearly full width, got {} points",
+            ridge.len()
+        );
+
+        // Verify centroids follow the slope.
+        for &(x, y) in &ridge {
+            let expected = 50.0 + 0.02 * f64::from(x);
+            assert!(
+                (y - expected).abs() < 0.5,
+                "tilted ridge at x={x}: got y={y:.3}, expected ~{expected:.3}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_fit_trace_polynomial_roundtrip() {
+        // Generate points on y = 5.0 + 0.01*x - 0.00001*x^2.
+        let points: Vec<(u32, f64)> = (0..200)
+            .map(|x| {
+                let xf = f64::from(x);
+                (x, 5.0 + 0.01 * xf - 0.00001 * xf * xf)
+            })
+            .collect();
+
+        let coeffs = fit_trace_polynomial(&points, 2).expect("fit should succeed");
+
+        assert!(
+            (coeffs[0] - 5.0).abs() < 1e-4,
+            "c0: expected 5.0, got {}",
+            coeffs[0]
+        );
+        assert!(
+            (coeffs[1] - 0.01).abs() < 1e-6,
+            "c1: expected 0.01, got {}",
+            coeffs[1]
+        );
+        assert!(
+            (coeffs[2] - (-0.00001)).abs() < 1e-8,
+            "c2: expected -0.00001, got {}",
+            coeffs[2]
+        );
+    }
+
+    #[test]
+    fn test_fit_trace_polynomial_underdetermined() {
+        // 2 points cannot determine a cubic.
+        let points = vec![(0, 1.0), (1, 2.0)];
+        assert!(
+            fit_trace_polynomial(&points, 3).is_none(),
+            "cubic fit with 2 points should fail"
+        );
+    }
+
+    #[test]
+    fn test_extract_order_geometry_basic() {
+        let width = 300;
+        let height = 200;
+        // 3 well-separated horizontal traces.
+        let peak_defs = vec![(40.0, 8000.0), (100.0, 10000.0), (160.0, 6000.0)];
+        let frame = synthetic_flat_u16(width, height, &peak_defs, 3.0);
+
+        let traces = extract_order_geometry(&frame, width as u32, height as u32, 10);
+
+        assert_eq!(
+            traces.len(),
+            3,
+            "expected 3 geometric traces, got {}",
+            traces.len()
+        );
+
+        // All traces should have order numbers assigned.
+        for trace in &traces {
+            assert!(
+                trace.order_number.is_some(),
+                "order_number should be assigned"
+            );
+        }
+
+        // Order numbers should be strictly increasing (sorted by Y ascending,
+        // meaning top=low m to bottom=high m).
+        let order_nums: Vec<u32> = traces.iter().filter_map(|t| t.order_number).collect();
+        for pair in order_nums.windows(2) {
+            assert!(
+                pair[0] < pair[1],
+                "order numbers should increase top-to-bottom: {:?}",
+                order_nums
+            );
+        }
+
+        // The highest order number should be MECHELLE_ORDER_MAX.
+        assert_eq!(
+            *order_nums.last().expect("non-empty"),
+            MECHELLE_ORDER_MAX,
+            "bottom trace should be m={MECHELLE_ORDER_MAX}"
+        );
+    }
+
+    #[test]
+    fn test_extract_order_geometry_empty_frame() {
+        let traces = extract_order_geometry(&[], 0, 0, 10);
+        assert!(traces.is_empty());
+    }
+
+    #[test]
+    fn test_extract_order_geometry_centers_accurate() {
+        let width = 400;
+        let height = 300;
+        let peak_defs = vec![(80.0, 10000.0), (200.0, 10000.0)];
+        let frame = synthetic_flat_u16(width, height, &peak_defs, 3.0);
+
+        let traces = extract_order_geometry(&frame, width as u32, height as u32, 15);
+
+        assert_eq!(traces.len(), 2, "expected 2 traces, got {}", traces.len());
+
+        let mid_x = width as f64 / 2.0;
+        for (trace, &(true_y, _)) in traces.iter().zip(&peak_defs) {
+            let fit_y = eval_trace_model(&trace.trace, mid_x).expect("eval should succeed");
+            assert!(
+                (fit_y - true_y).abs() < 1.0,
+                "trace center at mid-x: expected ~{true_y}, got {fit_y:.3}"
+            );
+        }
     }
 }
