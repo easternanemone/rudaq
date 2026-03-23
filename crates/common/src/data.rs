@@ -636,3 +636,68 @@ impl<'a> FrameView<'a> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // === Summing count metadata tests (bd-oqo7.7) ===
+
+    #[test]
+    fn frame_metadata_summing_count_default_is_none() {
+        let metadata = FrameMetadata::default();
+        assert_eq!(metadata.summing_count, None);
+    }
+
+    #[test]
+    fn frame_metadata_summing_count_set() {
+        let metadata = FrameMetadata {
+            summing_count: Some(10),
+            ..Default::default()
+        };
+        assert_eq!(metadata.summing_count, Some(10));
+    }
+
+    #[test]
+    fn frame_summing_count_propagates_to_frame_view() {
+        let frame = Frame::from_u16(2, 2, &[1, 2, 3, 4]).with_metadata(FrameMetadata {
+            summing_count: Some(5),
+            ..Default::default()
+        });
+        let view = FrameView::from_frame(&frame);
+        assert_eq!(view.summing_count, Some(5));
+    }
+
+    #[test]
+    fn frame_no_summing_metadata_yields_none_in_view() {
+        let frame = Frame::from_u16(2, 2, &[1, 2, 3, 4]);
+        let view = FrameView::from_frame(&frame);
+        assert_eq!(view.summing_count, None);
+    }
+
+    #[test]
+    fn frame_summing_disabled_yields_none_in_view() {
+        let frame = Frame::from_u16(2, 2, &[1, 2, 3, 4]).with_metadata(FrameMetadata {
+            summing_count: None,
+            ..Default::default()
+        });
+        let view = FrameView::from_frame(&frame);
+        assert_eq!(view.summing_count, None);
+    }
+
+    #[test]
+    fn frame_view_with_summing_count_builder() {
+        let view = FrameView::new(2, 2, 16, &[0; 8], 1, 0).with_summing_count(8);
+        assert_eq!(view.summing_count, Some(8));
+    }
+
+    #[test]
+    fn frame_summing_count_one_is_no_summing() {
+        let frame = Frame::from_u16(2, 2, &[1, 2, 3, 4]).with_metadata(FrameMetadata {
+            summing_count: Some(1),
+            ..Default::default()
+        });
+        let view = FrameView::from_frame(&frame);
+        assert_eq!(view.summing_count, Some(1));
+    }
+}
