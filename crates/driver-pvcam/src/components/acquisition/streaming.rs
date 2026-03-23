@@ -966,10 +966,20 @@ impl PvcamAcquisition {
         roi: Roi,
         binning: (u16, u16),
         exposure_ms: f64,
+        host_summing_enabled: Parameter<bool>,  // bd-oqo7.7
+        host_summing_count: Parameter<u32>,     // bd-oqo7.7
     ) -> Result<Frame> {
         let mut rx = self.frame_tx.subscribe();
-        self.start_stream(conn, roi, binning, exposure_ms, self.buffer_mode.get())
-            .await?;
+        self.start_stream(
+            conn,
+            roi,
+            binning,
+            exposure_ms,
+            self.buffer_mode.get(),
+            host_summing_enabled,
+            host_summing_count,
+        )
+        .await?;
 
         let frame = tokio::time::timeout(Duration::from_secs(5), rx.recv())
             .await
