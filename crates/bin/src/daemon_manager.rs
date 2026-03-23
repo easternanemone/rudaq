@@ -1361,4 +1361,78 @@ mod tests {
             "Shutdown log must match SHUTDOWN_PHASE_ORDER exactly"
         );
     }
+
+    // ── Parameter state restore ordering tests (bd-oqo7.8) ────────────
+
+    #[cfg(feature = "db-surreal")]
+    mod param_restore_tests {
+        use super::*;
+        use db::config_store::DeviceParamState;
+
+        fn state(name: &str, value: &str) -> DeviceParamState {
+            DeviceParamState {
+                device_id: "cam_0".to_string(),
+                param_name: name.to_string(),
+                param_value: serde_json::Value::String(value.to_string()),
+                is_favorite: false,
+            }
+        }
+
+        #[test]
+        fn test_speed_table_params_ordered_before_others() {
+            let states = vec![
+                state("readout.gain_mode", "HDR"),
+                state("acquisition.exposure_ms", "100"),
+                state("readout.speed_mode", "100 MHz"),
+                state("readout.port", "Sensitivity"),
+            ];
+
+            let ordered = order_params_for_restore(states);
+            let names: Vec<&str> = ordered.iter().map(|s| s.param_name.as_str()).collect();
+
+            // Port -> Speed -> Gain must come first, in that order
+            assert_eq!(names[0], "readout.port");
+            assert_eq!(names[1], "readout.speed_mode");
+            assert_eq!(names[2], "readout.gain_mode");
+            // Other params come after
+            assert_eq!(names[3], "acquisition.exposure_ms");
+        }
+
+        #[test]
+        fn test_order_preserves_alphabetical_within_same_tier() {
+            let states = vec![
+                state("thermal.setpoint", "-10"),
+                state("acquisition.exposure_ms", "100"),
+                state("acquisition.clear_mode", "PreExposure"),
+            ];
+
+            let ordered = order_params_for_restore(states);
+            let names: Vec<&str> = ordered.iter().map(|s| s.param_name.as_str()).collect();
+
+            // All tier 10, so alphabetical
+            assert_eq!(names[0], "acquisition.clear_mode");
+            assert_eq!(names[1], "acquisition.exposure_ms");
+            assert_eq!(names[2], "thermal.setpoint");
+        }
+
+        #[test]
+        fn test_order_empty_input() {
+            let ordered = order_params_for_restore(vec![]);
+            assert!(ordered.is_empty());
+        }
+
+        #[test]
+        fn test_order_partial_speed_table() {
+            // Only port and gain persisted (speed not persisted) — port still comes first
+            let states = vec![
+                state("readout.gain_mode", "HDR"),
+                state("readout.port", "Speed"),
+            ];
+
+            let ordered = order_params_for_restore(states);
+            let names: Vec<&str> = ordered.iter().map(|s| s.param_name.as_str()).collect();
+            assert_eq!(names[0], "readout.port");
+            assert_eq!(names[1], "readout.gain_mode");
+        }
+    }
 }
