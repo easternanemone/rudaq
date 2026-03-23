@@ -52,24 +52,19 @@ mod wasm_impl {
 
     /// Cached state for dirty-flag comparison.
     ///
+    /// Stores the previous `AutomationState` snapshot rather than mirroring
+    /// individual fields. Adding a new field to `AutomationState` requires
+    /// zero changes here (or just one `sync()` block if a DOM element is needed).
+    ///
     /// On the first frame, `initialized` is `false` — forcing a full sync
     /// even when all values match their defaults (e.g., `connected: false`).
     /// Without this, baseline ghost elements would never be created.
     #[derive(Default)]
     struct CachedState {
         initialized: bool,
-        connected: bool,
-        streaming: bool,
-        camera: Option<String>,
-        frame_count: u64,
+        previous: Option<AutomationState>,
+        /// FPS bucketed to 0.1 precision for DOM throttling (derived, not a direct mirror).
         fps_bucket: u32,
-        view_mode: String,
-        available_cameras: Vec<String>,
-        param_values: Vec<(String, String)>,
-        echelle_profile_loaded: bool,
-        echelle_orders_count: usize,
-        echelle_selected_order: usize,
-        echelle_error: Option<String>,
     }
 
     /// Hidden DOM overlay that mirrors egui state for browser automation discovery.
@@ -129,17 +124,52 @@ mod wasm_impl {
 
         /// Sync the Ghost DOM to match the current automation state.
         ///
-        /// Uses dirty-flag comparisons: only touches the DOM when values change.
-        /// Designed to be called every frame with negligible overhead when state is stable.
+        /// Compares against the previous `AutomationState` snapshot: only touches the
+        /// DOM when values change. Designed to be called every frame with negligible
+        /// overhead when state is stable.
         pub fn sync(&mut self, state: &AutomationState) {
             let first = !self.cached.initialized;
             if first {
                 self.cached.initialized = true;
             }
 
+            // Compute all dirty flags upfront to avoid holding an immutable borrow on
+            // `self.cached.previous` across the mutable `self.*` DOM-update calls below.
+            #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+            let fps_bucket = (state.fps.max(0.0) * 10.0) as u32;
+            let (
+                connected_changed,
+                streaming_changed,
+                camera_changed,
+                cameras_changed,
+                frame_stats_changed,
+                view_mode_changed,
+                params_changed,
+                echelle_changed,
+            ) = {
+                let prev = self.cached.previous.as_ref();
+                (
+                    first || prev.is_none_or(|p| p.connected != state.connected),
+                    first || prev.is_none_or(|p| p.streaming != state.streaming),
+                    first || prev.is_none_or(|p| p.camera != state.camera),
+                    first || prev.is_none_or(|p| p.available_cameras != state.available_cameras),
+                    first
+                        || prev.is_none_or(|p| p.frame_count / 10 != state.frame_count / 10)
+                        || self.cached.fps_bucket != fps_bucket,
+                    first || prev.is_none_or(|p| p.view_mode != state.view_mode),
+                    first || prev.is_none_or(|p| p.parameters != state.parameters),
+                    first
+                        || prev.is_none_or(|p| {
+                            p.echelle_profile_loaded != state.echelle_profile_loaded
+                                || p.echelle_orders_count != state.echelle_orders_count
+                                || p.echelle_selected_order != state.echelle_selected_order
+                                || p.echelle_error != state.echelle_error
+                        }),
+                )
+            };
+
             // Connection status
-            if first || self.cached.connected != state.connected {
-                self.cached.connected = state.connected;
+            if connected_changed {
                 let status_text = if state.connected {
                     "Connected"
                 } else {
@@ -154,8 +184,7 @@ mod wasm_impl {
             }
 
             // Streaming status
-            if first || self.cached.streaming != state.streaming {
-                self.cached.streaming = state.streaming;
+            if streaming_changed {
                 let status_text = if state.streaming {
                     "Streaming"
                 } else {
@@ -166,30 +195,19 @@ mod wasm_impl {
                 self.update_button("btn_stop_stream", "Stop Stream", state.streaming);
             }
 
-            // Selected camera — also triggers camera list aria-selected update
-            let camera_changed = first || self.cached.camera != state.camera;
+            // Selected camera
             if camera_changed {
-                self.cached.camera.clone_from(&state.camera);
                 let display = state.camera.as_deref().unwrap_or("None");
                 self.upsert_status("selected_camera", "Selected Camera", display);
             }
 
             // Available cameras list (also resync on selection change for aria-selected)
-            if first || self.cached.available_cameras != state.available_cameras || camera_changed {
-                self.cached
-                    .available_cameras
-                    .clone_from(&state.available_cameras);
-                self.sync_camera_list(&state.available_cameras);
+            if cameras_changed || camera_changed {
+                self.sync_camera_list(&state.available_cameras, state.camera.as_deref());
             }
 
             // Frame counter — only update every 10 frames to avoid thrashing
-            #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-            let fps_bucket = (state.fps.max(0.0) * 10.0) as u32;
-            if first
-                || self.cached.frame_count / 10 != state.frame_count / 10
-                || self.cached.fps_bucket != fps_bucket
-            {
-                self.cached.frame_count = state.frame_count;
+            if frame_stats_changed {
                 self.cached.fps_bucket = fps_bucket;
                 self.upsert_data(
                     "frame_stats",
@@ -204,46 +222,21 @@ mod wasm_impl {
             }
 
             // View mode
-            if first || self.cached.view_mode != state.view_mode {
-                self.cached.view_mode.clone_from(&state.view_mode);
+            if view_mode_changed {
                 self.sync_view_mode(&state.view_mode);
             }
 
-            // Parameters — zero-allocation comparison via zip
-            let params_changed = first
-                || self.cached.param_values.len() != state.parameters.len()
-                || self
-                    .cached
-                    .param_values
-                    .iter()
-                    .zip(state.parameters.iter())
-                    .any(|((cached_name, cached_value), p)| {
-                        cached_name != &p.name || cached_value != &p.value
-                    });
+            // Parameters
             if params_changed {
-                self.cached.param_values.clear();
-                self.cached.param_values.extend(
-                    state
-                        .parameters
-                        .iter()
-                        .map(|p| (p.name.clone(), p.value.clone())),
-                );
                 self.sync_parameters(&state.parameters);
             }
 
             // Echelle state
-            if first
-                || self.cached.echelle_profile_loaded != state.echelle_profile_loaded
-                || self.cached.echelle_orders_count != state.echelle_orders_count
-                || self.cached.echelle_selected_order != state.echelle_selected_order
-                || self.cached.echelle_error != state.echelle_error
-            {
-                self.cached.echelle_profile_loaded = state.echelle_profile_loaded;
-                self.cached.echelle_orders_count = state.echelle_orders_count;
-                self.cached.echelle_selected_order = state.echelle_selected_order;
-                self.cached.echelle_error.clone_from(&state.echelle_error);
+            if echelle_changed {
                 self.sync_echelle(state);
             }
+
+            self.cached.previous = Some(state.clone());
         }
 
         // ── Private helpers ────────────────────────────────────────────
@@ -331,7 +324,7 @@ mod wasm_impl {
         }
 
         /// Sync the available cameras as a listbox with option elements.
-        fn sync_camera_list(&mut self, cameras: &[String]) {
+        fn sync_camera_list(&mut self, cameras: &[String], selected: Option<&str>) {
             self.remove_stale_nodes(PREFIX_CAMERA, cameras);
 
             let list = self.get_or_create("camera_list", "div");
@@ -348,7 +341,7 @@ mod wasm_impl {
                 let _ = el.set_attribute("data-widget-type", widget_type::CAMERA_OPTION);
                 let _ = el.set_attribute("data-device-id", camera_id);
 
-                let is_selected = self.cached.camera.as_deref() == Some(camera_id.as_str());
+                let is_selected = selected == Some(camera_id.as_str());
                 let _ =
                     el.set_attribute("aria-selected", if is_selected { "true" } else { "false" });
                 el.set_text_content(Some(camera_id));

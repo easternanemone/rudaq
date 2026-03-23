@@ -51,7 +51,7 @@ mod wasm_impl {
     // ── State snapshot ───────────────────────────────────────────
 
     /// Snapshot of GUI state, serialized to JS via `serde-wasm-bindgen`.
-    #[derive(Debug, Clone, Serialize, Default)]
+    #[derive(Debug, Clone, Serialize, Default, PartialEq)]
     #[serde(rename_all = "camelCase")]
     pub struct AutomationState {
         pub connected: bool,
@@ -72,7 +72,7 @@ mod wasm_impl {
     }
 
     /// Per-parameter info exposed to the JS automation API.
-    #[derive(Debug, Clone, Serialize)]
+    #[derive(Debug, Clone, Serialize, PartialEq)]
     #[serde(rename_all = "camelCase")]
     pub struct ParameterInfo {
         pub name: String,
