@@ -9,7 +9,7 @@
 //! - **Scattered light** - 2D Chebyshev inter-order background subtraction
 //! - **Wavelength fitting** - Arc line detection and Chebyshev wavelength solutions
 //! - **Calibration pipeline** - 3-pass arc frame to wavelength-calibrated profile
-//!   - Pass 1: Echelle equation seed + atlas matching (5nm tolerance)
+//!   - Pass 1: Echelle equation seed + two-phase atlas matching (0.5nm tolerance)
 //!   - Pass 2: Quadratic regression re-seed for failed orders
 //!   - Pass 3: Physics bootstrap + 2D Chebyshev residual for uncalibrated orders
 //! - **Simulation** - Synthetic echelleogram generation for pipeline development

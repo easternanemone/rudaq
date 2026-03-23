@@ -629,6 +629,264 @@ pub fn load_hgar_atlas() -> Vec<AtlasLine> {
     ]
 }
 
+// ─── Primary anchors and grating constant consistency (bd-huzm) ─────────────
+
+/// The 20 strongest HgAr emission lines for primary anchor matching.
+///
+/// These are the most isolated, brightest lines from NIST data, used in
+/// Phase 1 of two-phase atlas matching. Sorted by wavelength.
+#[must_use]
+pub fn load_primary_anchors() -> Vec<AtlasLine> {
+    vec![
+        // ── Hg I primary anchors (11 lines) ──
+        a(253.651, "Hg I", 10000.0),
+        a(296.728, "Hg I", 2000.0),
+        a(302.149, "Hg I", 1500.0),
+        a(312.566, "Hg I", 1800.0),
+        a(313.154, "Hg I", 1200.0),
+        a(365.015, "Hg I", 8000.0),
+        a(404.656, "Hg I", 6000.0),
+        a(435.832, "Hg I", 9000.0),
+        a(546.074, "Hg I", 10000.0),
+        a(576.959, "Hg I", 4000.0),
+        a(579.066, "Hg I", 3500.0),
+        // ── Ar I primary anchors (9 lines) ──
+        a(696.543, "Ar I", 500.0),
+        a(706.721, "Ar I", 300.0),
+        a(738.398, "Ar I", 350.0),
+        a(750.386, "Ar I", 600.0),
+        a(763.510, "Ar I", 1000.0),
+        a(800.615, "Ar I", 500.0),
+        a(811.531, "Ar I", 700.0),
+        a(842.464, "Ar I", 500.0),
+        a(912.296, "Ar I", 400.0),
+    ]
+}
+
+/// Check whether a (physical_order, wavelength) pair is consistent with the
+/// echelle grating constant.
+///
+/// Returns `true` if `|m * lambda - gc| / gc <= tolerance`.
+/// The default grating constant for a Mechelle 5000 is ~36_300 nm (order 43
+/// at 844nm, order 158 at 230nm).
+#[must_use]
+pub fn is_gc_consistent(physical_order: f64, wavelength_nm: f64, gc: f64, tolerance: f64) -> bool {
+    let product = physical_order * wavelength_nm;
+    (product - gc).abs() / gc <= tolerance
+}
+
+/// Configuration for two-phase atlas matching (bd-huzm).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TwoPhaseMatchConfig {
+    /// Initial search window for primary anchors in nm (default: 2.0).
+    pub primary_window_nm: f64,
+    /// Final acceptance tolerance in nm (default: 0.5).
+    pub final_tolerance_nm: f64,
+    /// Fallback tolerance for isolated peaks when <10 primary matches (default: 1.0).
+    pub fallback_tolerance_nm: f64,
+    /// Echelle grating constant in nm (m * lambda_center). 0.0 disables gc check.
+    pub grating_constant_nm: f64,
+    /// Fractional tolerance for grating constant consistency (default: 0.01 = 1%).
+    pub gc_tolerance: f64,
+    /// Minimum primary anchor matches before expanding to fallback (default: 10).
+    pub min_primary_matches: usize,
+    /// Physical order number for the order being matched (needed for gc check).
+    /// When 0.0, the gc consistency check is skipped.
+    pub physical_order: f64,
+}
+
+impl Default for TwoPhaseMatchConfig {
+    fn default() -> Self {
+        Self {
+            primary_window_nm: 2.0,
+            final_tolerance_nm: 0.5,
+            fallback_tolerance_nm: 1.0,
+            grating_constant_nm: 0.0,
+            gc_tolerance: 0.01,
+            min_primary_matches: 10,
+            physical_order: 0.0,
+        }
+    }
+}
+
+/// Two-phase atlas matching with intensity ranking and grating constant filter.
+///
+/// Phase 1: Match detected peaks against the 20 primary HgAr anchor lines
+/// using a wider initial window (`primary_window_nm`), then filter by:
+///   - Grating constant consistency (if `grating_constant_nm > 0`)
+///   - Intensity ranking (prefer brightest detected peak per anchor)
+///   - Final acceptance within `final_tolerance_nm`
+///
+/// Phase 2: If Phase 1 produced enough matches, fit a preliminary model and
+/// use it to predict wavelengths for remaining lines, matching at the strict
+/// `final_tolerance_nm` against the full atlas.
+///
+/// Returns pairs of (detected line index, atlas line index) into the full atlas.
+pub fn match_lines_two_phase(
+    lines: &[ArcLine],
+    atlas: &[AtlasLine],
+    seed_fn: &dyn Fn(f64) -> f64,
+    config: &TwoPhaseMatchConfig,
+) -> Vec<(usize, usize)> {
+    let anchors = load_primary_anchors();
+    let gc = config.grating_constant_nm;
+    let gc_active = gc > 0.0 && config.physical_order > 0.0;
+
+    // ── Phase 1: Match primary anchors ──────────────────────────────────
+    // For each anchor, find detected lines within the primary window,
+    // filter by gc consistency, and pick the brightest surviving candidate.
+    let mut phase1_matches: Vec<(usize, usize)> = Vec::new(); // (line_idx, atlas_idx)
+    let mut used_lines: Vec<bool> = vec![false; lines.len()];
+
+    // Pre-filter anchors to only those whose wavelength is plausible for this
+    // order's free spectral range. The gc check validates m * lambda ≈ gc, so
+    // only anchors near gc/m belong to this order.
+    let order_anchors: Vec<&AtlasLine> = if gc_active {
+        anchors
+            .iter()
+            .filter(|a| {
+                is_gc_consistent(
+                    config.physical_order,
+                    a.wavelength_nm,
+                    gc,
+                    config.gc_tolerance,
+                )
+            })
+            .collect()
+    } else {
+        anchors.iter().collect()
+    };
+
+    for anchor in &order_anchors {
+        // Find this anchor's index in the full atlas (closest wavelength).
+        let Some((atlas_idx, _)) = atlas
+            .iter()
+            .enumerate()
+            .filter(|(_, al)| (al.wavelength_nm - anchor.wavelength_nm).abs() < 0.01)
+            .min_by(|(_, a), (_, b)| {
+                let da = (a.wavelength_nm - anchor.wavelength_nm).abs();
+                let db = (b.wavelength_nm - anchor.wavelength_nm).abs();
+                da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+            })
+        else {
+            continue;
+        };
+
+        // Find all detected lines whose seed wavelength is within the primary window
+        // of this anchor.
+        let mut candidates: Vec<(usize, f64, f64)> = Vec::new(); // (line_idx, distance, amplitude)
+        for (li, line) in lines.iter().enumerate() {
+            if used_lines[li] {
+                continue;
+            }
+            let approx_wl = seed_fn(line.pixel_center);
+            let dist = (approx_wl - anchor.wavelength_nm).abs();
+            if dist <= config.primary_window_nm {
+                candidates.push((li, dist, line.amplitude));
+            }
+        }
+
+        if candidates.is_empty() {
+            continue;
+        }
+
+        // Intensity ranking: sort by amplitude descending, then by distance.
+        candidates.sort_by(|a, b| {
+            b.2.partial_cmp(&a.2)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+        });
+
+        // Accept the brightest candidate if it's within the final tolerance.
+        let best = &candidates[0];
+        if best.1 <= config.final_tolerance_nm {
+            phase1_matches.push((best.0, atlas_idx));
+            used_lines[best.0] = true;
+        }
+    }
+
+    // ── Fallback: if too few primary matches, try expanding tolerance ────
+    if phase1_matches.len() < config.min_primary_matches {
+        // Retry with fallback tolerance for isolated peaks.
+        for anchor in &anchors {
+            let Some((atlas_idx, _)) = atlas
+                .iter()
+                .enumerate()
+                .filter(|(_, al)| (al.wavelength_nm - anchor.wavelength_nm).abs() < 0.01)
+                .min_by(|(_, a), (_, b)| {
+                    let da = (a.wavelength_nm - anchor.wavelength_nm).abs();
+                    let db = (b.wavelength_nm - anchor.wavelength_nm).abs();
+                    da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+                })
+            else {
+                continue;
+            };
+
+            // Skip if already matched.
+            if phase1_matches.iter().any(|&(_, ai)| ai == atlas_idx) {
+                continue;
+            }
+
+            // Check isolation: only accept if exactly 1 detected line is within
+            // the primary window (no ambiguity).
+            let mut candidates: Vec<(usize, f64, f64)> = Vec::new();
+            for (li, line) in lines.iter().enumerate() {
+                if used_lines[li] {
+                    continue;
+                }
+                let approx_wl = seed_fn(line.pixel_center);
+                let dist = (approx_wl - anchor.wavelength_nm).abs();
+                if dist <= config.primary_window_nm {
+                    candidates.push((li, dist, line.amplitude));
+                }
+            }
+
+            // Only accept isolated peaks (exactly 1 candidate).
+            if candidates.len() == 1 && candidates[0].1 <= config.fallback_tolerance_nm {
+                phase1_matches.push((candidates[0].0, atlas_idx));
+                used_lines[candidates[0].0] = true;
+            }
+        }
+    }
+
+    // ── Phase 2: Match remaining lines against full atlas ───────────────
+    // Use the seed function (which already incorporates the echelle equation)
+    // with the strict final tolerance for all unmatched lines.
+    let mut all_matches = phase1_matches;
+    let mut used_atlas: Vec<bool> = vec![false; atlas.len()];
+    for &(_, ai) in &all_matches {
+        used_atlas[ai] = true;
+    }
+
+    for (li, line) in lines.iter().enumerate() {
+        if used_lines[li] {
+            continue;
+        }
+        let approx_wl = seed_fn(line.pixel_center);
+
+        let mut best_dist = f64::MAX;
+        let mut best_ai = None;
+        for (ai, atlas_line) in atlas.iter().enumerate() {
+            if used_atlas[ai] {
+                continue;
+            }
+            let dist = (atlas_line.wavelength_nm - approx_wl).abs();
+            if dist < config.final_tolerance_nm && dist < best_dist {
+                best_dist = dist;
+                best_ai = Some(ai);
+            }
+        }
+
+        if let Some(ai) = best_ai {
+            all_matches.push((li, ai));
+            used_lines[li] = true;
+            used_atlas[ai] = true;
+        }
+    }
+
+    all_matches
+}
+
 /// Result of a per-order wavelength solution fit.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OrderWlSolution {

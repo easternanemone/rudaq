@@ -37,8 +37,8 @@ use crate::types::{
     EchelleWavelengthModel, PolynomialBasis,
 };
 use crate::wavelength_fitting::{
-    detect_arc_lines, fit_order_wavelength, match_lines_to_atlas, ArcDetectConfig, ArcLine,
-    AtlasLine, OrderWlSolution, WlFitConfig,
+    detect_arc_lines, fit_order_wavelength, match_lines_to_atlas, match_lines_two_phase,
+    ArcDetectConfig, ArcLine, AtlasLine, OrderWlSolution, TwoPhaseMatchConfig, WlFitConfig,
 };
 
 // ─── Configuration ───────────────────────────────────────────────────────────
@@ -361,6 +361,17 @@ fn run_calibration_pipeline_impl(
         WavelengthSeed::Anchors(_) => None,
     };
 
+    // Build two-phase match config for Pass 1 when using echelle equation seed.
+    let two_phase_base = match &config.seed {
+        WavelengthSeed::EchelleEquation {
+            grating_constant_nm: gc,
+            first_physical_order,
+            order_step,
+            ..
+        } => Some((*gc, *first_physical_order, *order_step)),
+        WavelengthSeed::Anchors(_) => None,
+    };
+
     // ── Stages 3-6: Per-order processing (Pass 1) ────────────────────
     // Always extract arc lines from the arc frame (frame_ref), using
     // trace positions found from the flat/arc frame above.
@@ -369,6 +380,22 @@ fn run_calibration_pipeline_impl(
 
     for (order_idx, trace) in traces.iter().enumerate() {
         let oi = order_idx as u32;
+        // Build per-order two-phase config with the correct physical order.
+        let tp_config = two_phase_base.map(|(gc, first_m, step)| {
+            let physical_order = (first_m + step * order_idx as i32) as f64;
+            TwoPhaseMatchConfig {
+                primary_window_nm: 2.0,
+                final_tolerance_nm: config.wl_config.seed_tolerance_nm,
+                fallback_tolerance_nm: 1.0,
+                grating_constant_nm: gc,
+                gc_tolerance: 0.01,
+                // Each order has 0-2 primary anchors in its FSR, so requiring
+                // 10 is impossible. Phase 2 matches the full atlas at 0.5nm
+                // regardless — primary anchors are bonus high-confidence matches.
+                min_primary_matches: 0,
+                physical_order,
+            }
+        });
         let diag = process_single_order(
             frame_ref,
             width,
@@ -377,6 +404,7 @@ fn run_calibration_pipeline_impl(
             oi,
             config,
             &seed_fns[order_idx],
+            tp_config.as_ref(),
         );
 
         if diag.success {
@@ -428,6 +456,16 @@ fn run_calibration_pipeline_impl(
                 let refined_seed = move |pixel: f64| -> f64 { lambda_start + dispersion * pixel };
 
                 let oi = order_idx as u32;
+                // Pass 2 uses two-phase matching with the refined (predicted) physical order.
+                let tp_config_p2 = TwoPhaseMatchConfig {
+                    primary_window_nm: 2.0,
+                    final_tolerance_nm: config.wl_config.seed_tolerance_nm,
+                    fallback_tolerance_nm: 1.0,
+                    grating_constant_nm: gc,
+                    gc_tolerance: 0.01,
+                    min_primary_matches: 0,
+                    physical_order: predicted_m,
+                };
                 let diag = process_single_order(
                     frame_ref,
                     width,
@@ -436,6 +474,7 @@ fn run_calibration_pipeline_impl(
                     oi,
                     config,
                     &refined_seed,
+                    Some(&tp_config_p2),
                 );
 
                 if diag.success {
@@ -570,6 +609,7 @@ fn run_calibration_pipeline_impl(
 // ─── Per-order processing ────────────────────────────────────────────────────
 
 /// Process a single order: rectify → extract → detect lines → match → fit.
+#[allow(clippy::too_many_arguments)]
 fn process_single_order(
     frame: &[f32],
     width: u32,
@@ -578,6 +618,7 @@ fn process_single_order(
     order_index: u32,
     config: &CalibrationPipelineConfig,
     seed_fn: &dyn Fn(f64) -> f64,
+    two_phase: Option<&TwoPhaseMatchConfig>,
 ) -> OrderDiagnostic {
     let mut diag = OrderDiagnostic {
         order_index,
@@ -634,12 +675,16 @@ fn process_single_order(
     }
 
     // ── Stage 6: Match to atlas and fit wavelength solution ──────────
-    let matches = match_lines_to_atlas(
-        &lines,
-        &config.atlas,
-        seed_fn,
-        config.wl_config.seed_tolerance_nm,
-    );
+    let matches = if let Some(tp_config) = two_phase {
+        match_lines_two_phase(&lines, &config.atlas, seed_fn, tp_config)
+    } else {
+        match_lines_to_atlas(
+            &lines,
+            &config.atlas,
+            seed_fn,
+            config.wl_config.seed_tolerance_nm,
+        )
+    };
     diag.n_lines_matched = matches.len();
 
     if matches.len() < config.min_lines_per_order {
