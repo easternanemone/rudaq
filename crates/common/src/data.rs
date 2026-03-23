@@ -614,3 +614,64 @@ impl<'a> FrameView<'a> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn frame_metadata_extra_round_trips_through_builder() {
+        let mut metadata = FrameMetadata::default();
+        metadata.binning = Some((2, 2));
+        metadata.extra.insert("timestamp_bof_ns".to_string(), "1000000".to_string());
+        metadata.extra.insert("timestamp_eof_ns".to_string(), "2000000".to_string());
+        metadata.extra.insert("exposure_time_ns".to_string(), "500000".to_string());
+        metadata.extra.insert("frame_nr".to_string(), "42".to_string());
+        metadata.extra.insert("bit_depth".to_string(), "16".to_string());
+        metadata.extra.insert("roi_count".to_string(), "1".to_string());
+
+        let frame = Frame::from_u16(4, 4, &[0u16; 16]).with_metadata(metadata);
+
+        let md = frame.metadata.as_ref().expect("metadata should be set");
+        assert_eq!(md.binning, Some((2, 2)));
+        assert_eq!(md.extra.get("timestamp_bof_ns").unwrap(), "1000000");
+        assert_eq!(md.extra.get("timestamp_eof_ns").unwrap(), "2000000");
+        assert_eq!(md.extra.get("exposure_time_ns").unwrap(), "500000");
+        assert_eq!(md.extra.get("frame_nr").unwrap(), "42");
+        assert_eq!(md.extra.get("bit_depth").unwrap(), "16");
+        assert_eq!(md.extra.get("roi_count").unwrap(), "1");
+        assert_eq!(md.extra.len(), 6);
+    }
+
+    #[test]
+    fn frame_view_from_frame_preserves_binning() {
+        let mut metadata = FrameMetadata::default();
+        metadata.binning = Some((2, 2));
+        metadata.temperature_c = Some(25.5);
+        metadata.extra.insert("frame_nr".to_string(), "7".to_string());
+
+        let frame = Frame::from_u16(4, 4, &[0u16; 16])
+            .with_frame_number(7)
+            .with_timestamp(123_456_789)
+            .with_exposure(50.0)
+            .with_metadata(metadata);
+
+        let view = FrameView::from_frame(&frame);
+        assert_eq!(view.binning, Some((2, 2)));
+        assert_eq!(view.temperature_c, Some(25.5));
+        assert_eq!(view.frame_number, 7);
+        assert_eq!(view.timestamp_ns, 123_456_789);
+        assert_eq!(view.exposure_ms, Some(50.0));
+    }
+
+    #[test]
+    fn frame_metadata_default_has_empty_extra() {
+        let metadata = FrameMetadata::default();
+        assert!(metadata.extra.is_empty());
+        assert!(metadata.binning.is_none());
+        assert!(metadata.temperature_c.is_none());
+        assert!(metadata.gain_mode.is_none());
+        assert!(metadata.readout_speed.is_none());
+        assert!(metadata.trigger_mode.is_none());
+    }
+}
