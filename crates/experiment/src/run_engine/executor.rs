@@ -337,11 +337,15 @@ impl RunEngine {
                                 Some(capture) => {
                                     let data_len = capture.data.len();
                                     let frame_num = capture.frame_number;
+                                    let summing_count = capture.summing_count;
                                     ctx.collected_frames.insert(device_id.clone(), capture.data);
+                                    ctx.collected_summing_counts
+                                        .insert(device_id.clone(), summing_count);
                                     debug!(
                                         device = %device_id,
                                         size = %data_len,
                                         frame_num = %frame_num,
+                                        ?summing_count,
                                         "Captured frame"
                                     );
                                 }
