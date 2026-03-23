@@ -687,6 +687,7 @@ fn build_image_measurement(device_id: &str, frame: &common::data::Frame) -> Meas
             roi_origin,
             frame_number: Some(frame.frame_number),
             sequence_gap_from_previous: None,
+            summing_count: frame_metadata.and_then(|meta| meta.summing_count),
         },
         timestamp: chrono::Utc::now(),
     }
