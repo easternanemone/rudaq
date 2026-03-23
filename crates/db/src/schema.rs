@@ -230,6 +230,21 @@ const SCHEMA_V8: &str = r"
 DEFINE FIELD IF NOT EXISTS is_favorite ON device_runtime_state TYPE bool DEFAULT false;
 ";
 
+/// V9: Device lifecycle event log for PVCAM state machine tracking (bd-oqo7.9).
+///
+/// Records state transitions with timestamps, enabling post-mortem analysis
+/// of camera health over long experiments. Indexed by device_id for efficient
+/// per-device queries.
+const SCHEMA_V9: &str = r"
+DEFINE TABLE IF NOT EXISTS device_lifecycle_event SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS device_id   ON device_lifecycle_event TYPE string;
+DEFINE FIELD IF NOT EXISTS from_state  ON device_lifecycle_event TYPE string;
+DEFINE FIELD IF NOT EXISTS to_state    ON device_lifecycle_event TYPE string;
+DEFINE FIELD IF NOT EXISTS reason      ON device_lifecycle_event TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS timestamp   ON device_lifecycle_event TYPE datetime DEFAULT time::now();
+DEFINE INDEX IF NOT EXISTS idx_lifecycle_device ON device_lifecycle_event FIELDS device_id;
+";
+
 /// Apply the schema to the database.
 ///
 /// This is called once during [`DaqDb::init`] and is idempotent.
