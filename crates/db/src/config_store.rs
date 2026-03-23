@@ -110,6 +110,22 @@ pub struct DeviceParamState {
     pub is_favorite: bool,
 }
 
+/// A device lifecycle state transition event (bd-oqo7.9).
+///
+/// Stored in the `device_lifecycle_event` table for post-mortem analysis
+/// of camera health during long experiments.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeviceLifecycleEvent {
+    /// Device ID that transitioned (e.g., "pvcam_0").
+    pub device_id: String,
+    /// State before the transition.
+    pub from_state: String,
+    /// State after the transition.
+    pub to_state: String,
+    /// Human-readable reason for the transition (e.g., "controller dead").
+    pub reason: Option<String>,
+}
+
 /// Summary of a config import operation.
 #[derive(Debug, Clone, Default)]
 pub struct ImportReport {
