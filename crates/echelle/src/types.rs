@@ -1617,9 +1617,17 @@ fn build_merged_preview(orders: &[EchelleOrderPreview]) -> Option<EchelleMergedP
 
     // For each order, trim the outer 10% of wavelength samples on each edge to
     // remove low-blaze-efficiency tails where overlapping orders produce artifacts.
+    // Skip orders without a physical_order_number (ambiguous/duplicate traces) and
+    // orders outside the physically plausible range for the Mechelle 5000 (m≈40-120).
     // Also skip samples with physically impossible wavelengths (< 200 nm for air).
     let mut samples = Vec::new();
     for order in orders {
+        // Filter out spurious traces: only include orders with a known physical
+        // order number in the plausible echelle range.
+        match order.physical_order_number {
+            Some(m) if (40..=120).contains(&m) => {}
+            _ => continue,
+        }
         let n = order.wavelengths.len();
         if n < 5 {
             continue;
