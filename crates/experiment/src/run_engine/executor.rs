@@ -434,6 +434,11 @@ impl RunEngine {
                     HashMap::new()
                 };
 
+                // bd-oqo7.7: Propagate summing counts into EventDoc metadata
+                // so downstream consumers can normalize summed pixel data.
+                let summing_metadata: HashMap<String, Option<u32>> =
+                    ctx.collected_summing_counts.drain().collect();
+
                 let mut all_positions = ctx.current_positions.clone();
                 all_positions.extend(positions);
 
@@ -442,6 +447,17 @@ impl RunEngine {
                 event.arrays = collected_arrays;
                 event.positions = all_positions;
                 event.scan_indices = scan_indices;
+
+                // bd-oqo7.7: Add summing_count to event metadata for each detector
+                for (device_id, count) in &summing_metadata {
+                    if let Some(n) = count {
+                        if *n > 1 {
+                            event
+                                .metadata
+                                .insert(format!("{device_id}.summing_count"), n.to_string());
+                        }
+                    }
+                }
 
                 ctx.seq_num += 1;
 
