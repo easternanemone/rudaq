@@ -266,6 +266,10 @@ pub struct PvcamDriver {
     sensor_width: u32,
     sensor_height: u32,
     speed_table: Option<Arc<SpeedTable>>,
+
+    // Health Monitor (bd-oqo7.9)
+    // Cancellation token stops the background health poll task on drop.
+    health_monitor_cancel: tokio_util::sync::CancellationToken,
 }
 
 impl PvcamDriver {
