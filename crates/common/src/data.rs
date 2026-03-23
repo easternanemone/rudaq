@@ -486,6 +486,7 @@ impl<'a> FrameView<'a> {
             roi_y: frame.roi_y,
             temperature_c: frame.metadata.as_ref().and_then(|m| m.temperature_c),
             binning: frame.metadata.as_ref().and_then(|m| m.binning),
+            summing_count: frame.metadata.as_ref().and_then(|m| m.summing_count),
         }
     }
 
