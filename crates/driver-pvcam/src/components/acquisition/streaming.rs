@@ -38,6 +38,7 @@ impl PvcamAcquisition {
     ///
     /// Resets frame loss metrics at the start of each acquisition. During streaming,
     /// the poll loop tracks hardware frame numbers to detect and count dropped frames.
+    #[allow(clippy::too_many_arguments)]
     pub async fn start_stream(
         &self,
         conn: &PvcamConnection,
@@ -45,8 +46,8 @@ impl PvcamAcquisition {
         binning: (u16, u16),
         exposure_ms: f64,
         buffer_mode: String,
-        host_summing_enabled: Parameter<bool>,  // bd-oqo7.7
-        host_summing_count: Parameter<u32>,     // bd-oqo7.7
+        host_summing_enabled: Parameter<bool>, // bd-oqo7.7
+        host_summing_count: Parameter<u32>,    // bd-oqo7.7
     ) -> Result<()> {
         tracing::info!(
             "start_stream: roi=({},{} {}x{}), binning=({},{}), exposure={:.1}ms, mode={}",
@@ -892,7 +893,7 @@ impl PvcamAcquisition {
                     primary_tx,         // bd-r8ux: Primary output for LoanedFrame delivery
                     primary_frame_pool, // bd-r8ux: Pool<FrameData> for primary_tx
                     host_summing_enabled, // bd-oqo7.7
-                    host_summing_count,   // bd-oqo7.7
+                    host_summing_count, // bd-oqo7.7
                 );
             });
 
@@ -971,8 +972,8 @@ impl PvcamAcquisition {
         roi: Roi,
         binning: (u16, u16),
         exposure_ms: f64,
-        host_summing_enabled: Parameter<bool>,  // bd-oqo7.7
-        host_summing_count: Parameter<u32>,     // bd-oqo7.7
+        host_summing_enabled: Parameter<bool>, // bd-oqo7.7
+        host_summing_count: Parameter<u32>,    // bd-oqo7.7
     ) -> Result<Frame> {
         let mut rx = self.frame_tx.subscribe();
         self.start_stream(
@@ -1238,8 +1239,8 @@ impl PvcamAcquisition {
         roi: Roi,
         reliable_tx: Option<tokio::sync::mpsc::Sender<Arc<Frame>>>,
         _use_metadata: bool,
-        host_summing_enabled: Parameter<bool>,  // bd-oqo7.7
-        host_summing_count: Parameter<u32>,     // bd-oqo7.7
+        host_summing_enabled: Parameter<bool>, // bd-oqo7.7
+        host_summing_count: Parameter<u32>,    // bd-oqo7.7
     ) -> Result<()> {
         let (x_bin, y_bin) = binning;
         let binned_width = roi.width / x_bin as u32;
@@ -1331,7 +1332,7 @@ impl PvcamAcquisition {
                 roi_y,
                 binning,
                 done_tx,
-                tap_registry, // bd-0dax.4: For tap observers
+                tap_registry,         // bd-0dax.4: For tap observers
                 host_summing_enabled, // bd-oqo7.7
                 host_summing_count,   // bd-oqo7.7
             );
