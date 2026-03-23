@@ -1329,6 +1329,8 @@ impl PvcamAcquisition {
                 binning,
                 done_tx,
                 tap_registry, // bd-0dax.4: For tap observers
+                host_summing_enabled, // bd-oqo7.7
+                host_summing_count,   // bd-oqo7.7
             );
         });
 
