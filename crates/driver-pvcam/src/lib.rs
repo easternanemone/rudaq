@@ -61,6 +61,10 @@ pub use crate::components::features::{
 };
 // Re-export feature functions for direct access
 pub use crate::components::features::PvcamFeatures;
+// Re-export health monitor for integration by the server/bin crates
+pub use crate::components::health_monitor::{
+    spawn_health_monitor, HealthMonitorCallback, NoOpHealthCallback,
+};
 
 use crate::components::acquisition::PvcamAcquisition;
 use crate::components::connection::PvcamConnection;
