@@ -143,8 +143,16 @@ impl PvcamAcquisition {
                         frame_count.store(total_frames, Ordering::SeqCst);
 
                         // Build frame (matching mock and hardware path patterns)
+                        // bd-oqo7.7: Include summing_count in frame metadata
+                        let summing_count = if host_summing_enabled.get() {
+                            let count = host_summing_count.get();
+                            if count > 1 { Some(count) } else { None }
+                        } else {
+                            None
+                        };
                         let ext_metadata = common::data::FrameMetadata {
                             binning: Some(binning),
+                            summing_count,
                             ..Default::default()
                         };
                         let frame = Arc::new(
