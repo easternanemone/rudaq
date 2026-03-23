@@ -2454,6 +2454,9 @@ impl Commandable for PvcamDriver {
 /// For clean shutdown, always call `driver.shutdown().await` before dropping.
 impl Drop for PvcamDriver {
     fn drop(&mut self) {
+        // Stop the health monitor background task (bd-oqo7.9).
+        self.health_monitor_cancel.cancel();
+
         if self.streaming.get() {
             // Log warning - user should have called shutdown() first
             tracing::warn!(
