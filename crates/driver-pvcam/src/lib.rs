@@ -2244,6 +2244,11 @@ impl Triggerable for PvcamDriver {
 impl FrameProducer for PvcamDriver {
     async fn start_stream(&self) -> Result<()> {
         let conn = self.connection.lock().await;
+        let summing_count = if self.host_summing_enabled.get() {
+            self.host_summing_count.get()
+        } else {
+            1
+        };
         self.acquisition
             .start_stream(
                 &conn,
@@ -2251,6 +2256,7 @@ impl FrameProducer for PvcamDriver {
                 self.binning.get(),
                 self.exposure_ms.get(),
                 self.buffer_mode.get(),
+                summing_count,
             )
             .await
     }

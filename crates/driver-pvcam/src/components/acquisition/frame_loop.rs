@@ -291,6 +291,7 @@ impl PvcamAcquisition {
         tap_registry: Arc<TapRegistry>, // bd-0dax.4: For synchronous tap observers
         primary_tx: Option<tokio::sync::mpsc::Sender<common::capabilities::LoanedFrame>>, // bd-r8ux
         primary_frame_pool: Option<Arc<Pool<FrameData>>>, // bd-r8ux
+        host_summing_count: u32, // bd-oqo7.7: for downstream normalization
     ) {
         let loop_span = tracing::debug_span!(
             "pvcam_frame_loop",
@@ -1136,11 +1137,17 @@ impl PvcamAcquisition {
                         .with_exposure(exposure_ms);
                 }
 
-                // Add extended metadata (bd-183h)
-                let ext_metadata = common::data::FrameMetadata {
+                // Add extended metadata (bd-183h, bd-oqo7.7)
+                let mut ext_metadata = common::data::FrameMetadata {
                     binning: Some(binning),
                     ..Default::default()
                 };
+                if host_summing_count > 1 {
+                    ext_metadata.extra.insert(
+                        "host_summing_count".to_string(),
+                        host_summing_count.to_string(),
+                    );
+                }
                 frame = frame.with_metadata(ext_metadata);
 
                 let frame_arc = Arc::new(frame);

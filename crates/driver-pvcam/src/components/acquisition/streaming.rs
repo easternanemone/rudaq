@@ -44,6 +44,7 @@ impl PvcamAcquisition {
         binning: (u16, u16),
         exposure_ms: f64,
         buffer_mode: String,
+        _host_summing_count: u32, // bd-oqo7.7
     ) -> Result<()> {
         tracing::info!(
             "start_stream: roi=({},{} {}x{}), binning=({},{}), exposure={:.1}ms, mode={}",
@@ -880,6 +881,7 @@ impl PvcamAcquisition {
                     tap_registry,       // bd-0dax.4: For synchronous tap observers
                     primary_tx,         // bd-r8ux: Primary output for LoanedFrame delivery
                     primary_frame_pool, // bd-r8ux: Pool<FrameData> for primary_tx
+                    _host_summing_count, // bd-oqo7.7
                 );
             });
 
@@ -960,7 +962,7 @@ impl PvcamAcquisition {
         exposure_ms: f64,
     ) -> Result<Frame> {
         let mut rx = self.frame_tx.subscribe();
-        self.start_stream(conn, roi, binning, exposure_ms, self.buffer_mode.get())
+        self.start_stream(conn, roi, binning, exposure_ms, self.buffer_mode.get(), 1)
             .await?;
 
         let frame = tokio::time::timeout(Duration::from_secs(5), rx.recv())
