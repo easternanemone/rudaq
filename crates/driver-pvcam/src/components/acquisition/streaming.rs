@@ -966,6 +966,7 @@ impl PvcamAcquisition {
     }
 
     /// Acquire a single frame by starting the stream, grabbing one frame, then stopping.
+    #[allow(clippy::too_many_arguments)]
     pub async fn acquire_single_frame(
         &self,
         conn: &MutexGuard<'_, PvcamConnection>,
