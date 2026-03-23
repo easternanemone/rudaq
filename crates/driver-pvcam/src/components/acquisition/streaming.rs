@@ -44,6 +44,8 @@ impl PvcamAcquisition {
         binning: (u16, u16),
         exposure_ms: f64,
         buffer_mode: String,
+        host_summing_enabled: Parameter<bool>,  // bd-oqo7.7
+        host_summing_count: Parameter<u32>,     // bd-oqo7.7
     ) -> Result<()> {
         tracing::info!(
             "start_stream: roi=({},{} {}x{}), binning=({},{}), exposure={:.1}ms, mode={}",
