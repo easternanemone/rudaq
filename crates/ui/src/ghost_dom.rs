@@ -29,6 +29,27 @@ mod wasm_impl {
 
     use crate::automation::AutomationState;
 
+    /// Widget type constants for `data-widget-type` attributes.
+    /// Single source of truth — a typo here is a compile-time constant,
+    /// not a silent selector mismatch at runtime.
+    mod widget_type {
+        pub const STATUS: &str = "status";
+        pub const BUTTON: &str = "button";
+        pub const DATA: &str = "data";
+        pub const CAMERA_LIST: &str = "camera-list";
+        pub const CAMERA_OPTION: &str = "camera-option";
+        pub const VIEW_MODE: &str = "view-mode";
+        pub const VIEW_MODE_OPTION: &str = "view-mode-option";
+        pub const PARAMETER: &str = "parameter";
+        pub const ECHELLE: &str = "echelle";
+        pub const ECHELLE_ORDER: &str = "echelle-order";
+    }
+
+    /// Node ID prefixes for namespaced ghost elements.
+    const PREFIX_CAMERA: &str = "camera_";
+    const PREFIX_PARAM: &str = "param_";
+    const PREFIX_VIEW_MODE: &str = "view_mode_";
+
     /// Cached state for dirty-flag comparison.
     ///
     /// On the first frame, `initialized` is `false` — forcing a full sync
@@ -70,7 +91,6 @@ mod wasm_impl {
                 .document()
                 .expect("no document");
 
-            // Create the overlay root as a sibling of the canvas in <body>
             let root: web_sys::HtmlElement = document.create_element("div")?.dyn_into()?;
             root.set_id("ghost-dom-root");
             root.set_attribute("role", "complementary")?;
@@ -85,12 +105,10 @@ mod wasm_impl {
             style.set_property("pointer-events", "none")?;
             style.set_property("overflow", "hidden")?;
             style.set_property("z-index", "1000")?;
-            // Elements inside are invisible but findable by getByRole/getByLabel
             style.set_property("opacity", "0")?;
 
             document.body().expect("no body").append_child(&root)?;
 
-            // Create aria-live region for state change announcements
             let live_region = document.create_element("div")?;
             live_region.set_id("ghost-live-region");
             live_region.set_attribute("role", "log")?;
@@ -114,8 +132,6 @@ mod wasm_impl {
         /// Uses dirty-flag comparisons: only touches the DOM when values change.
         /// Designed to be called every frame with negligible overhead when state is stable.
         pub fn sync(&mut self, state: &AutomationState) {
-            // On the first frame, force a full sync so baseline elements are created
-            // even when values match CachedState::default() (e.g., connected: false).
             let first = !self.cached.initialized;
             if first {
                 self.cached.initialized = true;
@@ -166,8 +182,7 @@ mod wasm_impl {
                 self.sync_camera_list(&state.available_cameras);
             }
 
-            // Frame counter (bucket to avoid per-frame DOM writes)
-            // Only update every 10 frames to avoid thrashing
+            // Frame counter — only update every 10 frames to avoid thrashing
             #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
             let fps_bucket = (state.fps.max(0.0) * 10.0) as u32;
             if first
@@ -194,7 +209,7 @@ mod wasm_impl {
                 self.sync_view_mode(&state.view_mode);
             }
 
-            // Parameters — zero-allocation comparison via zip instead of building a Vec
+            // Parameters — zero-allocation comparison via zip
             let params_changed = first
                 || self.cached.param_values.len() != state.parameters.len()
                 || self
@@ -241,7 +256,6 @@ mod wasm_impl {
             let document = web_sys::window().unwrap().document().unwrap();
             let el = document.create_element(tag).unwrap();
             el.set_attribute("data-widget-id", id).unwrap();
-            // All ghost elements share these base styles
             if let Ok(html_el) = el.clone().dyn_into::<web_sys::HtmlElement>() {
                 let style = html_el.style();
                 let _ = style.set_property("position", "absolute");
@@ -259,12 +273,33 @@ mod wasm_impl {
             }
         }
 
+        /// Remove ghost nodes whose IDs start with `prefix` but don't match
+        /// any suffix in `valid_suffixes`. Uses zero-allocation slice comparison
+        /// instead of `format!()` per-key.
+        fn remove_stale_nodes(&mut self, prefix: &str, valid_suffixes: &[impl AsRef<str>]) {
+            let stale_keys: Vec<String> = self
+                .nodes
+                .keys()
+                .filter(|k| {
+                    k.starts_with(prefix)
+                        && !valid_suffixes.iter().any(|s| {
+                            k.len() == prefix.len() + s.as_ref().len()
+                                && k[prefix.len()..] == *s.as_ref()
+                        })
+                })
+                .cloned()
+                .collect();
+            for key in stale_keys {
+                self.remove_node(&key);
+            }
+        }
+
         /// Create/update a status indicator (`role="status"`).
         fn upsert_status(&mut self, id: &str, label: &str, value: &str) {
             let el = self.get_or_create(id, "div");
             let _ = el.set_attribute("role", "status");
             let _ = el.set_attribute("aria-label", label);
-            let _ = el.set_attribute("data-widget-type", "status");
+            let _ = el.set_attribute("data-widget-type", widget_type::STATUS);
             let _ = el.set_attribute("data-value", value);
             el.set_text_content(Some(&format!("{label}: {value}")));
         }
@@ -273,7 +308,7 @@ mod wasm_impl {
         fn update_button(&mut self, id: &str, label: &str, enabled: bool) {
             let el = self.get_or_create(id, "button");
             let _ = el.set_attribute("aria-label", label);
-            let _ = el.set_attribute("data-widget-type", "button");
+            let _ = el.set_attribute("data-widget-type", widget_type::BUTTON);
             let _ = el.set_attribute("tabindex", "-1");
             if enabled {
                 let _ = el.remove_attribute("aria-disabled");
@@ -289,7 +324,7 @@ mod wasm_impl {
         fn upsert_data(&mut self, id: &str, label: &str, attrs: &[(&str, &str)]) {
             let el = self.get_or_create(id, "div");
             let _ = el.set_attribute("aria-label", label);
-            let _ = el.set_attribute("data-widget-type", "data");
+            let _ = el.set_attribute("data-widget-type", widget_type::DATA);
             for (key, value) in attrs {
                 let _ = el.set_attribute(key, value);
             }
@@ -297,34 +332,20 @@ mod wasm_impl {
 
         /// Sync the available cameras as a listbox with option elements.
         fn sync_camera_list(&mut self, cameras: &[String]) {
-            // Remove stale camera entries
-            let stale_keys: Vec<String> = self
-                .nodes
-                .keys()
-                .filter(|k| {
-                    k.starts_with("camera_")
-                        && !cameras.iter().any(|c| **k == format!("camera_{c}"))
-                })
-                .cloned()
-                .collect();
-            for key in stale_keys {
-                self.remove_node(&key);
-            }
+            self.remove_stale_nodes(PREFIX_CAMERA, cameras);
 
-            // Get or create the camera list container
             let list = self.get_or_create("camera_list", "div");
             let _ = list.set_attribute("role", "listbox");
             let _ = list.set_attribute("aria-label", "Available Cameras");
-            let _ = list.set_attribute("data-widget-type", "camera-list");
+            let _ = list.set_attribute("data-widget-type", widget_type::CAMERA_LIST);
             let _ = list.set_attribute("data-count", &cameras.len().to_string());
 
-            // Create/update individual camera options
             for camera_id in cameras {
-                let node_id = format!("camera_{camera_id}");
+                let node_id = format!("{PREFIX_CAMERA}{camera_id}");
                 let el = self.get_or_create(&node_id, "div");
                 let _ = el.set_attribute("role", "option");
                 let _ = el.set_attribute("aria-label", camera_id);
-                let _ = el.set_attribute("data-widget-type", "camera-option");
+                let _ = el.set_attribute("data-widget-type", widget_type::CAMERA_OPTION);
                 let _ = el.set_attribute("data-device-id", camera_id);
 
                 let is_selected = self.cached.camera.as_deref() == Some(camera_id.as_str());
@@ -339,15 +360,15 @@ mod wasm_impl {
             let group = self.get_or_create("view_mode_group", "div");
             let _ = group.set_attribute("role", "radiogroup");
             let _ = group.set_attribute("aria-label", "View Mode");
-            let _ = group.set_attribute("data-widget-type", "view-mode");
+            let _ = group.set_attribute("data-widget-type", widget_type::VIEW_MODE);
             let _ = group.set_attribute("data-value", current);
 
             for mode in &["2D", "1D", "Split"] {
-                let id = format!("view_mode_{mode}");
+                let id = format!("{PREFIX_VIEW_MODE}{mode}");
                 let el = self.get_or_create(&id, "div");
                 let _ = el.set_attribute("role", "radio");
                 let _ = el.set_attribute("aria-label", &format!("View Mode: {mode}"));
-                let _ = el.set_attribute("data-widget-type", "view-mode-option");
+                let _ = el.set_attribute("data-widget-type", widget_type::VIEW_MODE_OPTION);
                 let _ = el.set_attribute("data-value", mode);
                 let is_checked = *mode == current;
                 let _ = el.set_attribute("aria-checked", if is_checked { "true" } else { "false" });
@@ -357,33 +378,20 @@ mod wasm_impl {
 
         /// Sync camera parameters as labeled data elements.
         fn sync_parameters(&mut self, params: &[crate::automation::ParameterInfo]) {
-            // Remove stale parameter nodes
-            let stale_keys: Vec<String> = self
-                .nodes
-                .keys()
-                .filter(|k| {
-                    k.starts_with("param_")
-                        && !params.iter().any(|p| **k == format!("param_{}", p.name))
-                })
-                .cloned()
-                .collect();
-            for key in stale_keys {
-                self.remove_node(&key);
-            }
+            let param_names: Vec<&str> = params.iter().map(|p| p.name.as_str()).collect();
+            self.remove_stale_nodes(PREFIX_PARAM, &param_names);
 
-            // Create/update parameter elements
             for param in params {
-                let id = format!("param_{}", param.name);
+                let id = format!("{PREFIX_PARAM}{}", param.name);
                 let el = self.get_or_create(&id, "div");
 
-                // Use slider role for numeric types, textbox for others
                 let role = match param.param_type.as_str() {
                     "Int" | "Float" | "Enumerated" => "slider",
                     _ => "textbox",
                 };
                 let _ = el.set_attribute("role", role);
                 let _ = el.set_attribute("aria-label", &param.name);
-                let _ = el.set_attribute("data-widget-type", "parameter");
+                let _ = el.set_attribute("data-widget-type", widget_type::PARAMETER);
                 let _ = el.set_attribute("data-param-name", &param.name);
                 let _ = el.set_attribute("data-value", &param.value);
                 let _ = el.set_attribute("data-param-type", &param.param_type);
@@ -403,7 +411,7 @@ mod wasm_impl {
         fn sync_echelle(&mut self, state: &AutomationState) {
             let el = self.get_or_create("echelle_state", "div");
             let _ = el.set_attribute("aria-label", "Echelle Spectrometer");
-            let _ = el.set_attribute("data-widget-type", "echelle");
+            let _ = el.set_attribute("data-widget-type", widget_type::ECHELLE);
             let _ = el.set_attribute(
                 "data-profile-loaded",
                 &state.echelle_profile_loaded.to_string(),
@@ -419,12 +427,11 @@ mod wasm_impl {
                 let _ = el.remove_attribute("data-error");
             }
 
-            // Order selector (if profile loaded)
             if state.echelle_profile_loaded && state.echelle_orders_count > 0 {
                 let selector = self.get_or_create("echelle_order_selector", "div");
                 let _ = selector.set_attribute("role", "spinbutton");
                 let _ = selector.set_attribute("aria-label", "Echelle Order");
-                let _ = selector.set_attribute("data-widget-type", "echelle-order");
+                let _ = selector.set_attribute("data-widget-type", widget_type::ECHELLE_ORDER);
                 let _ = selector
                     .set_attribute("aria-valuenow", &state.echelle_selected_order.to_string());
                 let _ = selector.set_attribute("aria-valuemin", "0");
