@@ -24,6 +24,7 @@
 #[cfg(target_arch = "wasm32")]
 mod wasm_impl {
     use std::collections::HashMap;
+    use std::fmt::Write;
 
     use wasm_bindgen::JsCast;
 
@@ -73,6 +74,31 @@ mod wasm_impl {
         live_region: web_sys::Element,
         nodes: HashMap<String, web_sys::Element>,
         cached: CachedState,
+        /// Reusable format buffer to avoid per-call heap allocations in
+        /// `set_attr_fmt` / `set_text_fmt` (bd-out3).
+        fmt_buf: String,
+    }
+
+    /// Format `args` into `buf` (reused across calls) and set `attr` on `el`.
+    ///
+    /// Free function (not a method) to avoid double-borrow when the element
+    /// was obtained from `GhostDom::get_or_create(&mut self)`.
+    fn set_attr_fmt(
+        buf: &mut String,
+        el: &web_sys::Element,
+        attr: &str,
+        args: std::fmt::Arguments<'_>,
+    ) {
+        buf.clear();
+        write!(buf, "{args}").unwrap();
+        let _ = el.set_attribute(attr, buf);
+    }
+
+    /// Format `args` into `buf` and set as text content on `el`.
+    fn set_text_fmt(buf: &mut String, el: &web_sys::Element, args: std::fmt::Arguments<'_>) {
+        buf.clear();
+        write!(buf, "{args}").unwrap();
+        el.set_text_content(Some(buf));
     }
 
     impl GhostDom {
@@ -119,6 +145,7 @@ mod wasm_impl {
                 live_region,
                 nodes: HashMap::new(),
                 cached: CachedState::default(),
+                fmt_buf: String::with_capacity(32),
             })
         }
 
@@ -209,15 +236,34 @@ mod wasm_impl {
             // Frame counter — only update every 10 frames to avoid thrashing
             if frame_stats_changed {
                 self.cached.fps_bucket = fps_bucket;
-                self.upsert_data(
-                    "frame_stats",
-                    "Frame Statistics",
-                    &[
-                        ("data-frame-count", &state.frame_count.to_string()),
-                        ("data-fps", &format!("{:.1}", state.fps)),
-                        ("data-width", &state.width.to_string()),
-                        ("data-height", &state.height.to_string()),
-                    ],
+                let (el, created) = self.get_or_create("frame_stats", "div");
+                if created {
+                    let _ = el.set_attribute("aria-label", "Frame Statistics");
+                    let _ = el.set_attribute("data-widget-type", widget_type::DATA);
+                }
+                set_attr_fmt(
+                    &mut self.fmt_buf,
+                    &el,
+                    "data-frame-count",
+                    format_args!("{}", state.frame_count),
+                );
+                set_attr_fmt(
+                    &mut self.fmt_buf,
+                    &el,
+                    "data-fps",
+                    format_args!("{:.1}", state.fps),
+                );
+                set_attr_fmt(
+                    &mut self.fmt_buf,
+                    &el,
+                    "data-width",
+                    format_args!("{}", state.width),
+                );
+                set_attr_fmt(
+                    &mut self.fmt_buf,
+                    &el,
+                    "data-height",
+                    format_args!("{}", state.height),
                 );
             }
 
@@ -300,7 +346,7 @@ mod wasm_impl {
                 let _ = el.set_attribute("data-widget-type", widget_type::STATUS);
             }
             let _ = el.set_attribute("data-value", value);
-            el.set_text_content(Some(&format!("{label}: {value}")));
+            set_text_fmt(&mut self.fmt_buf, &el, format_args!("{label}: {value}"));
         }
 
         /// Create/update a button element.
@@ -321,18 +367,6 @@ mod wasm_impl {
             el.set_text_content(Some(label));
         }
 
-        /// Create/update an element with multiple data attributes.
-        fn upsert_data(&mut self, id: &str, label: &str, attrs: &[(&str, &str)]) {
-            let (el, created) = self.get_or_create(id, "div");
-            if created {
-                let _ = el.set_attribute("aria-label", label);
-                let _ = el.set_attribute("data-widget-type", widget_type::DATA);
-            }
-            for (key, value) in attrs {
-                let _ = el.set_attribute(key, value);
-            }
-        }
-
         /// Sync the available cameras as a listbox with option elements.
         fn sync_camera_list(&mut self, cameras: &[String], selected: Option<&str>) {
             self.remove_stale_nodes(PREFIX_CAMERA, cameras);
@@ -343,7 +377,12 @@ mod wasm_impl {
                 let _ = list.set_attribute("aria-label", "Available Cameras");
                 let _ = list.set_attribute("data-widget-type", widget_type::CAMERA_LIST);
             }
-            let _ = list.set_attribute("data-count", &cameras.len().to_string());
+            set_attr_fmt(
+                &mut self.fmt_buf,
+                &list,
+                "data-count",
+                format_args!("{}", cameras.len()),
+            );
 
             for camera_id in cameras {
                 let node_id = format!("{PREFIX_CAMERA}{camera_id}");
@@ -377,7 +416,12 @@ mod wasm_impl {
                 let (el, created) = self.get_or_create(&id, "div");
                 if created {
                     let _ = el.set_attribute("role", "radio");
-                    let _ = el.set_attribute("aria-label", &format!("View Mode: {mode}"));
+                    set_attr_fmt(
+                        &mut self.fmt_buf,
+                        &el,
+                        "aria-label",
+                        format_args!("View Mode: {mode}"),
+                    );
                     let _ = el.set_attribute("data-widget-type", widget_type::VIEW_MODE_OPTION);
                     let _ = el.set_attribute("data-value", mode);
                 }
@@ -416,7 +460,11 @@ mod wasm_impl {
                     let _ = el.set_attribute("aria-valuenow", &param.value);
                     let _ = el.set_attribute("aria-valuetext", &param.value);
                 }
-                el.set_text_content(Some(&format!("{}: {}", param.name, param.value)));
+                set_text_fmt(
+                    &mut self.fmt_buf,
+                    &el,
+                    format_args!("{}: {}", param.name, param.value),
+                );
             }
         }
 
@@ -427,14 +475,23 @@ mod wasm_impl {
                 let _ = el.set_attribute("aria-label", "Echelle Spectrometer");
                 let _ = el.set_attribute("data-widget-type", widget_type::ECHELLE);
             }
-            let _ = el.set_attribute(
+            set_attr_fmt(
+                &mut self.fmt_buf,
+                &el,
                 "data-profile-loaded",
-                &state.echelle_profile_loaded.to_string(),
+                format_args!("{}", state.echelle_profile_loaded),
             );
-            let _ = el.set_attribute("data-orders-count", &state.echelle_orders_count.to_string());
-            let _ = el.set_attribute(
+            set_attr_fmt(
+                &mut self.fmt_buf,
+                &el,
+                "data-orders-count",
+                format_args!("{}", state.echelle_orders_count),
+            );
+            set_attr_fmt(
+                &mut self.fmt_buf,
+                &el,
                 "data-selected-order",
-                &state.echelle_selected_order.to_string(),
+                format_args!("{}", state.echelle_selected_order),
             );
             if let Some(ref err) = state.echelle_error {
                 let _ = el.set_attribute("data-error", err);
@@ -451,11 +508,17 @@ mod wasm_impl {
                     let _ = selector.set_attribute("data-widget-type", widget_type::ECHELLE_ORDER);
                     let _ = selector.set_attribute("aria-valuemin", "0");
                 }
-                let _ = selector
-                    .set_attribute("aria-valuenow", &state.echelle_selected_order.to_string());
-                let _ = selector.set_attribute(
+                set_attr_fmt(
+                    &mut self.fmt_buf,
+                    &selector,
+                    "aria-valuenow",
+                    format_args!("{}", state.echelle_selected_order),
+                );
+                set_attr_fmt(
+                    &mut self.fmt_buf,
+                    &selector,
                     "aria-valuemax",
-                    &state.echelle_orders_count.saturating_sub(1).to_string(),
+                    format_args!("{}", state.echelle_orders_count.saturating_sub(1)),
                 );
             } else {
                 self.remove_node("echelle_order_selector");
