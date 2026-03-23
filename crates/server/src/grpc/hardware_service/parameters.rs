@@ -570,6 +570,7 @@ pub(super) async fn set_parameter_favorite(
 
 /// Get all favorited parameter names for a device (bd-4wf7).
 #[allow(unused_variables)] // svc and req only used with db-surreal feature
+#[allow(clippy::unused_async)] // conditionally async: .await used only with db-surreal feature
 pub(super) async fn get_parameter_favorites(
     svc: &HardwareServiceImpl,
     request: Request<GetParameterFavoritesRequest>,
