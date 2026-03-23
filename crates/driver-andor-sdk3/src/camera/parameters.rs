@@ -229,17 +229,19 @@ impl AndorCamera {
         param: &mut Parameter<f64>,
         handle: AT_H,
         streaming: Arc<AtomicBool>,
+        sdk_buffers: Arc<std::sync::Mutex<Option<Arc<crate::buffer::SdkBufferSet>>>>,
     ) {
         param.connect_to_hardware_write(move |val: f64| {
             let streaming = streaming.clone();
+            let sdk_buffers = sdk_buffers.clone();
             Box::pin(sdk_blocking(move || {
                 let result = AndorCamera::set_float_feature(handle, "ExposureTime", val);
                 if result.is_ok() || !streaming.load(std::sync::atomic::Ordering::Relaxed) {
                     return result;
                 }
-                // Streaming and failed — pause acquisition, apply, restart (bd-4msn)
                 tracing::info!("Pausing acquisition to change ExposureTime");
-                pause_apply_restart(handle, || {
+                let bufs = sdk_buffers.lock().unwrap_or_else(|e| e.into_inner());
+                pause_apply_restart(handle, &bufs, || {
                     AndorCamera::set_float_feature(handle, "ExposureTime", val)
                 })
             }))
@@ -278,17 +280,19 @@ impl AndorCamera {
         param: &mut Parameter<u32>,
         handle: AT_H,
         streaming: Arc<AtomicBool>,
+        sdk_buffers: Arc<std::sync::Mutex<Option<Arc<crate::buffer::SdkBufferSet>>>>,
     ) {
         param.connect_to_hardware_write(move |gain: u32| {
             let streaming = streaming.clone();
+            let sdk_buffers = sdk_buffers.clone();
             Box::pin(sdk_blocking(move || {
                 let result = AndorCamera::set_int_feature(handle, "MCPGain", gain as i64);
                 if result.is_ok() || !streaming.load(std::sync::atomic::Ordering::Relaxed) {
                     return result;
                 }
-                // Streaming and failed — pause acquisition, apply, restart (bd-4msn)
                 tracing::info!("Pausing acquisition to change MCPGain");
-                pause_apply_restart(handle, || {
+                let bufs = sdk_buffers.lock().unwrap_or_else(|e| e.into_inner());
+                pause_apply_restart(handle, &bufs, || {
                     AndorCamera::set_int_feature(handle, "MCPGain", gain as i64)
                 })
             }))
@@ -304,11 +308,12 @@ impl AndorCamera {
         param: &mut Parameter<u64>,
         handle: AT_H,
         streaming: Arc<AtomicBool>,
+        sdk_buffers: Arc<std::sync::Mutex<Option<Arc<crate::buffer::SdkBufferSet>>>>,
     ) {
         param.connect_to_hardware_write(move |delay_ps: u64| {
             let streaming = streaming.clone();
+            let sdk_buffers = sdk_buffers.clone();
             Box::pin(sdk_blocking(move || {
-                // Ensure DDGOutputSelector targets the MCP gater
                 let _ = AndorCamera::set_enum_feature(handle, "DDGOutputSelector", "Gater");
                 let delay_s = delay_ps as f64 * 1e-12;
                 let result = AndorCamera::set_float_feature(handle, "DDGOutputDelay", delay_s);
@@ -316,7 +321,8 @@ impl AndorCamera {
                     return result;
                 }
                 tracing::info!("Pausing acquisition to change DDGOutputDelay");
-                pause_apply_restart(handle, || {
+                let bufs = sdk_buffers.lock().unwrap_or_else(|e| e.into_inner());
+                pause_apply_restart(handle, &bufs, || {
                     AndorCamera::set_float_feature(handle, "DDGOutputDelay", delay_s)
                 })
             }))
@@ -329,9 +335,11 @@ impl AndorCamera {
         param: &mut Parameter<u64>,
         handle: AT_H,
         streaming: Arc<AtomicBool>,
+        sdk_buffers: Arc<std::sync::Mutex<Option<Arc<crate::buffer::SdkBufferSet>>>>,
     ) {
         param.connect_to_hardware_write(move |width_ps: u64| {
             let streaming = streaming.clone();
+            let sdk_buffers = sdk_buffers.clone();
             Box::pin(sdk_blocking(move || {
                 let _ = AndorCamera::set_enum_feature(handle, "DDGOutputSelector", "Gater");
                 let width_s = width_ps as f64 * 1e-12;
@@ -340,7 +348,8 @@ impl AndorCamera {
                     return result;
                 }
                 tracing::info!("Pausing acquisition to change DDGOutputWidth");
-                pause_apply_restart(handle, || {
+                let bufs = sdk_buffers.lock().unwrap_or_else(|e| e.into_inner());
+                pause_apply_restart(handle, &bufs, || {
                     AndorCamera::set_float_feature(handle, "DDGOutputWidth", width_s)
                 })
             }))
@@ -418,16 +427,19 @@ impl AndorCamera {
         param: &mut Parameter<bool>,
         handle: AT_H,
         streaming: Arc<AtomicBool>,
+        sdk_buffers: Arc<std::sync::Mutex<Option<Arc<crate::buffer::SdkBufferSet>>>>,
     ) {
         param.connect_to_hardware_write(move |val: bool| {
             let streaming = streaming.clone();
+            let sdk_buffers = sdk_buffers.clone();
             Box::pin(sdk_blocking(move || {
                 let result = AndorCamera::set_bool_feature(handle, "MCPIntelligentGating", val);
                 if result.is_ok() || !streaming.load(std::sync::atomic::Ordering::Relaxed) {
                     return result;
                 }
                 tracing::info!("Pausing acquisition to change MCPIntelligate");
-                pause_apply_restart(handle, || {
+                let bufs = sdk_buffers.lock().unwrap_or_else(|e| e.into_inner());
+                pause_apply_restart(handle, &bufs, || {
                     AndorCamera::set_bool_feature(handle, "MCPIntelligentGating", val)
                 })
             }))

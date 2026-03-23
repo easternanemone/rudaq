@@ -207,6 +207,13 @@ impl FrameProducer for AndorCamera {
             })
             .await??;
 
+            // Store buffer set on inner so pause_apply_restart can flush/re-queue (bd-71sq)
+            *self
+                .inner
+                .sdk_buffers
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = Some(sdk_buffers.clone());
+
             let acq_inner = self.inner.clone();
             let acq_handle = tokio::task::spawn(Self::acquisition_loop(
                 acq_inner,
@@ -280,6 +287,13 @@ impl FrameProducer for AndorCamera {
                 Ok(())
             })
             .await??;
+
+            // Clear stored buffer set (bd-71sq)
+            *self
+                .inner
+                .sdk_buffers
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = None;
         }
 
         tracing::info!(

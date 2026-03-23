@@ -154,26 +154,55 @@ where
         .map_err(|e| DaqError::Instrument(e.to_string()))
 }
 
-/// Pause SDK acquisition, apply a parameter change, then restart (bd-4msn).
+/// Pause SDK acquisition, apply a parameter change, then restart (bd-4msn, bd-71sq).
 ///
-/// Stops acquisition without flushing buffers so they remain queued for the
-/// restart. Used by hardware_writer callbacks for parameters that can't be
-/// changed while the SDK acquisition loop is active (e.g., ExposureTime on iStar).
+/// Stops acquisition, **flushes both SDK buffer queues**, applies the parameter
+/// change, re-queues all buffers, and restarts acquisition. The flush is
+/// required by the SDK3 documentation (§2.3.9): "Failure to call AT_Flush
+/// after an acquisition… may lead to undefined behaviour."
+///
+/// Prior to bd-71sq this function skipped the flush, which caused a recurring
+/// general protection fault (GPF) in the SDK's internal `shared_ptr` bookkeeping
+/// when the stale buffer queue was reused after AcquisitionStart.
 ///
 /// The acquisition loop must tolerate the brief `AT_WaitBuffer` error this
 /// causes — see the retry logic in `acquisition_loop`.
 #[cfg(feature = "camera")]
-fn pause_apply_restart(handle: AT_H, f: impl FnOnce() -> anyhow::Result<()>) -> anyhow::Result<()> {
+fn pause_apply_restart(
+    handle: AT_H,
+    sdk_buffers: &Option<Arc<crate::buffer::SdkBufferSet>>,
+    f: impl FnOnce() -> anyhow::Result<()>,
+) -> anyhow::Result<()> {
     use crate::error::sdk_result;
-    // Stop acquisition (keep buffers queued)
+
+    // Step 1: Stop acquisition
     unsafe {
         let stop = to_wide_string("AcquisitionStop");
         sdk_result(AT_Command(handle, stop.as_ptr()))?;
     }
 
+    // Step 2: Flush both SDK buffer queues (required by SDK3 §2.3.9)
+    unsafe {
+        sdk_result(AT_Flush(handle))?;
+    }
+    tracing::debug!(sdk_handle = handle, "Flushed SDK buffers for param change");
+
+    // Step 3: Apply the parameter change
     let result = f();
 
-    // Always restart, even if the parameter change failed
+    // Step 4: Re-queue all buffers and restart (always, even if param change failed)
+    if let Some(ref bufs) = *sdk_buffers {
+        unsafe {
+            for buf in bufs.iter() {
+                let ret = AT_QueueBuffer(handle, buf.as_ptr(), buf.size() as std::os::raw::c_int);
+                if let Err(e) = sdk_result(ret) {
+                    tracing::error!("Failed to re-queue buffer after param change: {e}");
+                    return Err(e.into());
+                }
+            }
+        }
+    }
+
     unsafe {
         let start = to_wide_string("AcquisitionStart");
         if let Err(e) = sdk_result(AT_Command(handle, start.as_ptr())) {
@@ -297,6 +326,12 @@ pub(crate) struct AndorCameraInner {
     pub(crate) frame_pool: Arc<pool::Pool<pool::FrameData>>,
     pub(crate) tap_registry: TapRegistry,
     pub(crate) acq_task_handle: Mutex<Option<tokio::task::JoinHandle<()>>>,
+
+    // SDK buffer set for the current acquisition (bd-71sq).
+    // Stored here so that `pause_apply_restart` can flush and re-queue buffers
+    // when stopping/restarting acquisition for parameter changes.
+    #[cfg(feature = "camera")]
+    pub(crate) sdk_buffers: std::sync::Mutex<Option<Arc<crate::buffer::SdkBufferSet>>>,
 
     // Feature callback lifecycle (bd-joqu / Copilot review)
     #[cfg(feature = "camera")]
@@ -493,21 +528,40 @@ impl AndorCamera {
 
         let streaming_flag = Arc::new(AtomicBool::new(false));
 
+        // Shared buffer set reference for pause_apply_restart flush/re-queue (bd-71sq).
+        // Created here so parameter callbacks can access it; populated in start_stream.
+        #[cfg(feature = "camera")]
+        let sdk_buffers_lock: Arc<
+            std::sync::Mutex<Option<Arc<crate::buffer::SdkBufferSet>>>,
+        > = Arc::new(std::sync::Mutex::new(None));
+
         #[cfg(feature = "camera")]
         {
-            Self::attach_exposure_callback(&mut exposure_s, handle, streaming_flag.clone());
+            Self::attach_exposure_callback(
+                &mut exposure_s,
+                handle,
+                streaming_flag.clone(),
+                sdk_buffers_lock.clone(),
+            );
             Self::attach_trigger_mode_callback(&mut trigger_mode, handle);
             Self::attach_gate_mode_callback(&mut gate_mode, handle);
-            Self::attach_mcp_gain_callback(&mut mcp_gain, handle, streaming_flag.clone());
+            Self::attach_mcp_gain_callback(
+                &mut mcp_gain,
+                handle,
+                streaming_flag.clone(),
+                sdk_buffers_lock.clone(),
+            );
             Self::attach_ddg_delay_callback(
                 &mut ddg_output_delay_ps,
                 handle,
                 streaming_flag.clone(),
+                sdk_buffers_lock.clone(),
             );
             Self::attach_ddg_width_callback(
                 &mut ddg_output_width_ps,
                 handle,
                 streaming_flag.clone(),
+                sdk_buffers_lock.clone(),
             );
             Self::attach_temperature_reader(&mut temperature_c, handle);
             Self::attach_target_temperature_reader(&mut target_temperature_c, handle);
@@ -519,6 +573,7 @@ impl AndorCamera {
                 &mut mcp_intelligate,
                 handle,
                 streaming_flag.clone(),
+                sdk_buffers_lock.clone(),
             );
             Self::attach_mcp_voltage_reader(&mut mcp_voltage, handle);
             Self::attach_insertion_delay_callback(&mut insertion_delay, handle);
@@ -615,6 +670,8 @@ impl AndorCamera {
             frame_pool,
             tap_registry: TapRegistry::new(),
             acq_task_handle: Mutex::new(None),
+            #[cfg(feature = "camera")]
+            sdk_buffers: sdk_buffers_lock,
             #[cfg(feature = "camera")]
             _callback_bridge: Mutex::new(None),
             #[cfg(feature = "camera")]
