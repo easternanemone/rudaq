@@ -621,8 +621,10 @@ mod tests {
 
     #[test]
     fn frame_metadata_extra_round_trips_through_builder() {
-        let mut metadata = FrameMetadata::default();
-        metadata.binning = Some((2, 2));
+        let mut metadata = FrameMetadata {
+            binning: Some((2, 2)),
+            ..Default::default()
+        };
         metadata.extra.insert("timestamp_bof_ns".to_string(), "1000000".to_string());
         metadata.extra.insert("timestamp_eof_ns".to_string(), "2000000".to_string());
         metadata.extra.insert("exposure_time_ns".to_string(), "500000".to_string());
