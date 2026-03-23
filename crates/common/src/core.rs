@@ -1215,15 +1215,24 @@ mod tests {
     }
 
     #[test]
-    fn image_metadata_summing_count_bincode_roundtrip() {
+    fn image_metadata_summing_count_survives_serde_proxy_roundtrip() {
+        // Verify summing_count survives through the Human/Binary proxy structs
         let meta = ImageMetadata {
             summing_count: Some(32),
             frame_number: Some(42),
             ..Default::default()
         };
-        let bytes = bincode::serialize(&meta).unwrap();
-        let decoded: ImageMetadata = bincode::deserialize(&bytes).unwrap();
-        assert_eq!(decoded.summing_count, Some(32));
-        assert_eq!(decoded.frame_number, Some(42));
+
+        // Human-readable path
+        let human: HumanReadableImageMetadata = (&meta).into();
+        let roundtripped: ImageMetadata = human.into();
+        assert_eq!(roundtripped.summing_count, Some(32));
+        assert_eq!(roundtripped.frame_number, Some(42));
+
+        // Binary path
+        let binary: BinaryImageMetadata = (&meta).into();
+        let roundtripped: ImageMetadata = binary.into();
+        assert_eq!(roundtripped.summing_count, Some(32));
+        assert_eq!(roundtripped.frame_number, Some(42));
     }
 }
