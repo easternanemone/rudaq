@@ -544,6 +544,86 @@ impl DaqDb {
         }
         Ok(count)
     }
+
+    // -------------------------------------------------------------------
+    // Device Lifecycle Events (bd-oqo7.9)
+    // -------------------------------------------------------------------
+
+    /// Record a device lifecycle state transition.
+    ///
+    /// Also updates the `_lifecycle_state` pseudo-parameter in
+    /// `device_runtime_state` so the current state is queryable for
+    /// restart recovery.
+    pub async fn record_lifecycle_event(&self, event: &DeviceLifecycleEvent) -> Result<()> {
+        self.client()
+            .query(
+                "CREATE device_lifecycle_event SET \
+                 device_id = $device_id, \
+                 from_state = $from_state, \
+                 to_state = $to_state, \
+                 reason = $reason, \
+                 timestamp = time::now()",
+            )
+            .bind(("device_id", event.device_id.clone()))
+            .bind(("from_state", event.from_state.clone()))
+            .bind(("to_state", event.to_state.clone()))
+            .bind(("reason", event.reason.clone()))
+            .await?;
+
+        // Also persist the current state for restart recovery.
+        self.upsert_device_state(
+            &event.device_id,
+            "_lifecycle_state",
+            &serde_json::json!(event.to_state),
+        )
+        .await?;
+
+        Ok(())
+    }
+
+    /// Get the most recent lifecycle events for a device, newest first.
+    ///
+    /// Returns up to `limit` events. Use for post-mortem analysis.
+    pub async fn get_lifecycle_events(
+        &self,
+        device_id: &str,
+        limit: u32,
+    ) -> Result<Vec<DeviceLifecycleEvent>> {
+        let mut response = self
+            .client()
+            .query(
+                "SELECT device_id, from_state, to_state, reason \
+                 FROM device_lifecycle_event \
+                 WHERE device_id = $device_id \
+                 ORDER BY timestamp DESC \
+                 LIMIT $limit",
+            )
+            .bind(("device_id", device_id.to_owned()))
+            .bind(("limit", limit))
+            .await?;
+        let rows: Vec<DeviceLifecycleEvent> = response.take(0)?;
+        Ok(rows)
+    }
+
+    /// Delete all lifecycle events for a device.
+    ///
+    /// Called when a device is unregistered to clean up stale history.
+    pub async fn delete_lifecycle_events(&self, device_id: &str) -> Result<usize> {
+        let mut response = self
+            .client()
+            .query(
+                "DELETE FROM device_lifecycle_event \
+                 WHERE device_id = $device_id RETURN BEFORE",
+            )
+            .bind(("device_id", device_id.to_owned()))
+            .await?;
+        let deleted: Vec<DeviceLifecycleEvent> = response.take(0)?;
+        let count = deleted.len();
+        if count > 0 {
+            info!(device_id, count, "deleted device lifecycle events");
+        }
+        Ok(count)
+    }
 }
 
 // ---------------------------------------------------------------------------
