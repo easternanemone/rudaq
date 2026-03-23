@@ -1178,4 +1178,48 @@ mod tests {
         assert_eq!(batches.images.unwrap().num_rows(), 1);
         Ok(())
     }
+
+    // === Summing count in ImageMetadata (bd-oqo7.7) ===
+
+    #[test]
+    fn image_metadata_summing_count_default_is_none() {
+        let meta = ImageMetadata::default();
+        assert_eq!(meta.summing_count, None);
+    }
+
+    #[test]
+    fn image_metadata_summing_count_json_roundtrip() {
+        let meta = ImageMetadata {
+            summing_count: Some(16),
+            exposure_ms: Some(100.0),
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&meta).unwrap();
+        let decoded: ImageMetadata = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.summing_count, Some(16));
+        assert_eq!(decoded.exposure_ms, Some(100.0));
+    }
+
+    #[test]
+    fn image_metadata_summing_count_none_omitted_in_json() {
+        let meta = ImageMetadata {
+            summing_count: None,
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&meta).unwrap();
+        assert!(!json.contains("summing_count"), "None fields should be omitted from JSON");
+    }
+
+    #[test]
+    fn image_metadata_summing_count_bincode_roundtrip() {
+        let meta = ImageMetadata {
+            summing_count: Some(32),
+            frame_number: Some(42),
+            ..Default::default()
+        };
+        let bytes = bincode::serialize(&meta).unwrap();
+        let decoded: ImageMetadata = bincode::deserialize(&bytes).unwrap();
+        assert_eq!(decoded.summing_count, Some(32));
+        assert_eq!(decoded.frame_number, Some(42));
+    }
 }
