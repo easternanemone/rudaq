@@ -58,6 +58,10 @@ pub struct ArcLine {
     /// Whether this line passed quality filtering. Set to `true` by detection;
     /// callers may set to `false` to exclude from downstream fits.
     pub used: bool,
+    /// Whether the peak was saturated (any pixel in the peak region at the
+    /// detector bit-depth maximum). When `true`, the centroid was refined
+    /// via wing fitting if enough unsaturated wing pixels were available.
+    pub saturated: bool,
 }
 
 impl ArcLine {
@@ -108,11 +112,63 @@ pub fn detect_arc_lines(
     // Step 2: Find local maxima above threshold.
     let candidates = find_local_maxima(&subtracted, threshold);
 
+    // Determine the bit-depth maximum from the raw spectrum (bd-0ebq).
+    // Common detector depths: 12-bit (4095), 14-bit (16383), 16-bit (65535).
+    let raw_max = order_spectrum.iter().copied().fold(0.0_f32, f32::max);
+    let bit_depth_max = infer_saturation_threshold(raw_max);
+
     // Step 3: Gaussian centroid fitting for each candidate.
+    // For saturated peaks where standard fitting fails, create a preliminary
+    // ArcLine from the peak position and refine via wing fitting.
     let mut lines: Vec<ArcLine> = Vec::new();
     for &peak_idx in &candidates {
-        if let Some(line) = fit_gaussian_centroid(&subtracted, peak_idx, order_index) {
+        // Check if this peak is saturated in the raw spectrum.
+        let win_start = peak_idx.saturating_sub(3);
+        let win_end = (peak_idx + 4).min(order_spectrum.len());
+        let is_saturated = order_spectrum[win_start..win_end]
+            .iter()
+            .any(|&v| v >= bit_depth_max);
+
+        // Compute the saturation threshold in continuum-subtracted space.
+        #[allow(clippy::cast_precision_loss)]
+        let sat_sub = f64::from(bit_depth_max) - continuum.get(peak_idx).copied().unwrap_or(0.0);
+
+        if let Some(mut line) = fit_gaussian_centroid(&subtracted, peak_idx, order_index) {
+            if is_saturated {
+                line.saturated = true;
+                // Refine centroid and sigma via wing fitting on continuum-subtracted data.
+                if let Some((refined_center, refined_sigma)) =
+                    fit_gaussian_wings(&subtracted, line.pixel_center, sat_sub)
+                {
+                    line.pixel_center = refined_center;
+                    line.pixel_sigma = refined_sigma;
+                }
+            }
             lines.push(line);
+        } else if is_saturated {
+            // Standard fitting failed (flat-top defeats log-parabola/parabolic fit).
+            // Create an ArcLine from wing fitting, or from the raw peak position
+            // with a reasonable default sigma.
+            #[allow(clippy::cast_precision_loss)]
+            let initial_center = peak_idx as f64;
+
+            let (center, sigma) = if let Some((refined_center, refined_sigma)) =
+                fit_gaussian_wings(&subtracted, initial_center, sat_sub)
+            {
+                (refined_center, refined_sigma)
+            } else {
+                (initial_center, 2.5) // fallback sigma for fully saturated peaks
+            };
+
+            lines.push(ArcLine {
+                order: order_index,
+                pixel_center: center,
+                pixel_sigma: sigma,
+                amplitude: subtracted[peak_idx],
+                wavelength_hint: None,
+                used: true,
+                saturated: true,
+            });
         }
     }
 
@@ -150,6 +206,126 @@ pub fn detect_arc_lines(
     });
 
     accepted
+}
+
+/// Infer the detector saturation threshold from the observed maximum value.
+///
+/// Common detector bit depths: 12-bit (max 4095), 14-bit (16383), 16-bit (65535).
+/// Returns the saturation threshold (bit_depth_max - 1) for the smallest bit depth
+/// whose maximum is >= the observed max. Falls back to observed max if it does not
+/// match any standard bit depth.
+fn infer_saturation_threshold(raw_max: f32) -> f32 {
+    // Standard ADC ceilings minus 1 (the highest representable count).
+    // A pixel at this value is considered saturated.
+    const THRESHOLDS: [(f32, f32); 4] = [
+        (4095.0, 4094.0),   // 12-bit
+        (16383.0, 16382.0), // 14-bit
+        (32767.0, 32766.0), // 15-bit (rare, some sCMOS)
+        (65535.0, 65534.0), // 16-bit
+    ];
+
+    for &(ceiling, threshold) in &THRESHOLDS {
+        // If the raw max is near this ceiling (within 1 count), use it.
+        if raw_max >= threshold && raw_max <= ceiling {
+            return threshold;
+        }
+    }
+
+    // Fallback: if we can't identify the bit depth, pick the smallest ceiling
+    // that is >= the observed max. This handles non-standard detectors.
+    for &(_, threshold) in &THRESHOLDS {
+        if raw_max <= threshold + 1.0 {
+            return threshold;
+        }
+    }
+
+    // Last resort: use the observed max itself.
+    raw_max
+}
+
+/// Fit a Gaussian profile to the unsaturated wings of a saturated peak.
+///
+/// When a peak is saturated, the flat-top region (contiguous pixels at or above
+/// `saturation_threshold`) corrupts centroid estimation. This function:
+/// 1. Identifies the flat-top region around `peak_center`
+/// 2. Collects wing pixels (positive values below saturation) on both sides
+/// 3. Fits a Gaussian via the log-parabola method to the wing pixels only
+/// 4. Returns `(refined_centroid, sigma)`, or `None` if the fit fails
+///
+/// The `spectrum` should be continuum-subtracted. The `saturation_threshold` is
+/// the saturation level minus the local continuum.
+fn fit_gaussian_wings(
+    spectrum: &[f64],
+    peak_center: f64,
+    saturation_threshold: f64,
+) -> Option<(f64, f64)> {
+    let n = spectrum.len();
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let center_idx = peak_center.round().max(0.0) as usize;
+    if center_idx >= n {
+        return None;
+    }
+
+    // Find the flat-top region: contiguous pixels at or above the threshold.
+    let mut flat_left = center_idx;
+    while flat_left > 0 && spectrum[flat_left - 1] >= saturation_threshold * 0.95 {
+        flat_left -= 1;
+    }
+    let mut flat_right = center_idx;
+    while flat_right + 1 < n && spectrum[flat_right + 1] >= saturation_threshold * 0.95 {
+        flat_right += 1;
+    }
+
+    // Collect wing pixels: up to 8 pixels on each side of the flat-top,
+    // must be positive and below saturation.
+    let wing_extent = 8;
+    let mut xs = Vec::new();
+    let mut log_ys = Vec::new();
+
+    // Left wing.
+    let left_start = flat_left.saturating_sub(wing_extent);
+    let wing_cutoff = saturation_threshold * 0.95;
+    for (i, &val) in spectrum.iter().enumerate().take(flat_left).skip(left_start) {
+        if val > 0.0 && val < wing_cutoff {
+            #[allow(clippy::cast_precision_loss)]
+            let x = i as f64 - peak_center;
+            xs.push(x);
+            log_ys.push(val.ln());
+        }
+    }
+
+    // Right wing.
+    let right_end = (flat_right + 1 + wing_extent).min(n);
+    for (i, &val) in spectrum
+        .iter()
+        .enumerate()
+        .take(right_end)
+        .skip(flat_right + 1)
+    {
+        if val > 0.0 && val < wing_cutoff {
+            #[allow(clippy::cast_precision_loss)]
+            let x = i as f64 - peak_center;
+            xs.push(x);
+            log_ys.push(val.ln());
+        }
+    }
+
+    // Need at least 3 wing pixels for a quadratic fit.
+    if xs.len() < 3 {
+        return None;
+    }
+
+    // Fit log-parabola: ln(y) = a*x^2 + b*x + c -> center = -b/(2a).
+    let (center_offset, sigma) = fit_log_parabola(&xs, &log_ys)?;
+
+    // Sanity: refined center should be within the flat-top region (or very close).
+    #[allow(clippy::cast_precision_loss)]
+    let flat_half_width = (flat_right as f64 - flat_left as f64) / 2.0 + 2.0;
+    if center_offset.abs() > flat_half_width + 1.0 || sigma <= 0.0 || !sigma.is_finite() {
+        return None;
+    }
+
+    Some((peak_center + center_offset, sigma))
 }
 
 /// Running median filter. Uses a sliding window forced to an odd size.
@@ -200,6 +376,10 @@ fn estimate_noise_rms(data: &[f64]) -> f64 {
 /// Find local maxima in `data` that exceed `threshold`.
 ///
 /// A local maximum at index `i` satisfies: data[i] > data[i-1] && data[i] > data[i+1].
+/// Also detects flat-top (plateau) peaks where a run of equal values above the
+/// threshold is bounded by strictly lower values on both sides. The center of
+/// the plateau is returned as the peak index. This is essential for saturated
+/// arc lines that clip at the detector bit-depth maximum (bd-0ebq).
 fn find_local_maxima(data: &[f64], threshold: f64) -> Vec<usize> {
     let n = data.len();
     if n < 3 {
@@ -207,9 +387,35 @@ fn find_local_maxima(data: &[f64], threshold: f64) -> Vec<usize> {
     }
 
     let mut peaks = Vec::new();
-    for i in 1..n - 1 {
-        if data[i] > threshold && data[i] > data[i - 1] && data[i] > data[i + 1] {
-            peaks.push(i);
+    let mut i = 1;
+    while i < n - 1 {
+        if data[i] > threshold {
+            if data[i] > data[i - 1] && data[i] > data[i + 1] {
+                // Standard strict local maximum.
+                peaks.push(i);
+                i += 1;
+            } else if data[i] > data[i - 1] && data[i] == data[i + 1] {
+                // Start of a plateau: scan to find the end.
+                let plateau_start = i;
+                let mut j = i + 1;
+                while j < n && data[j] == data[plateau_start] {
+                    j += 1;
+                }
+                // The plateau spans [plateau_start, j-1]. It's a valid peak
+                // if bounded by lower values on both sides.
+                let plateau_end = j - 1;
+                let bounded_right = j >= n || data[j] < data[plateau_start];
+                if bounded_right {
+                    // Return the center of the plateau.
+                    let center = usize::midpoint(plateau_start, plateau_end);
+                    peaks.push(center);
+                }
+                i = j;
+            } else {
+                i += 1;
+            }
+        } else {
+            i += 1;
         }
     }
     peaks
@@ -264,6 +470,7 @@ fn fit_gaussian_centroid(data: &[f64], peak_idx: usize, order_index: u32) -> Opt
                     amplitude,
                     wavelength_hint: None,
                     used: true,
+                    saturated: false,
                 });
             }
         }
@@ -292,6 +499,7 @@ fn fit_gaussian_centroid(data: &[f64], peak_idx: usize, order_index: u32) -> Opt
                 amplitude,
                 wavelength_hint: None,
                 used: true,
+                saturated: false,
             });
         }
     }
@@ -1576,6 +1784,7 @@ mod tests {
             amplitude: 100.0,
             wavelength_hint: None,
             used: true,
+            saturated: false,
         };
         // FWHM = 2 * sqrt(2 * ln(2)) * sigma ≈ 2.3548 * sigma
         let expected_fwhm = 2.0 * (2.0 * 2.0_f64.ln()).sqrt() * 2.0;
@@ -1727,6 +1936,7 @@ mod tests {
                 amplitude: 500.0,
                 wavelength_hint: None,
                 used: true,
+                saturated: false,
             },
             ArcLine {
                 order: 0,
@@ -1735,6 +1945,7 @@ mod tests {
                 amplitude: 300.0,
                 wavelength_hint: None,
                 used: true,
+                saturated: false,
             },
         ];
         let atlas = vec![
@@ -1781,6 +1992,7 @@ mod tests {
                 amplitude: 1000.0,
                 wavelength_hint: Some(wavelength),
                 used: true,
+                saturated: false,
             });
             atlas.push(AtlasLine {
                 wavelength_nm: wavelength,
@@ -1836,6 +2048,7 @@ mod tests {
                 amplitude: 800.0,
                 wavelength_hint: Some(wavelength),
                 used: true,
+                saturated: false,
             });
             atlas.push(AtlasLine {
                 wavelength_nm: wavelength,
@@ -1855,6 +2068,7 @@ mod tests {
                 amplitude: 300.0,
                 wavelength_hint: Some(correct_wl + 5.0),
                 used: true,
+                saturated: false,
             });
             atlas.push(AtlasLine {
                 wavelength_nm: correct_wl + 5.0, // wrong!
@@ -1895,6 +2109,7 @@ mod tests {
             amplitude: 500.0,
             wavelength_hint: Some(400.0),
             used: true,
+            saturated: false,
         }];
         let atlas = vec![AtlasLine {
             wavelength_nm: 400.0,
@@ -2068,5 +2283,218 @@ mod tests {
             loo_rms.is_infinite(),
             "should return infinity for too few points, got {loo_rms}"
         );
+    }
+
+    // ─── Saturation detection and wing fitting tests (bd-0ebq) ──────
+
+    /// Build a synthetic spectrum with a saturated (flat-top) peak.
+    ///
+    /// The peak is a Gaussian clipped at `saturation_value`. Returns the
+    /// spectrum and the true (unclipped) centroid position.
+    fn synthetic_saturated_spectrum(
+        len: usize,
+        true_center: f64,
+        true_amplitude: f64,
+        true_sigma: f64,
+        saturation_value: f32,
+        noise_floor: f32,
+    ) -> Vec<f32> {
+        let mut spectrum = Vec::with_capacity(len);
+        for i in 0..len {
+            #[allow(clippy::cast_precision_loss)]
+            let x = i as f64;
+            let gauss = true_amplitude
+                * (-(x - true_center).powi(2) / (2.0 * true_sigma * true_sigma)).exp();
+            #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
+            let noise = ((i as f64 * 0.73).sin() * 2.0 + (i as f64 * 1.37).cos() * 1.5) as f32;
+            #[allow(clippy::cast_possible_truncation)]
+            let val = (noise_floor + noise + gauss as f32).min(saturation_value);
+            spectrum.push(val);
+        }
+        spectrum
+    }
+
+    #[test]
+    fn test_saturated_peak_wing_fitting_recovers_centroid() {
+        // A strong Gaussian peak at pixel 500 that saturates at 4095 (12-bit).
+        // The true center is at 500.3 (off-integer to test sub-pixel recovery).
+        // Use a longer spectrum so the continuum median window works well.
+        let true_center = 500.3;
+        let saturation = 4095.0_f32;
+        let spectrum = synthetic_saturated_spectrum(
+            1000,
+            true_center,
+            8000.0, // much larger than saturation -> wide flat top
+            2.0,    // sigma=2.0 -> FWHM ~4.7 (within default max_fwhm=6.0)
+            saturation,
+            10.0,
+        );
+
+        // Verify the spectrum actually has saturated pixels.
+        let max_val = spectrum.iter().copied().fold(0.0_f32, f32::max);
+        assert!(
+            (max_val - saturation).abs() < 1.0,
+            "spectrum should be saturated at {saturation}, max is {max_val}"
+        );
+
+        let config = ArcDetectConfig::default();
+        let lines = detect_arc_lines(&spectrum, 0, &config);
+
+        assert!(
+            !lines.is_empty(),
+            "should detect at least one line from saturated peak"
+        );
+
+        // Find the line closest to our true center.
+        let best = lines
+            .iter()
+            .min_by(|a, b| {
+                let da = (a.pixel_center - true_center).abs();
+                let db = (b.pixel_center - true_center).abs();
+                da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .expect("should have at least one line");
+
+        assert!(
+            best.saturated,
+            "line near saturated peak should be marked as saturated"
+        );
+
+        // Wing fitting should recover the centroid to within ~0.5px of the
+        // true center. Without wing fitting, a flat-top peak would have its
+        // centroid biased toward the center of the flat region.
+        let center_err = (best.pixel_center - true_center).abs();
+        assert!(
+            center_err < 0.5,
+            "wing-fitted centroid error {center_err:.3}px is too large \
+             (center={:.3}, true={true_center})",
+            best.pixel_center
+        );
+    }
+
+    #[test]
+    fn test_nonsaturated_peak_not_marked_saturated() {
+        // A normal (unsaturated) peak should not be marked as saturated.
+        let peaks = vec![(100.0, 500.0, 2.0)];
+        let spectrum = synthetic_spectrum(200, &peaks, 10.0);
+
+        // Verify no value is near any saturation threshold.
+        let max_val = spectrum.iter().copied().fold(0.0_f32, f32::max);
+        assert!(max_val < 1000.0, "test peak should not be near saturation");
+
+        let config = ArcDetectConfig::default();
+        let lines = detect_arc_lines(&spectrum, 0, &config);
+
+        assert!(!lines.is_empty(), "should detect the peak");
+        for line in &lines {
+            assert!(
+                !line.saturated,
+                "unsaturated peak should not be marked saturated \
+                 (center={:.1}, amp={:.1})",
+                line.pixel_center, line.amplitude
+            );
+        }
+    }
+
+    #[test]
+    fn test_fully_saturated_peak_graceful_fallback() {
+        // A peak so broad that the entire wing region is also saturated.
+        // Wing fitting should fail gracefully, keeping the original centroid.
+        let len = 300;
+        let mut spectrum = vec![10.0_f32; len];
+        // Make a very wide flat-top: pixels 100-200 all at saturation.
+        for val in &mut spectrum[100..200] {
+            *val = 4095.0;
+        }
+        // Tiny ramps on edges so local-max detection can find a candidate.
+        spectrum[99] = 3000.0;
+        spectrum[200] = 3000.0;
+
+        let config = ArcDetectConfig {
+            sigdetect: 3.0,
+            min_fwhm: 1.0,
+            max_fwhm: 200.0, // allow very wide peaks
+            ..Default::default()
+        };
+        let lines = detect_arc_lines(&spectrum, 0, &config);
+
+        // The function should not panic regardless of how the peak looks.
+        // If any lines are detected and marked saturated, that's fine --
+        // the important thing is no crash.
+        for line in &lines {
+            // The centroid should be a valid pixel position.
+            assert!(
+                line.pixel_center.is_finite(),
+                "centroid should be finite even for fully saturated peak"
+            );
+        }
+    }
+
+    #[test]
+    fn test_fit_gaussian_wings_synthetic() {
+        // Directly test the wing fitting function with a known Gaussian
+        // that has been clipped.
+        let true_center = 50.0;
+        let true_sigma = 3.0;
+        let true_amplitude = 5000.0;
+        let sat_level = 3000.0;
+
+        let len = 100;
+        let mut spectrum = Vec::with_capacity(len);
+        for i in 0..len {
+            #[allow(clippy::cast_precision_loss)]
+            let x = i as f64;
+            let val = true_amplitude
+                * (-(x - true_center).powi(2) / (2.0 * true_sigma * true_sigma)).exp();
+            spectrum.push(val);
+        }
+
+        // Verify some pixels are above saturation.
+        let clipped_count = spectrum.iter().filter(|&&v| v >= sat_level).count();
+        assert!(clipped_count > 0, "test data should have clipped pixels");
+
+        let refined = fit_gaussian_wings(&spectrum, true_center, sat_level);
+        assert!(
+            refined.is_some(),
+            "wing fitting should succeed for partially saturated peak"
+        );
+
+        let (refined_center, refined_sigma) = refined.expect("checked above");
+        let err = (refined_center - true_center).abs();
+        assert!(
+            err < 0.3,
+            "wing-fitted centroid should be within 0.3px of true center, \
+             got error {err:.4} (refined={refined_center:.4}, true={true_center})"
+        );
+        assert!(
+            refined_sigma > 0.5 && refined_sigma < 10.0,
+            "wing-fitted sigma should be reasonable, got {refined_sigma:.4}"
+        );
+    }
+
+    #[test]
+    fn test_fit_gaussian_wings_returns_none_without_wings() {
+        // If the entire region is at or above saturation, wing fitting
+        // should return None (not enough wing pixels).
+        let spectrum = vec![5000.0; 30];
+        let result = fit_gaussian_wings(&spectrum, 15.0, 4000.0);
+        assert!(
+            result.is_none(),
+            "wing fitting should return None when no wing pixels exist"
+        );
+    }
+
+    #[test]
+    fn test_infer_saturation_threshold() {
+        // 12-bit detector with max near 4095.
+        assert!((infer_saturation_threshold(4095.0) - 4094.0).abs() < 0.01);
+        assert!((infer_saturation_threshold(4094.0) - 4094.0).abs() < 0.01);
+
+        // 16-bit detector.
+        assert!((infer_saturation_threshold(65535.0) - 65534.0).abs() < 0.01);
+
+        // Low value (no saturation expected) -> fallback.
+        let thresh = infer_saturation_threshold(500.0);
+        assert!(thresh >= 500.0, "threshold should be >= observed max");
     }
 }
