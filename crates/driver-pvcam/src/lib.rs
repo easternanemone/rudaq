@@ -214,6 +214,7 @@ pub struct PvcamDriver {
     // Streaming & Metadata
     smart_stream_enabled: Parameter<bool>,
     smart_stream_mode: Parameter<String>,
+    smart_stream_exposures: Parameter<String>, // bd-oqo7.1: JSON exposure list "[10,50,100]"
     metadata_enabled: Parameter<bool>,
 
     // Host-Side Processing
@@ -241,6 +242,9 @@ pub struct PvcamDriver {
     controller_alive: Parameter<bool>,
     ccs_status: Parameter<i16>,
     exp_min_time: Parameter<f64>,
+
+    // Multi-ROI (bd-oqo7.4)
+    multi_roi_config: Parameter<String>, // JSON: [{"x":0,"y":0,"w":512,"h":512}, ...]
 
     // Post-Processing (bd-oqo7.3)
     prime_enhance_enabled: Parameter<bool>,
@@ -637,6 +641,12 @@ impl PvcamDriver {
         .with_description("Smart streaming mode")
         .with_choices_introspectable(SmartStreamMode::all_choices());
 
+        // SMART Streaming exposure list (bd-oqo7.1)
+        let smart_stream_exposures =
+            Parameter::new("streaming.smart_stream_exposures", "[]".to_string()).with_description(
+                "SMART Stream exposure list as JSON array of ms values, e.g. [10,50,100]",
+            );
+
         let metadata_enabled = Parameter::new("processing.metadata_enabled", false)
             .with_description("Enable per-frame metadata")
             .with_dtype("bool");
@@ -687,6 +697,12 @@ impl PvcamDriver {
         let io_script_cmd = Parameter::new("io.script_cmd", "Stop".to_string())
             .with_description("I/O script command (Start/Stop/Reset)")
             .with_choices_introspectable(vec!["Start".into(), "Stop".into(), "Reset".into()]);
+
+        // Multi-ROI (bd-oqo7.4)
+        let multi_roi_config = Parameter::new("acquisition.multi_roi_config", "[]".to_string())
+            .with_description(
+                "Multi-ROI configuration as JSON array of {x,y,w,h} objects. Max 16 ROIs. Empty = single ROI mode.",
+            );
 
         // I/O Diagnostics (bd-oqo7.6)
         let io_bitdepth = Parameter::new("io.bitdepth", 8u16)
@@ -812,6 +828,8 @@ impl PvcamDriver {
         params.register(shutter_close_delay.clone());
         params.register(smart_stream_enabled.clone());
         params.register(smart_stream_mode.clone());
+        params.register(smart_stream_exposures.clone());
+        params.register(multi_roi_config.clone());
         params.register(metadata_enabled.clone());
         params.register(host_rotate.clone());
         params.register(host_flip.clone());
@@ -880,6 +898,7 @@ impl PvcamDriver {
             shutter_close_delay,
             smart_stream_enabled,
             smart_stream_mode,
+            smart_stream_exposures,
             metadata_enabled,
             host_rotate,
             host_flip,
@@ -890,6 +909,7 @@ impl PvcamDriver {
             io_state,
             frame_transfer_mode,
             io_script_cmd,
+            multi_roi_config,
             io_bitdepth,
             io_type,
             logic_output,
@@ -1455,6 +1475,31 @@ impl PvcamDriver {
                     let conn_guard = conn.lock_owned().await;
                     tokio::task::spawn_blocking(move || {
                         PvcamFeatures::set_smart_stream_mode(&conn_guard, mode)
+                            .map_err(|e| DaqError::Instrument(e.to_string()))
+                    })
+                    .await
+                    .map_err(|e| DaqError::Instrument(e.to_string()))?
+                })
+            }
+        });
+
+        // SMART Stream Exposures (bd-oqo7.1)
+        self.smart_stream_exposures.connect_to_hardware_write({
+            let conn = conn.clone();
+            move |val| {
+                let conn = conn.clone();
+                Box::pin(async move {
+                    let exposures: Vec<u32> = serde_json::from_str(&val).map_err(|e| {
+                        DaqError::Instrument(format!(
+                            "Invalid exposure JSON (expected [10,50,100]): {e}"
+                        ))
+                    })?;
+                    if exposures.is_empty() {
+                        return Ok(());
+                    }
+                    let conn_guard = conn.lock_owned().await;
+                    tokio::task::spawn_blocking(move || {
+                        PvcamFeatures::upload_smart_stream(&conn_guard, &exposures)
                             .map_err(|e| DaqError::Instrument(e.to_string()))
                     })
                     .await
