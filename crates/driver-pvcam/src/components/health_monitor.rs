@@ -19,7 +19,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
 use crate::components::connection::PvcamConnection;
-use crate::components::features::enums::PvcamDeviceState;
+use crate::PvcamDeviceState;
 use crate::components::features::PvcamFeatures;
 
 /// Configuration for the health monitor polling interval.
