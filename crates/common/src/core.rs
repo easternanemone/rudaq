@@ -221,6 +221,8 @@ struct HumanReadableImageMetadata {
     frame_number: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     sequence_gap_from_previous: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    summing_count: Option<u32>,
 }
 
 #[derive(Serialize, Deserialize)]
