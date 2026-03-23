@@ -589,10 +589,14 @@ impl DaqDb {
         device_id: &str,
         limit: u32,
     ) -> Result<Vec<DeviceLifecycleEvent>> {
+        // SurrealDB requires ORDER BY fields to appear in SELECT.
+        // We select timestamp for ordering but ignore it in deserialization
+        // (DeviceLifecycleEvent uses #[serde(default)] behavior — extra fields
+        // are simply discarded by serde).
         let mut response = self
             .client()
             .query(
-                "SELECT device_id, from_state, to_state, reason \
+                "SELECT device_id, from_state, to_state, reason, timestamp \
                  FROM device_lifecycle_event \
                  WHERE device_id = $device_id \
                  ORDER BY timestamp DESC \
