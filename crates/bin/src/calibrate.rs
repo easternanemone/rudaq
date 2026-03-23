@@ -121,6 +121,7 @@ impl CalibrateFileConfig {
 
         CalibrationPipelineConfig {
             trace_config,
+            trace_validation: Default::default(),
             arc_config,
             wl_config,
             scatter_config: d.scatter_config,

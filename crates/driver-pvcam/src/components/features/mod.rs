@@ -2936,6 +2936,234 @@ impl PvcamFeatures {
     }
 
     // =========================================================================
+    // I/O Diagnostics & Extended Parameters (bd-oqo7.6)
+    // =========================================================================
+
+    /// Get I/O port bit depth for the currently selected address.
+    pub fn get_io_bitdepth(_conn: &PvcamConnection) -> Result<u16> {
+        #[cfg(feature = "pvcam_sdk")]
+        if let Some(h) = _conn.handle() {
+            return Self::get_u16_param_impl(h, PARAM_IO_BITDEPTH);
+        }
+        Ok(8)
+    }
+
+    /// Get I/O port type (TTL or DAC) for the currently selected address.
+    pub fn get_io_type(_conn: &PvcamConnection) -> Result<IoType> {
+        #[cfg(feature = "pvcam_sdk")]
+        if let Some(h) = _conn.handle() {
+            if !Self::is_param_available(h, PARAM_IO_TYPE) {
+                return Ok(IoType::Ttl);
+            }
+            let mut val: i32 = 0;
+            // SAFETY: h is valid; val is writable i32 on stack.
+            unsafe {
+                if pl_get_param(h, PARAM_IO_TYPE, ATTR_CURRENT, &mut val as *mut _ as *mut _) == 0 {
+                    return Err(anyhow!(
+                        "Failed to get PARAM_IO_TYPE: {}",
+                        get_pvcam_error()
+                    ));
+                }
+            }
+            return Ok(IoType::from_pvcam(val));
+        }
+        Ok(IoType::Ttl)
+    }
+
+    /// Get the current logic output mode.
+    pub fn get_logic_output(_conn: &PvcamConnection) -> Result<LogicOutput> {
+        #[cfg(feature = "pvcam_sdk")]
+        if let Some(h) = _conn.handle() {
+            if !Self::is_param_available(h, PARAM_LOGIC_OUTPUT) {
+                return Ok(LogicOutput::NotScan);
+            }
+            let mut val: i32 = 0;
+            // SAFETY: h is valid; val is writable i32 on stack.
+            unsafe {
+                if pl_get_param(
+                    h,
+                    PARAM_LOGIC_OUTPUT,
+                    ATTR_CURRENT,
+                    &mut val as *mut _ as *mut _,
+                ) == 0
+                {
+                    return Err(anyhow!(
+                        "Failed to get PARAM_LOGIC_OUTPUT: {}",
+                        get_pvcam_error()
+                    ));
+                }
+            }
+            return Ok(LogicOutput::from_pvcam(val));
+        }
+        Ok(LogicOutput::NotScan)
+    }
+
+    /// Set the logic output mode.
+    pub fn set_logic_output(_conn: &PvcamConnection, _mode: LogicOutput) -> Result<()> {
+        #[cfg(feature = "pvcam_sdk")]
+        if let Some(h) = _conn.handle() {
+            if !Self::is_param_available(h, PARAM_LOGIC_OUTPUT) {
+                return Err(anyhow!(
+                    "PARAM_LOGIC_OUTPUT is not available on this camera"
+                ));
+            }
+            let val = _mode.to_pvcam();
+            // SAFETY: h is valid; val pointer valid for duration of call.
+            unsafe {
+                if pl_set_param(h, PARAM_LOGIC_OUTPUT, &val as *const _ as *mut _) == 0 {
+                    return Err(anyhow!(
+                        "Failed to set PARAM_LOGIC_OUTPUT: {}",
+                        get_pvcam_error()
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Get whether the logic output signal is inverted.
+    pub fn get_logic_output_invert(_conn: &PvcamConnection) -> Result<bool> {
+        #[cfg(feature = "pvcam_sdk")]
+        if let Some(h) = _conn.handle() {
+            if !Self::is_param_available(h, PARAM_LOGIC_OUTPUT_INVERT) {
+                return Ok(false);
+            }
+            let mut val: u16 = 0;
+            // SAFETY: h is valid; val is writable u16 (rs_bool) on stack.
+            unsafe {
+                if pl_get_param(
+                    h,
+                    PARAM_LOGIC_OUTPUT_INVERT,
+                    ATTR_CURRENT,
+                    &mut val as *mut _ as *mut _,
+                ) == 0
+                {
+                    return Err(anyhow!(
+                        "Failed to get PARAM_LOGIC_OUTPUT_INVERT: {}",
+                        get_pvcam_error()
+                    ));
+                }
+            }
+            return Ok(val != 0);
+        }
+        Ok(false)
+    }
+
+    /// Set whether the logic output signal is inverted.
+    pub fn set_logic_output_invert(_conn: &PvcamConnection, _invert: bool) -> Result<()> {
+        #[cfg(feature = "pvcam_sdk")]
+        if let Some(h) = _conn.handle() {
+            if !Self::is_param_available(h, PARAM_LOGIC_OUTPUT_INVERT) {
+                return Err(anyhow!(
+                    "PARAM_LOGIC_OUTPUT_INVERT is not available on this camera"
+                ));
+            }
+            let val: u16 = u16::from(_invert);
+            // SAFETY: h is valid; val pointer valid for duration of call.
+            unsafe {
+                if pl_set_param(h, PARAM_LOGIC_OUTPUT_INVERT, &val as *const _ as *mut _) == 0 {
+                    return Err(anyhow!(
+                        "Failed to set PARAM_LOGIC_OUTPUT_INVERT: {}",
+                        get_pvcam_error()
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Check whether the camera controller is alive and responsive.
+    ///
+    /// Returns `true` if the controller is powered on and running.
+    /// A `false` return suggests hardware communication failure.
+    pub fn get_controller_alive(_conn: &PvcamConnection) -> Result<bool> {
+        #[cfg(feature = "pvcam_sdk")]
+        if let Some(h) = _conn.handle() {
+            if !Self::is_param_available(h, PARAM_CONTROLLER_ALIVE) {
+                return Ok(true); // Assume alive if param not available
+            }
+            let mut val: u16 = 0;
+            // SAFETY: h is valid; val is writable u16 (rs_bool) on stack.
+            unsafe {
+                if pl_get_param(
+                    h,
+                    PARAM_CONTROLLER_ALIVE,
+                    ATTR_CURRENT,
+                    &mut val as *mut _ as *mut _,
+                ) == 0
+                {
+                    return Err(anyhow!(
+                        "Failed to get PARAM_CONTROLLER_ALIVE: {}",
+                        get_pvcam_error()
+                    ));
+                }
+            }
+            return Ok(val != 0);
+        }
+        Ok(true)
+    }
+
+    /// Get Camera Control Subsystem status.
+    ///
+    /// Returns: 0=idle, 1=initializing, 2=running, 3=continuously clearing.
+    pub fn get_ccs_status(_conn: &PvcamConnection) -> Result<i16> {
+        #[cfg(feature = "pvcam_sdk")]
+        if let Some(h) = _conn.handle() {
+            if !Self::is_param_available(h, PARAM_CCS_STATUS) {
+                return Ok(0);
+            }
+            let mut val: i16 = 0;
+            // SAFETY: h is valid; val is writable i16 on stack.
+            unsafe {
+                if pl_get_param(
+                    h,
+                    PARAM_CCS_STATUS,
+                    ATTR_CURRENT,
+                    &mut val as *mut _ as *mut _,
+                ) == 0
+                {
+                    return Err(anyhow!(
+                        "Failed to get PARAM_CCS_STATUS: {}",
+                        get_pvcam_error()
+                    ));
+                }
+            }
+            return Ok(val);
+        }
+        Ok(0)
+    }
+
+    /// Get the minimum effective exposure time in seconds.
+    ///
+    /// Limited by necessary overhead like shifting data through the sensor.
+    pub fn get_exp_min_time(_conn: &PvcamConnection) -> Result<f64> {
+        #[cfg(feature = "pvcam_sdk")]
+        if let Some(h) = _conn.handle() {
+            if !Self::is_param_available(h, PARAM_EXP_MIN_TIME) {
+                return Ok(0.0);
+            }
+            let mut val: f64 = 0.0;
+            // SAFETY: h is valid; val is writable f64 on stack.
+            unsafe {
+                if pl_get_param(
+                    h,
+                    PARAM_EXP_MIN_TIME,
+                    ATTR_CURRENT,
+                    &mut val as *mut _ as *mut _,
+                ) == 0
+                {
+                    return Err(anyhow!(
+                        "Failed to get PARAM_EXP_MIN_TIME: {}",
+                        get_pvcam_error()
+                    ));
+                }
+            }
+            return Ok(val);
+        }
+        Ok(0.0)
+    }
+
+    // =========================================================================
     // Private Implementation Helpers
     // =========================================================================
 

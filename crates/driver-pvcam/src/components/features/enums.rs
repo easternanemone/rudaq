@@ -647,3 +647,184 @@ impl ExposeOutMode {
         ]
     }
 }
+
+// ─── I/O & Diagnostics enums (bd-oqo7.6) ──────────────────────────────────
+
+/// I/O port type — identifies the kind of I/O port at the current address.
+///
+/// Maps to `PARAM_IO_TYPE` SDK values. Read-only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IoType {
+    /// TTL digital I/O
+    Ttl,
+    /// DAC analog output
+    Dac,
+}
+
+impl IoType {
+    pub fn from_pvcam(value: i32) -> Self {
+        match value {
+            1 => IoType::Dac,
+            _ => IoType::Ttl,
+        }
+    }
+
+    pub fn to_pvcam(self) -> i32 {
+        match self {
+            IoType::Ttl => 0,
+            IoType::Dac => 1,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Ttl => "TTL",
+            Self::Dac => "DAC",
+        }
+    }
+}
+
+impl std::fmt::Display for IoType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Ttl => write!(f, "TTL"),
+            Self::Dac => write!(f, "DAC"),
+        }
+    }
+}
+
+/// Logic output mode — which internal camera signal is routed to the
+/// programmable logic output connector.
+///
+/// Maps to `PARAM_LOGIC_OUTPUT` SDK values (13 modes). Read-write.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LogicOutput {
+    NotScan,
+    Shutter,
+    NotReady,
+    Logic0,
+    Clearing,
+    NotFtImageShift,
+    Reserved,
+    ExposeProg,
+    Expose,
+    ImageShift,
+    Readout,
+    Acquiring,
+    WaitForTrig,
+}
+
+impl LogicOutput {
+    pub fn from_pvcam(value: i32) -> Self {
+        match value {
+            0 => LogicOutput::NotScan,
+            1 => LogicOutput::Shutter,
+            2 => LogicOutput::NotReady,
+            3 => LogicOutput::Logic0,
+            4 => LogicOutput::Clearing,
+            5 => LogicOutput::NotFtImageShift,
+            6 => LogicOutput::Reserved,
+            7 => LogicOutput::ExposeProg,
+            8 => LogicOutput::Expose,
+            9 => LogicOutput::ImageShift,
+            10 => LogicOutput::Readout,
+            11 => LogicOutput::Acquiring,
+            12 => LogicOutput::WaitForTrig,
+            _ => LogicOutput::NotScan,
+        }
+    }
+
+    pub fn to_pvcam(self) -> i32 {
+        match self {
+            LogicOutput::NotScan => 0,
+            LogicOutput::Shutter => 1,
+            LogicOutput::NotReady => 2,
+            LogicOutput::Logic0 => 3,
+            LogicOutput::Clearing => 4,
+            LogicOutput::NotFtImageShift => 5,
+            LogicOutput::Reserved => 6,
+            LogicOutput::ExposeProg => 7,
+            LogicOutput::Expose => 8,
+            LogicOutput::ImageShift => 9,
+            LogicOutput::Readout => 10,
+            LogicOutput::Acquiring => 11,
+            LogicOutput::WaitForTrig => 12,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::NotScan => "NotScan",
+            Self::Shutter => "Shutter",
+            Self::NotReady => "NotReady",
+            Self::Logic0 => "Logic0",
+            Self::Clearing => "Clearing",
+            Self::NotFtImageShift => "NotFtImageShift",
+            Self::Reserved => "Reserved",
+            Self::ExposeProg => "ExposeProg",
+            Self::Expose => "Expose",
+            Self::ImageShift => "ImageShift",
+            Self::Readout => "Readout",
+            Self::Acquiring => "Acquiring",
+            Self::WaitForTrig => "WaitForTrig",
+        }
+    }
+
+    #[allow(clippy::should_implement_trait)]
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "NotScan" => Self::NotScan,
+            "Shutter" => Self::Shutter,
+            "NotReady" => Self::NotReady,
+            "Logic0" => Self::Logic0,
+            "Clearing" => Self::Clearing,
+            "NotFtImageShift" => Self::NotFtImageShift,
+            "Reserved" => Self::Reserved,
+            "ExposeProg" => Self::ExposeProg,
+            "Expose" => Self::Expose,
+            "ImageShift" => Self::ImageShift,
+            "Readout" => Self::Readout,
+            "Acquiring" => Self::Acquiring,
+            "WaitForTrig" => Self::WaitForTrig,
+            _ => Self::NotScan,
+        }
+    }
+
+    pub fn all_choices() -> Vec<String> {
+        vec![
+            "NotScan".into(),
+            "Shutter".into(),
+            "NotReady".into(),
+            "Logic0".into(),
+            "Clearing".into(),
+            "NotFtImageShift".into(),
+            "Reserved".into(),
+            "ExposeProg".into(),
+            "Expose".into(),
+            "ImageShift".into(),
+            "Readout".into(),
+            "Acquiring".into(),
+            "WaitForTrig".into(),
+        ]
+    }
+}
+
+impl std::fmt::Display for LogicOutput {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotScan => write!(f, "Not Scan"),
+            Self::Shutter => write!(f, "Shutter"),
+            Self::NotReady => write!(f, "Not Ready"),
+            Self::Logic0 => write!(f, "Logic 0"),
+            Self::Clearing => write!(f, "Clearing"),
+            Self::NotFtImageShift => write!(f, "Not FT Image Shift"),
+            Self::Reserved => write!(f, "Reserved"),
+            Self::ExposeProg => write!(f, "Expose Prog"),
+            Self::Expose => write!(f, "Expose"),
+            Self::ImageShift => write!(f, "Image Shift"),
+            Self::Readout => write!(f, "Readout"),
+            Self::Acquiring => write!(f, "Acquiring"),
+            Self::WaitForTrig => write!(f, "Wait For Trigger"),
+        }
+    }
+}
