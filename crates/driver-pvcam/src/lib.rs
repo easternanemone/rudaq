@@ -56,7 +56,8 @@ use tokio::sync::Mutex;
 pub use crate::components::features::{
     CameraInfo, CentroidsConfig, CentroidsMode, ClearMode, ExposeOutMode, ExposureMode,
     ExposureResolution, FanSpeed, FrameFlip, FrameRotate, GainMode, IoType, LogicOutput, PPFeature,
-    PPParam, ReadoutPort, ShutterMode, ShutterStatus, SmartStreamEntry, SmartStreamMode, SpeedMode,
+    PPParam, PvcamDeviceState, ReadoutPort, ShutterMode, ShutterStatus, SmartStreamEntry,
+    SmartStreamMode, SpeedMode,
 };
 // Re-export feature functions for direct access
 pub use crate::components::features::PvcamFeatures;
