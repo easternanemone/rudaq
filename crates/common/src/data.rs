@@ -467,6 +467,7 @@ impl<'a> FrameView<'a> {
             roi_y: 0,
             temperature_c: None,
             binning: None,
+            summing_count: None,
         }
     }
 
