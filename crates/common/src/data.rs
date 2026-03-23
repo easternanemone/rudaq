@@ -519,6 +519,13 @@ impl<'a> FrameView<'a> {
         self
     }
 
+    /// Set summing count (builder pattern).
+    #[must_use]
+    pub fn with_summing_count(mut self, count: u32) -> Self {
+        self.summing_count = Some(count);
+        self
+    }
+
     /// Get the raw pixel data as a byte slice.
     #[inline]
     #[must_use]
