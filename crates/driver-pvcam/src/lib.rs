@@ -55,8 +55,8 @@ use tokio::sync::Mutex;
 // Re-export public types from features component
 pub use crate::components::features::{
     CameraInfo, CentroidsConfig, CentroidsMode, ClearMode, ExposeOutMode, ExposureMode,
-    ExposureResolution, FanSpeed, FrameFlip, FrameRotate, GainMode, PPFeature, PPParam,
-    ReadoutPort, ShutterMode, ShutterStatus, SmartStreamEntry, SmartStreamMode, SpeedMode,
+    ExposureResolution, FanSpeed, FrameFlip, FrameRotate, GainMode, IoType, LogicOutput, PPFeature,
+    PPParam, ReadoutPort, ShutterMode, ShutterStatus, SmartStreamEntry, SmartStreamMode, SpeedMode,
 };
 // Re-export feature functions for direct access
 pub use crate::components::features::PvcamFeatures;
@@ -232,6 +232,15 @@ pub struct PvcamDriver {
 
     // I/O Scripting (bd-ncbd)
     io_script_cmd: Parameter<String>,
+
+    // I/O Diagnostics (bd-oqo7.6)
+    io_bitdepth: Parameter<u16>,
+    io_type: Parameter<String>,
+    logic_output: Parameter<String>,
+    logic_output_invert: Parameter<bool>,
+    controller_alive: Parameter<bool>,
+    ccs_status: Parameter<i16>,
+    exp_min_time: Parameter<f64>,
 
     // Metadata (Info)
     serial_number: Parameter<String>,
@@ -675,6 +684,62 @@ impl PvcamDriver {
             .with_description("I/O script command (Start/Stop/Reset)")
             .with_choices_introspectable(vec!["Start".into(), "Stop".into(), "Reset".into()]);
 
+        // I/O Diagnostics (bd-oqo7.6)
+        let io_bitdepth = Parameter::new("io.bitdepth", 8u16)
+            .with_description("I/O port bit depth")
+            .read_only();
+        let io_type = Parameter::new("io.type", "TTL".to_string())
+            .with_description("I/O port type")
+            .with_choices_introspectable(vec!["TTL".into(), "DAC".into()])
+            .read_only();
+        let logic_output =
+            Parameter::new("io.logic_output", LogicOutput::NotScan.as_str().to_string())
+                .with_description("Logic output signal mode")
+                .with_choices_introspectable(LogicOutput::all_choices());
+        let logic_output_invert = Parameter::new("io.logic_output_invert", false)
+            .with_description("Invert logic output signal");
+        let controller_alive = Parameter::new("diagnostics.controller_alive", true)
+            .with_description("Camera controller alive status")
+            .with_dtype("bool")
+            .read_only();
+        let ccs_status = Parameter::new("diagnostics.ccs_status", 0i16)
+            .with_description(
+                "Camera Control Subsystem status (0=idle, 1=init, 2=running, 3=clearing)",
+            )
+            .read_only();
+        let exp_min_time = Parameter::new("diagnostics.exp_min_time", 0.0f64)
+            .with_description("Minimum effective exposure time")
+            .with_unit("s")
+            .read_only();
+
+        // Read initial I/O diagnostics from hardware (bd-oqo7.6)
+        {
+            let conn_guard = connection.lock().await;
+            if let Ok(bd) = PvcamFeatures::get_io_bitdepth(&conn_guard) {
+                let _ = io_bitdepth.set_from_hardware(bd).await;
+            }
+            if let Ok(t) = PvcamFeatures::get_io_type(&conn_guard) {
+                let _ = io_type.set_from_hardware(t.as_str().to_string()).await;
+            }
+            if let Ok(mode) = PvcamFeatures::get_logic_output(&conn_guard) {
+                let _ = logic_output
+                    .set_from_hardware(mode.as_str().to_string())
+                    .await;
+            }
+            if let Ok(inv) = PvcamFeatures::get_logic_output_invert(&conn_guard) {
+                let _ = logic_output_invert.set_from_hardware(inv).await;
+            }
+            if let Ok(alive) = PvcamFeatures::get_controller_alive(&conn_guard) {
+                let _ = controller_alive.set_from_hardware(alive).await;
+            }
+            if let Ok(status) = PvcamFeatures::get_ccs_status(&conn_guard) {
+                let _ = ccs_status.set_from_hardware(status).await;
+            }
+            if let Ok(min_t) = PvcamFeatures::get_exp_min_time(&conn_guard) {
+                let _ = exp_min_time.set_from_hardware(min_t).await;
+            }
+        }
+
         // Metadata Info Group
         let serial_number = Parameter::new("info.serial_number", info.serial_number)
             .with_description("Camera Serial Number")
@@ -733,6 +798,14 @@ impl PvcamDriver {
         params.register(io_state.clone());
         params.register(frame_transfer_mode.clone());
         params.register(io_script_cmd.clone());
+        // I/O Diagnostics (bd-oqo7.6)
+        params.register(io_bitdepth.clone());
+        params.register(io_type.clone());
+        params.register(logic_output.clone());
+        params.register(logic_output_invert.clone());
+        params.register(controller_alive.clone());
+        params.register(ccs_status.clone());
+        params.register(exp_min_time.clone());
         params.register(serial_number.clone());
         params.register(firmware_version.clone());
         params.register(model_name.clone());
@@ -791,6 +864,13 @@ impl PvcamDriver {
             io_state,
             frame_transfer_mode,
             io_script_cmd,
+            io_bitdepth,
+            io_type,
+            logic_output,
+            logic_output_invert,
+            controller_alive,
+            ccs_status,
+            exp_min_time,
             serial_number,
             firmware_version,
             model_name,
@@ -820,6 +900,13 @@ impl PvcamDriver {
         let post_trigger_param = driver.post_trigger_delay_us.clone();
         let frame_time_param = driver.frame_time_us.clone();
         let exposure_param = driver.exposure_ms.clone();
+
+        // I/O Diagnostics drift polling params (bd-oqo7.6)
+        let controller_alive_param = driver.controller_alive.clone();
+        let ccs_status_param = driver.ccs_status.clone();
+        let exp_min_time_param = driver.exp_min_time.clone();
+        let logic_output_param = driver.logic_output.clone();
+        let logic_output_invert_param = driver.logic_output_invert.clone();
 
         // Use weak reference to prevent reference cycle (bd-qtd4)
         // The drift polling task must not hold a strong Arc to the connection,
@@ -898,6 +985,25 @@ impl PvcamDriver {
                 }
 
                 // Pixel time is driven by cached speed table listeners; no periodic polling needed here.
+
+                // I/O Diagnostics (bd-oqo7.6)
+                if let Ok(alive) = PvcamFeatures::get_controller_alive(&conn_guard) {
+                    let _ = controller_alive_param.set_from_hardware(alive).await;
+                }
+                if let Ok(status) = PvcamFeatures::get_ccs_status(&conn_guard) {
+                    let _ = ccs_status_param.set_from_hardware(status).await;
+                }
+                if let Ok(min_t) = PvcamFeatures::get_exp_min_time(&conn_guard) {
+                    let _ = exp_min_time_param.set_from_hardware(min_t).await;
+                }
+                if let Ok(mode) = PvcamFeatures::get_logic_output(&conn_guard) {
+                    let _ = logic_output_param
+                        .set_from_hardware(mode.as_str().to_string())
+                        .await;
+                }
+                if let Ok(inv) = PvcamFeatures::get_logic_output_invert(&conn_guard) {
+                    let _ = logic_output_invert_param.set_from_hardware(inv).await;
+                }
             }
         });
 
@@ -1532,6 +1638,41 @@ impl PvcamDriver {
                     tokio::task::spawn_blocking(move || {
                         // Use address 0 (default); PVCAM 3.x parameter-based API (bd-lkci)
                         PvcamFeatures::io_control(&conn_guard, 0, "Output", state)
+                            .map_err(|e| DaqError::Instrument(e.to_string()))
+                    })
+                    .await
+                    .map_err(|e| DaqError::Instrument(e.to_string()))?
+                })
+            }
+        });
+
+        // Logic Output (bd-oqo7.6)
+        self.logic_output.connect_to_hardware_write({
+            let conn = conn.clone();
+            move |val| {
+                let conn = conn.clone();
+                Box::pin(async move {
+                    let conn_guard = conn.lock_owned().await;
+                    let mode = LogicOutput::from_str(&val);
+                    tokio::task::spawn_blocking(move || {
+                        PvcamFeatures::set_logic_output(&conn_guard, mode)
+                            .map_err(|e| DaqError::Instrument(e.to_string()))
+                    })
+                    .await
+                    .map_err(|e| DaqError::Instrument(e.to_string()))?
+                })
+            }
+        });
+
+        // Logic Output Invert (bd-oqo7.6)
+        self.logic_output_invert.connect_to_hardware_write({
+            let conn = conn.clone();
+            move |val| {
+                let conn = conn.clone();
+                Box::pin(async move {
+                    let conn_guard = conn.lock_owned().await;
+                    tokio::task::spawn_blocking(move || {
+                        PvcamFeatures::set_logic_output_invert(&conn_guard, val)
                             .map_err(|e| DaqError::Instrument(e.to_string()))
                     })
                     .await

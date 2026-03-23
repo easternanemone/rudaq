@@ -675,6 +675,13 @@ impl IoType {
             IoType::Dac => 1,
         }
     }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Ttl => "TTL",
+            Self::Dac => "DAC",
+        }
+    }
 }
 
 impl std::fmt::Display for IoType {
@@ -742,6 +749,44 @@ impl LogicOutput {
             LogicOutput::Readout => 10,
             LogicOutput::Acquiring => 11,
             LogicOutput::WaitForTrig => 12,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::NotScan => "NotScan",
+            Self::Shutter => "Shutter",
+            Self::NotReady => "NotReady",
+            Self::Logic0 => "Logic0",
+            Self::Clearing => "Clearing",
+            Self::NotFtImageShift => "NotFtImageShift",
+            Self::Reserved => "Reserved",
+            Self::ExposeProg => "ExposeProg",
+            Self::Expose => "Expose",
+            Self::ImageShift => "ImageShift",
+            Self::Readout => "Readout",
+            Self::Acquiring => "Acquiring",
+            Self::WaitForTrig => "WaitForTrig",
+        }
+    }
+
+    #[allow(clippy::should_implement_trait)]
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "NotScan" => Self::NotScan,
+            "Shutter" => Self::Shutter,
+            "NotReady" => Self::NotReady,
+            "Logic0" => Self::Logic0,
+            "Clearing" => Self::Clearing,
+            "NotFtImageShift" => Self::NotFtImageShift,
+            "Reserved" => Self::Reserved,
+            "ExposeProg" => Self::ExposeProg,
+            "Expose" => Self::Expose,
+            "ImageShift" => Self::ImageShift,
+            "Readout" => Self::Readout,
+            "Acquiring" => Self::Acquiring,
+            "WaitForTrig" => Self::WaitForTrig,
+            _ => Self::NotScan,
         }
     }
 
