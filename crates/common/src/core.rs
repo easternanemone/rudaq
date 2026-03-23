@@ -1102,6 +1102,7 @@ mod tests {
                 roi_origin: None,
                 frame_number: None,
                 sequence_gap_from_previous: None,
+                summing_count: None,
             },
             timestamp: Utc::now(),
         };
