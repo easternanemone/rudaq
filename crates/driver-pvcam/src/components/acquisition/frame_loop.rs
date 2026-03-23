@@ -57,6 +57,8 @@ impl PvcamAcquisition {
         binning: (u16, u16),
         done_tx: std::sync::mpsc::Sender<()>,
         tap_registry: Arc<TapRegistry>, // bd-0dax.4: For synchronous tap observers
+        host_summing_enabled: Parameter<bool>,  // bd-oqo7.7
+        host_summing_count: Parameter<u32>,     // bd-oqo7.7
     ) {
         // Main sequence loop
         let mut total_frames: u64 = 0;
