@@ -69,7 +69,9 @@ sync-branch: "beads-sync"
 # - github.org
 # - github.repo
 
-dolt.shared-server: true
+# Switched from shared-server to embedded Dolt (2026-03-23 refactoring).
+# Shared server added complexity for single-user use; embedded is simpler.
+dolt.shared-server: false
 
 dolt.database: "beads"
 

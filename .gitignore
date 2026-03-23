@@ -187,3 +187,6 @@ slate.json
 
 # Stringer scan history (ephemeral dedup state, changes every run)
 .stringer/
+
+# Beads / Dolt files (added by bd init)
+.beads-credential-key
