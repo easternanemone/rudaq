@@ -747,12 +747,14 @@ impl ImageViewerPanel {
                     return;
                 }
 
-                // bd-alxb: Split mode — reserve bottom for spectrum plot
+                // bd-alxb/bd-zy7y.5: Split mode — reserve bottom 30% for spectrum plot.
+                // Use explicit height allocation instead of TopBottomPanel::bottom
+                // which doesn't reliably constrain inside nested show_inside.
                 if self.spectrum_view_mode == SpectrumViewMode::Split {
+                    let total = ui.available_height();
+                    let spectrum_h = (total * 0.3).clamp(100.0, 300.0);
                     egui::TopBottomPanel::bottom("spectrum_split_panel")
-                        .resizable(true)
-                        .default_height(200.0)
-                        .min_height(100.0)
+                        .exact_height(spectrum_h)
                         .show_inside(ui, |ui| {
                             self.render_spectrum_plot_area(ui, true);
                         });
