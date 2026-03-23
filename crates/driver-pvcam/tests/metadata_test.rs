@@ -173,12 +173,20 @@ async fn metadata_enabled_parameter_exists_and_toggles() {
 
     // Default is false
     let val = p.get_json().unwrap();
-    assert_eq!(val, json!(false), "metadata_enabled default should be false");
+    assert_eq!(
+        val,
+        json!(false),
+        "metadata_enabled default should be false"
+    );
 
     // Toggle to true (no SDK connected, so write callback is a no-op for mock)
     p.set_json(json!(true)).unwrap();
     let val = p.get_json().unwrap();
-    assert_eq!(val, json!(true), "metadata_enabled should be true after set");
+    assert_eq!(
+        val,
+        json!(true),
+        "metadata_enabled should be true after set"
+    );
 
     // Toggle back to false
     p.set_json(json!(false)).unwrap();
@@ -219,9 +227,10 @@ fn pvcam_metadata_maps_to_common_extra_fields() {
     ext_metadata
         .extra
         .insert("timestamp_eof_ns".to_string(), pvcam_eof_ns.to_string());
-    ext_metadata
-        .extra
-        .insert("exposure_time_ns".to_string(), pvcam_exposure_ns.to_string());
+    ext_metadata.extra.insert(
+        "exposure_time_ns".to_string(),
+        pvcam_exposure_ns.to_string(),
+    );
     ext_metadata
         .extra
         .insert("frame_nr".to_string(), pvcam_frame_nr.to_string());
@@ -261,19 +270,11 @@ fn pvcam_metadata_maps_to_common_extra_fields() {
         pvcam_bof_ns
     );
     assert_eq!(
-        md.extra
-            .get("frame_nr")
-            .unwrap()
-            .parse::<i32>()
-            .unwrap(),
+        md.extra.get("frame_nr").unwrap().parse::<i32>().unwrap(),
         pvcam_frame_nr
     );
     assert_eq!(
-        md.extra
-            .get("bit_depth")
-            .unwrap()
-            .parse::<u16>()
-            .unwrap(),
+        md.extra.get("bit_depth").unwrap().parse::<u16>().unwrap(),
         pvcam_bit_depth
     );
 

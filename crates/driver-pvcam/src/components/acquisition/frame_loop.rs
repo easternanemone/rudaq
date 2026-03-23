@@ -1165,18 +1165,15 @@ impl PvcamAcquisition {
                         "exposure_time_ns".to_string(),
                         md.exposure_time_ns.to_string(),
                     );
-                    ext_metadata.extra.insert(
-                        "frame_nr".to_string(),
-                        md.frame_nr.to_string(),
-                    );
-                    ext_metadata.extra.insert(
-                        "bit_depth".to_string(),
-                        md.bit_depth.to_string(),
-                    );
-                    ext_metadata.extra.insert(
-                        "roi_count".to_string(),
-                        md.roi_count.to_string(),
-                    );
+                    ext_metadata
+                        .extra
+                        .insert("frame_nr".to_string(), md.frame_nr.to_string());
+                    ext_metadata
+                        .extra
+                        .insert("bit_depth".to_string(), md.bit_depth.to_string());
+                    ext_metadata
+                        .extra
+                        .insert("roi_count".to_string(), md.roi_count.to_string());
                 }
 
                 frame = frame.with_metadata(ext_metadata);

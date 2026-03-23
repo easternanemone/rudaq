@@ -625,12 +625,24 @@ mod tests {
             binning: Some((2, 2)),
             ..Default::default()
         };
-        metadata.extra.insert("timestamp_bof_ns".to_string(), "1000000".to_string());
-        metadata.extra.insert("timestamp_eof_ns".to_string(), "2000000".to_string());
-        metadata.extra.insert("exposure_time_ns".to_string(), "500000".to_string());
-        metadata.extra.insert("frame_nr".to_string(), "42".to_string());
-        metadata.extra.insert("bit_depth".to_string(), "16".to_string());
-        metadata.extra.insert("roi_count".to_string(), "1".to_string());
+        metadata
+            .extra
+            .insert("timestamp_bof_ns".to_string(), "1000000".to_string());
+        metadata
+            .extra
+            .insert("timestamp_eof_ns".to_string(), "2000000".to_string());
+        metadata
+            .extra
+            .insert("exposure_time_ns".to_string(), "500000".to_string());
+        metadata
+            .extra
+            .insert("frame_nr".to_string(), "42".to_string());
+        metadata
+            .extra
+            .insert("bit_depth".to_string(), "16".to_string());
+        metadata
+            .extra
+            .insert("roi_count".to_string(), "1".to_string());
 
         let frame = Frame::from_u16(4, 4, &[0u16; 16]).with_metadata(metadata);
 
@@ -652,7 +664,9 @@ mod tests {
             temperature_c: Some(25.5),
             ..Default::default()
         };
-        metadata.extra.insert("frame_nr".to_string(), "7".to_string());
+        metadata
+            .extra
+            .insert("frame_nr".to_string(), "7".to_string());
 
         let frame = Frame::from_u16(4, 4, &[0u16; 16])
             .with_frame_number(7)
