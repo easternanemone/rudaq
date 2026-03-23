@@ -30,6 +30,9 @@ pub(crate) struct RunContext {
     pub(crate) collected_data: HashMap<String, f64>,
     /// Frame data collected between EmitEvent commands.
     pub(crate) collected_frames: HashMap<String, Bytes>,
+    /// Summing count for each collected frame (bd-oqo7.7).
+    /// Tracks how many raw frames were summed into each collected frame.
+    pub(crate) collected_summing_counts: HashMap<String, Option<u32>>,
     /// Last-known position for each mover device.
     pub(crate) current_positions: HashMap<String, f64>,
 
