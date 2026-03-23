@@ -1,3 +1,81 @@
+// =============================================================================
+// Device Lifecycle State (bd-oqo7.9)
+// =============================================================================
+
+/// PVCAM camera lifecycle state for SurrealDB persistence and health monitoring.
+///
+/// Derived from `get_controller_alive()` and `get_ccs_status()` polling.
+/// State transitions are logged and persisted to the `device_runtime_state` table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum PvcamDeviceState {
+    /// Camera not connected or controller not responding.
+    Offline,
+    /// `pl_cam_open` in progress (SDK initialization).
+    Initializing,
+    /// Camera initialized and idle (controller alive, CCS idle).
+    Ready,
+    /// Acquisition active (CCS running or continuously clearing).
+    Streaming,
+    /// Controller alive but CCS reports a fault condition.
+    Error,
+    /// `pl_cam_close` in progress (graceful shutdown).
+    ShuttingDown,
+}
+
+impl PvcamDeviceState {
+    /// Derive the device state from controller_alive and CCS status values.
+    ///
+    /// CCS status values (from PVCAM SDK):
+    /// - 0: idle
+    /// - 1: initializing
+    /// - 2: running
+    /// - 3: continuously clearing
+    pub fn from_health_check(controller_alive: bool, ccs_status: i16) -> Self {
+        if !controller_alive {
+            return Self::Offline;
+        }
+        match ccs_status {
+            0 => Self::Ready,
+            1 => Self::Initializing,
+            2 | 3 => Self::Streaming,
+            _ => Self::Error,
+        }
+    }
+}
+
+impl std::fmt::Display for PvcamDeviceState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Offline => write!(f, "offline"),
+            Self::Initializing => write!(f, "initializing"),
+            Self::Ready => write!(f, "ready"),
+            Self::Streaming => write!(f, "streaming"),
+            Self::Error => write!(f, "error"),
+            Self::ShuttingDown => write!(f, "shutting_down"),
+        }
+    }
+}
+
+impl TryFrom<&str> for PvcamDeviceState {
+    type Error = String;
+
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        match s {
+            "offline" => Ok(Self::Offline),
+            "initializing" => Ok(Self::Initializing),
+            "ready" => Ok(Self::Ready),
+            "streaming" => Ok(Self::Streaming),
+            "error" => Ok(Self::Error),
+            "shutting_down" | "ShuttingDown" => Ok(Self::ShuttingDown),
+            _ => Err(format!("Invalid PVCAM device state: {s}")),
+        }
+    }
+}
+
+// =============================================================================
+// Fan Speed
+// =============================================================================
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FanSpeed {
     High,
