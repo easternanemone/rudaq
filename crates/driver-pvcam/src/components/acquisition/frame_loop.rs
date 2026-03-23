@@ -301,6 +301,8 @@ impl PvcamAcquisition {
         tap_registry: Arc<TapRegistry>, // bd-0dax.4: For synchronous tap observers
         primary_tx: Option<tokio::sync::mpsc::Sender<common::capabilities::LoanedFrame>>, // bd-r8ux
         primary_frame_pool: Option<Arc<Pool<FrameData>>>, // bd-r8ux
+        host_summing_enabled: Parameter<bool>,  // bd-oqo7.7
+        host_summing_count: Parameter<u32>,     // bd-oqo7.7
     ) {
         let loop_span = tracing::debug_span!(
             "pvcam_frame_loop",
