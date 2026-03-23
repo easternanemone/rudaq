@@ -60,6 +60,7 @@ impl FrameObserver for ExperimentFrameObserver {
             width: frame.width,
             height: frame.height,
             frame_number: frame.frame_number,
+            summing_count: frame.summing_count,
         };
         // Non-blocking send - drop frames if channel is full
         let _ = self.tx.try_send(capture);
