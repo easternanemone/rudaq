@@ -436,6 +436,12 @@ pub struct FrameView<'a> {
 
     /// Binning (x, y)
     pub binning: Option<(u16, u16)>,
+
+    /// Number of frames summed into this output frame (host-side summing).
+    ///
+    /// `None` or `Some(1)` means no summing. `Some(N)` where N > 1 means N raw frames
+    /// were accumulated before emission.
+    pub summing_count: Option<u32>,
 }
 
 impl<'a> FrameView<'a> {
