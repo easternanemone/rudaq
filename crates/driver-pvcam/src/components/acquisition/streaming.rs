@@ -886,6 +886,8 @@ impl PvcamAcquisition {
                     tap_registry,       // bd-0dax.4: For synchronous tap observers
                     primary_tx,         // bd-r8ux: Primary output for LoanedFrame delivery
                     primary_frame_pool, // bd-r8ux: Pool<FrameData> for primary_tx
+                    host_summing_enabled, // bd-oqo7.7
+                    host_summing_count,   // bd-oqo7.7
                 );
             });
 
