@@ -2224,11 +2224,20 @@ impl Triggerable for PvcamDriver {
             let roi = self.roi.get();
             let binning = self.binning.get();
             let exposure_ms = self.exposure_ms.get();
+            let host_summing_enabled = self.host_summing_enabled.clone();
+            let host_summing_count = self.host_summing_count.clone();
 
             tokio::spawn(async move {
                 let conn = connection.lock().await;
                 if let Err(e) = acquisition
-                    .acquire_single_frame(&conn, roi, binning, exposure_ms)
+                    .acquire_single_frame(
+                        &conn,
+                        roi,
+                        binning,
+                        exposure_ms,
+                        host_summing_enabled,
+                        host_summing_count,
+                    )
                     .await
                 {
                     tracing::error!("Trigger acquisition failed: {}", e);
