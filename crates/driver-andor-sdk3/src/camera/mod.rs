@@ -328,10 +328,10 @@ pub(crate) struct AndorCameraInner {
     pub(crate) acq_task_handle: Mutex<Option<tokio::task::JoinHandle<()>>>,
 
     // SDK buffer set for the current acquisition (bd-71sq).
-    // Stored here so that `pause_apply_restart` can flush and re-queue buffers
-    // when stopping/restarting acquisition for parameter changes.
+    // Arc-wrapped so parameter callbacks (which capture a clone before the struct
+    // is constructed) share the same mutex as start_stream/stop_stream.
     #[cfg(feature = "camera")]
-    pub(crate) sdk_buffers: std::sync::Mutex<Option<Arc<crate::buffer::SdkBufferSet>>>,
+    pub(crate) sdk_buffers: Arc<std::sync::Mutex<Option<Arc<crate::buffer::SdkBufferSet>>>>,
 
     // Feature callback lifecycle (bd-joqu / Copilot review)
     #[cfg(feature = "camera")]
