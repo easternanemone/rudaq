@@ -232,7 +232,8 @@ fn pvcam_metadata_maps_to_common_extra_fields() {
         .extra
         .insert("roi_count".to_string(), pvcam_roi_count.to_string());
 
-    let frame = Frame::from_u16(100, 100, &[0u16; 10_000]).with_metadata(ext_metadata);
+    let pixels = vec![0u16; 10_000];
+    let frame = Frame::from_u16(100, 100, &pixels).with_metadata(ext_metadata);
 
     let md = frame.metadata.as_ref().expect("metadata should be present");
 
