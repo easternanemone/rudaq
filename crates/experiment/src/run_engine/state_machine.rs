@@ -41,6 +41,9 @@ pub(crate) struct FrameCapture {
     pub width: u32,
     pub height: u32,
     pub frame_number: u64,
+    /// Number of raw frames summed into this output frame (host-side summing, bd-oqo7.7).
+    /// `None` or `Some(1)` means no summing. `Some(N)` means N frames were accumulated.
+    pub summing_count: Option<u32>,
 }
 
 /// Observer that captures frames for experiment persistence
