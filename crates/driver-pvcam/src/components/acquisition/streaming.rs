@@ -1235,6 +1235,8 @@ impl PvcamAcquisition {
         roi: Roi,
         reliable_tx: Option<tokio::sync::mpsc::Sender<Arc<Frame>>>,
         _use_metadata: bool,
+        host_summing_enabled: Parameter<bool>,  // bd-oqo7.7
+        host_summing_count: Parameter<u32>,     // bd-oqo7.7
     ) -> Result<()> {
         let (x_bin, y_bin) = binning;
         let binned_width = roi.width / x_bin as u32;
