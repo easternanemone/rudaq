@@ -1156,6 +1156,7 @@ mod tests {
                     roi_origin: None,
                     frame_number: None,
                     sequence_gap_from_previous: None,
+                    summing_count: None,
                 },
                 timestamp: Utc::now(),
             },
@@ -1207,7 +1208,10 @@ mod tests {
             ..Default::default()
         };
         let json = serde_json::to_string(&meta).unwrap();
-        assert!(!json.contains("summing_count"), "None fields should be omitted from JSON");
+        assert!(
+            !json.contains("summing_count"),
+            "None fields should be omitted from JSON"
+        );
     }
 
     #[test]
