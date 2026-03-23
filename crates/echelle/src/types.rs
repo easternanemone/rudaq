@@ -1526,6 +1526,7 @@ fn extract_order(
                     if background_count > 0 {
                         let background_mean = background_sum / f64::from(background_count);
                         sample_sum -= background_mean * f64::from(valid);
+                        sample_sum = sample_sum.max(0.0); // Clamp to non-negative
                     }
                 }
             }
@@ -1614,15 +1615,24 @@ fn build_merged_preview(orders: &[EchelleOrderPreview]) -> Option<EchelleMergedP
         return None;
     }
 
+    // For each order, trim the outer 10% of wavelength samples on each edge to
+    // remove low-blaze-efficiency tails where overlapping orders produce artifacts.
+    // Also skip samples with physically impossible wavelengths (< 200 nm for air).
     let mut samples = Vec::new();
     for order in orders {
+        let n = order.wavelengths.len();
+        if n < 5 {
+            continue;
+        }
+        let trim = n / 10; // 10% from each edge
+        let start = trim;
+        let end = n - trim;
         samples.extend(
-            order
-                .wavelengths
+            order.wavelengths[start..end]
                 .iter()
                 .copied()
-                .zip(order.flux.iter().copied())
-                .filter(|(wavelength, _)| wavelength.is_finite()),
+                .zip(order.flux[start..end].iter().copied())
+                .filter(|(wl, flux)| wl.is_finite() && *wl >= 200.0 && flux.is_finite()),
         );
     }
     samples.sort_by(|left, right| {
@@ -1630,12 +1640,45 @@ fn build_merged_preview(orders: &[EchelleOrderPreview]) -> Option<EchelleMergedP
             .partial_cmp(&right.0)
             .unwrap_or(std::cmp::Ordering::Equal)
     });
-    let (wavelengths, flux): (Vec<_>, Vec<_>) = samples.into_iter().unzip();
+
+    // Bin overlapping wavelengths: average flux in 0.1 nm bins to handle
+    // order overlap regions cleanly instead of duplicating samples.
+    if samples.is_empty() {
+        return None;
+    }
+    let bin_width = 0.1; // nm
+    let mut binned_wl = Vec::with_capacity(samples.len());
+    let mut binned_flux = Vec::with_capacity(samples.len());
+    let mut bin_start = samples[0].0;
+    let mut bin_flux_sum = 0.0;
+    let mut bin_count = 0u32;
+    for &(wl, fl) in &samples {
+        if wl - bin_start < bin_width {
+            bin_flux_sum += fl;
+            bin_count += 1;
+        } else {
+            if bin_count > 0 {
+                #[allow(clippy::cast_precision_loss)]
+                let avg = bin_flux_sum / f64::from(bin_count);
+                binned_wl.push(bin_start + bin_width * 0.5);
+                binned_flux.push(avg);
+            }
+            bin_start = wl;
+            bin_flux_sum = fl;
+            bin_count = 1;
+        }
+    }
+    if bin_count > 0 {
+        #[allow(clippy::cast_precision_loss)]
+        let avg = bin_flux_sum / f64::from(bin_count);
+        binned_wl.push(bin_start + bin_width * 0.5);
+        binned_flux.push(avg);
+    }
 
     Some(EchelleMergedPreview {
         wavelength_unit: first_unit,
-        wavelengths,
-        flux,
+        wavelengths: binned_wl,
+        flux: binned_flux,
     })
 }
 
