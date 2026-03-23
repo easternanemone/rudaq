@@ -808,6 +808,10 @@ impl PvcamAcquisition {
             // bd-0dax.4: Clone tap registry for frame observers
             let tap_registry = self.tap_registry.clone();
 
+            // bd-oqo7.7: Clone summing parameters for frame loop
+            let host_summing_enabled = host_summing_enabled.clone();
+            let host_summing_count = host_summing_count.clone();
+
             // bd-r8ux: Capture primary_tx for LoanedFrame delivery in hardware path
             let primary_tx = self.primary_tx.lock().await.clone();
 
