@@ -645,9 +645,11 @@ mod tests {
 
     #[test]
     fn frame_view_from_frame_preserves_binning() {
-        let mut metadata = FrameMetadata::default();
-        metadata.binning = Some((2, 2));
-        metadata.temperature_c = Some(25.5);
+        let mut metadata = FrameMetadata {
+            binning: Some((2, 2)),
+            temperature_c: Some(25.5),
+            ..Default::default()
+        };
         metadata.extra.insert("frame_nr".to_string(), "7".to_string());
 
         let frame = Frame::from_u16(4, 4, &[0u16; 16])
