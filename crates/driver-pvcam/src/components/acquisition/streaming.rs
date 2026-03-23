@@ -248,6 +248,8 @@ impl PvcamAcquisition {
                         roi,
                         reliable_tx,
                         use_metadata,
+                        host_summing_enabled,
+                        host_summing_count,
                     )
                     .await;
             }
