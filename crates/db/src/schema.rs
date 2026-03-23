@@ -58,6 +58,10 @@ const MIGRATIONS: &[Migration] = &[
         version: 8,
         sql: SCHEMA_V8,
     },
+    Migration {
+        version: 9,
+        sql: SCHEMA_V9,
+    },
 ];
 
 /// SurrealQL statements that define the v1 schema.
