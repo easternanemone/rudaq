@@ -193,6 +193,12 @@ pub struct ImageMetadata {
     ///
     /// `None` if no gap was observed or the source does not provide frame numbers.
     pub sequence_gap_from_previous: Option<u64>,
+    /// Number of raw frames summed into this output frame (host-side summing).
+    ///
+    /// `None` or `Some(1)` means no summing was applied. `Some(N)` where N > 1 means
+    /// N raw frames were accumulated on the host before emission. Downstream consumers
+    /// should divide pixel values by this count to recover per-frame intensity.
+    pub summing_count: Option<u32>,
 }
 
 #[derive(Serialize, Deserialize)]
