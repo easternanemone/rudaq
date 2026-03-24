@@ -350,6 +350,7 @@ fn test_wavelength_fitting_recovers_linear_dispersion() {
                 amplitude: 1000.0,
                 wavelength_hint: Some(a.wavelength_nm),
                 used: true,
+                saturated: false,
             }
         })
         .collect();
