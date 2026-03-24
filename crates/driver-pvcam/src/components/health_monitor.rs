@@ -267,10 +267,6 @@ mod tests {
                 count: AtomicU32::new(0),
             }
         }
-
-        fn transition_count(&self) -> u32 {
-            self.count.load(Ordering::Relaxed)
-        }
     }
 
     impl HealthMonitorCallback for CountingCallback {
