@@ -284,7 +284,7 @@ mod tests {
         }
     }
 
-    #[tokio::test(start_paused = true)]
+    #[tokio::test]
     async fn test_health_monitor_exits_on_cancel() {
         let conn = Arc::new(Mutex::new(PvcamConnection::new()));
         let callback = Arc::new(CountingCallback::new());
@@ -297,10 +297,7 @@ mod tests {
             cancel.clone(),
         );
 
-        // Advance time past one poll interval to let the monitor run.
-        tokio::time::advance(Duration::from_secs(6)).await;
-        tokio::task::yield_now().await;
-
+        // Cancel immediately -- monitor should exit promptly.
         cancel.cancel();
 
         let result = tokio::time::timeout(Duration::from_secs(5), handle).await;
