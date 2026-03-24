@@ -56,10 +56,15 @@ use tokio::sync::Mutex;
 pub use crate::components::features::{
     CameraInfo, CentroidsConfig, CentroidsMode, ClearMode, ExposeOutMode, ExposureMode,
     ExposureResolution, FanSpeed, FrameFlip, FrameRotate, GainMode, IoType, LogicOutput, PPFeature,
-    PPParam, ReadoutPort, ShutterMode, ShutterStatus, SmartStreamEntry, SmartStreamMode, SpeedMode,
+    PPParam, PvcamDeviceState, ReadoutPort, ShutterMode, ShutterStatus, SmartStreamEntry,
+    SmartStreamMode, SpeedMode,
 };
 // Re-export feature functions for direct access
 pub use crate::components::features::PvcamFeatures;
+// Re-export health monitor for integration by the server/bin crates
+pub use crate::components::health_monitor::{
+    spawn_health_monitor, HealthMonitorCallback, NoOpHealthCallback,
+};
 
 use crate::components::acquisition::PvcamAcquisition;
 use crate::components::connection::PvcamConnection;
@@ -261,6 +266,10 @@ pub struct PvcamDriver {
     sensor_width: u32,
     sensor_height: u32,
     speed_table: Option<Arc<SpeedTable>>,
+
+    // Health Monitor (bd-oqo7.9)
+    // Cancellation token stops the background health poll task on drop.
+    health_monitor_cancel: tokio_util::sync::CancellationToken,
 }
 
 impl PvcamDriver {
@@ -927,6 +936,7 @@ impl PvcamDriver {
             sensor_width: width,
             sensor_height: height,
             speed_table: speed_table.clone(),
+            health_monitor_cancel: tokio_util::sync::CancellationToken::new(),
         };
 
         driver.connect_params();
@@ -1056,6 +1066,36 @@ impl PvcamDriver {
         });
 
         Ok(driver)
+    }
+
+    /// Start the background health monitor (bd-oqo7.9).
+    ///
+    /// Polls `get_controller_alive()` and `get_ccs_status()` every 5 seconds
+    /// and fires state-transition callbacks. The monitor stops automatically
+    /// when the driver is dropped (via the internal cancellation token).
+    ///
+    /// # Arguments
+    ///
+    /// * `device_id` - The device registry ID (e.g., "pvcam_0") for logging.
+    /// * `callback` - Receives state transition notifications for registry/DB.
+    pub fn start_health_monitor(
+        &self,
+        device_id: String,
+        callback: Arc<dyn crate::components::health_monitor::HealthMonitorCallback>,
+    ) -> tokio::task::JoinHandle<()> {
+        crate::components::health_monitor::spawn_health_monitor(
+            device_id,
+            self.connection.clone(),
+            callback,
+            self.health_monitor_cancel.clone(),
+        )
+    }
+
+    /// Get the cancellation token for the health monitor.
+    ///
+    /// Useful for wiring into a broader shutdown hierarchy.
+    pub fn health_monitor_cancel(&self) -> &tokio_util::sync::CancellationToken {
+        &self.health_monitor_cancel
     }
 
     /// Wire hardware write callbacks for all PVCAM parameters.
@@ -2444,6 +2484,9 @@ impl Commandable for PvcamDriver {
 /// For clean shutdown, always call `driver.shutdown().await` before dropping.
 impl Drop for PvcamDriver {
     fn drop(&mut self) {
+        // Stop the health monitor background task (bd-oqo7.9).
+        self.health_monitor_cancel.cancel();
+
         if self.streaming.get() {
             // Log warning - user should have called shutdown() first
             tracing::warn!(
