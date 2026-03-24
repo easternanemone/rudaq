@@ -252,6 +252,7 @@ mod type_conversions {
             index: 0,
             id: 1,
             name: "PrimeEnhance".to_string(),
+            params: vec![],
         };
         assert_eq!(feature.id, 1);
         assert_eq!(feature.name, "PrimeEnhance");
@@ -264,6 +265,8 @@ mod type_conversions {
             id: 1,
             name: "Enabled".to_string(),
             value: 1,
+            min: 0,
+            max: 1,
         };
         assert_eq!(param.value, 1);
     }

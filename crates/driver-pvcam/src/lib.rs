@@ -812,7 +812,7 @@ impl PvcamDriver {
 
         // Post-Processing / PrimeEnhance (bd-oqo7.3)
         let prime_enhance_available;
-        let prime_enhance_enabled;
+        let mut prime_enhance_enabled;
         {
             let conn_guard = connection.lock().await;
             prime_enhance_available = PvcamFeatures::is_prime_enhance_available(&conn_guard);
@@ -822,8 +822,15 @@ impl PvcamDriver {
                 false
             };
             prime_enhance_enabled = Parameter::new("pp.prime_enhance_enabled", pe_state)
-                .with_description("PrimeEnhance real-time FPGA denoising (3-5x SNR improvement)")
+                .with_description(if prime_enhance_available {
+                    "PrimeEnhance real-time FPGA denoising (3-5x SNR improvement)"
+                } else {
+                    "PrimeEnhance real-time FPGA denoising (not available on this camera)"
+                })
                 .with_group("Post-Processing");
+            if !prime_enhance_available {
+                prime_enhance_enabled = prime_enhance_enabled.read_only();
+            }
             if prime_enhance_available {
                 tracing::info!("PrimeEnhance available on this camera");
             } else {
@@ -833,7 +840,7 @@ impl PvcamDriver {
 
         // Post-Processing / PrimeLocate (bd-oqo7.10)
         let prime_locate_available;
-        let prime_locate_enabled;
+        let mut prime_locate_enabled;
         {
             let conn_guard = connection.lock().await;
             prime_locate_available = PvcamFeatures::is_prime_locate_available(&conn_guard);
@@ -843,10 +850,15 @@ impl PvcamDriver {
                 false
             };
             prime_locate_enabled = Parameter::new("pp.prime_locate_enabled", pl_state)
-                .with_description(
-                    "PrimeLocate FPGA single-molecule localization (outputs spot coordinates instead of full frames)",
-                )
+                .with_description(if prime_locate_available {
+                    "PrimeLocate FPGA single-molecule localization (outputs spot coordinates instead of full frames)"
+                } else {
+                    "PrimeLocate FPGA single-molecule localization (not available on this camera)"
+                })
                 .with_group("Post-Processing");
+            if !prime_locate_available {
+                prime_locate_enabled = prime_locate_enabled.read_only();
+            }
             if prime_locate_available {
                 tracing::info!("PrimeLocate available on this camera");
             } else {
