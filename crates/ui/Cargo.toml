@@ -59,6 +59,7 @@ ordered-float = "4.5"
 web-time = "1"
 common = { path = "../common" }
 echelle = { path = "../echelle" }
+egui_ltreeview = "0.6"
 
 # --- Native-only dependencies ---
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

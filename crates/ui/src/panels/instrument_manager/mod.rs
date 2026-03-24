@@ -41,7 +41,8 @@ pub use types::{DeviceCategory, DeviceGroup, ParameterInfo, PopOutRequest};
 use crate::runtime::Runtime;
 use eframe::egui;
 use egui_extras::{Size, StripBuilder};
-use std::collections::HashMap;
+use egui_ltreeview::{NodeBuilder, TreeView};
+use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -1164,7 +1165,7 @@ impl InstrumentManagerPanel {
         let mut action_to_perform: Option<(String, String)> = None;
         let mut open = self.params_viewer_open;
 
-        egui::Window::new(format!("Parameters: {}", device_name))
+        egui::Window::new(format!("Parameters: {device_name}"))
             .id(egui::Id::new("params_viewer"))
             .open(&mut open)
             .resizable(true)
@@ -1177,7 +1178,7 @@ impl InstrumentManagerPanel {
                 }
 
                 if let Some(ref err) = self.params_viewer_error {
-                    ui.colored_label(egui::Color32::RED, format!("Error: {}", err));
+                    ui.colored_label(egui::Color32::RED, format!("Error: {err}"));
                     return;
                 }
 
@@ -1186,129 +1187,58 @@ impl InstrumentManagerPanel {
                     return;
                 }
 
-                // Parameters table
+                // Group parameters by group_name, sorted alphabetically (bd-tzbo)
+                let mut grouped: BTreeMap<String, Vec<ParameterInfo>> = BTreeMap::new();
+                for param in &self.params_viewer_params {
+                    let group = param.group_name.as_deref().unwrap_or("Other").to_string();
+                    grouped.entry(group).or_default().push(param.clone());
+                }
+                // Sort params within each group by name
+                for params in grouped.values_mut() {
+                    params.sort_by(|a, b| a.name.cmp(&b.name));
+                }
+
+                // Temporarily take edit values out so we can pass mutable refs
+                // into the tree view closures without conflicting borrows on self.
+                let mut edit_values = std::mem::take(&mut self.param_edit_values);
+
+                // Collapsible tree view (bd-tzbo)
                 egui::ScrollArea::vertical()
                     .id_salt("params_scroll")
                     .show(ui, |ui| {
-                        egui::Grid::new("params_grid")
-                            .num_columns(4)
-                            .striped(true)
-                            .spacing([8.0, 4.0])
-                            .show(ui, |ui| {
-                                // Header
-                                ui.strong("Parameter");
-                                ui.strong("Value");
-                                ui.strong("Units");
-                                ui.strong("Actions");
-                                ui.end_row();
+                        TreeView::new(ui.make_persistent_id("param_tree"))
+                            .override_indent(Some(16.0))
+                            .show(ui, |builder| {
+                                for (group_name, params) in &grouped {
+                                    // Directory node for each parameter group
+                                    let dir_id = format!("__group__{group_name}");
+                                    builder.node(
+                                        NodeBuilder::<String>::dir(dir_id)
+                                            .default_open(true)
+                                            .label(group_name.as_str()),
+                                    );
 
-                                // Parameters - clone and sort by group then name (bd-a0lz)
-                                let mut params = self.params_viewer_params.clone();
-                                params.sort_by(|a, b| {
-                                    let ga = a.group_name.as_deref().unwrap_or("");
-                                    let gb = b.group_name.as_deref().unwrap_or("");
-                                    ga.cmp(gb).then_with(|| a.name.cmp(&b.name))
-                                });
-                                let mut last_group = String::new();
-                                for param in params {
-                                    // Group header
-                                    let group = param.group_name.as_deref().unwrap_or("Other");
-                                    if group != last_group {
-                                        ui.end_row();
-                                        ui.strong(format!("▸ {}", group));
-                                        ui.label("");
-                                        ui.label("");
-                                        ui.label("");
-                                        ui.end_row();
-                                        last_group = group.to_string();
-                                    }
-                                    ui.label(&param.name);
-
-                                    // Value display/edit
-                                    if param.writable {
-                                        let edit_value = self
-                                            .param_edit_values
-                                            .entry(param.name.clone())
-                                            .or_insert_with(|| {
-                                                param.current_value.clone().unwrap_or_default()
-                                            });
-
-                                        // Use appropriate widget based on dtype
-                                        if !param.enum_values.is_empty() {
-                                            // Enum: dropdown
-                                            egui::ComboBox::from_id_salt(&param.name)
-                                                .selected_text(edit_value.as_str())
-                                                .show_ui(ui, |ui| {
-                                                    for v in &param.enum_values {
-                                                        ui.selectable_value(
-                                                            edit_value,
-                                                            v.clone(),
-                                                            v,
-                                                        );
-                                                    }
-                                                });
-                                        } else if param.dtype == "bool" {
-                                            // Bool: checkbox
-                                            let mut checked = edit_value == "true";
-                                            if ui.checkbox(&mut checked, "").changed() {
-                                                *edit_value = checked.to_string();
-                                            }
-                                        } else {
-                                            // Text input
-                                            let response = ui.add(
-                                                egui::TextEdit::singleline(edit_value)
-                                                    .desired_width(100.0),
-                                            );
-
-                                            // Show tooltip with range info
-                                            if param.min_value.is_some()
-                                                || param.max_value.is_some()
-                                            {
-                                                response.on_hover_text(format!(
-                                                    "Range: {} to {}",
-                                                    param
-                                                        .min_value
-                                                        .map(|v| v.to_string())
-                                                        .unwrap_or_else(|| "-".to_string()),
-                                                    param
-                                                        .max_value
-                                                        .map(|v| v.to_string())
-                                                        .unwrap_or_else(|| "-".to_string())
-                                                ));
-                                            }
-                                        }
-                                    } else {
-                                        // Read-only
-                                        ui.label(param.current_value.as_deref().unwrap_or("-"));
+                                    for param in params {
+                                        let leaf_id = param.name.clone();
+                                        builder.node(
+                                            NodeBuilder::<String>::leaf(leaf_id).label_ui(|ui| {
+                                                Self::render_param_row(
+                                                    ui,
+                                                    param,
+                                                    &mut edit_values,
+                                                    &mut action_to_perform,
+                                                );
+                                            }),
+                                        );
                                     }
 
-                                    ui.label(&param.units);
-
-                                    // Action buttons
-                                    ui.horizontal(|ui| {
-                                        if param.writable {
-                                            let current_edit =
-                                                self.param_edit_values.get(&param.name);
-                                            let has_changes = current_edit
-                                                .map(|v| Some(v) != param.current_value.as_ref())
-                                                .unwrap_or(false);
-
-                                            if ui
-                                                .add_enabled(has_changes, egui::Button::new("Set"))
-                                                .clicked()
-                                            {
-                                                if let Some(value) = current_edit.cloned() {
-                                                    action_to_perform =
-                                                        Some((param.name.clone(), value));
-                                                }
-                                            }
-                                        }
-                                    });
-
-                                    ui.end_row();
+                                    builder.close_dir();
                                 }
                             });
                     });
+
+                // Restore edit values
+                self.param_edit_values = edit_values;
 
                 ui.separator();
 
@@ -1321,6 +1251,89 @@ impl InstrumentManagerPanel {
 
         self.params_viewer_open = open;
         action_to_perform
+    }
+
+    /// Render a single parameter row inside a tree view leaf node (bd-tzbo).
+    fn render_param_row(
+        ui: &mut egui::Ui,
+        param: &ParameterInfo,
+        edit_values: &mut HashMap<String, String>,
+        action_to_perform: &mut Option<(String, String)>,
+    ) {
+        ui.horizontal(|ui| {
+            // Parameter name
+            ui.label(&param.name);
+
+            ui.add_space(8.0);
+
+            // Value display/edit
+            if param.writable {
+                let edit_value = edit_values
+                    .entry(param.name.clone())
+                    .or_insert_with(|| param.current_value.clone().unwrap_or_default());
+
+                if !param.enum_values.is_empty() {
+                    // Enum: dropdown
+                    egui::ComboBox::from_id_salt(format!("combo_{}", &param.name))
+                        .selected_text(edit_value.as_str())
+                        .show_ui(ui, |ui| {
+                            for v in &param.enum_values {
+                                ui.selectable_value(edit_value, v.clone(), v);
+                            }
+                        });
+                } else if param.dtype == "bool" {
+                    // Bool: checkbox
+                    let mut checked = *edit_value == "true";
+                    if ui.checkbox(&mut checked, "").changed() {
+                        *edit_value = checked.to_string();
+                    }
+                } else {
+                    // Text input
+                    let response =
+                        ui.add(egui::TextEdit::singleline(edit_value).desired_width(100.0));
+
+                    // Show tooltip with range info
+                    if param.min_value.is_some() || param.max_value.is_some() {
+                        response.on_hover_text(format!(
+                            "Range: {} to {}",
+                            param
+                                .min_value
+                                .map(|v| v.to_string())
+                                .unwrap_or_else(|| "-".to_string()),
+                            param
+                                .max_value
+                                .map(|v| v.to_string())
+                                .unwrap_or_else(|| "-".to_string())
+                        ));
+                    }
+                }
+            } else {
+                // Read-only value
+                ui.label(param.current_value.as_deref().unwrap_or("-"));
+            }
+
+            // Units
+            if !param.units.is_empty() {
+                ui.weak(&param.units);
+            }
+
+            // Set button for writable params
+            if param.writable {
+                let current_edit = edit_values.get(&param.name);
+                let has_changes = current_edit
+                    .map(|v| Some(v) != param.current_value.as_ref())
+                    .unwrap_or(false);
+
+                if ui
+                    .add_enabled(has_changes, egui::Button::new("Set"))
+                    .clicked()
+                {
+                    if let Some(value) = current_edit.cloned() {
+                        *action_to_perform = Some((param.name.clone(), value));
+                    }
+                }
+            }
+        });
     }
 
     // =========================================================================
