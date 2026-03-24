@@ -134,6 +134,7 @@ pub struct PPFeature {
     pub index: u16,
     pub id: u16,
     pub name: String,
+    pub params: Vec<PPParam>,
 }
 
 #[derive(Debug, Clone)]
@@ -142,6 +143,8 @@ pub struct PPParam {
     pub id: u16,
     pub name: String,
     pub value: u32,
+    pub min: u32,
+    pub max: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

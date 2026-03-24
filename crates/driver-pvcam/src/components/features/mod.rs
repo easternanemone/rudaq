@@ -1733,6 +1733,7 @@ impl PvcamFeatures {
                     id: Self::get_u16_param_impl(h, PARAM_PP_FEAT_ID).unwrap_or(0),
                     name: Self::get_pp_feature_name_impl(h)
                         .unwrap_or_else(|_| format!("Feature {}", i)),
+                    params: Vec::new(),
                 };
                 features.push(feature);
             }
@@ -1745,11 +1746,27 @@ impl PvcamFeatures {
                 index: 0,
                 id: 1,
                 name: "PrimeEnhance".to_string(),
+                params: vec![PPParam {
+                    index: 0,
+                    id: 0,
+                    name: "Enable".to_string(),
+                    value: 0,
+                    min: 0,
+                    max: 1,
+                }],
             },
             PPFeature {
                 index: 1,
                 id: 2,
                 name: "PrimeLocate".to_string(),
+                params: vec![PPParam {
+                    index: 0,
+                    id: 0,
+                    name: "Enable".to_string(),
+                    value: 0,
+                    min: 0,
+                    max: 1,
+                }],
             },
         ])
     }
@@ -1803,6 +1820,8 @@ impl PvcamFeatures {
                     name: Self::get_pp_param_name_impl(h)
                         .unwrap_or_else(|_| format!("Param {}", i)),
                     value: Self::get_u32_param_impl(h, PARAM_PP_PARAM).unwrap_or(0),
+                    min: 0,
+                    max: u32::MAX,
                 };
                 params.push(param);
             }
@@ -1816,12 +1835,16 @@ impl PvcamFeatures {
                 id: 1,
                 name: "Enabled".to_string(),
                 value: 1,
+                min: 0,
+                max: 1,
             },
             PPParam {
                 index: 1,
                 id: 2,
                 name: "Threshold".to_string(),
                 value: 100,
+                min: 0,
+                max: 255,
             },
         ])
     }
@@ -3303,7 +3326,8 @@ impl PvcamFeatures {
 
                             params.push(PPParam {
                                 name: pname,
-                                index: param_idx,
+                                index: param_idx as u16,
+                                id: param_idx as u16,
                                 value: pval,
                                 min: pmin,
                                 max: pmax,
@@ -3314,8 +3338,8 @@ impl PvcamFeatures {
 
                 features.push(PPFeature {
                     name,
-                    index: feat_idx,
-                    id: feat_id,
+                    index: feat_idx as u16,
+                    id: feat_id as u16,
                     params,
                 });
             }
