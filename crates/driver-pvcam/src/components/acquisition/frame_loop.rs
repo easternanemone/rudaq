@@ -1148,6 +1148,34 @@ impl PvcamAcquisition {
                         host_summing_count.to_string(),
                     );
                 }
+
+                // Forward PVCAM hardware metadata into common FrameMetadata.extra (bd-oqo7.2)
+                // These fields enable downstream consumers (storage, RunEngine, GUI) to access
+                // FPGA-level timing and frame diagnostics without PVCAM-specific knowledge.
+                if let Some(ref md) = frame_metadata {
+                    ext_metadata.extra.insert(
+                        "timestamp_bof_ns".to_string(),
+                        md.timestamp_bof_ns.to_string(),
+                    );
+                    ext_metadata.extra.insert(
+                        "timestamp_eof_ns".to_string(),
+                        md.timestamp_eof_ns.to_string(),
+                    );
+                    ext_metadata.extra.insert(
+                        "exposure_time_ns".to_string(),
+                        md.exposure_time_ns.to_string(),
+                    );
+                    ext_metadata
+                        .extra
+                        .insert("frame_nr".to_string(), md.frame_nr.to_string());
+                    ext_metadata
+                        .extra
+                        .insert("bit_depth".to_string(), md.bit_depth.to_string());
+                    ext_metadata
+                        .extra
+                        .insert("roi_count".to_string(), md.roi_count.to_string());
+                }
+
                 frame = frame.with_metadata(ext_metadata);
 
                 let frame_arc = Arc::new(frame);

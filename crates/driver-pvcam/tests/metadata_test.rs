@@ -155,3 +155,132 @@ async fn verify_parameter_persistence() {
         assert_eq!(val, json!(500));
     }
 }
+
+/// Verify the metadata_enabled parameter exists and can be toggled (bd-oqo7.2).
+///
+/// This parameter controls both the SDK PARAM_METADATA_ENABLED and the
+/// acquisition's decoding flag via its write callback.
+#[tokio::test]
+async fn metadata_enabled_parameter_exists_and_toggles() {
+    let driver = PvcamDriver::new_async("MockCamera".to_string())
+        .await
+        .expect("Failed to create driver");
+    let params = driver.parameters();
+
+    let p = params
+        .get("processing.metadata_enabled")
+        .expect("processing.metadata_enabled parameter should exist");
+
+    // Default is false
+    let val = p.get_json().unwrap();
+    assert_eq!(
+        val,
+        json!(false),
+        "metadata_enabled default should be false"
+    );
+
+    // Toggle to true (no SDK connected, so write callback is a no-op for mock)
+    p.set_json(json!(true)).unwrap();
+    let val = p.get_json().unwrap();
+    assert_eq!(
+        val,
+        json!(true),
+        "metadata_enabled should be true after set"
+    );
+
+    // Toggle back to false
+    p.set_json(json!(false)).unwrap();
+    let val = p.get_json().unwrap();
+    assert_eq!(
+        val,
+        json!(false),
+        "metadata_enabled should be false after reset"
+    );
+}
+
+/// Verify that PVCAM-specific metadata fields map to the expected extra keys (bd-oqo7.2).
+///
+/// This simulates the frame_loop.rs mapping from PVCAM FrameMetadata fields
+/// into common::data::FrameMetadata.extra, ensuring the key names and value
+/// formats are correct for downstream consumers.
+#[test]
+fn pvcam_metadata_maps_to_common_extra_fields() {
+    use common::data::{Frame, FrameMetadata};
+
+    // Simulate the values that frame_loop.rs would extract from pl_md_frame_decode
+    let pvcam_frame_nr: i32 = 42;
+    let pvcam_bof_ns: u64 = 1_710_000_000_000_000;
+    let pvcam_eof_ns: u64 = 1_710_000_050_000_000;
+    let pvcam_exposure_ns: u64 = 50_000_000;
+    let pvcam_bit_depth: u16 = 16;
+    let pvcam_roi_count: u16 = 1;
+
+    // Build ext_metadata exactly as frame_loop.rs does (bd-oqo7.2)
+    let mut ext_metadata = FrameMetadata {
+        binning: Some((1, 1)),
+        ..Default::default()
+    };
+
+    ext_metadata
+        .extra
+        .insert("timestamp_bof_ns".to_string(), pvcam_bof_ns.to_string());
+    ext_metadata
+        .extra
+        .insert("timestamp_eof_ns".to_string(), pvcam_eof_ns.to_string());
+    ext_metadata.extra.insert(
+        "exposure_time_ns".to_string(),
+        pvcam_exposure_ns.to_string(),
+    );
+    ext_metadata
+        .extra
+        .insert("frame_nr".to_string(), pvcam_frame_nr.to_string());
+    ext_metadata
+        .extra
+        .insert("bit_depth".to_string(), pvcam_bit_depth.to_string());
+    ext_metadata
+        .extra
+        .insert("roi_count".to_string(), pvcam_roi_count.to_string());
+
+    let pixels = vec![0u16; 10_000];
+    let frame = Frame::from_u16(100, 100, &pixels).with_metadata(ext_metadata);
+
+    let md = frame.metadata.as_ref().expect("metadata should be present");
+
+    // Verify all PVCAM fields are present with correct string representations
+    assert_eq!(
+        md.extra.get("timestamp_bof_ns").unwrap(),
+        "1710000000000000"
+    );
+    assert_eq!(
+        md.extra.get("timestamp_eof_ns").unwrap(),
+        "1710000050000000"
+    );
+    assert_eq!(md.extra.get("exposure_time_ns").unwrap(), "50000000");
+    assert_eq!(md.extra.get("frame_nr").unwrap(), "42");
+    assert_eq!(md.extra.get("bit_depth").unwrap(), "16");
+    assert_eq!(md.extra.get("roi_count").unwrap(), "1");
+
+    // Verify values round-trip to their original types
+    assert_eq!(
+        md.extra
+            .get("timestamp_bof_ns")
+            .unwrap()
+            .parse::<u64>()
+            .unwrap(),
+        pvcam_bof_ns
+    );
+    assert_eq!(
+        md.extra.get("frame_nr").unwrap().parse::<i32>().unwrap(),
+        pvcam_frame_nr
+    );
+    assert_eq!(
+        md.extra.get("bit_depth").unwrap().parse::<u16>().unwrap(),
+        pvcam_bit_depth
+    );
+
+    // Verify readout time can be derived from timestamps
+    let bof: u64 = md.extra.get("timestamp_bof_ns").unwrap().parse().unwrap();
+    let eof: u64 = md.extra.get("timestamp_eof_ns").unwrap().parse().unwrap();
+    let readout_ns = eof - bof;
+    assert_eq!(readout_ns, 50_000_000, "Readout time should be EOF - BOF");
+}
