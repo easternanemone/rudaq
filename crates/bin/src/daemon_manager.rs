@@ -914,12 +914,19 @@ impl DaemonInstance {
     }
 }
 
-/// Restore last-known parameter values from SurrealDB to devices (bd-4wf7).
+/// Restore last-known parameter values from SurrealDB to devices (bd-4wf7, bd-oqo7.8).
 ///
 /// On daemon startup, reads `device_runtime_state` entries and applies them via
 /// `Parameter::set_json()`. If a value is rejected by the driver (e.g., constraint
 /// violation after a config change), the error is logged and the device keeps its
 /// hardware default. Returns the number of successfully restored parameters.
+///
+/// **Read-only parameters** are skipped (they reflect hardware state, not user preferences).
+///
+/// **Speed table ordering**: Parameters are applied in dependency order so that
+/// constrained choices (e.g., PVCAM readout Port -> Speed -> Gain) resolve correctly.
+/// Port must be set before Speed (which depends on available speeds for that port),
+/// and Speed before Gain (which depends on available gains for that speed).
 #[cfg(feature = "db-surreal")]
 async fn restore_parameter_state(db: &db::DaqDb, registry: &DeviceRegistry) -> Result<usize> {
     let mut restored = 0;
@@ -935,10 +942,25 @@ async fn restore_parameter_state(db: &db::DaqDb, registry: &DeviceRegistry) -> R
         };
         let param_set = parameterized.parameters();
 
-        for state in states {
+        // Sort states into dependency order for correct restoration.
+        // Speed table params must restore: Port -> Speed -> Gain.
+        let ordered_states = order_params_for_restore(states);
+
+        for state in ordered_states {
             let Some(param) = param_set.get(&state.param_name) else {
                 continue;
             };
+
+            // Skip read-only parameters — they reflect hardware state, not user preferences
+            if param.metadata().read_only {
+                tracing::trace!(
+                    device = %device_id,
+                    param = %state.param_name,
+                    "Skipped read-only parameter during restore"
+                );
+                continue;
+            }
+
             if let Err(e) = param.set_json(state.param_value.clone()) {
                 tracing::debug!(
                     device = %device_id,
@@ -958,6 +980,38 @@ async fn restore_parameter_state(db: &db::DaqDb, registry: &DeviceRegistry) -> R
         }
     }
     Ok(restored)
+}
+
+/// Sort persisted parameter states into dependency order for safe restoration.
+///
+/// Speed table parameters must be applied in order: Port -> Speed -> Gain,
+/// because each constrains the choices available to the next. All other parameters
+/// are applied after the speed table group, in their original (alphabetical) order.
+#[cfg(feature = "db-surreal")]
+fn order_params_for_restore(
+    states: Vec<db::config_store::DeviceParamState>,
+) -> Vec<db::config_store::DeviceParamState> {
+    // Priority tiers: lower number = applied first.
+    // Tier 0: readout port (constrains available speeds)
+    // Tier 1: readout speed (constrains available gains)
+    // Tier 2: readout gain
+    // Tier 10: everything else (alphabetical within tier)
+    fn priority(name: &str) -> u8 {
+        match name {
+            "readout.port" => 0,
+            "readout.speed_mode" => 1,
+            "readout.gain_mode" => 2,
+            _ => 10,
+        }
+    }
+
+    let mut sorted = states;
+    sorted.sort_by(|a, b| {
+        let pa = priority(&a.param_name);
+        let pb = priority(&b.param_name);
+        pa.cmp(&pb).then_with(|| a.param_name.cmp(&b.param_name))
+    });
+    sorted
 }
 
 #[cfg(test)]
@@ -1306,5 +1360,79 @@ mod tests {
             SHUTDOWN_PHASE_ORDER,
             "Shutdown log must match SHUTDOWN_PHASE_ORDER exactly"
         );
+    }
+
+    // ── Parameter state restore ordering tests (bd-oqo7.8) ────────────
+
+    #[cfg(feature = "db-surreal")]
+    mod param_restore_tests {
+        use super::*;
+        use db::config_store::DeviceParamState;
+
+        fn state(name: &str, value: &str) -> DeviceParamState {
+            DeviceParamState {
+                device_id: "cam_0".to_string(),
+                param_name: name.to_string(),
+                param_value: serde_json::Value::String(value.to_string()),
+                is_favorite: false,
+            }
+        }
+
+        #[test]
+        fn test_speed_table_params_ordered_before_others() {
+            let states = vec![
+                state("readout.gain_mode", "HDR"),
+                state("acquisition.exposure_ms", "100"),
+                state("readout.speed_mode", "100 MHz"),
+                state("readout.port", "Sensitivity"),
+            ];
+
+            let ordered = order_params_for_restore(states);
+            let names: Vec<&str> = ordered.iter().map(|s| s.param_name.as_str()).collect();
+
+            // Port -> Speed -> Gain must come first, in that order
+            assert_eq!(names[0], "readout.port");
+            assert_eq!(names[1], "readout.speed_mode");
+            assert_eq!(names[2], "readout.gain_mode");
+            // Other params come after
+            assert_eq!(names[3], "acquisition.exposure_ms");
+        }
+
+        #[test]
+        fn test_order_preserves_alphabetical_within_same_tier() {
+            let states = vec![
+                state("thermal.setpoint", "-10"),
+                state("acquisition.exposure_ms", "100"),
+                state("acquisition.clear_mode", "PreExposure"),
+            ];
+
+            let ordered = order_params_for_restore(states);
+            let names: Vec<&str> = ordered.iter().map(|s| s.param_name.as_str()).collect();
+
+            // All tier 10, so alphabetical
+            assert_eq!(names[0], "acquisition.clear_mode");
+            assert_eq!(names[1], "acquisition.exposure_ms");
+            assert_eq!(names[2], "thermal.setpoint");
+        }
+
+        #[test]
+        fn test_order_empty_input() {
+            let ordered = order_params_for_restore(vec![]);
+            assert!(ordered.is_empty());
+        }
+
+        #[test]
+        fn test_order_partial_speed_table() {
+            // Only port and gain persisted (speed not persisted) — port still comes first
+            let states = vec![
+                state("readout.gain_mode", "HDR"),
+                state("readout.port", "Speed"),
+            ];
+
+            let ordered = order_params_for_restore(states);
+            let names: Vec<&str> = ordered.iter().map(|s| s.param_name.as_str()).collect();
+            assert_eq!(names[0], "readout.port");
+            assert_eq!(names[1], "readout.gain_mode");
+        }
     }
 }
