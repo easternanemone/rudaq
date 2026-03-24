@@ -767,14 +767,27 @@ impl PvcamDriver {
             }
         }
 
-        // Post-Processing / PrimeLocate (bd-oqo7.10, deferred to 2026-06)
-        // SDK methods not yet implemented — stub as unavailable
-        let prime_locate_available = false;
-        let prime_locate_enabled = Parameter::new("pp.prime_locate_enabled", false)
-            .with_description(
-                "PrimeLocate FPGA single-molecule localization (outputs spot coordinates instead of full frames)",
-            );
-        tracing::debug!("PrimeLocate not yet implemented (bd-oqo7.10)");
+        // Post-Processing / PrimeLocate (bd-oqo7.10)
+        let prime_locate_available;
+        let prime_locate_enabled;
+        {
+            let conn_guard = connection.lock().await;
+            prime_locate_available = PvcamFeatures::is_prime_locate_available(&conn_guard);
+            let pl_state = if prime_locate_available {
+                PvcamFeatures::get_prime_locate_enabled(&conn_guard).unwrap_or(false)
+            } else {
+                false
+            };
+            prime_locate_enabled = Parameter::new("pp.prime_locate_enabled", pl_state)
+                .with_description(
+                    "PrimeLocate FPGA single-molecule localization (outputs spot coordinates instead of full frames)",
+                );
+            if prime_locate_available {
+                tracing::info!("PrimeLocate available on this camera");
+            } else {
+                tracing::debug!("PrimeLocate not available on this camera");
+            }
+        }
 
         // Metadata Info Group
         let serial_number = Parameter::new("info.serial_number", info.serial_number)
@@ -1743,10 +1756,24 @@ impl PvcamDriver {
             });
         }
 
-        // PrimeLocate (bd-oqo7.10, deferred to 2026-06)
-        // Hardware write callback will be wired when SDK methods are implemented.
-        // prime_locate_available is false until then, so this is a no-op guard.
-        let _ = &self.prime_locate_enabled; // suppress unused field warning
+        // PrimeLocate (bd-oqo7.10)
+        if self.prime_locate_available {
+            self.prime_locate_enabled.connect_to_hardware_write({
+                let conn = conn.clone();
+                move |val| {
+                    let conn = conn.clone();
+                    Box::pin(async move {
+                        let conn_guard = conn.lock_owned().await;
+                        tokio::task::spawn_blocking(move || {
+                            PvcamFeatures::set_prime_locate(&conn_guard, val)
+                                .map_err(|e| DaqError::Instrument(e.to_string()))
+                        })
+                        .await
+                        .map_err(|e| DaqError::Instrument(e.to_string()))?
+                    })
+                }
+            });
+        }
     }
 
     /// Populate dynamic enum choices from the camera (bd-c4hf.2)
