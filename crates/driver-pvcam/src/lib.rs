@@ -456,32 +456,37 @@ impl PvcamDriver {
         let exposure_ms = Parameter::new("acquisition.exposure_ms", 100.0)
             .with_description("Exposure time")
             .with_unit("ms")
-            .with_range_introspectable(0.1, 60000.0);
+            .with_range_introspectable(0.1, 60000.0)
+            .with_group("Acquisition");
 
         let trigger_mode = Parameter::new(
             "acquisition.trigger_mode",
             ExposureMode::Timed.as_str().to_string(),
         )
         .with_description("Trigger mode")
-        .with_choices_introspectable(ExposureMode::all_choices());
+        .with_choices_introspectable(ExposureMode::all_choices())
+        .with_group("Acquisition");
 
         let clear_mode = Parameter::new(
             "acquisition.clear_mode",
             ClearMode::PreExposure.as_str().to_string(),
         )
         .with_description("Clear mode")
-        .with_choices_introspectable(ClearMode::all_choices());
+        .with_choices_introspectable(ClearMode::all_choices())
+        .with_group("Acquisition");
 
         let expose_out_mode = Parameter::new(
             "acquisition.expose_out_mode",
             ExposeOutMode::FirstRow.as_str().to_string(),
         )
         .with_description("Expose out signal mode")
-        .with_choices_introspectable(ExposeOutMode::all_choices());
+        .with_choices_introspectable(ExposeOutMode::all_choices())
+        .with_group("Acquisition");
 
         let buffer_mode = Parameter::new("acquisition.buffer_mode", "Overwrite".to_string())
             .with_description("Acquisition buffer mode: Overwrite (circular, newest wins), No Overwrite (circular FIFO), or Sequence (batch-based, non-circular)")
-            .with_choices_introspectable(vec!["Overwrite".into(), "No Overwrite".into(), "Sequence".into()]);
+            .with_choices_introspectable(vec!["Overwrite".into(), "No Overwrite".into(), "Sequence".into()])
+            .with_group("Acquisition");
 
         let roi = Parameter::new(
             "acquisition.roi",
@@ -492,20 +497,24 @@ impl PvcamDriver {
                 height,
             },
         )
-        .with_description("Region of interest");
+        .with_description("Region of interest")
+        .with_group("Acquisition");
 
-        let binning =
-            Parameter::new("acquisition.binning", (1u16, 1u16)).with_description("Binning (x, y)");
+        let binning = Parameter::new("acquisition.binning", (1u16, 1u16))
+            .with_description("Binning (x, y)")
+            .with_group("Acquisition");
 
         let armed = Parameter::new("acquisition.armed", false)
             .with_description("Camera armed for trigger")
             .with_dtype("bool")
-            .read_only();
+            .read_only()
+            .with_group("Acquisition");
 
         let streaming = Parameter::new("acquisition.streaming", false)
             .with_description("Camera streaming state")
             .with_dtype("bool")
-            .read_only();
+            .read_only()
+            .with_group("Acquisition");
 
         // Thermal Group — temperature generated via pvcam_parameters! macro
         pvcam_parameters! {
@@ -522,43 +531,55 @@ impl PvcamDriver {
         let temperature_setpoint = Parameter::new("thermal.setpoint", -10.0)
             .with_description("Temperature setpoint")
             .with_unit("C")
-            .with_range_introspectable(-100.0, 50.0);
+            .with_range_introspectable(-100.0, 50.0)
+            .with_group("Thermal");
 
         let fan_speed = Parameter::new("thermal.fan_speed", FanSpeed::High.as_str().to_string())
             .with_description("Cooling fan speed")
-            .with_choices_introspectable(FanSpeed::all_choices());
+            .with_choices_introspectable(FanSpeed::all_choices())
+            .with_group("Thermal");
 
         // Readout Group
         let readout_port = Parameter::new("readout.port", default_port_name)
-            .with_description("Readout port selection");
+            .with_description("Readout port selection")
+            .with_group("Readout");
 
         let speed_mode = Parameter::new("readout.speed_mode", default_speed_name)
-            .with_description("Readout speed selection");
+            .with_description("Readout speed selection")
+            .with_group("Readout");
 
         let gain_mode = Parameter::new("readout.gain_mode", default_gain_name)
-            .with_description("Gain mode selection");
+            .with_description("Gain mode selection")
+            .with_group("Readout");
 
-        let adc_offset = Parameter::new("readout.adc_offset", 0i16).with_description("ADC offset");
+        let adc_offset = Parameter::new("readout.adc_offset", 0i16)
+            .with_description("ADC offset")
+            .with_group("Readout");
 
         let full_well_capacity = Parameter::new("readout.full_well_capacity", 60000u32)
             .with_description("Full well capacity")
-            .read_only();
+            .read_only()
+            .with_group("Readout");
 
         let pre_mask = Parameter::new("readout.pre_mask", 0u16)
             .with_description("Pre-mask pixels")
-            .read_only();
+            .read_only()
+            .with_group("Readout");
 
         let post_mask = Parameter::new("readout.post_mask", 0u16)
             .with_description("Post-mask pixels")
-            .read_only();
+            .read_only()
+            .with_group("Readout");
 
         let pre_scan = Parameter::new("readout.pre_scan", 0u16)
             .with_description("Pre-scan pixels")
-            .read_only();
+            .read_only()
+            .with_group("Readout");
 
         let post_scan = Parameter::new("readout.post_scan", 0u16)
             .with_description("Post-scan pixels")
-            .read_only();
+            .read_only()
+            .with_group("Readout");
 
         // Readout Timing — generated via pvcam_parameters! macro
         pvcam_parameters! {
@@ -616,43 +637,52 @@ impl PvcamDriver {
         // Shutter Group
         let shutter_mode = Parameter::new("shutter.mode", ShutterMode::Normal.as_str().to_string())
             .with_description("Physical shutter mode")
-            .with_choices_introspectable(ShutterMode::all_choices());
+            .with_choices_introspectable(ShutterMode::all_choices())
+            .with_group("Shutter");
 
         let shutter_status =
             Parameter::new("shutter.status", ShutterStatus::Closed.as_str().to_string())
                 .with_description("Current shutter status")
                 .with_choices_introspectable(ShutterStatus::all_choices())
-                .read_only();
+                .read_only()
+                .with_group("Shutter");
 
         let shutter_open_delay = Parameter::new("shutter.open_delay", 0u32)
             .with_description("Shutter open delay")
-            .with_unit("us");
+            .with_unit("us")
+            .with_group("Shutter");
 
         let shutter_close_delay = Parameter::new("shutter.close_delay", 0u32)
             .with_description("Shutter close delay")
-            .with_unit("us");
+            .with_unit("us")
+            .with_group("Shutter");
 
         // Streaming & Metadata Group
         let smart_stream_enabled = Parameter::new("streaming.smart_stream_enabled", false)
             .with_description("Hardware-timed smart streaming")
-            .with_dtype("bool");
+            .with_dtype("bool")
+            .with_group("Streaming");
 
         let smart_stream_mode = Parameter::new(
             "streaming.smart_stream_mode",
             SmartStreamMode::Exposures.as_str().to_string(),
         )
         .with_description("Smart streaming mode")
-        .with_choices_introspectable(SmartStreamMode::all_choices());
+        .with_choices_introspectable(SmartStreamMode::all_choices())
+        .with_group("Streaming");
 
         // SMART Streaming exposure list (bd-oqo7.1)
         let smart_stream_exposures =
-            Parameter::new("streaming.smart_stream_exposures", "[]".to_string()).with_description(
-                "SMART Stream exposure list as JSON array of ms values, e.g. [10,50,100]",
-            );
+            Parameter::new("streaming.smart_stream_exposures", "[]".to_string())
+                .with_description(
+                    "SMART Stream exposure list as JSON array of ms values, e.g. [10,50,100]",
+                )
+                .with_group("Streaming");
 
         let metadata_enabled = Parameter::new("processing.metadata_enabled", false)
             .with_description("Enable per-frame metadata")
-            .with_dtype("bool");
+            .with_dtype("bool")
+            .with_group("Processing");
 
         // Host-Side Processing Group
         let host_rotate = Parameter::new(
@@ -660,31 +690,38 @@ impl PvcamDriver {
             FrameRotate::None.as_str().to_string(),
         )
         .with_description("Host-side frame rotation")
-        .with_choices_introspectable(FrameRotate::all_choices());
+        .with_choices_introspectable(FrameRotate::all_choices())
+        .with_group("Processing");
 
         let host_flip =
             Parameter::new("processing.host_flip", FrameFlip::None.as_str().to_string())
                 .with_description("Host-side frame flip")
-                .with_choices_introspectable(FrameFlip::all_choices());
+                .with_choices_introspectable(FrameFlip::all_choices())
+                .with_group("Processing");
 
         let host_summing_enabled = Parameter::new("processing.host_summing_enabled", false)
             .with_description("Enable host-side frame summing")
-            .with_dtype("bool");
+            .with_dtype("bool")
+            .with_group("Processing");
 
         let host_summing_count = Parameter::new("processing.host_summing_count", 1u32)
             .with_description("Number of frames to sum on host")
             .with_range(1, 1000)
-            .with_dtype("int");
+            .with_dtype("int")
+            .with_group("Processing");
 
         // I/O Control (bd-6q0k)
         let io_address = Parameter::new("io.address", 0u16)
-            .with_description("I/O signal address (selects which I/O line to control)");
+            .with_description("I/O signal address (selects which I/O line to control)")
+            .with_group("I/O");
         let io_direction = Parameter::new("io.direction", "Input".to_string())
             .with_description("I/O signal direction")
-            .with_choices_introspectable(vec!["Input".into(), "Output".into()]);
+            .with_choices_introspectable(vec!["Input".into(), "Output".into()])
+            .with_group("I/O");
         let io_state = Parameter::new("io.state", 0.0f64)
             .with_description("I/O signal state (0.0 = low, 1.0 = high)")
-            .with_range_introspectable(0.0, 1.0);
+            .with_range_introspectable(0.0, 1.0)
+            .with_group("I/O");
 
         // Frame Transfer Mode (bd-03s3)
         let frame_transfer_mode =
@@ -694,46 +731,56 @@ impl PvcamDriver {
                     "Normal".into(),
                     "Frame Transfer".into(),
                     "Frame Transfer MPP".into(),
-                ]);
+                ])
+                .with_group("I/O");
 
         // I/O Scripting (bd-ncbd)
         let io_script_cmd = Parameter::new("io.script_cmd", "Stop".to_string())
             .with_description("I/O script command (Start/Stop/Reset)")
-            .with_choices_introspectable(vec!["Start".into(), "Stop".into(), "Reset".into()]);
+            .with_choices_introspectable(vec!["Start".into(), "Stop".into(), "Reset".into()])
+            .with_group("I/O");
 
         // Multi-ROI (bd-oqo7.4)
         let multi_roi_config = Parameter::new("acquisition.multi_roi_config", "[]".to_string())
             .with_description(
                 "Multi-ROI configuration as JSON array of {x,y,w,h} objects. Max 16 ROIs. Empty = single ROI mode.",
-            );
+            )
+            .with_group("Acquisition");
 
         // I/O Diagnostics (bd-oqo7.6)
         let io_bitdepth = Parameter::new("io.bitdepth", 8u16)
             .with_description("I/O port bit depth")
-            .read_only();
+            .read_only()
+            .with_group("I/O");
         let io_type = Parameter::new("io.type", "TTL".to_string())
             .with_description("I/O port type")
             .with_choices_introspectable(vec!["TTL".into(), "DAC".into()])
-            .read_only();
+            .read_only()
+            .with_group("I/O");
         let logic_output =
             Parameter::new("io.logic_output", LogicOutput::NotScan.as_str().to_string())
                 .with_description("Logic output signal mode")
-                .with_choices_introspectable(LogicOutput::all_choices());
+                .with_choices_introspectable(LogicOutput::all_choices())
+                .with_group("I/O");
         let logic_output_invert = Parameter::new("io.logic_output_invert", false)
-            .with_description("Invert logic output signal");
+            .with_description("Invert logic output signal")
+            .with_group("I/O");
         let controller_alive = Parameter::new("diagnostics.controller_alive", true)
             .with_description("Camera controller alive status")
             .with_dtype("bool")
-            .read_only();
+            .read_only()
+            .with_group("Diagnostics");
         let ccs_status = Parameter::new("diagnostics.ccs_status", 0i16)
             .with_description(
                 "Camera Control Subsystem status (0=idle, 1=init, 2=running, 3=clearing)",
             )
-            .read_only();
+            .read_only()
+            .with_group("Diagnostics");
         let exp_min_time = Parameter::new("diagnostics.exp_min_time", 0.0f64)
             .with_description("Minimum effective exposure time")
             .with_unit("s")
-            .read_only();
+            .read_only()
+            .with_group("Diagnostics");
 
         // Read initial I/O diagnostics from hardware (bd-oqo7.6)
         {
@@ -775,7 +822,8 @@ impl PvcamDriver {
                 false
             };
             prime_enhance_enabled = Parameter::new("pp.prime_enhance_enabled", pe_state)
-                .with_description("PrimeEnhance real-time FPGA denoising (3-5x SNR improvement)");
+                .with_description("PrimeEnhance real-time FPGA denoising (3-5x SNR improvement)")
+                .with_group("Post-Processing");
             if prime_enhance_available {
                 tracing::info!("PrimeEnhance available on this camera");
             } else {
@@ -797,7 +845,8 @@ impl PvcamDriver {
             prime_locate_enabled = Parameter::new("pp.prime_locate_enabled", pl_state)
                 .with_description(
                     "PrimeLocate FPGA single-molecule localization (outputs spot coordinates instead of full frames)",
-                );
+                )
+                .with_group("Post-Processing");
             if prime_locate_available {
                 tracing::info!("PrimeLocate available on this camera");
             } else {
@@ -808,19 +857,23 @@ impl PvcamDriver {
         // Metadata Info Group
         let serial_number = Parameter::new("info.serial_number", info.serial_number)
             .with_description("Camera Serial Number")
-            .read_only();
+            .read_only()
+            .with_group("Info");
 
         let firmware_version = Parameter::new("info.firmware_version", info.firmware_version)
             .with_description("Camera Firmware Version")
-            .read_only();
+            .read_only()
+            .with_group("Info");
 
         let model_name = Parameter::new("info.model_name", info.chip_name)
             .with_description("Camera Model / Chip Name")
-            .read_only();
+            .read_only()
+            .with_group("Info");
 
         let bit_depth = Parameter::new("info.bit_depth", info.bit_depth)
             .with_description("ADC Bit Depth")
-            .read_only();
+            .read_only()
+            .with_group("Info");
 
         // Register all parameters
         params.register(exposure_ms.clone());

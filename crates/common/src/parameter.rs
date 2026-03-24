@@ -230,6 +230,17 @@ where
         self
     }
 
+    /// Set the group name for GUI organization (bd-a0lz).
+    ///
+    /// Parameters with the same group name are rendered in a collapsible
+    /// section in the GUI. Without a group, parameters fall into the
+    /// default "Camera Settings" catch-all.
+    pub fn with_group(self, group: impl Into<String>) -> Self {
+        self.inner
+            .with_metadata(|m| m.group_name = Some(group.into()));
+        self
+    }
+
     /// Modify metadata through a closure (for advanced constraint population).
     pub fn with_metadata<F>(&self, f: F)
     where
