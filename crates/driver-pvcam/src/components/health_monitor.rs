@@ -19,8 +19,8 @@ use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
 use crate::components::connection::PvcamConnection;
+use crate::components::features::PvcamDeviceState;
 use crate::components::features::PvcamFeatures;
-use crate::PvcamDeviceState;
 
 /// Configuration for the health monitor polling interval.
 const HEALTH_POLL_INTERVAL: Duration = Duration::from_secs(5);

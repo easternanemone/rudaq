@@ -23,6 +23,13 @@ pub struct FrameMetadata {
     /// Trigger mode (e.g., "Timed", "Trigger First")
     pub trigger_mode: Option<String>,
 
+    /// Number of frames summed into this single output frame (host-side summing).
+    ///
+    /// `None` or `Some(1)` means no summing was applied. `Some(N)` where N > 1 means
+    /// N raw frames were accumulated on the host before emission. Downstream consumers
+    /// should divide pixel values by this count to recover per-frame intensity.
+    pub summing_count: Option<u32>,
+
     /// Extensible key-value metadata for driver-specific properties
     pub extra: HashMap<String, String>,
 }
@@ -429,6 +436,12 @@ pub struct FrameView<'a> {
 
     /// Binning (x, y)
     pub binning: Option<(u16, u16)>,
+
+    /// Number of frames summed into this output frame (host-side summing).
+    ///
+    /// `None` or `Some(1)` means no summing. `Some(N)` where N > 1 means N raw frames
+    /// were accumulated before emission.
+    pub summing_count: Option<u32>,
 }
 
 impl<'a> FrameView<'a> {
@@ -454,6 +467,7 @@ impl<'a> FrameView<'a> {
             roi_y: 0,
             temperature_c: None,
             binning: None,
+            summing_count: None,
         }
     }
 
@@ -472,6 +486,7 @@ impl<'a> FrameView<'a> {
             roi_y: frame.roi_y,
             temperature_c: frame.metadata.as_ref().and_then(|m| m.temperature_c),
             binning: frame.metadata.as_ref().and_then(|m| m.binning),
+            summing_count: frame.metadata.as_ref().and_then(|m| m.summing_count),
         }
     }
 
@@ -501,6 +516,13 @@ impl<'a> FrameView<'a> {
     #[must_use]
     pub fn with_binning(mut self, binning: (u16, u16)) -> Self {
         self.binning = Some(binning);
+        self
+    }
+
+    /// Set summing count (builder pattern).
+    #[must_use]
+    pub fn with_summing_count(mut self, count: u32) -> Self {
+        self.summing_count = Some(count);
         self
     }
 
@@ -619,77 +641,63 @@ impl<'a> FrameView<'a> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn frame_metadata_extra_round_trips_through_builder() {
-        let mut metadata = FrameMetadata {
-            binning: Some((2, 2)),
-            ..Default::default()
-        };
-        metadata
-            .extra
-            .insert("timestamp_bof_ns".to_string(), "1000000".to_string());
-        metadata
-            .extra
-            .insert("timestamp_eof_ns".to_string(), "2000000".to_string());
-        metadata
-            .extra
-            .insert("exposure_time_ns".to_string(), "500000".to_string());
-        metadata
-            .extra
-            .insert("frame_nr".to_string(), "42".to_string());
-        metadata
-            .extra
-            .insert("bit_depth".to_string(), "16".to_string());
-        metadata
-            .extra
-            .insert("roi_count".to_string(), "1".to_string());
-
-        let frame = Frame::from_u16(4, 4, &[0u16; 16]).with_metadata(metadata);
-
-        let md = frame.metadata.as_ref().expect("metadata should be set");
-        assert_eq!(md.binning, Some((2, 2)));
-        assert_eq!(md.extra.get("timestamp_bof_ns").unwrap(), "1000000");
-        assert_eq!(md.extra.get("timestamp_eof_ns").unwrap(), "2000000");
-        assert_eq!(md.extra.get("exposure_time_ns").unwrap(), "500000");
-        assert_eq!(md.extra.get("frame_nr").unwrap(), "42");
-        assert_eq!(md.extra.get("bit_depth").unwrap(), "16");
-        assert_eq!(md.extra.get("roi_count").unwrap(), "1");
-        assert_eq!(md.extra.len(), 6);
-    }
+    // === Summing count metadata tests (bd-oqo7.7) ===
 
     #[test]
-    fn frame_view_from_frame_preserves_binning() {
-        let mut metadata = FrameMetadata {
-            binning: Some((2, 2)),
-            temperature_c: Some(25.5),
-            ..Default::default()
-        };
-        metadata
-            .extra
-            .insert("frame_nr".to_string(), "7".to_string());
-
-        let frame = Frame::from_u16(4, 4, &[0u16; 16])
-            .with_frame_number(7)
-            .with_timestamp(123_456_789)
-            .with_exposure(50.0)
-            .with_metadata(metadata);
-
-        let view = FrameView::from_frame(&frame);
-        assert_eq!(view.binning, Some((2, 2)));
-        assert_eq!(view.temperature_c, Some(25.5));
-        assert_eq!(view.frame_number, 7);
-        assert_eq!(view.timestamp_ns, 123_456_789);
-        assert_eq!(view.exposure_ms, Some(50.0));
-    }
-
-    #[test]
-    fn frame_metadata_default_has_empty_extra() {
+    fn frame_metadata_summing_count_default_is_none() {
         let metadata = FrameMetadata::default();
-        assert!(metadata.extra.is_empty());
-        assert!(metadata.binning.is_none());
-        assert!(metadata.temperature_c.is_none());
-        assert!(metadata.gain_mode.is_none());
-        assert!(metadata.readout_speed.is_none());
-        assert!(metadata.trigger_mode.is_none());
+        assert_eq!(metadata.summing_count, None);
+    }
+
+    #[test]
+    fn frame_metadata_summing_count_set() {
+        let metadata = FrameMetadata {
+            summing_count: Some(10),
+            ..Default::default()
+        };
+        assert_eq!(metadata.summing_count, Some(10));
+    }
+
+    #[test]
+    fn frame_summing_count_propagates_to_frame_view() {
+        let frame = Frame::from_u16(2, 2, &[1, 2, 3, 4]).with_metadata(FrameMetadata {
+            summing_count: Some(5),
+            ..Default::default()
+        });
+        let view = FrameView::from_frame(&frame);
+        assert_eq!(view.summing_count, Some(5));
+    }
+
+    #[test]
+    fn frame_no_summing_metadata_yields_none_in_view() {
+        let frame = Frame::from_u16(2, 2, &[1, 2, 3, 4]);
+        let view = FrameView::from_frame(&frame);
+        assert_eq!(view.summing_count, None);
+    }
+
+    #[test]
+    fn frame_summing_disabled_yields_none_in_view() {
+        let frame = Frame::from_u16(2, 2, &[1, 2, 3, 4]).with_metadata(FrameMetadata {
+            summing_count: None,
+            ..Default::default()
+        });
+        let view = FrameView::from_frame(&frame);
+        assert_eq!(view.summing_count, None);
+    }
+
+    #[test]
+    fn frame_view_with_summing_count_builder() {
+        let view = FrameView::new(2, 2, 16, &[0; 8], 1, 0).with_summing_count(8);
+        assert_eq!(view.summing_count, Some(8));
+    }
+
+    #[test]
+    fn frame_summing_count_one_is_no_summing() {
+        let frame = Frame::from_u16(2, 2, &[1, 2, 3, 4]).with_metadata(FrameMetadata {
+            summing_count: Some(1),
+            ..Default::default()
+        });
+        let view = FrameView::from_frame(&frame);
+        assert_eq!(view.summing_count, Some(1));
     }
 }

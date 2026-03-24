@@ -73,6 +73,7 @@ pub fn _create_test_image(name: &str, width: u32, height: u32) -> Measurement {
             roi_origin: Some((0, 0)),
             frame_number: None,
             sequence_gap_from_previous: None,
+            summing_count: None,
         },
         timestamp: chrono::Utc::now(),
     }

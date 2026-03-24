@@ -57,6 +57,8 @@ impl PvcamAcquisition {
         binning: (u16, u16),
         done_tx: std::sync::mpsc::Sender<()>,
         tap_registry: Arc<TapRegistry>, // bd-0dax.4: For synchronous tap observers
+        host_summing_enabled: Parameter<bool>, // bd-oqo7.7
+        host_summing_count: Parameter<u32>, // bd-oqo7.7
     ) {
         // Main sequence loop
         let mut total_frames: u64 = 0;
@@ -141,8 +143,20 @@ impl PvcamAcquisition {
                         frame_count.store(total_frames, Ordering::SeqCst);
 
                         // Build frame (matching mock and hardware path patterns)
+                        // bd-oqo7.7: Include summing_count in frame metadata
+                        let summing_count = if host_summing_enabled.get() {
+                            let count = host_summing_count.get();
+                            if count > 1 {
+                                Some(count)
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        };
                         let ext_metadata = common::data::FrameMetadata {
                             binning: Some(binning),
+                            summing_count,
                             ..Default::default()
                         };
                         let frame = Arc::new(
@@ -291,7 +305,8 @@ impl PvcamAcquisition {
         tap_registry: Arc<TapRegistry>, // bd-0dax.4: For synchronous tap observers
         primary_tx: Option<tokio::sync::mpsc::Sender<common::capabilities::LoanedFrame>>, // bd-r8ux
         primary_frame_pool: Option<Arc<Pool<FrameData>>>, // bd-r8ux
-        host_summing_count: u32, // bd-oqo7.7: for downstream normalization
+        host_summing_enabled: Parameter<bool>, // bd-oqo7.7
+        host_summing_count: Parameter<u32>, // bd-oqo7.7
     ) {
         let loop_span = tracing::debug_span!(
             "pvcam_frame_loop",
@@ -1137,45 +1152,23 @@ impl PvcamAcquisition {
                         .with_exposure(exposure_ms);
                 }
 
-                // Add extended metadata (bd-183h, bd-oqo7.7)
-                let mut ext_metadata = common::data::FrameMetadata {
+                // Add extended metadata (bd-183h)
+                // bd-oqo7.7: Include summing_count in frame metadata
+                let summing_count = if host_summing_enabled.get() {
+                    let count = host_summing_count.get();
+                    if count > 1 {
+                        Some(count)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                let ext_metadata = common::data::FrameMetadata {
                     binning: Some(binning),
+                    summing_count,
                     ..Default::default()
                 };
-                if host_summing_count > 1 {
-                    ext_metadata.extra.insert(
-                        "host_summing_count".to_string(),
-                        host_summing_count.to_string(),
-                    );
-                }
-
-                // Forward PVCAM hardware metadata into common FrameMetadata.extra (bd-oqo7.2)
-                // These fields enable downstream consumers (storage, RunEngine, GUI) to access
-                // FPGA-level timing and frame diagnostics without PVCAM-specific knowledge.
-                if let Some(ref md) = frame_metadata {
-                    ext_metadata.extra.insert(
-                        "timestamp_bof_ns".to_string(),
-                        md.timestamp_bof_ns.to_string(),
-                    );
-                    ext_metadata.extra.insert(
-                        "timestamp_eof_ns".to_string(),
-                        md.timestamp_eof_ns.to_string(),
-                    );
-                    ext_metadata.extra.insert(
-                        "exposure_time_ns".to_string(),
-                        md.exposure_time_ns.to_string(),
-                    );
-                    ext_metadata
-                        .extra
-                        .insert("frame_nr".to_string(), md.frame_nr.to_string());
-                    ext_metadata
-                        .extra
-                        .insert("bit_depth".to_string(), md.bit_depth.to_string());
-                    ext_metadata
-                        .extra
-                        .insert("roi_count".to_string(), md.roi_count.to_string());
-                }
-
                 frame = frame.with_metadata(ext_metadata);
 
                 let frame_arc = Arc::new(frame);

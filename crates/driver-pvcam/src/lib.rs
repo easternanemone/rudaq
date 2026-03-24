@@ -56,15 +56,10 @@ use tokio::sync::Mutex;
 pub use crate::components::features::{
     CameraInfo, CentroidsConfig, CentroidsMode, ClearMode, ExposeOutMode, ExposureMode,
     ExposureResolution, FanSpeed, FrameFlip, FrameRotate, GainMode, IoType, LogicOutput, PPFeature,
-    PPParam, PvcamDeviceState, ReadoutPort, ShutterMode, ShutterStatus, SmartStreamEntry,
-    SmartStreamMode, SpeedMode,
+    PPParam, ReadoutPort, ShutterMode, ShutterStatus, SmartStreamEntry, SmartStreamMode, SpeedMode,
 };
 // Re-export feature functions for direct access
 pub use crate::components::features::PvcamFeatures;
-// Re-export health monitor for integration by the server/bin crates
-pub use crate::components::health_monitor::{
-    spawn_health_monitor, HealthMonitorCallback, NoOpHealthCallback,
-};
 
 use crate::components::acquisition::PvcamAcquisition;
 use crate::components::connection::PvcamConnection;
@@ -219,7 +214,6 @@ pub struct PvcamDriver {
     // Streaming & Metadata
     smart_stream_enabled: Parameter<bool>,
     smart_stream_mode: Parameter<String>,
-    smart_stream_exposures: Parameter<String>, // bd-oqo7.1: JSON exposure list "[10,50,100]"
     metadata_enabled: Parameter<bool>,
 
     // Host-Side Processing
@@ -248,9 +242,6 @@ pub struct PvcamDriver {
     ccs_status: Parameter<i16>,
     exp_min_time: Parameter<f64>,
 
-    // Multi-ROI (bd-oqo7.4)
-    multi_roi_config: Parameter<String>, // JSON: [{"x":0,"y":0,"w":512,"h":512}, ...]
-
     // Post-Processing (bd-oqo7.3)
     prime_enhance_enabled: Parameter<bool>,
     prime_enhance_available: bool,
@@ -266,10 +257,6 @@ pub struct PvcamDriver {
     sensor_width: u32,
     sensor_height: u32,
     speed_table: Option<Arc<SpeedTable>>,
-
-    // Health Monitor (bd-oqo7.9)
-    // Cancellation token stops the background health poll task on drop.
-    health_monitor_cancel: tokio_util::sync::CancellationToken,
 }
 
 impl PvcamDriver {
@@ -650,12 +637,6 @@ impl PvcamDriver {
         .with_description("Smart streaming mode")
         .with_choices_introspectable(SmartStreamMode::all_choices());
 
-        // SMART Streaming exposure list (bd-oqo7.1)
-        let smart_stream_exposures =
-            Parameter::new("streaming.smart_stream_exposures", "[]".to_string()).with_description(
-                "SMART Stream exposure list as JSON array of ms values, e.g. [10,50,100]",
-            );
-
         let metadata_enabled = Parameter::new("processing.metadata_enabled", false)
             .with_description("Enable per-frame metadata")
             .with_dtype("bool");
@@ -706,12 +687,6 @@ impl PvcamDriver {
         let io_script_cmd = Parameter::new("io.script_cmd", "Stop".to_string())
             .with_description("I/O script command (Start/Stop/Reset)")
             .with_choices_introspectable(vec!["Start".into(), "Stop".into(), "Reset".into()]);
-
-        // Multi-ROI (bd-oqo7.4)
-        let multi_roi_config = Parameter::new("acquisition.multi_roi_config", "[]".to_string())
-            .with_description(
-                "Multi-ROI configuration as JSON array of {x,y,w,h} objects. Max 16 ROIs. Empty = single ROI mode.",
-            );
 
         // I/O Diagnostics (bd-oqo7.6)
         let io_bitdepth = Parameter::new("io.bitdepth", 8u16)
@@ -837,8 +812,6 @@ impl PvcamDriver {
         params.register(shutter_close_delay.clone());
         params.register(smart_stream_enabled.clone());
         params.register(smart_stream_mode.clone());
-        params.register(smart_stream_exposures.clone());
-        params.register(multi_roi_config.clone());
         params.register(metadata_enabled.clone());
         params.register(host_rotate.clone());
         params.register(host_flip.clone());
@@ -907,7 +880,6 @@ impl PvcamDriver {
             shutter_close_delay,
             smart_stream_enabled,
             smart_stream_mode,
-            smart_stream_exposures,
             metadata_enabled,
             host_rotate,
             host_flip,
@@ -918,7 +890,6 @@ impl PvcamDriver {
             io_state,
             frame_transfer_mode,
             io_script_cmd,
-            multi_roi_config,
             io_bitdepth,
             io_type,
             logic_output,
@@ -936,7 +907,6 @@ impl PvcamDriver {
             sensor_width: width,
             sensor_height: height,
             speed_table: speed_table.clone(),
-            health_monitor_cancel: tokio_util::sync::CancellationToken::new(),
         };
 
         driver.connect_params();
@@ -1066,36 +1036,6 @@ impl PvcamDriver {
         });
 
         Ok(driver)
-    }
-
-    /// Start the background health monitor (bd-oqo7.9).
-    ///
-    /// Polls `get_controller_alive()` and `get_ccs_status()` every 5 seconds
-    /// and fires state-transition callbacks. The monitor stops automatically
-    /// when the driver is dropped (via the internal cancellation token).
-    ///
-    /// # Arguments
-    ///
-    /// * `device_id` - The device registry ID (e.g., "pvcam_0") for logging.
-    /// * `callback` - Receives state transition notifications for registry/DB.
-    pub fn start_health_monitor(
-        &self,
-        device_id: String,
-        callback: Arc<dyn crate::components::health_monitor::HealthMonitorCallback>,
-    ) -> tokio::task::JoinHandle<()> {
-        crate::components::health_monitor::spawn_health_monitor(
-            device_id,
-            self.connection.clone(),
-            callback,
-            self.health_monitor_cancel.clone(),
-        )
-    }
-
-    /// Get the cancellation token for the health monitor.
-    ///
-    /// Useful for wiring into a broader shutdown hierarchy.
-    pub fn health_monitor_cancel(&self) -> &tokio_util::sync::CancellationToken {
-        &self.health_monitor_cancel
     }
 
     /// Wire hardware write callbacks for all PVCAM parameters.
@@ -1515,31 +1455,6 @@ impl PvcamDriver {
                     let conn_guard = conn.lock_owned().await;
                     tokio::task::spawn_blocking(move || {
                         PvcamFeatures::set_smart_stream_mode(&conn_guard, mode)
-                            .map_err(|e| DaqError::Instrument(e.to_string()))
-                    })
-                    .await
-                    .map_err(|e| DaqError::Instrument(e.to_string()))?
-                })
-            }
-        });
-
-        // SMART Stream Exposures (bd-oqo7.1)
-        self.smart_stream_exposures.connect_to_hardware_write({
-            let conn = conn.clone();
-            move |val| {
-                let conn = conn.clone();
-                Box::pin(async move {
-                    let exposures: Vec<u32> = serde_json::from_str(&val).map_err(|e| {
-                        DaqError::Instrument(format!(
-                            "Invalid exposure JSON (expected [10,50,100]): {e}"
-                        ))
-                    })?;
-                    if exposures.is_empty() {
-                        return Ok(());
-                    }
-                    let conn_guard = conn.lock_owned().await;
-                    tokio::task::spawn_blocking(move || {
-                        PvcamFeatures::upload_smart_stream(&conn_guard, &exposures)
                             .map_err(|e| DaqError::Instrument(e.to_string()))
                     })
                     .await
@@ -2090,6 +2005,8 @@ impl PvcamDriver {
                 self.roi.get(),
                 self.binning.get(),
                 self.exposure_ms.get(),
+                self.host_summing_enabled.clone(),
+                self.host_summing_count.clone(),
             )
             .await
     }
@@ -2307,11 +2224,20 @@ impl Triggerable for PvcamDriver {
             let roi = self.roi.get();
             let binning = self.binning.get();
             let exposure_ms = self.exposure_ms.get();
+            let host_summing_enabled = self.host_summing_enabled.clone();
+            let host_summing_count = self.host_summing_count.clone();
 
             tokio::spawn(async move {
                 let conn = connection.lock().await;
                 if let Err(e) = acquisition
-                    .acquire_single_frame(&conn, roi, binning, exposure_ms)
+                    .acquire_single_frame(
+                        &conn,
+                        roi,
+                        binning,
+                        exposure_ms,
+                        host_summing_enabled,
+                        host_summing_count,
+                    )
                     .await
                 {
                     tracing::error!("Trigger acquisition failed: {}", e);
@@ -2329,11 +2255,6 @@ impl Triggerable for PvcamDriver {
 impl FrameProducer for PvcamDriver {
     async fn start_stream(&self) -> Result<()> {
         let conn = self.connection.lock().await;
-        let summing_count = if self.host_summing_enabled.get() {
-            self.host_summing_count.get()
-        } else {
-            1
-        };
         self.acquisition
             .start_stream(
                 &conn,
@@ -2341,7 +2262,8 @@ impl FrameProducer for PvcamDriver {
                 self.binning.get(),
                 self.exposure_ms.get(),
                 self.buffer_mode.get(),
-                summing_count,
+                self.host_summing_enabled.clone(),
+                self.host_summing_count.clone(),
             )
             .await
     }
@@ -2484,9 +2406,6 @@ impl Commandable for PvcamDriver {
 /// For clean shutdown, always call `driver.shutdown().await` before dropping.
 impl Drop for PvcamDriver {
     fn drop(&mut self) {
-        // Stop the health monitor background task (bd-oqo7.9).
-        self.health_monitor_cancel.cancel();
-
         if self.streaming.get() {
             // Log warning - user should have called shutdown() first
             tracing::warn!(

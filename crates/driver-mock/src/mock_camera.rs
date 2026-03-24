@@ -854,6 +854,7 @@ impl MockCamera {
                                     readout_speed: Some(readout_speed.clone()),
                                     binning: Some((1, 1)),
                                     trigger_mode: Some(trigger_mode.clone()),
+                                    summing_count: None,
                                     extra: [
                                         ("bit_depth".to_string(), "16".to_string()),
                                         (
