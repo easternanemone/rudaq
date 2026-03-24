@@ -57,8 +57,8 @@ impl PvcamAcquisition {
         binning: (u16, u16),
         done_tx: std::sync::mpsc::Sender<()>,
         tap_registry: Arc<TapRegistry>, // bd-0dax.4: For synchronous tap observers
-        host_summing_enabled: Parameter<bool>,  // bd-oqo7.7
-        host_summing_count: Parameter<u32>,     // bd-oqo7.7
+        host_summing_enabled: Parameter<bool>, // bd-oqo7.7
+        host_summing_count: Parameter<u32>, // bd-oqo7.7
     ) {
         // Main sequence loop
         let mut total_frames: u64 = 0;
@@ -146,7 +146,11 @@ impl PvcamAcquisition {
                         // bd-oqo7.7: Include summing_count in frame metadata
                         let summing_count = if host_summing_enabled.get() {
                             let count = host_summing_count.get();
-                            if count > 1 { Some(count) } else { None }
+                            if count > 1 {
+                                Some(count)
+                            } else {
+                                None
+                            }
                         } else {
                             None
                         };
@@ -301,8 +305,8 @@ impl PvcamAcquisition {
         tap_registry: Arc<TapRegistry>, // bd-0dax.4: For synchronous tap observers
         primary_tx: Option<tokio::sync::mpsc::Sender<common::capabilities::LoanedFrame>>, // bd-r8ux
         primary_frame_pool: Option<Arc<Pool<FrameData>>>, // bd-r8ux
-        host_summing_enabled: Parameter<bool>,  // bd-oqo7.7
-        host_summing_count: Parameter<u32>,     // bd-oqo7.7
+        host_summing_enabled: Parameter<bool>, // bd-oqo7.7
+        host_summing_count: Parameter<u32>, // bd-oqo7.7
     ) {
         let loop_span = tracing::debug_span!(
             "pvcam_frame_loop",
@@ -1152,7 +1156,11 @@ impl PvcamAcquisition {
                 // bd-oqo7.7: Include summing_count in frame metadata
                 let summing_count = if host_summing_enabled.get() {
                     let count = host_summing_count.get();
-                    if count > 1 { Some(count) } else { None }
+                    if count > 1 {
+                        Some(count)
+                    } else {
+                        None
+                    }
                 } else {
                     None
                 };
