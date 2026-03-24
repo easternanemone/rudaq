@@ -906,3 +906,21 @@ impl std::fmt::Display for LogicOutput {
         }
     }
 }
+
+// ─── PrimeLocate (bd-oqo7.10) ─────────────────────────────────────────────
+
+/// A single localization event from PrimeLocate FPGA processing.
+///
+/// When PrimeLocate is active, the camera FPGA evaluates each frame on-chip
+/// and outputs only the coordinates and intensity of detected spots. This
+/// reduces data bandwidth by orders of magnitude compared to full-frame readout,
+/// enabling high-throughput single-molecule tracking.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct LocalizationEvent {
+    /// X coordinate of the localized spot (sub-pixel, sensor coordinates).
+    pub x: f32,
+    /// Y coordinate of the localized spot (sub-pixel, sensor coordinates).
+    pub y: f32,
+    /// Integrated intensity of the localized spot (ADU).
+    pub intensity: f32,
+}

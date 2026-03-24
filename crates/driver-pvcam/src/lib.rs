@@ -55,8 +55,9 @@ use tokio::sync::Mutex;
 // Re-export public types from features component
 pub use crate::components::features::{
     CameraInfo, CentroidsConfig, CentroidsMode, ClearMode, ExposeOutMode, ExposureMode,
-    ExposureResolution, FanSpeed, FrameFlip, FrameRotate, GainMode, IoType, LogicOutput, PPFeature,
-    PPParam, ReadoutPort, ShutterMode, ShutterStatus, SmartStreamEntry, SmartStreamMode, SpeedMode,
+    ExposureResolution, FanSpeed, FrameFlip, FrameRotate, GainMode, IoType, LocalizationEvent,
+    LogicOutput, PPFeature, PPParam, ReadoutPort, ShutterMode, ShutterStatus, SmartStreamEntry,
+    SmartStreamMode, SpeedMode,
 };
 // Re-export feature functions for direct access
 pub use crate::components::features::PvcamFeatures;
@@ -242,9 +243,11 @@ pub struct PvcamDriver {
     ccs_status: Parameter<i16>,
     exp_min_time: Parameter<f64>,
 
-    // Post-Processing (bd-oqo7.3)
+    // Post-Processing (bd-oqo7.3, bd-oqo7.10)
     prime_enhance_enabled: Parameter<bool>,
     prime_enhance_available: bool,
+    prime_locate_enabled: Parameter<bool>,
+    prime_locate_available: bool,
 
     // Metadata (Info)
     serial_number: Parameter<String>,
@@ -764,6 +767,15 @@ impl PvcamDriver {
             }
         }
 
+        // Post-Processing / PrimeLocate (bd-oqo7.10, deferred to 2026-06)
+        // SDK methods not yet implemented — stub as unavailable
+        let prime_locate_available = false;
+        let prime_locate_enabled = Parameter::new("pp.prime_locate_enabled", false)
+            .with_description(
+                "PrimeLocate FPGA single-molecule localization (outputs spot coordinates instead of full frames)",
+            );
+        tracing::debug!("PrimeLocate not yet implemented (bd-oqo7.10)");
+
         // Metadata Info Group
         let serial_number = Parameter::new("info.serial_number", info.serial_number)
             .with_description("Camera Serial Number")
@@ -830,8 +842,9 @@ impl PvcamDriver {
         params.register(controller_alive.clone());
         params.register(ccs_status.clone());
         params.register(exp_min_time.clone());
-        // Post-Processing (bd-oqo7.3)
+        // Post-Processing (bd-oqo7.3, bd-oqo7.10)
         params.register(prime_enhance_enabled.clone());
+        params.register(prime_locate_enabled.clone());
         params.register(serial_number.clone());
         params.register(firmware_version.clone());
         params.register(model_name.clone());
@@ -899,6 +912,8 @@ impl PvcamDriver {
             exp_min_time,
             prime_enhance_enabled,
             prime_enhance_available,
+            prime_locate_enabled,
+            prime_locate_available,
             serial_number,
             firmware_version,
             model_name,
@@ -1727,6 +1742,11 @@ impl PvcamDriver {
                 }
             });
         }
+
+        // PrimeLocate (bd-oqo7.10, deferred to 2026-06)
+        // Hardware write callback will be wired when SDK methods are implemented.
+        // prime_locate_available is false until then, so this is a no-op guard.
+        let _ = &self.prime_locate_enabled; // suppress unused field warning
     }
 
     /// Populate dynamic enum choices from the camera (bd-c4hf.2)

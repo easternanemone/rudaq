@@ -3428,6 +3428,163 @@ impl PvcamFeatures {
     }
 
     // =========================================================================
+    // PrimeLocate Single-Molecule Localization (bd-oqo7.10)
+    // =========================================================================
+
+    /// Check if PrimeLocate is available on this camera.
+    pub fn is_prime_locate_available(_conn: &PvcamConnection) -> bool {
+        #[cfg(feature = "pvcam_sdk")]
+        if _conn.handle().is_some() {
+            if let Ok(features) = Self::enumerate_pp_features(_conn) {
+                return features.iter().any(|f| {
+                    let upper = f.name.to_uppercase();
+                    upper.contains("PRIMELOCATE") || upper.contains("PRIME_LOCATE")
+                });
+            }
+        }
+        false
+    }
+
+    /// Get whether PrimeLocate is currently enabled.
+    pub fn get_prime_locate_enabled(_conn: &PvcamConnection) -> Result<bool> {
+        #[cfg(feature = "pvcam_sdk")]
+        if _conn.handle().is_some() {
+            let features = Self::enumerate_pp_features(_conn)?;
+            let pl_feat = features.iter().find(|f| {
+                let upper = f.name.to_uppercase();
+                upper.contains("PRIMELOCATE") || upper.contains("PRIME_LOCATE")
+            });
+
+            if let Some(feat) = pl_feat {
+                if let Some(ep) = feat
+                    .params
+                    .iter()
+                    .find(|p| p.name.to_uppercase().contains("ENABLE"))
+                {
+                    return Ok(ep.value != 0);
+                }
+                if let Some(first) = feat.params.first() {
+                    return Ok(first.value != 0);
+                }
+            }
+        }
+        Ok(false)
+    }
+
+    /// Enable or disable PrimeLocate.
+    ///
+    /// When enabled, the camera FPGA evaluates frames and transmits only
+    /// localized spot coordinates (x, y, intensity) instead of full pixel data.
+    /// Frame buffers will contain [`LocalizationEvent`] arrays rather than images.
+    pub fn set_prime_locate(_conn: &PvcamConnection, _enabled: bool) -> Result<()> {
+        #[cfg(feature = "pvcam_sdk")]
+        if let Some(h) = _conn.handle() {
+            let features = Self::enumerate_pp_features(_conn)?;
+            let pl_feat = features.iter().find(|f| {
+                let upper = f.name.to_uppercase();
+                upper.contains("PRIMELOCATE") || upper.contains("PRIME_LOCATE")
+            });
+
+            let feat = pl_feat
+                .ok_or_else(|| anyhow!("PrimeLocate feature not available on this camera"))?;
+
+            let feat_idx = feat.index;
+            // SAFETY: h valid; feat_idx pointer valid.
+            unsafe {
+                if pl_set_param(h, PARAM_PP_INDEX, &feat_idx as *const _ as *mut _) == 0 {
+                    return Err(anyhow!(
+                        "Failed to select PP feature: {}",
+                        get_pvcam_error()
+                    ));
+                }
+            }
+
+            let enable_param_idx = feat
+                .params
+                .iter()
+                .find(|p| p.name.to_uppercase().contains("ENABLE"))
+                .map(|p| p.index)
+                .unwrap_or(0);
+
+            // SAFETY: h valid; pointers valid for call duration.
+            unsafe {
+                if pl_set_param(
+                    h,
+                    PARAM_PP_PARAM_INDEX,
+                    &enable_param_idx as *const _ as *mut _,
+                ) == 0
+                {
+                    return Err(anyhow!(
+                        "Failed to select PP param index: {}",
+                        get_pvcam_error()
+                    ));
+                }
+                let val: u32 = u32::from(_enabled);
+                if pl_set_param(h, PARAM_PP_PARAM, &val as *const _ as *mut _) == 0 {
+                    return Err(anyhow!("Failed to set PrimeLocate: {}", get_pvcam_error()));
+                }
+            }
+
+            tracing::info!(
+                enabled = _enabled,
+                "PrimeLocate {}",
+                if _enabled { "enabled" } else { "disabled" }
+            );
+        }
+        Ok(())
+    }
+
+    /// Parse localization events from a PrimeLocate frame buffer.
+    ///
+    /// When PrimeLocate is active, the frame buffer contains packed
+    /// `LocalizationEvent` records instead of pixel data. Each event
+    /// is 12 bytes: x (f32) + y (f32) + intensity (f32).
+    ///
+    /// Returns an empty Vec if the buffer doesn't contain valid localization data
+    /// (e.g., PrimeLocate is disabled or the frame is a normal pixel frame).
+    pub fn parse_localization_events(frame_data: &[u8]) -> Vec<LocalizationEvent> {
+        const EVENT_SIZE: usize = 12; // 3 × f32
+        if frame_data.len() < EVENT_SIZE {
+            return Vec::new();
+        }
+
+        let n_events = frame_data.len() / EVENT_SIZE;
+        let mut events = Vec::with_capacity(n_events);
+
+        for i in 0..n_events {
+            let offset = i * EVENT_SIZE;
+            if offset + EVENT_SIZE > frame_data.len() {
+                break;
+            }
+            let x = f32::from_le_bytes([
+                frame_data[offset],
+                frame_data[offset + 1],
+                frame_data[offset + 2],
+                frame_data[offset + 3],
+            ]);
+            let y = f32::from_le_bytes([
+                frame_data[offset + 4],
+                frame_data[offset + 5],
+                frame_data[offset + 6],
+                frame_data[offset + 7],
+            ]);
+            let intensity = f32::from_le_bytes([
+                frame_data[offset + 8],
+                frame_data[offset + 9],
+                frame_data[offset + 10],
+                frame_data[offset + 11],
+            ]);
+
+            // Basic sanity: NaN/Inf values indicate corrupt data
+            if x.is_finite() && y.is_finite() && intensity.is_finite() && intensity > 0.0 {
+                events.push(LocalizationEvent { x, y, intensity });
+            }
+        }
+
+        events
+    }
+
+    // =========================================================================
     // Private Implementation Helpers
     // =========================================================================
 
