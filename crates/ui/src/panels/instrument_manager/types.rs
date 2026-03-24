@@ -108,6 +108,7 @@ pub struct ParameterInfo {
     pub max_value: Option<f64>,
     pub enum_values: Vec<String>,
     pub current_value: Option<String>,
+    pub group_name: Option<String>,
 }
 
 /// Request to pop out a device control panel into a dockable window

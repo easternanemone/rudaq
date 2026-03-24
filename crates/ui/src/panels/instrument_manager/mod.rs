@@ -1096,6 +1096,7 @@ impl InstrumentManagerPanel {
                     max_value: desc.max_value,
                     enum_values: desc.enum_values,
                     current_value,
+                    group_name: desc.group_name,
                 });
             }
 
@@ -1201,9 +1202,26 @@ impl InstrumentManagerPanel {
                                 ui.strong("Actions");
                                 ui.end_row();
 
-                                // Parameters - clone to avoid borrow issues
-                                let params = self.params_viewer_params.clone();
+                                // Parameters - clone and sort by group then name (bd-a0lz)
+                                let mut params = self.params_viewer_params.clone();
+                                params.sort_by(|a, b| {
+                                    let ga = a.group_name.as_deref().unwrap_or("");
+                                    let gb = b.group_name.as_deref().unwrap_or("");
+                                    ga.cmp(gb).then_with(|| a.name.cmp(&b.name))
+                                });
+                                let mut last_group = String::new();
                                 for param in params {
+                                    // Group header
+                                    let group = param.group_name.as_deref().unwrap_or("Other");
+                                    if group != last_group {
+                                        ui.end_row();
+                                        ui.strong(format!("▸ {}", group));
+                                        ui.label("");
+                                        ui.label("");
+                                        ui.label("");
+                                        ui.end_row();
+                                        last_group = group.to_string();
+                                    }
                                     ui.label(&param.name);
 
                                     // Value display/edit
