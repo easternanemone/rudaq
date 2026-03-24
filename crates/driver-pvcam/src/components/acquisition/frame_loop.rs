@@ -459,10 +459,9 @@ impl PvcamAcquisition {
             ffi_safe::MdFrameGuard::null()
         };
 
-        // Track when receiver count became zero for graceful disconnect (bd-cckz)
-        // Auto-stop acquisition after 5 seconds of no subscribers
-        let mut no_subscribers_since: Option<std::time::Instant> = None;
-        const NO_SUBSCRIBER_TIMEOUT: Duration = Duration::from_secs(5);
+        // bd-a9nr: Removed auto-stop-on-no-subscribers (was bd-cckz).
+        // The caller controls acquisition lifetime via streaming Parameter and stop_stream().
+        // Auto-stopping caused race conditions with gRPC tap observer registration.
 
         // Check both streaming flag and shutdown signal (bd-z8q8).
         // Shutdown is set in Drop to ensure the loop exits before SDK uninit.
@@ -1200,51 +1199,21 @@ impl PvcamAcquisition {
                     );
                 }
 
-                if !has_consumers {
-                    // Track when we lost all subscribers AND observers (bd-cckz, bd-fix-2026-01-17)
-                    if no_subscribers_since.is_none() {
-                        no_subscribers_since = Some(std::time::Instant::now());
-                        tracing::info!(
-                            "No consumers (broadcast={}, observers={}), starting {} second disconnect timer",
-                            receiver_count,
-                            tap_registry.tap_count(),
-                            NO_SUBSCRIBER_TIMEOUT.as_secs()
-                        );
-                    } else if let Some(since) = no_subscribers_since {
-                        if since.elapsed() >= NO_SUBSCRIBER_TIMEOUT {
-                            tracing::info!(
-                                "No consumers for {} seconds, stopping acquisition (bd-cckz)",
-                                NO_SUBSCRIBER_TIMEOUT.as_secs()
-                            );
-                            eprintln!(
-                                "[PVCAM DEBUG] Breaking due to no consumers for {} seconds (iter={}, receiver_count={}, observers={})",
-                                NO_SUBSCRIBER_TIMEOUT.as_secs(),
-                                loop_iteration,
-                                receiver_count,
-                                tap_registry.tap_count()
-                            );
-                            break;
-                        }
-                    }
-                    tracing::warn!(
-                        "Dropping frame {}: no active consumers (broadcast={}, observers={})",
+                // bd-a9nr: Log consumer count periodically but never auto-stop.
+                // Acquisition lifetime is controlled by streaming Parameter + stop_stream().
+                if !has_consumers && monotonic_frame_count % 100 == 1 {
+                    tracing::debug!(
+                        "Frame {}: no active consumers (broadcast={}, observers={}) — streaming continues until stop_stream()",
                         current_frame_nr,
                         receiver_count,
                         tap_registry.tap_count()
                     );
-                } else {
-                    // Reset timer when subscribers reconnect
-                    if no_subscribers_since.is_some() {
-                        tracing::info!("Subscriber reconnected, canceling disconnect timer");
-                        no_subscribers_since = None;
-                    }
-                    if current_frame_nr % 30 == 1 {
-                        tracing::debug!(
-                            "Sending frame {} to {} broadcast subscribers",
-                            current_frame_nr,
-                            receiver_count
-                        );
-                    }
+                } else if has_consumers && current_frame_nr % 30 == 1 {
+                    tracing::debug!(
+                        "Sending frame {} to {} broadcast subscribers",
+                        current_frame_nr,
+                        receiver_count
+                    );
                 }
 
                 // bd-0dax.4: Run taps SYNCHRONOUSLY before broadcast (observers get &Frame)
