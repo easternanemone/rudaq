@@ -326,6 +326,8 @@ pub struct ImageViewerPanel {
     /// Remote profile load state machine (bd-zy7y.1).
     /// Tracks the full lifecycle: Idle → Pending → Loading → Succeeded/Failed → Idle.
     pub(in crate::panels::image_viewer) remote_profile_load: RemoteProfileLoadState,
+    /// WASM remote save via `SaveCalibrationProfile` (bd-qyhh).
+    pub(in crate::panels::image_viewer) remote_profile_save: RemoteProfileSaveState,
     /// True when the active echelle profile snapshot should be resynced into RunEngine state.
     pub(super) echelle_run_engine_sync_dirty: bool,
     /// True while an async echelle snapshot sync request is in flight.
@@ -473,6 +475,7 @@ impl Default for ImageViewerPanel {
             echelle_plot_hover_link: None,
             echelle_cal_ui: EchelleCalibrationUiState::with_defaults(),
             remote_profile_load: RemoteProfileLoadState::default(),
+            remote_profile_save: RemoteProfileSaveState::default(),
             echelle_run_engine_sync_dirty: false,
             echelle_run_engine_sync_in_flight: false,
 
@@ -493,7 +496,9 @@ impl ImageViewerPanel {
     /// The profile is loaded lazily and reloaded on modification while preserving
     /// the last-good profile if a subsequent reload fails.
     pub fn set_echelle_profile_path(&mut self, path: std::path::PathBuf) {
-        self.echelle_cal_ui.save_as_path_text = path.display().to_string();
+        let display = path.display().to_string();
+        self.echelle_cal_ui.save_as_path_text.clone_from(&display);
+        self.echelle_cal_ui.record_recent_profile_path(&display);
         self.echelle_profile_cache.set_path(path);
     }
 
@@ -525,6 +530,14 @@ impl ImageViewerPanel {
         if !self.remote_profile_load.is_busy() {
             self.remote_profile_load = RemoteProfileLoadState::Pending { path };
         }
+    }
+
+    pub(crate) fn restore_echelle_recent_profile_paths(&mut self, paths: Vec<String>) {
+        self.echelle_cal_ui.recent_profile_paths = paths
+            .into_iter()
+            .filter(|p| !p.trim().is_empty())
+            .take(echelle_calibration::EchelleCalibrationUiState::RECENT_PROFILE_PATHS_MAX)
+            .collect();
     }
 
     /// Expose the last echelle profile loader error for future UI presentation.

@@ -561,6 +561,17 @@ impl EchelleCalibrationProfile {
         })
     }
 
+    /// Serialize this profile to pretty-printed TOML in memory (no I/O).
+    ///
+    /// Used by WASM / gRPC save paths that write via the daemon instead of `save_to_path`.
+    pub fn serialize_to_toml_string(&self) -> Result<String, EchelleProfileError> {
+        self.validate()?;
+        toml::to_string_pretty(self).map_err(|source| EchelleProfileError::TomlSerialize {
+            path: "<memory>".to_string(),
+            source,
+        })
+    }
+
     pub fn validate(&self) -> Result<(), EchelleProfileError> {
         if !self.schema_version.is_supported_for_read() {
             return Err(EchelleProfileError::Validation(format!(
@@ -679,10 +690,10 @@ impl EchelleCalibrationProfile {
 
     /// Strict pass/fail validation for frame compatibility.
     ///
-    /// Delegates to [`check_frame_compatibility`] and rejects anything
+    /// Delegates to `check_frame_compatibility` and rejects anything
     /// that is not fully `Compatible`. Also validates the profile itself.
     ///
-    /// Prefer [`check_frame_compatibility`] when the caller can handle
+    /// Prefer `check_frame_compatibility` when the caller can handle
     /// warnings (e.g., UI preview can show "bit depth mismatch" without
     /// blocking extraction).
     pub fn validate_for_frame(
@@ -1463,7 +1474,7 @@ fn extract_preview_with_scratch_inner(
         frame_number,
         profile_display_name: profile.display_name.clone(),
         profile_id: profile.profile_id.clone(),
-        merged: build_merged_preview(&orders),
+        merged: build_merged_preview(&orders, profile.corrections.blaze_curves.is_some()),
         orders,
     })
 }
@@ -1750,7 +1761,60 @@ fn sample_background_sidebands(
     (background_sum, background_count)
 }
 
-fn build_merged_preview(orders: &[EchelleOrderPreview]) -> Option<EchelleMergedPreview> {
+/// Default merge bin width for `build_merged_preview` (nm). Finer than the
+/// legacy 0.1 nm grid so Mechelle-class resolving power is not over-smoothed
+/// in the GUI merged preview (bd-srh1).
+pub const ECHELLE_MERGE_BIN_WIDTH_NM: f64 = 0.05;
+
+/// Echelle grating blaze envelope: sinc²(π·(λ − λ_blaze) / FSR), matching the
+/// model used in [`crate::simulation`] and typical spectrograph texts.
+#[inline]
+fn echelle_blaze_sinc_squared(lambda_nm: f64, lambda_blaze_nm: f64, fsr_nm: f64) -> f64 {
+    if !(lambda_nm.is_finite() && lambda_blaze_nm.is_finite() && fsr_nm.is_finite())
+        || fsr_nm <= 0.0
+    {
+        return 1.0;
+    }
+    let arg = std::f64::consts::PI * (lambda_nm - lambda_blaze_nm) / fsr_nm;
+    if arg.abs() < 1e-12 {
+        return 1.0;
+    }
+    let sinc = arg.sin() / arg;
+    (sinc * sinc).clamp(1e-12, 1.0)
+}
+
+/// Per-order grating constant estimate: median of `m · λ` over samples with
+/// `λ ≥ 200` nm (same cut as `build_merged_preview`). Used only for analytic blaze weights.
+fn infer_order_grating_constant_nm(order: &EchelleOrderPreview, m: i32) -> Option<f64> {
+    let mf = f64::from(m);
+    let mut products: Vec<f64> = order
+        .wavelengths
+        .iter()
+        .copied()
+        .filter(|&wl| wl.is_finite() && wl >= 200.0)
+        .map(|wl| mf * wl)
+        .collect();
+    if products.is_empty() {
+        return None;
+    }
+    products.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    Some(products[products.len() / 2])
+}
+
+/// Merge per-order 1D previews into one wavelength-sorted spectrum.
+///
+/// When `flux_is_blaze_corrected` is false (no empirical `blaze_curves` applied
+/// in [`extract_order`]), overlap regions are combined with **blaze weights**
+/// `W ∝ sinc²((λ−λ_blaze)/FSR)` using per-order `λ_blaze = (m·λ)_median / m` and
+/// `FSR = (m·λ)_median / m²`. That replaces the old fixed 10% edge trim (bd-srh1).
+///
+/// When empirical flat-field blaze curves were applied during extraction, flux is
+/// already flattened; merge uses uniform weights so we do not double-apply the
+/// grating envelope (bd-dgea).
+fn build_merged_preview(
+    orders: &[EchelleOrderPreview],
+    flux_is_blaze_corrected: bool,
+) -> Option<EchelleMergedPreview> {
     let first_unit = orders.first()?.wavelength_unit.clone();
     if orders
         .iter()
@@ -1759,72 +1823,68 @@ fn build_merged_preview(orders: &[EchelleOrderPreview]) -> Option<EchelleMergedP
         return None;
     }
 
-    // For each order, trim the outer 10% of wavelength samples on each edge to
-    // remove low-blaze-efficiency tails where overlapping orders produce artifacts.
-    // Skip orders without a physical_order_number (ambiguous/duplicate traces) and
-    // orders outside the physically plausible range for the Mechelle 5000 (m≈40-120).
-    // Also skip samples with physically impossible wavelengths (< 200 nm for air).
-    let mut samples = Vec::new();
+    let mut weighted: Vec<(f64, f64, f64)> = Vec::new();
     for order in orders {
-        // Filter out spurious traces: only include orders with a known physical
-        // order number in the plausible echelle range.
-        match order.physical_order_number {
-            Some(m) if (40..=120).contains(&m) => {}
+        let m = match order.physical_order_number {
+            Some(m) if (40..=120).contains(&m) => m,
             _ => continue,
-        }
+        };
         let n = order.wavelengths.len();
-        if n < 5 {
+        if n < 2 {
             continue;
         }
-        let trim = n / 10; // 10% from each edge
-        let start = trim;
-        let end = n - trim;
-        samples.extend(
-            order.wavelengths[start..end]
-                .iter()
-                .copied()
-                .zip(order.flux[start..end].iter().copied())
-                .filter(|(wl, flux)| wl.is_finite() && *wl >= 200.0 && flux.is_finite()),
-        );
-    }
-    samples.sort_by(|left, right| {
-        left.0
-            .partial_cmp(&right.0)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+        let Some(gc_o) = infer_order_grating_constant_nm(order, m) else {
+            continue;
+        };
+        let mf = f64::from(m);
+        let lambda_blaze = gc_o / mf;
+        let fsr = gc_o / (mf * mf);
 
-    // Bin overlapping wavelengths: average flux in 0.1 nm bins to handle
-    // order overlap regions cleanly instead of duplicating samples.
-    if samples.is_empty() {
-        return None;
-    }
-    let bin_width = 0.1; // nm
-    let mut binned_wl = Vec::with_capacity(samples.len());
-    let mut binned_flux = Vec::with_capacity(samples.len());
-    let mut bin_start = samples[0].0;
-    let mut bin_flux_sum = 0.0;
-    let mut bin_count = 0u32;
-    for &(wl, fl) in &samples {
-        if wl - bin_start < bin_width {
-            bin_flux_sum += fl;
-            bin_count += 1;
-        } else {
-            if bin_count > 0 {
-                #[allow(clippy::cast_precision_loss)]
-                let avg = bin_flux_sum / f64::from(bin_count);
-                binned_wl.push(bin_start + bin_width * 0.5);
-                binned_flux.push(avg);
+        for i in 0..n {
+            let wl = order.wavelengths[i];
+            let fl = order.flux[i];
+            if !wl.is_finite() || wl < 200.0 || !fl.is_finite() {
+                continue;
             }
-            bin_start = wl;
-            bin_flux_sum = fl;
-            bin_count = 1;
+            let w = if flux_is_blaze_corrected {
+                1.0
+            } else {
+                echelle_blaze_sinc_squared(wl, lambda_blaze, fsr)
+            };
+            weighted.push((wl, fl, w));
         }
     }
-    if bin_count > 0 {
-        #[allow(clippy::cast_precision_loss)]
-        let avg = bin_flux_sum / f64::from(bin_count);
+
+    if weighted.is_empty() {
+        return None;
+    }
+
+    weighted.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+
+    let bin_width = ECHELLE_MERGE_BIN_WIDTH_NM;
+    let mut binned_wl = Vec::with_capacity(weighted.len());
+    let mut binned_flux = Vec::with_capacity(weighted.len());
+    let mut bin_start = weighted[0].0;
+    let mut bin_w_sum = 0.0;
+    let mut bin_fw_sum = 0.0;
+
+    for &(wl, fl, w) in &weighted {
+        if wl - bin_start < bin_width {
+            bin_w_sum += w;
+            bin_fw_sum += fl * w;
+        } else {
+            if bin_w_sum > 0.0 {
+                binned_wl.push(bin_start + bin_width * 0.5);
+                binned_flux.push(bin_fw_sum / bin_w_sum);
+            }
+            bin_start = wl;
+            bin_w_sum = w;
+            bin_fw_sum = fl * w;
+        }
+    }
+    if bin_w_sum > 0.0 {
         binned_wl.push(bin_start + bin_width * 0.5);
-        binned_flux.push(avg);
+        binned_flux.push(bin_fw_sum / bin_w_sum);
     }
 
     Some(EchelleMergedPreview {
@@ -1982,7 +2042,7 @@ fn eval_polynomial(
 /// 1. Extracts the flat spectrum using simple-sum mode (no background,
 ///    no blaze correction, no scattered-light subtraction).
 /// 2. Normalises the per-order flat spectrum so that its peak value is 1.0.
-/// 3. Clamps values below [`BLAZE_FLOOR`] to that floor to prevent
+/// 3. Clamps values below `BLAZE_FLOOR` to that floor to prevent
 ///    excessive amplification at order edges.
 ///
 /// Note: this is a simple per-order normalisation; it does not perform
@@ -2061,6 +2121,13 @@ fn compute_blaze_from_flat(flat_flux: &[f64]) -> Vec<f64> {
             }
         })
         .collect()
+}
+
+/// Normalise extracted flat-like 1D flux into a per-order blaze curve for
+/// [`EchelleCorrections::blaze_curves`] (same rule as [`extract_flat_blaze_curves`]).
+#[must_use]
+pub fn blaze_curve_from_flat_flux(flat_flux: &[f64]) -> Vec<f64> {
+    compute_blaze_from_flat(flat_flux)
 }
 
 #[cfg(test)]

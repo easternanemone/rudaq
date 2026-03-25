@@ -11,6 +11,7 @@ impl ImageViewerPanel {
         self.poll_param_results(ui.ctx());
         self.poll_echelle_profile_cache();
         self.poll_remote_profile_load();
+        self.poll_remote_profile_save();
         // Reset terminal load states to Idle — outcomes are already propagated
         // to echelle_cal_ui.status_message/last_error by poll_remote_profile_load.
         // On success, trigger immediate extraction on the last frame (bd-zy7y.3)
@@ -22,6 +23,16 @@ impl ImageViewerPanel {
                 RemoteProfileLoadState::Succeeded { .. }
             );
             self.remote_profile_load = RemoteProfileLoadState::default();
+            if was_success {
+                self.try_immediate_echelle_extraction();
+            }
+        }
+        if self.remote_profile_save.is_terminal() {
+            let was_success = matches!(
+                self.remote_profile_save,
+                RemoteProfileSaveState::Succeeded { .. }
+            );
+            self.remote_profile_save = RemoteProfileSaveState::default();
             if was_success {
                 self.try_immediate_echelle_extraction();
             }
@@ -610,6 +621,49 @@ impl ImageViewerPanel {
                 });
             }
 
+            // Remote profile save (WASM: SaveCalibrationProfile, bd-qyhh).
+            if let Some((path, content, activate_after, profile)) = match &self.remote_profile_save
+            {
+                RemoteProfileSaveState::Pending {
+                    path,
+                    content,
+                    activate_after,
+                    profile,
+                } => Some((
+                    path.clone(),
+                    content.clone(),
+                    *activate_after,
+                    profile.clone(),
+                )),
+                _ => None,
+            } {
+                let mut client_clone = client_val.clone();
+                let (tx, rx) = std::sync::mpsc::channel();
+                let path_clone = path.clone();
+                self.remote_profile_save = RemoteProfileSaveState::Loading {
+                    path: path.clone(),
+                    activate_after,
+                    profile,
+                    rx,
+                };
+                runtime.spawn(async move {
+                    match client_clone
+                        .save_calibration_profile(&path_clone, &content)
+                        .await
+                    {
+                        Ok(resp) if resp.success => {
+                            let _ = tx.send(Ok(()));
+                        }
+                        Ok(resp) => {
+                            let _ = tx.send(Err(resp.error_message));
+                        }
+                        Err(e) => {
+                            let _ = tx.send(Err(format!("gRPC error: {e}")));
+                        }
+                    }
+                });
+            }
+
             Some(client_val)
         } else {
             // bd-aruo.4: Show per-parameter error when updates are dropped
@@ -626,6 +680,14 @@ impl ImageViewerPanel {
                 }
             }
             self.pending_param_updates.clear();
+            #[cfg(target_arch = "wasm32")]
+            if let RemoteProfileSaveState::Pending { path, .. } = &self.remote_profile_save {
+                let path = path.clone();
+                let error = "Not connected to daemon — cannot save calibration profile remotely"
+                    .to_string();
+                self.echelle_cal_ui.last_error = Some(error.clone());
+                self.remote_profile_save = RemoteProfileSaveState::Failed { path, error };
+            }
             None
         };
 

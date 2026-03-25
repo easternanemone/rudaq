@@ -340,6 +340,54 @@ impl RemoteProfileLoadState {
     }
 }
 
+/// Remote save of the calibration editor profile via `SaveCalibrationProfile` (bd-qyhh).
+///
+/// Native builds still use local `save_to_path`; WASM queues this state machine when
+/// the user clicks Save / Save+Activate.
+#[allow(dead_code)] // Succeeded/Failed fields carry debug context (mirrors RemoteProfileLoadState).
+#[derive(Debug, Default)]
+pub(in crate::panels::image_viewer) enum RemoteProfileSaveState {
+    #[default]
+    Idle,
+    Pending {
+        path: String,
+        content: String,
+        activate_after: bool,
+        profile: echelle::EchelleCalibrationProfile,
+    },
+    Loading {
+        path: String,
+        activate_after: bool,
+        profile: echelle::EchelleCalibrationProfile,
+        rx: std::sync::mpsc::Receiver<Result<(), String>>,
+    },
+    Succeeded {
+        path: String,
+    },
+    Failed {
+        path: String,
+        error: String,
+    },
+}
+
+impl RemoteProfileSaveState {
+    pub(super) fn is_busy(&self) -> bool {
+        matches!(self, Self::Pending { .. } | Self::Loading { .. })
+    }
+
+    pub(super) fn status_message(&self) -> Option<String> {
+        match self {
+            Self::Pending { path, .. } => Some(format!("Saving profile to daemon: {path}...")),
+            Self::Loading { path, .. } => Some(format!("Saving profile to daemon: {path}...")),
+            _ => None,
+        }
+    }
+
+    pub(super) fn is_terminal(&self) -> bool {
+        matches!(self, Self::Succeeded { .. } | Self::Failed { .. })
+    }
+}
+
 /// Recording state for camera frames (bd-3pdi.5.3)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum RecordingState {

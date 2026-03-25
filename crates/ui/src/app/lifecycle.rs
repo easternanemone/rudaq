@@ -323,6 +323,13 @@ impl eframe::App for DaqApp {
             eframe::set_value(storage, "echelle_profile_path", echelle_path);
         }
 
+        let recent = self
+            .image_viewer_panel
+            .echelle_cal_ui
+            .recent_profile_paths
+            .clone();
+        eframe::set_value(storage, "echelle_recent_profile_paths", &recent);
+
         // Persist device panel info for layout restoration
         let persisted_panels: HashMap<usize, PersistedPanelInfo> = self
             .device_panel_info

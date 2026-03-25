@@ -208,6 +208,80 @@ pub fn detect_arc_lines(
     accepted
 }
 
+/// Merge multiple [`detect_arc_lines`] outputs (e.g. different exposures for HDR)
+/// into one list per echelle order.
+///
+/// Within each echelle `order`, lines are sorted by `pixel_center` and clustered
+/// with **single-link** chaining: the next line joins the current cluster iff it
+/// lies within `merge_tol_px` of the cluster's rightmost center (so 0.0, 0.8,
+/// 1.6 with `tol = 1.0` merge). `pick_hdr_arc_line` chooses the survivor.
+/// Runs may be in any order; output is sorted by `(order, pixel_center)`.
+#[must_use]
+pub fn merge_arc_lines_hdr(
+    runs: &[Vec<ArcLine>],
+    merge_tol_px: f64,
+    prefer_unsaturated: bool,
+) -> Vec<ArcLine> {
+    let mut all: Vec<ArcLine> = runs.iter().flatten().cloned().collect();
+    if all.is_empty() {
+        return Vec::new();
+    }
+
+    all.sort_by(|a, b| {
+        a.order.cmp(&b.order).then(
+            a.pixel_center
+                .partial_cmp(&b.pixel_center)
+                .unwrap_or(std::cmp::Ordering::Equal),
+        )
+    });
+
+    let tol = merge_tol_px.max(0.0);
+    let mut merged: Vec<ArcLine> = Vec::new();
+    let mut idx = 0;
+    while idx < all.len() {
+        let ord = all[idx].order;
+        let mut cluster_max = all[idx].pixel_center;
+        let mut cluster = vec![all[idx].clone()];
+        idx += 1;
+        while idx < all.len() {
+            let line = &all[idx];
+            if line.order != ord {
+                break;
+            }
+            if line.pixel_center - cluster_max <= tol {
+                cluster.push(line.clone());
+                cluster_max = cluster_max.max(line.pixel_center);
+                idx += 1;
+            } else {
+                break;
+            }
+        }
+        merged.push(pick_hdr_arc_line(&cluster, prefer_unsaturated));
+    }
+    merged
+}
+
+fn pick_hdr_arc_line(cluster: &[ArcLine], prefer_unsaturated: bool) -> ArcLine {
+    let pool: Vec<&ArcLine> = if prefer_unsaturated {
+        let unsat: Vec<&ArcLine> = cluster.iter().filter(|l| !l.saturated).collect();
+        if unsat.is_empty() {
+            cluster.iter().collect()
+        } else {
+            unsat
+        }
+    } else {
+        cluster.iter().collect()
+    };
+    pool.into_iter()
+        .max_by(|a, b| {
+            a.amplitude
+                .partial_cmp(&b.amplitude)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .expect("HDR line cluster must be non-empty")
+        .clone()
+}
+
 /// Infer the detector saturation threshold from the observed maximum value.
 ///
 /// Common detector bit depths: 12-bit (max 4095), 14-bit (16383), 16-bit (65535).
@@ -2496,5 +2570,124 @@ mod tests {
         // Low value (no saturation expected) -> fallback.
         let thresh = infer_saturation_threshold(500.0);
         assert!(thresh >= 500.0, "threshold should be >= observed max");
+    }
+
+    #[test]
+    fn merge_arc_lines_hdr_merges_duplicate_centers() {
+        let run_a = vec![ArcLine {
+            order: 0,
+            pixel_center: 100.0,
+            pixel_sigma: 2.0,
+            amplitude: 50.0,
+            wavelength_hint: None,
+            used: true,
+            saturated: true,
+        }];
+        let run_b = vec![ArcLine {
+            order: 0,
+            pixel_center: 100.4,
+            pixel_sigma: 2.1,
+            amplitude: 200.0,
+            wavelength_hint: None,
+            used: true,
+            saturated: false,
+        }];
+        let merged = merge_arc_lines_hdr(&[run_a.clone(), run_b.clone()], 1.0, true);
+        assert_eq!(merged.len(), 1);
+        assert!(!merged[0].saturated);
+        assert!((merged[0].amplitude - 200.0).abs() < 1e-9);
+
+        let merged_amp = merge_arc_lines_hdr(&[run_a, run_b], 1.0, false);
+        assert!((merged_amp[0].amplitude - 200.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn merge_arc_lines_hdr_merges_chained_centers() {
+        // Anchor-only clustering would keep 1.6 separate from 0.0 (|1.6-0| > 1);
+        // single-link along sorted axis merges all three.
+        let run = vec![
+            ArcLine {
+                order: 0,
+                pixel_center: 0.0,
+                pixel_sigma: 2.0,
+                amplitude: 10.0,
+                wavelength_hint: None,
+                used: true,
+                saturated: false,
+            },
+            ArcLine {
+                order: 0,
+                pixel_center: 0.8,
+                pixel_sigma: 2.0,
+                amplitude: 20.0,
+                wavelength_hint: None,
+                used: true,
+                saturated: false,
+            },
+            ArcLine {
+                order: 0,
+                pixel_center: 1.6,
+                pixel_sigma: 2.0,
+                amplitude: 15.0,
+                wavelength_hint: None,
+                used: true,
+                saturated: false,
+            },
+        ];
+        let merged = merge_arc_lines_hdr(&[run], 1.0, false);
+        assert_eq!(merged.len(), 1);
+        assert!((merged[0].amplitude - 20.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn merge_arc_lines_hdr_keeps_separated_peaks() {
+        let run_a = vec![ArcLine {
+            order: 0,
+            pixel_center: 50.0,
+            pixel_sigma: 2.0,
+            amplitude: 100.0,
+            wavelength_hint: None,
+            used: true,
+            saturated: false,
+        }];
+        let run_b = vec![ArcLine {
+            order: 0,
+            pixel_center: 120.0,
+            pixel_sigma: 2.0,
+            amplitude: 90.0,
+            wavelength_hint: None,
+            used: true,
+            saturated: false,
+        }];
+        let merged = merge_arc_lines_hdr(&[run_a, run_b], 3.0, true);
+        assert_eq!(merged.len(), 2);
+    }
+
+    #[test]
+    fn merge_arc_lines_hdr_partitions_by_order() {
+        let run = vec![
+            ArcLine {
+                order: 0,
+                pixel_center: 10.0,
+                pixel_sigma: 2.0,
+                amplitude: 80.0,
+                wavelength_hint: None,
+                used: true,
+                saturated: false,
+            },
+            ArcLine {
+                order: 1,
+                pixel_center: 10.2,
+                pixel_sigma: 2.0,
+                amplitude: 70.0,
+                wavelength_hint: None,
+                used: true,
+                saturated: false,
+            },
+        ];
+        let merged = merge_arc_lines_hdr(&[run], 0.5, false);
+        assert_eq!(merged.len(), 2);
+        assert_eq!(merged[0].order, 0);
+        assert_eq!(merged[1].order, 1);
     }
 }

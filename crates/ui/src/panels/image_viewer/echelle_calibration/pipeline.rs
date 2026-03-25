@@ -46,6 +46,7 @@ impl ImageViewerPanel {
                             self.echelle_sidebar_plot_y_locked = false;
                             self.echelle_sidebar_saved_y = None;
                             self.echelle_plot_last_rendered = None;
+                            self.echelle_cal_ui.record_recent_profile_path(&path);
                             self.remote_profile_load = RemoteProfileLoadState::Succeeded { path };
                         }
                     }
@@ -68,6 +69,61 @@ impl ImageViewerPanel {
                 let error = "Profile load channel disconnected unexpectedly".to_string();
                 self.echelle_cal_ui.last_error = Some(error.clone());
                 self.remote_profile_load = RemoteProfileLoadState::Failed { path, error };
+            }
+        }
+    }
+
+    /// Poll remote profile save (WASM + gRPC `SaveCalibrationProfile`, bd-qyhh).
+    pub(in crate::panels::image_viewer) fn poll_remote_profile_save(&mut self) {
+        let current = std::mem::take(&mut self.remote_profile_save);
+        let RemoteProfileSaveState::Loading {
+            path,
+            activate_after,
+            profile,
+            rx,
+        } = current
+        else {
+            self.remote_profile_save = current;
+            return;
+        };
+
+        match rx.try_recv() {
+            Ok(Ok(())) => {
+                self.echelle_cal_ui.editor_dirty = false;
+                self.echelle_cal_ui.editor_last_loaded_path = Some(std::path::PathBuf::from(&path));
+                self.echelle_cal_ui.record_recent_profile_path(&path);
+                self.echelle_cal_ui.status_message = Some(format!(
+                    "Saved calibration profile to {path} on daemon host"
+                ));
+                self.echelle_cal_ui.last_error = None;
+                if activate_after {
+                    self.set_echelle_profile_path(std::path::PathBuf::from(&path));
+                    self.echelle_profile_cache.activate_in_memory(profile);
+                    self.mark_echelle_run_engine_sync_dirty();
+                    self.echelle_plot_y_locked = false;
+                    self.echelle_plot_saved_y = None;
+                    self.echelle_sidebar_plot_y_locked = false;
+                    self.echelle_sidebar_saved_y = None;
+                    self.echelle_plot_last_rendered = None;
+                }
+                self.remote_profile_save = RemoteProfileSaveState::Succeeded { path };
+            }
+            Ok(Err(e)) => {
+                self.echelle_cal_ui.last_error = Some(e.clone());
+                self.remote_profile_save = RemoteProfileSaveState::Failed { path, error: e };
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => {
+                self.remote_profile_save = RemoteProfileSaveState::Loading {
+                    path,
+                    activate_after,
+                    profile,
+                    rx,
+                };
+            }
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                let error = "Profile save channel disconnected unexpectedly".to_string();
+                self.echelle_cal_ui.last_error = Some(error.clone());
+                self.remote_profile_save = RemoteProfileSaveState::Failed { path, error };
             }
         }
     }
@@ -342,29 +398,55 @@ impl ImageViewerPanel {
             return Err("Enter a .toml or .json path to save the calibration profile".to_string());
         }
         let path = std::path::PathBuf::from(path_text);
-        if let Some(parent) = path.parent() {
-            if !parent.as_os_str().is_empty() && !parent.exists() {
-                std::fs::create_dir_all(parent).map_err(|e| {
-                    format!(
-                        "Failed to create calibration profile directory {}: {e}",
-                        parent.display()
-                    )
-                })?;
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            if self.remote_profile_save.is_busy() {
+                return Err("Remote profile save already in progress".to_string());
             }
+            if self.remote_profile_load.is_busy() {
+                return Err("A profile load is already in progress".to_string());
+            }
+            let content = profile
+                .serialize_to_toml_string()
+                .map_err(|e| format!("Failed to serialize calibration profile to TOML: {e}"))?;
+            self.remote_profile_save = RemoteProfileSaveState::Pending {
+                path: path_text.to_string(),
+                content,
+                activate_after: activate_after_save,
+                profile,
+            };
+            return Ok(path);
         }
-        profile
-            .save_to_path(&path)
-            .map_err(|e| format!("Failed to save calibration profile {}: {e}", path.display()))?;
-        self.echelle_cal_ui.editor_dirty = false;
-        self.echelle_cal_ui.editor_last_loaded_path = Some(path.clone());
-        self.echelle_cal_ui.status_message =
-            Some(format!("Saved calibration profile to {}", path.display()));
-        self.echelle_cal_ui.last_error = None;
-        if activate_after_save {
-            self.set_echelle_profile_path(path.clone());
-            self.poll_echelle_profile_cache();
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if let Some(parent) = path.parent() {
+                if !parent.as_os_str().is_empty() && !parent.exists() {
+                    std::fs::create_dir_all(parent).map_err(|e| {
+                        format!(
+                            "Failed to create calibration profile directory {}: {e}",
+                            parent.display()
+                        )
+                    })?;
+                }
+            }
+            profile.save_to_path(&path).map_err(|e| {
+                format!("Failed to save calibration profile {}: {e}", path.display())
+            })?;
+            self.echelle_cal_ui.editor_dirty = false;
+            self.echelle_cal_ui.editor_last_loaded_path = Some(path.clone());
+            self.echelle_cal_ui
+                .record_recent_profile_path(&path.display().to_string());
+            self.echelle_cal_ui.status_message =
+                Some(format!("Saved calibration profile to {}", path.display()));
+            self.echelle_cal_ui.last_error = None;
+            if activate_after_save {
+                self.set_echelle_profile_path(path.clone());
+                self.poll_echelle_profile_cache();
+            }
+            Ok(path)
         }
-        Ok(path)
     }
 
     pub(in crate::panels::image_viewer) fn import_echelle_calibration_points_from_path(
@@ -544,6 +626,84 @@ impl ImageViewerPanel {
             });
             self.mark_echelle_editor_dirty();
         }
+        Ok(())
+    }
+
+    /// Copy the selected extraction-preview 1D flux into `corrections.blaze_curves`
+    /// for the matching editor order (peak-normalised, same rule as flat-field blaze).
+    pub(in crate::panels::image_viewer) fn apply_selected_preview_blaze_to_editor_blaze_curves(
+        &mut self,
+    ) -> Result<(), String> {
+        let (flux, relative_index) = {
+            let preview = self
+                .echelle_preview
+                .as_ref()
+                .ok_or_else(|| "No extracted preview is available".to_string())?;
+            let order = preview
+                .orders
+                .get(self.echelle_selected_order_plot)
+                .ok_or_else(|| "No selected order preview available".to_string())?;
+            if order.flux.is_empty() {
+                return Err("Selected order preview has empty flux".to_string());
+            }
+            (order.flux.clone(), order.relative_index)
+        };
+
+        let profile = self
+            .echelle_cal_ui
+            .editor_profile
+            .as_mut()
+            .ok_or_else(|| "No calibration profile in editor".to_string())?;
+
+        let pos = profile
+            .orders
+            .iter()
+            .position(|o| o.enabled && o.relative_index == relative_index)
+            .ok_or_else(|| {
+                format!("Editor profile has no enabled order with relative_index {relative_index}")
+            })?;
+
+        let (sample_start, sample_end, rel_for_err) = {
+            let o = &profile.orders[pos];
+            (o.sample_start, o.sample_end, o.relative_index)
+        };
+        let span = sample_end.checked_sub(sample_start).ok_or_else(|| {
+            format!(
+                "Order with relative_index {rel_for_err} has invalid sample range: sample_end ({sample_end}) < sample_start ({sample_start})"
+            )
+        })?;
+        let expected_len = (span as usize).saturating_add(1);
+        let curve = echelle::blaze_curve_from_flat_flux(&flux);
+        if curve.len() != expected_len {
+            return Err(format!(
+                "Blaze vector length {} does not match order sample span ({})",
+                curve.len(),
+                expected_len
+            ));
+        }
+
+        let prior = profile.corrections.blaze_curves.take();
+        let n_orders = profile.orders.len();
+        let mut curves: Vec<Vec<f64>> = (0..n_orders)
+            .map(|i| {
+                let o = &profile.orders[i];
+                let n = (o.sample_end.saturating_sub(o.sample_start) + 1) as usize;
+                prior
+                    .as_ref()
+                    .and_then(|rows| rows.get(i))
+                    .filter(|row| row.len() == n)
+                    .cloned()
+                    .unwrap_or_else(|| vec![1.0_f64; n])
+            })
+            .collect();
+
+        curves[pos] = curve;
+        profile.corrections.blaze_curves = Some(curves);
+        self.mark_echelle_editor_dirty();
+        self.echelle_cal_ui.status_message = Some(format!(
+            "Stored blaze curve for order relative_index {relative_index} in editor profile"
+        ));
+        self.echelle_cal_ui.last_error = None;
         Ok(())
     }
 }
