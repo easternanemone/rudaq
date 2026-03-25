@@ -1167,21 +1167,15 @@ fn build_echelle_seeds(
     let mut fns: Vec<Box<dyn Fn(f64) -> f64>> = Vec::with_capacity(n_orders);
     let npx = f64::from(n_pixels.max(1));
 
-    // For an echelle grating, angular dispersion dbeta/dlambda is m / (d * cos(beta)).
-    // Linear dispersion dx/dlambda across the detector is proportional to m.
-    // Therefore, the wavelength dispersion dl/dx (nm/pixel) is proportional to 1/m.
-    // We assume the detector width `n_pixels` covers exactly 1 FSR at the FIRST order
-    // to anchor the constant of proportionality.
-    let m_ref = (first_physical_order).abs().max(1) as f64;
-    let fsr_ref = grating_constant_nm / (m_ref * m_ref);
-    let disp_ref = fsr_ref / npx;
-
     for i in 0..n_orders {
         let m = (first_physical_order + order_step * i as i32).abs().max(1) as f64;
         let lambda_center = grating_constant_nm / m;
-
-        // Dispersion scales as 1/m, so disp = disp_ref * (m_ref / m).
-        let dispersion = disp_ref * (m_ref / m);
+        // One free spectral range spans the detector: Δλ = gc/m² (nm), linear in pixel.
+        // Using disp_ref*(m_ref/m) was wrong — it yields gc/(m_ref·m·npx) instead of gc/(m²·npx),
+        // which mis-scales atlas matching for every order where m ≠ first_physical_order
+        // (bd-kt8k synthetic / NIR cluster RMS regression).
+        let fsr = grating_constant_nm / (m * m);
+        let dispersion = fsr / npx;
         let lambda_start = lambda_center - dispersion * (npx / 2.0);
 
         fns.push(Box::new(move |pixel: f64| {
