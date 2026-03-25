@@ -211,8 +211,10 @@ pub fn detect_arc_lines(
 /// Merge multiple [`detect_arc_lines`] outputs (e.g. different exposures for HDR)
 /// into one list per echelle order.
 ///
-/// Within each echelle `order`, lines whose centers differ by at most
-/// `merge_tol_px` are clustered; [`pick_hdr_arc_line`] chooses the survivor.
+/// Within each echelle `order`, lines are sorted by `pixel_center` and clustered
+/// with **single-link** chaining: the next line joins the current cluster iff it
+/// lies within `merge_tol_px` of the cluster's rightmost center (so 0.0, 0.8,
+/// 1.6 with `tol = 1.0` merge). `pick_hdr_arc_line` chooses the survivor.
 /// Runs may be in any order; output is sorted by `(order, pixel_center)`.
 #[must_use]
 pub fn merge_arc_lines_hdr(
@@ -238,7 +240,7 @@ pub fn merge_arc_lines_hdr(
     let mut idx = 0;
     while idx < all.len() {
         let ord = all[idx].order;
-        let anchor = all[idx].pixel_center;
+        let mut cluster_max = all[idx].pixel_center;
         let mut cluster = vec![all[idx].clone()];
         idx += 1;
         while idx < all.len() {
@@ -246,8 +248,9 @@ pub fn merge_arc_lines_hdr(
             if line.order != ord {
                 break;
             }
-            if (line.pixel_center - anchor).abs() <= tol {
+            if line.pixel_center - cluster_max <= tol {
                 cluster.push(line.clone());
+                cluster_max = cluster_max.max(line.pixel_center);
                 idx += 1;
             } else {
                 break;
@@ -2596,6 +2599,44 @@ mod tests {
 
         let merged_amp = merge_arc_lines_hdr(&[run_a, run_b], 1.0, false);
         assert!((merged_amp[0].amplitude - 200.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn merge_arc_lines_hdr_merges_chained_centers() {
+        // Anchor-only clustering would keep 1.6 separate from 0.0 (|1.6-0| > 1);
+        // single-link along sorted axis merges all three.
+        let run = vec![
+            ArcLine {
+                order: 0,
+                pixel_center: 0.0,
+                pixel_sigma: 2.0,
+                amplitude: 10.0,
+                wavelength_hint: None,
+                used: true,
+                saturated: false,
+            },
+            ArcLine {
+                order: 0,
+                pixel_center: 0.8,
+                pixel_sigma: 2.0,
+                amplitude: 20.0,
+                wavelength_hint: None,
+                used: true,
+                saturated: false,
+            },
+            ArcLine {
+                order: 0,
+                pixel_center: 1.6,
+                pixel_sigma: 2.0,
+                amplitude: 15.0,
+                wavelength_hint: None,
+                used: true,
+                saturated: false,
+            },
+        ];
+        let merged = merge_arc_lines_hdr(&[run], 1.0, false);
+        assert_eq!(merged.len(), 1);
+        assert!((merged[0].amplitude - 20.0).abs() < 1e-9);
     }
 
     #[test]

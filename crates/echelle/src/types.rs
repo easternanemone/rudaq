@@ -690,10 +690,10 @@ impl EchelleCalibrationProfile {
 
     /// Strict pass/fail validation for frame compatibility.
     ///
-    /// Delegates to [`check_frame_compatibility`] and rejects anything
+    /// Delegates to `check_frame_compatibility` and rejects anything
     /// that is not fully `Compatible`. Also validates the profile itself.
     ///
-    /// Prefer [`check_frame_compatibility`] when the caller can handle
+    /// Prefer `check_frame_compatibility` when the caller can handle
     /// warnings (e.g., UI preview can show "bit depth mismatch" without
     /// blocking extraction).
     pub fn validate_for_frame(
@@ -1761,7 +1761,7 @@ fn sample_background_sidebands(
     (background_sum, background_count)
 }
 
-/// Default merge bin width for [`build_merged_preview`] (nm). Finer than the
+/// Default merge bin width for `build_merged_preview` (nm). Finer than the
 /// legacy 0.1 nm grid so Mechelle-class resolving power is not over-smoothed
 /// in the GUI merged preview (bd-srh1).
 pub const ECHELLE_MERGE_BIN_WIDTH_NM: f64 = 0.05;
@@ -1783,15 +1783,15 @@ fn echelle_blaze_sinc_squared(lambda_nm: f64, lambda_blaze_nm: f64, fsr_nm: f64)
     (sinc * sinc).clamp(1e-12, 1.0)
 }
 
-/// Per-order grating constant estimate: median of `m · λ` over samples (robust
-/// to mild wavelength-model noise). Used only for analytic blaze weights.
+/// Per-order grating constant estimate: median of `m · λ` over samples with
+/// `λ ≥ 200` nm (same cut as `build_merged_preview`). Used only for analytic blaze weights.
 fn infer_order_grating_constant_nm(order: &EchelleOrderPreview, m: i32) -> Option<f64> {
     let mf = f64::from(m);
     let mut products: Vec<f64> = order
         .wavelengths
         .iter()
         .copied()
-        .filter(|wl| wl.is_finite())
+        .filter(|&wl| wl.is_finite() && wl >= 200.0)
         .map(|wl| mf * wl)
         .collect();
     if products.is_empty() {
@@ -2042,7 +2042,7 @@ fn eval_polynomial(
 /// 1. Extracts the flat spectrum using simple-sum mode (no background,
 ///    no blaze correction, no scattered-light subtraction).
 /// 2. Normalises the per-order flat spectrum so that its peak value is 1.0.
-/// 3. Clamps values below [`BLAZE_FLOOR`] to that floor to prevent
+/// 3. Clamps values below `BLAZE_FLOOR` to that floor to prevent
 ///    excessive amplification at order edges.
 ///
 /// Note: this is a simple per-order normalisation; it does not perform

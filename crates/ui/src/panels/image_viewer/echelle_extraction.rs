@@ -683,9 +683,9 @@ mod tests {
         excluded_region: Option<PixelRegion>,
     ) -> EchelleCalibrationProfile {
         let sample_count = (sample_end - sample_start + 1) as usize;
-        // Use 1nm spacing (not a multiple of the 0.05nm merge grid in
-        // `build_merged_preview`) so bench spectra do not collapse into duplicate
-        // bins from IEEE 754 boundary effects.
+        // Use 1nm spacing (not a simple multiple of the 0.05nm merge bin width
+        // used by `build_merged_preview`) so bench spectra do not repeatedly land
+        // on the same merge bin boundaries due to IEEE 754 rounding effects.
         #[allow(clippy::cast_precision_loss)]
         let wavelengths = (0..sample_count)
             .map(|i| 500.0 + i as f64 * 1.0)

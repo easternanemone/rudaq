@@ -16,6 +16,14 @@
 #
 set -euo pipefail
 
+for cmd in git bd dolt python3; do
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    echo "error: required command '$cmd' is not on PATH." >&2
+    echo "       Install it and retry, or use your package manager / https://github.com/steveyegge/beads" >&2
+    exit 1
+  fi
+done
+
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 if [[ -z "$REPO_ROOT" ]]; then
   echo "error: run from a git checkout (git rev-parse --show-toplevel failed)" >&2

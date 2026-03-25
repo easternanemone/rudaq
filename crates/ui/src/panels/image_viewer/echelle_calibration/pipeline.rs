@@ -663,8 +663,16 @@ impl ImageViewerPanel {
                 format!("Editor profile has no enabled order with relative_index {relative_index}")
             })?;
 
-        let expected_len =
-            (profile.orders[pos].sample_end - profile.orders[pos].sample_start + 1) as usize;
+        let (sample_start, sample_end, rel_for_err) = {
+            let o = &profile.orders[pos];
+            (o.sample_start, o.sample_end, o.relative_index)
+        };
+        let span = sample_end.checked_sub(sample_start).ok_or_else(|| {
+            format!(
+                "Order with relative_index {rel_for_err} has invalid sample range: sample_end ({sample_end}) < sample_start ({sample_start})"
+            )
+        })?;
+        let expected_len = (span as usize).saturating_add(1);
         let curve = echelle::blaze_curve_from_flat_flux(&flux);
         if curve.len() != expected_len {
             return Err(format!(
