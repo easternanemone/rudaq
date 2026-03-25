@@ -29,8 +29,12 @@ impl ImageViewerPanel {
 
                 // Show remote load state machine status when active (bd-zy7y.1),
                 // otherwise fall back to the static status message.
-                if let Some(load_msg) = self.remote_profile_load.status_message() {
-                    if self.remote_profile_load.is_busy() {
+                if let Some(load_msg) = self
+                    .remote_profile_save
+                    .status_message()
+                    .or_else(|| self.remote_profile_load.status_message())
+                {
+                    if self.remote_profile_save.is_busy() || self.remote_profile_load.is_busy() {
                         ui.spinner();
                     }
                     ui.small(&load_msg);
@@ -136,6 +140,9 @@ impl ImageViewerPanel {
                     } else if self.remote_profile_load.is_busy() {
                         self.echelle_cal_ui.last_error =
                             Some("A profile load is already in progress".to_string());
+                    } else if self.remote_profile_save.is_busy() {
+                        self.echelle_cal_ui.last_error =
+                            Some("A profile save is already in progress".to_string());
                     } else {
                         // Transition to Pending; rendering.rs will pick this up and start gRPC call
                         self.remote_profile_load =

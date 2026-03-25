@@ -72,6 +72,60 @@ impl ImageViewerPanel {
         }
     }
 
+    /// Poll remote profile save (WASM + gRPC `SaveCalibrationProfile`, bd-qyhh).
+    pub(in crate::panels::image_viewer) fn poll_remote_profile_save(&mut self) {
+        let current = std::mem::take(&mut self.remote_profile_save);
+        let RemoteProfileSaveState::Loading {
+            path,
+            activate_after,
+            profile,
+            rx,
+        } = current
+        else {
+            self.remote_profile_save = current;
+            return;
+        };
+
+        match rx.try_recv() {
+            Ok(Ok(())) => {
+                self.echelle_cal_ui.editor_dirty = false;
+                self.echelle_cal_ui.editor_last_loaded_path = Some(std::path::PathBuf::from(&path));
+                self.echelle_cal_ui.status_message = Some(format!(
+                    "Saved calibration profile to {path} on daemon host"
+                ));
+                self.echelle_cal_ui.last_error = None;
+                if activate_after {
+                    self.set_echelle_profile_path(std::path::PathBuf::from(&path));
+                    self.echelle_profile_cache.activate_in_memory(profile);
+                    self.mark_echelle_run_engine_sync_dirty();
+                    self.echelle_plot_y_locked = false;
+                    self.echelle_plot_saved_y = None;
+                    self.echelle_sidebar_plot_y_locked = false;
+                    self.echelle_sidebar_saved_y = None;
+                    self.echelle_plot_last_rendered = None;
+                }
+                self.remote_profile_save = RemoteProfileSaveState::Succeeded { path };
+            }
+            Ok(Err(e)) => {
+                self.echelle_cal_ui.last_error = Some(e.clone());
+                self.remote_profile_save = RemoteProfileSaveState::Failed { path, error: e };
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => {
+                self.remote_profile_save = RemoteProfileSaveState::Loading {
+                    path,
+                    activate_after,
+                    profile,
+                    rx,
+                };
+            }
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                let error = "Profile save channel disconnected unexpectedly".to_string();
+                self.echelle_cal_ui.last_error = Some(error.clone());
+                self.remote_profile_save = RemoteProfileSaveState::Failed { path, error };
+            }
+        }
+    }
+
     pub(in crate::panels::image_viewer) fn mark_echelle_run_engine_sync_dirty(&mut self) {
         self.echelle_run_engine_sync_dirty = true;
     }
@@ -342,29 +396,53 @@ impl ImageViewerPanel {
             return Err("Enter a .toml or .json path to save the calibration profile".to_string());
         }
         let path = std::path::PathBuf::from(path_text);
-        if let Some(parent) = path.parent() {
-            if !parent.as_os_str().is_empty() && !parent.exists() {
-                std::fs::create_dir_all(parent).map_err(|e| {
-                    format!(
-                        "Failed to create calibration profile directory {}: {e}",
-                        parent.display()
-                    )
-                })?;
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            if self.remote_profile_save.is_busy() {
+                return Err("Remote profile save already in progress".to_string());
             }
+            if self.remote_profile_load.is_busy() {
+                return Err("A profile load is already in progress".to_string());
+            }
+            let content = profile
+                .serialize_to_toml_string()
+                .map_err(|e| format!("Failed to serialize calibration profile to TOML: {e}"))?;
+            self.remote_profile_save = RemoteProfileSaveState::Pending {
+                path: path_text.to_string(),
+                content,
+                activate_after: activate_after_save,
+                profile,
+            };
+            return Ok(path);
         }
-        profile
-            .save_to_path(&path)
-            .map_err(|e| format!("Failed to save calibration profile {}: {e}", path.display()))?;
-        self.echelle_cal_ui.editor_dirty = false;
-        self.echelle_cal_ui.editor_last_loaded_path = Some(path.clone());
-        self.echelle_cal_ui.status_message =
-            Some(format!("Saved calibration profile to {}", path.display()));
-        self.echelle_cal_ui.last_error = None;
-        if activate_after_save {
-            self.set_echelle_profile_path(path.clone());
-            self.poll_echelle_profile_cache();
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if let Some(parent) = path.parent() {
+                if !parent.as_os_str().is_empty() && !parent.exists() {
+                    std::fs::create_dir_all(parent).map_err(|e| {
+                        format!(
+                            "Failed to create calibration profile directory {}: {e}",
+                            parent.display()
+                        )
+                    })?;
+                }
+            }
+            profile.save_to_path(&path).map_err(|e| {
+                format!("Failed to save calibration profile {}: {e}", path.display())
+            })?;
+            self.echelle_cal_ui.editor_dirty = false;
+            self.echelle_cal_ui.editor_last_loaded_path = Some(path.clone());
+            self.echelle_cal_ui.status_message =
+                Some(format!("Saved calibration profile to {}", path.display()));
+            self.echelle_cal_ui.last_error = None;
+            if activate_after_save {
+                self.set_echelle_profile_path(path.clone());
+                self.poll_echelle_profile_cache();
+            }
+            Ok(path)
         }
-        Ok(path)
     }
 
     pub(in crate::panels::image_viewer) fn import_echelle_calibration_points_from_path(
