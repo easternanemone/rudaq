@@ -56,6 +56,19 @@ impl ImageViewerPanel {
                 ui.horizontal_wrapped(|ui| {
                     ui.label("Profile path:");
                     ui.text_edit_singleline(&mut self.echelle_cal_ui.save_as_path_text);
+                    ui.menu_button("Recent…", |ui| {
+                        let recent = self.echelle_cal_ui.recent_profile_paths.clone();
+                        if recent.is_empty() {
+                            ui.weak("No recent paths yet");
+                        } else {
+                            for p in recent {
+                                if ui.button(egui::RichText::new(&p).monospace()).clicked() {
+                                    self.echelle_cal_ui.save_as_path_text.clone_from(&p);
+                                    ui.close();
+                                }
+                            }
+                        }
+                    });
                     if ui.button("Load Editor").clicked() {
                         trigger_load_editor = true;
                     }
@@ -91,7 +104,9 @@ impl ImageViewerPanel {
                                 self.echelle_profile_cache.path().map(|p| p.to_path_buf());
                             if self.echelle_cal_ui.save_as_path_text.is_empty() {
                                 if let Some(path) = self.echelle_profile_cache.path() {
-                                    self.echelle_cal_ui.save_as_path_text = path.display().to_string();
+                                    let s = path.display().to_string();
+                                    self.echelle_cal_ui.save_as_path_text.clone_from(&s);
+                                    self.echelle_cal_ui.record_recent_profile_path(&s);
                                 }
                             }
                             self.echelle_cal_ui.status_message =
@@ -1624,6 +1639,23 @@ impl ImageViewerPanel {
                     .prefix("scale "),
             );
             ui.small("MVP: scalar preview overlay while blaze artifact generation UI is staged.");
+        });
+        ui.horizontal_wrapped(|ui| {
+            if ui
+                .add_enabled(
+                    self.echelle_cal_ui.editor_profile.is_some(),
+                    egui::Button::new("Apply preview → editor blaze_curves"),
+                )
+                .on_hover_text(
+                    "Use the selected order's extracted 1D flux as empirical blaze for that order",
+                )
+                .clicked()
+            {
+                match self.apply_selected_preview_blaze_to_editor_blaze_curves() {
+                    Ok(()) => {}
+                    Err(e) => self.echelle_cal_ui.last_error = Some(e),
+                }
+            }
         });
         ui.horizontal_wrapped(|ui| {
             ui.label("Blaze export CSV:");

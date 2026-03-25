@@ -2123,6 +2123,13 @@ fn compute_blaze_from_flat(flat_flux: &[f64]) -> Vec<f64> {
         .collect()
 }
 
+/// Normalise extracted flat-like 1D flux into a per-order blaze curve for
+/// [`EchelleCorrections::blaze_curves`] (same rule as [`extract_flat_blaze_curves`]).
+#[must_use]
+pub fn blaze_curve_from_flat_flux(flat_flux: &[f64]) -> Vec<f64> {
+    compute_blaze_from_flat(flat_flux)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

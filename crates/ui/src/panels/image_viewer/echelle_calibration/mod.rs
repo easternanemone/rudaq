@@ -65,6 +65,8 @@ pub(crate) struct EchelleCalibrationUiState {
     pub(in crate::panels::image_viewer) editor_dirty: bool,
     pub(in crate::panels::image_viewer) editor_last_loaded_path: Option<std::path::PathBuf>,
     pub(crate) save_as_path_text: String,
+    /// Last-used calibration profile paths (daemon-relative or local), newest first (bd-c7of).
+    pub(crate) recent_profile_paths: Vec<String>,
     pub(in crate::panels::image_viewer) points_path_text: String,
     pub(in crate::panels::image_viewer) line_list_path_text: String,
     pub(in crate::panels::image_viewer) blaze_export_path_text: String,
@@ -97,6 +99,19 @@ pub(crate) struct EchelleCalibrationUiState {
 }
 
 impl EchelleCalibrationUiState {
+    pub const RECENT_PROFILE_PATHS_MAX: usize = 5;
+
+    pub(in crate::panels::image_viewer) fn record_recent_profile_path(&mut self, path: &str) {
+        let path = path.trim();
+        if path.is_empty() {
+            return;
+        }
+        self.recent_profile_paths.retain(|p| p != path);
+        self.recent_profile_paths.insert(0, path.to_string());
+        self.recent_profile_paths
+            .truncate(Self::RECENT_PROFILE_PATHS_MAX);
+    }
+
     pub(in crate::panels::image_viewer) fn with_defaults() -> Self {
         Self {
             trace_overlay_enabled: true,

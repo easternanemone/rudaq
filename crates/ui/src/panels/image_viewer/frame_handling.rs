@@ -12,7 +12,9 @@ impl ImageViewerPanel {
                 self.mark_echelle_run_engine_sync_dirty();
                 self.error = None;
                 self.echelle_preview_error = None;
-                self.echelle_cal_ui.save_as_path_text = path.display().to_string();
+                let path_str = path.display().to_string();
+                self.echelle_cal_ui.save_as_path_text.clone_from(&path_str);
+                self.echelle_cal_ui.record_recent_profile_path(&path_str);
                 if !self.echelle_cal_ui.editor_dirty {
                     if let Some(profile) = self.echelle_profile_cache.profile() {
                         self.echelle_cal_ui.editor_profile = Some((**profile).clone());

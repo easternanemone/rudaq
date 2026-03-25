@@ -566,6 +566,14 @@ impl DaqApp {
             recovered_from_crash,
         };
 
+        if let Some(paths) = cc
+            .storage
+            .and_then(|s| eframe::get_value::<Vec<String>>(s, "echelle_recent_profile_paths"))
+        {
+            app.image_viewer_panel
+                .restore_echelle_recent_profile_paths(paths);
+        }
+
         // Restore last echelle profile path and auto-trigger load on next connection
         if let Some(path) = cc
             .storage
@@ -755,6 +763,14 @@ impl DaqApp {
                 }
             },
         };
+
+        if let Some(paths) = cc
+            .storage
+            .and_then(|s| eframe::get_value::<Vec<String>>(s, "echelle_recent_profile_paths"))
+        {
+            app.image_viewer_panel
+                .restore_echelle_recent_profile_paths(paths);
+        }
 
         // Restore last echelle profile path and auto-trigger load on next connection
         if let Some(path) = cc
