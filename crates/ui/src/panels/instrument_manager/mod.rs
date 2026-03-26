@@ -8,7 +8,7 @@
 //! - Hierarchical tree view with device grouping by category
 //! - Generic capability-based control panels via [`GenericDevicePanel`]
 //! - Real-time state updates (position, readings, streaming status)
-//! - Pop-out support for device panels
+//! - Docked device panel opening via drag-and-drop or explicit action
 //! - PVCAM-specific features: PP Features reset, Smart Streaming configuration
 //!
 //! ## Device Panel Routing
@@ -36,7 +36,7 @@ mod config_tests;
 pub(crate) mod dispatch;
 mod types;
 
-pub use types::{DeviceCategory, DeviceGroup, ParameterInfo, PopOutRequest};
+pub use types::{DeviceCategory, DeviceDragId, DeviceGroup, OpenDevicePanelRequest, ParameterInfo};
 
 use crate::runtime::Runtime;
 use eframe::egui;
@@ -190,9 +190,9 @@ pub struct InstrumentManagerPanel {
     /// PVCAM Smart Stream editors (keyed by device_id)
     smart_stream_editors: HashMap<String, SmartStreamEditor>,
 
-    /// Pending pop-out request containing full device info
-    /// Checked by DaqApp after each ui() call
-    pending_pop_out: Option<DeviceInfo>,
+    /// Pending request to open a docked device panel containing full device info
+    /// Checked by DaqApp after each ui() call.
+    pending_open_device_panel: Option<DeviceInfo>,
 
     /// Pending request to navigate to the Image Viewer for a specific device
     /// Checked by DaqApp after each ui() call to switch tabs and start streaming
@@ -268,7 +268,7 @@ impl Default for InstrumentManagerPanel {
                 cache
             },
             smart_stream_editors: HashMap::new(),
-            pending_pop_out: None,
+            pending_open_device_panel: None,
             pending_image_viewer_device: None,
         }
     }
@@ -282,12 +282,12 @@ impl InstrumentManagerPanel {
         self.pending_image_viewer_device.take()
     }
 
-    /// Take a pending pop-out request (if any).
-    /// Called by DaqApp after each ui() call to handle pop-out actions.
-    pub fn take_pop_out_request(&mut self) -> Option<PopOutRequest> {
-        self.pending_pop_out
+    /// Take a pending dock-open request (if any).
+    /// Called by DaqApp after each ui() call to handle explicit open actions.
+    pub fn take_open_device_panel_request(&mut self) -> Option<OpenDevicePanelRequest> {
+        self.pending_open_device_panel
             .take()
-            .map(|device_info| PopOutRequest { device_info })
+            .map(|device_info| OpenDevicePanelRequest { device_info })
     }
 
     /// Reset the refresh state to trigger a new auto-refresh.
@@ -863,6 +863,7 @@ impl InstrumentManagerPanel {
     fn render_device_row(&mut self, ui: &mut egui::Ui, device: &DeviceInfo) {
         ui.set_max_width(ui.available_width());
         let selected = self.selected_device.as_ref() == Some(&device.id);
+        let drag_id = ui.make_persistent_id(("instrument_device_drag", &device.id));
 
         // Get device state from cache
         let state = self.device_states.get(&device.id);
@@ -875,6 +876,16 @@ impl InstrumentManagerPanel {
                 egui::Color32::GRAY
             };
             ui.colored_label(status_color, "●");
+
+            ui.dnd_drag_source(drag_id, DeviceDragId(device.id.clone()), |ui| {
+                ui.label(
+                    egui::RichText::new("⠿")
+                        .monospace()
+                        .color(ui.visuals().text_color()),
+                );
+            })
+            .response
+            .on_hover_text("Drag into the dock area to open a device panel");
 
             // Build device label with state
             let mut label = device.name.clone();
@@ -1003,6 +1014,17 @@ impl InstrumentManagerPanel {
     #[allow(dead_code)]
     pub fn selected_device(&self) -> Option<&str> {
         self.selected_device.as_deref()
+    }
+
+    /// Look up a device by ID from the cached groups.
+    ///
+    /// Used by the drop handler to resolve a [`DeviceDragId`] payload back to
+    /// the full `DeviceInfo` without cloning it on every render frame.
+    pub fn find_device(&self, id: &str) -> Option<&DeviceInfo> {
+        self.groups
+            .iter()
+            .flat_map(|g| &g.devices)
+            .find(|d| d.id == id)
     }
 
     /// Test connection to a device
@@ -1525,15 +1547,15 @@ impl InstrumentManagerPanel {
             return;
         };
 
-        // Pop Out button header
+        // Dock-open fallback action for keyboard / non-precise input
         ui.horizontal(|ui| {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui
-                    .button("⬜ Pop Out")
-                    .on_hover_text("Open in separate dockable panel")
+                    .button("Open in Dock")
+                    .on_hover_text("Open this device controls as a docked tab")
                     .clicked()
                 {
-                    self.pending_pop_out = Some(device.clone());
+                    self.pending_open_device_panel = Some(device.clone());
                 }
             });
         });

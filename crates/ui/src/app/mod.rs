@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use eframe::egui;
 use egui_dock::tab_viewer::OnCloseResponse;
-use egui_dock::{DockArea, DockState, NodeIndex, Style, TabViewer};
+use egui_dock::{DockArea, DockState, NodeIndex, Style, TabDestination, TabViewer};
 use tokio::sync::mpsc;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -21,7 +21,7 @@ use crate::device_ext::DeviceInfoExt;
 use crate::icons;
 use crate::layout;
 use crate::panels::instrument_manager::{
-    config_loader::DeviceConfigCache, config_renderer::ConfigDrivenPanel,
+    config_loader::DeviceConfigCache, config_renderer::ConfigDrivenPanel, DeviceDragId,
 };
 use crate::panels::{
     ComediPanel, DocumentViewerPanel, ExperimentDesignerPanel, GettingStartedPanel,
@@ -184,7 +184,7 @@ pub struct DaqApp {
     grpc_ui_config_cache: HashMap<usize, Option<hardware::config::schema::ControlPanelConfig>>,
     /// User-added command widgets for advanced control panels (keyed by panel ID)
     docked_command_widgets: HashMap<usize, CommandWidgetPalette>,
-    /// Preferred control-panel layout mode for docked pop-outs
+    /// Preferred control-panel layout mode for docked device panels
     control_panel_layout_mode: ControlPanelLayoutMode,
 
     /// Settings window state

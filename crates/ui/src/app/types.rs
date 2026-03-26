@@ -584,6 +584,8 @@ pub(super) enum UiAction {
     OpenDeviceControl {
         /// Full device info with capability flags
         device_info: Box<DeviceInfo>,
+        /// Optional explicit dock destination resolved by the dock crate.
+        dock_target: Option<TabDestination>,
     },
     /// Close a device control panel by ID
     CloseDevicePanel {
@@ -591,7 +593,7 @@ pub(super) enum UiAction {
     },
 }
 
-/// Layout mode for docked pop-out control panels.
+/// Layout mode for docked control panels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
 pub enum ControlPanelLayoutMode {
     /// Compact capability-driven controls.

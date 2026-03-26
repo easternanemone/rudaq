@@ -85,6 +85,15 @@ impl DeviceCategory {
     }
 }
 
+/// Lightweight drag-and-drop payload carrying only the device ID.
+///
+/// Using a dedicated newtype (rather than a raw `String`) prevents type collisions
+/// with other egui DnD sources and avoids cloning the full `DeviceInfo` proto on
+/// every rendered frame.  The receiver resolves the full `DeviceInfo` from the
+/// `InstrumentManagerPanel` cache on drop.
+#[derive(Clone, Debug)]
+pub struct DeviceDragId(pub String);
+
 /// Grouped devices for tree display
 #[derive(Clone)]
 pub struct DeviceGroup {
@@ -111,9 +120,9 @@ pub struct ParameterInfo {
     pub group_name: Option<String>,
 }
 
-/// Request to pop out a device control panel into a dockable window
+/// Request to open a device control panel as a docked tab
 #[derive(Debug, Clone)]
-pub struct PopOutRequest {
+pub struct OpenDevicePanelRequest {
     /// Full device info with capability flags
     pub device_info: DeviceInfo,
 }

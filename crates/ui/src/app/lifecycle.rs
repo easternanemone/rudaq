@@ -143,21 +143,54 @@ impl eframe::App for DaqApp {
         #[cfg(target_arch = "wasm32")]
         self.status_bar.show_simple(ctx, self.client.is_some());
 
-        // Render Dock Area
         let mut dock_state = self
             .dock_state
             .take()
             .unwrap_or_else(Self::default_dock_state);
         let mut viewer = DaqTabViewer { app: self };
-        DockArea::new(&mut dock_state)
-            .style(Style::from_egui(ctx.style().as_ref()))
-            .show(ctx, &mut viewer);
+        let mut dropped_device_id: Option<String> = None;
+        let mut dropped_target = None;
+        let dock_style = Style::from_egui(ctx.style().as_ref());
+        egui::CentralPanel::default().show(ctx, |ui| {
+            let device_drag_active =
+                egui::DragAndDrop::has_payload_of_type::<DeviceDragId>(ui.ctx());
+            let (dock_response, payload) =
+                ui.dnd_drop_zone::<DeviceDragId, _>(egui::Frame::NONE, |ui| {
+                    DockArea::new(&mut dock_state)
+                        .style(dock_style.clone())
+                        .show_inside_with_external_drag(ui, &mut viewer, device_drag_active)
+                });
+            dropped_target = dock_response.inner;
+            // Capture just the device ID; full DeviceInfo is resolved below from the
+            // instrument manager cache so we avoid cloning it on every rendered frame.
+            dropped_device_id = payload.map(|drag_id| drag_id.0.clone());
+        });
 
-        // Check for pop-out requests from InstrumentManagerPanel
-        if let Some(request) = self.instrument_manager_panel.take_pop_out_request() {
+        // Check for explicit dock-open requests from InstrumentManagerPanel
+        if let Some(request) = self
+            .instrument_manager_panel
+            .take_open_device_panel_request()
+        {
             self.ui_actions.push(UiAction::OpenDeviceControl {
                 device_info: Box::new(request.device_info),
+                dock_target: None,
             });
+        }
+
+        // Check for a dragged device dropped onto the dock area.
+        // Resolve the lightweight DeviceDragId payload to the full DeviceInfo here,
+        // so the per-frame render path only clones a String (the device ID).
+        if let Some(device_id) = dropped_device_id {
+            if let Some(device_info) = self
+                .instrument_manager_panel
+                .find_device(&device_id)
+                .cloned()
+            {
+                self.ui_actions.push(UiAction::OpenDeviceControl {
+                    device_info: Box::new(device_info),
+                    dock_target: dropped_target,
+                });
+            }
         }
 
         // Check for image viewer navigation requests from InstrumentManagerPanel
@@ -196,7 +229,10 @@ impl eframe::App for DaqApp {
                     // Defer cleanup to avoid borrow conflicts
                     panels_to_close.push(id);
                 }
-                UiAction::OpenDeviceControl { device_info } => {
+                UiAction::OpenDeviceControl {
+                    device_info,
+                    dock_target,
+                } => {
                     let device_info = *device_info;
                     // Generate a new panel ID with saturation on overflow
                     // (practically impossible to hit usize::MAX panels, but prevents ID collisions)
@@ -214,7 +250,7 @@ impl eframe::App for DaqApp {
                         is_wavelength_tunable = device_info.is_wavelength_tunable(),
                         is_readable = device_info.is_readable(),
                         is_movable = device_info.is_movable(),
-                        "OpenDeviceControl: creating pop-out panel with capabilities"
+                        "OpenDeviceControl: creating docked device panel with capabilities"
                     );
 
                     // Determine panel kind from device capabilities
@@ -234,7 +270,13 @@ impl eframe::App for DaqApp {
 
                     // Add the panel to the dock
                     let panel = Panel::DeviceControl { id: panel_id };
-                    dock_state.main_surface_mut().push_to_focused_leaf(panel);
+                    if let Some(target) = dock_target {
+                        let (surface, node, tab) = dock_state.insert_tab(target, panel);
+                        dock_state.set_active_tab((surface, node, tab));
+                        dock_state.set_focused_node_and_surface((surface, node));
+                    } else {
+                        dock_state.main_surface_mut().push_to_focused_leaf(panel);
+                    }
                 }
             }
         }
