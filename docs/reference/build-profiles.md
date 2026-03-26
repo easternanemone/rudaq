@@ -256,7 +256,6 @@ All nextest profiles are defined in `.config/nextest.toml`:
 |----------|---------|--------------|--------|
 | `ci.yml` | PRs, push to `main` | ci | self-hosted (leabs) |
 | `feature-matrix.yml` | PRs, push to `main` | ci (feature-matrix + powerset + wasm) | self-hosted (leabs) |
-| `build.yml` | PRs, push to `main` | (SonarQube only) | ubuntu-latest |
 | `docs.yml` | Docs-path PRs, push to `main` | (markdown link check) | self-hosted (leabs) |
 | `release.yml` | `v*` tags, manual | release | multi-platform (ubuntu, windows, macos-intel, macos-arm64) |
 | `nightly-hardware-smoke.yml` | Daily 07:15 UTC, manual | maitai / leabs | self-hosted (leabs) |
