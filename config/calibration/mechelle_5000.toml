@@ -69,6 +69,17 @@ min_lines_per_order = 1
 # Simple summation extraction (optimal extraction needs flat-field)
 use_optimal_extraction = false
 
+# Optional: merge arc line detections from multiple exposures (HDR-style).
+# Primary arc remains --frame; these are *additional* full frames, same ROI/size as [detector].
+# Relative paths are resolved from this config file's directory.
+# If you enable scattered-light subtraction in the pipeline config, the same model is applied
+# to each HDR extra frame (using order geometry from the primary arc) so exposures stay consistent.
+#
+# [hdr]
+# extra_arc_paths = ["arc_short_exposure.tiff", "arc_long_exposure.tiff"]
+# merge_tol_px = 1.0
+# prefer_unsaturated = true
+
 # 3-Pass Pipeline Configuration (as of 2026-03-18)
 #
 # Pass 1: Echelle equation seed + atlas matching (5nm tolerance)

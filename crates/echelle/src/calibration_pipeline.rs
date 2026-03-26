@@ -24,6 +24,8 @@
     clippy::cast_lossless
 )]
 
+use std::sync::Arc;
+
 use chrono::Utc;
 
 use crate::optimal_extraction::{optimal_extract, OptimalExtractionConfig};
@@ -38,7 +40,8 @@ use crate::types::{
 };
 use crate::wavelength_fitting::{
     detect_arc_lines, fit_order_wavelength, match_lines_to_atlas, match_lines_two_phase,
-    ArcDetectConfig, ArcLine, AtlasLine, OrderWlSolution, TwoPhaseMatchConfig, WlFitConfig,
+    merge_arc_lines_hdr, ArcDetectConfig, ArcLine, AtlasLine, OrderWlSolution, TwoPhaseMatchConfig,
+    WlFitConfig,
 };
 
 // ─── Configuration ───────────────────────────────────────────────────────────
@@ -120,6 +123,16 @@ pub struct CalibrationPipelineConfig {
     pub profile_name: String,
     /// Minimum number of matched lines required per order (default: 3).
     pub min_lines_per_order: usize,
+    /// Extra arc lamp frames (same width×height as the primary arc) for HDR-style
+    /// line merging: detect per exposure, then merge with [`merge_arc_lines_hdr`].
+    ///
+    /// Stored as [`Arc`] so cloning [`CalibrationPipelineConfig`] does not duplicate
+    /// multi-megapixel buffers.
+    pub hdr_extra_arc_frames: Vec<Arc<Vec<f32>>>,
+    /// Pixel chaining tolerance passed to [`merge_arc_lines_hdr`].
+    pub hdr_merge_tol_px: f64,
+    /// Prefer unsaturated centroids when HDR-merge picks a cluster representative.
+    pub hdr_prefer_unsaturated: bool,
 }
 
 impl Default for CalibrationPipelineConfig {
@@ -154,6 +167,9 @@ impl Default for CalibrationPipelineConfig {
             },
             profile_name: "Calibration".to_string(),
             min_lines_per_order: 3,
+            hdr_extra_arc_frames: Vec::new(),
+            hdr_merge_tol_px: 1.0,
+            hdr_prefer_unsaturated: true,
         }
     }
 }
@@ -280,36 +296,98 @@ fn run_calibration_pipeline_impl(
         }
     }
 
-    // ── Stage 1: Scattered light subtraction (optional) ──────────────
-    let working_frame: Vec<f32>;
-    let frame_ref = if let Some(scatter_cfg) = &config.scatter_config {
-        // For scattered light, we need trace info. Detect orders first on the raw frame
-        // to build the inter-order mask, then subtract, then re-detect on the clean frame.
-        let preliminary_traces = detect_orders(arc_frame, width, height, &config.trace_config);
-        let trace_infos: Vec<TraceInfo<'_>> = preliminary_traces
-            .iter()
-            .map(|t| TraceInfo {
-                trace: &t.trace,
-                disp_start: 0,
-                disp_end: width.saturating_sub(1),
-            })
-            .collect();
-
-        if let Some((corrected, _model)) =
-            subtract_scattered_light(arc_frame, width, height, &trace_infos, scatter_cfg)
-        {
-            working_frame = corrected;
-            working_frame.as_slice()
-        } else {
-            // Scattered light subtraction failed (not enough inter-order pixels);
-            // proceed with the raw frame.
-            working_frame = arc_frame.to_vec();
-            working_frame.as_slice()
+    for (i, ex) in config.hdr_extra_arc_frames.iter().enumerate() {
+        if ex.len() < w * h {
+            return Err(format!(
+                "HDR extra arc frame {i} too small: {} pixels for {}x{} = {}",
+                ex.len(),
+                width,
+                height,
+                w * h
+            ));
         }
+    }
+
+    // ── Stage 1: Scattered light subtraction (optional) ──────────────
+    // When scatter subtraction is enabled, build trace geometry once on the primary
+    // arc and reuse it for the primary and every HDR extra so all line-detection
+    // sources see consistently corrected (or consistently raw) data.
+    let preliminary_traces_for_scatter: Option<Vec<OrderTrace>> = if config.scatter_config.is_some()
+    {
+        Some(detect_orders(
+            arc_frame,
+            width,
+            height,
+            &config.trace_config,
+        ))
     } else {
-        working_frame = arc_frame.to_vec();
-        working_frame.as_slice()
+        None
     };
+
+    let trace_infos_for_scatter: Option<Vec<TraceInfo<'_>>> = preliminary_traces_for_scatter
+        .as_ref()
+        .map(|preliminary_traces| {
+            preliminary_traces
+                .iter()
+                .map(|t| TraceInfo {
+                    trace: &t.trace,
+                    disp_start: 0,
+                    disp_end: width.saturating_sub(1),
+                })
+                .collect()
+        });
+
+    let (working_frame, scatter_correction_active): (Vec<f32>, bool) =
+        match (&config.scatter_config, trace_infos_for_scatter.as_ref()) {
+            (Some(scatter_cfg), Some(trace_infos)) => {
+                if let Some((corrected, _model)) =
+                    subtract_scattered_light(arc_frame, width, height, trace_infos, scatter_cfg)
+                {
+                    (corrected, true)
+                } else {
+                    // Scattered light subtraction failed (not enough inter-order pixels);
+                    // proceed with the raw frame.
+                    (arc_frame.to_vec(), false)
+                }
+            }
+            _ => (arc_frame.to_vec(), false),
+        };
+    let frame_ref: &[f32] = working_frame.as_slice();
+
+    // HDR extras after scatter correction: build owned corrected frames in one pass, then
+    // take slices (avoids overlapping &mut vs & across `arc_line_sources` growth).
+    let hdr_after_scatter: Vec<Option<Vec<f32>>> = match (
+        scatter_correction_active,
+        trace_infos_for_scatter.as_ref(),
+        config.scatter_config.as_ref(),
+    ) {
+        (true, Some(trace_infos), Some(scatter_cfg)) => config
+            .hdr_extra_arc_frames
+            .iter()
+            .map(|ex| {
+                let ex_data: &[f32] = ex.as_ref();
+                subtract_scattered_light(ex_data, width, height, trace_infos, scatter_cfg)
+                    .map(|(corrected, _model)| corrected)
+            })
+            .collect(),
+        _ => vec![None; config.hdr_extra_arc_frames.len()],
+    };
+
+    let mut arc_line_sources: Vec<&[f32]> =
+        Vec::with_capacity(1 + config.hdr_extra_arc_frames.len());
+    arc_line_sources.push(frame_ref);
+
+    for (ex, corrected_opt) in config
+        .hdr_extra_arc_frames
+        .iter()
+        .zip(hdr_after_scatter.iter())
+    {
+        let slice: &[f32] = match corrected_opt {
+            Some(v) => v.as_slice(),
+            None => ex.as_ref().as_slice(),
+        };
+        arc_line_sources.push(slice);
+    }
 
     // ── Stage 2: Order trace detection ───────────────────────────────
     // Use flat frame for trace detection if provided (broadband source
@@ -397,7 +475,7 @@ fn run_calibration_pipeline_impl(
             }
         });
         let diag = process_single_order(
-            frame_ref,
+            &arc_line_sources,
             width,
             height,
             trace,
@@ -467,7 +545,7 @@ fn run_calibration_pipeline_impl(
                     physical_order: predicted_m,
                 };
                 let diag = process_single_order(
-                    frame_ref,
+                    &arc_line_sources,
                     width,
                     height,
                     trace,
@@ -608,10 +686,37 @@ fn run_calibration_pipeline_impl(
 
 // ─── Per-order processing ────────────────────────────────────────────────────
 
-/// Process a single order: rectify → extract → detect lines → match → fit.
+/// Extract per-order 1D spectrum as `f32` for arc line detection.
+fn extract_order_spectrum_f32(
+    frame: &[f32],
+    width: u32,
+    height: u32,
+    trace: &OrderTrace,
+    order_index: u32,
+    config: &CalibrationPipelineConfig,
+) -> Option<Vec<f32>> {
+    let spec = OrderSpec {
+        trace: &trace.trace,
+        disp_start: 0,
+        disp_end: width.saturating_sub(1),
+        order_index,
+    };
+    let rect = rectify_order(frame, width, height, &spec, &config.rectify_config)?;
+    let spectrum_f64: Vec<f64> = if config.use_optimal_extraction {
+        match optimal_extract(&rect, None, &config.optimal_config) {
+            Some(result) => result.flux,
+            None => simple_sum_extract(&rect),
+        }
+    } else {
+        simple_sum_extract(&rect)
+    };
+    Some(spectrum_f64.iter().map(|&v| v as f32).collect())
+}
+
+/// Process a single order: rectify → extract → detect lines (HDR merge if multiple frames) → match → fit.
 #[allow(clippy::too_many_arguments)]
 fn process_single_order(
-    frame: &[f32],
+    line_frames: &[&[f32]],
     width: u32,
     height: u32,
     trace: &OrderTrace,
@@ -632,36 +737,43 @@ fn process_single_order(
         wl_solution: None,
     };
 
-    // ── Stage 3: Rectify ─────────────────────────────────────────────
-    let spec = OrderSpec {
-        trace: &trace.trace,
-        disp_start: 0,
-        disp_end: width.saturating_sub(1),
-        order_index,
-    };
-    let Some(rect) = rectify_order(frame, width, height, &spec, &config.rectify_config) else {
-        diag.failure_reason = Some("rectification failed (trace out of bounds)".into());
+    if line_frames.is_empty() {
+        diag.failure_reason = Some("internal error: no arc frames for line detection".into());
         return diag;
-    };
+    }
 
-    // ── Stage 4: Extract 1D spectrum ─────────────────────────────────
-    let spectrum_f64: Vec<f64> = if config.use_optimal_extraction {
-        match optimal_extract(&rect, None, &config.optimal_config) {
-            Some(result) => result.flux,
-            None => {
-                // Fall back to simple summation.
-                simple_sum_extract(&rect)
-            }
-        }
+    // ── Stages 3–5: rectify → extract → detect (optional HDR merge across exposures)
+    let lines: Vec<ArcLine> = if line_frames.len() == 1 {
+        let Some(spectrum_f32) =
+            extract_order_spectrum_f32(line_frames[0], width, height, trace, order_index, config)
+        else {
+            diag.failure_reason = Some("rectification failed (trace out of bounds)".into());
+            return diag;
+        };
+        detect_arc_lines(&spectrum_f32, order_index, &config.arc_config)
     } else {
-        simple_sum_extract(&rect)
+        let mut runs: Vec<Vec<ArcLine>> = Vec::with_capacity(line_frames.len());
+        for frame in line_frames {
+            let Some(spectrum_f32) =
+                extract_order_spectrum_f32(frame, width, height, trace, order_index, config)
+            else {
+                diag.failure_reason =
+                    Some("rectification failed on an HDR arc frame (trace out of bounds)".into());
+                return diag;
+            };
+            runs.push(detect_arc_lines(
+                &spectrum_f32,
+                order_index,
+                &config.arc_config,
+            ));
+        }
+        merge_arc_lines_hdr(
+            &runs,
+            config.hdr_merge_tol_px,
+            config.hdr_prefer_unsaturated,
+        )
     };
 
-    // Convert to f32 for arc line detection (API requirement).
-    let spectrum_f32: Vec<f32> = spectrum_f64.iter().map(|&v| v as f32).collect();
-
-    // ── Stage 5: Detect arc lines ────────────────────────────────────
-    let lines = detect_arc_lines(&spectrum_f32, order_index, &config.arc_config);
     diag.n_lines_detected = lines.len();
     diag.detected_lines.clone_from(&lines);
 
@@ -1316,6 +1428,7 @@ mod tests {
     use super::*;
     use crate::types::EchelleTraceModel;
     use crate::wavelength_fitting::load_hgar_atlas;
+    use std::sync::Arc;
 
     /// Create a synthetic echelle frame with horizontal order traces
     /// containing known emission lines at specified wavelengths.
@@ -1507,6 +1620,108 @@ mod tests {
             .profile
             .validate()
             .expect("generated profile should be valid");
+    }
+
+    #[test]
+    fn test_hdr_duplicate_extra_frame_matches_single_path() {
+        // Identical primary + extra exposure should merge to the same line census
+        // as a single exposure (duplicate detections coalesce within merge tolerance).
+        let width = 200;
+        let height = 300;
+        let orders = vec![
+            (60.0, 400.0, 420.0),
+            (150.0, 500.0, 525.0),
+            (240.0, 700.0, 740.0),
+        ];
+        let atlas = load_hgar_atlas();
+        let all_wavelengths: Vec<f64> = atlas.iter().map(|a| a.wavelength_nm).collect();
+        let frame = synthetic_arc_frame(width, height, &orders, &all_wavelengths, 2.5, 2000.0, 2.5);
+        let mut anchors = Vec::new();
+        for (oi, &(_, lambda_start, lambda_end)) in orders.iter().enumerate() {
+            anchors.push(SeedAnchor {
+                order_index: oi as u32,
+                pixel: 0.0,
+                wavelength_nm: lambda_start,
+            });
+            anchors.push(SeedAnchor {
+                order_index: oi as u32,
+                pixel: (width - 1) as f64,
+                wavelength_nm: lambda_end,
+            });
+        }
+        let base = CalibrationPipelineConfig {
+            trace_config: TraceFitConfig {
+                min_snr: 3.0,
+                step_pixels: 5,
+                poly_degree: 2,
+                ..Default::default()
+            },
+            arc_config: ArcDetectConfig {
+                sigdetect: 3.0,
+                min_fwhm: 1.5,
+                max_fwhm: 10.0,
+                min_separation: 3.0,
+                continuum_window: 51,
+            },
+            wl_config: WlFitConfig {
+                poly_degree: 2,
+                seed_tolerance_nm: 2.0,
+                ..Default::default()
+            },
+            rectify_config: RectifyConfig {
+                aperture_half_width: 5.0,
+                gaussian_weights: false,
+                fwhm: 3.0,
+            },
+            atlas,
+            seed: WavelengthSeed::Anchors(anchors),
+            frame_compat: EchelleFrameCompatibility {
+                sensor_width: width as u32,
+                sensor_height: height as u32,
+                frame_width: width as u32,
+                frame_height: height as u32,
+                roi_x: 0,
+                roi_y: 0,
+                binning_x: 1,
+                binning_y: 1,
+                bit_depth: Some(16),
+            },
+            orientation: EchelleOrientation {
+                dispersion_axis: DetectorAxis::X,
+                cross_dispersion_axis: DetectorAxis::Y,
+                order_number_increase_direction: AxisDirection::Negative,
+                wavelength_increase_with_dispersion_positive: true,
+            },
+            profile_name: "HDR dup test".to_string(),
+            min_lines_per_order: 2,
+            ..Default::default()
+        };
+
+        let single = run_calibration_pipeline(&frame, width as u32, height as u32, &base)
+            .expect("single-path pipeline");
+
+        let mut hdr_cfg = base.clone();
+        hdr_cfg.hdr_extra_arc_frames = vec![Arc::new(frame.clone())];
+        let merged = run_calibration_pipeline(&frame, width as u32, height as u32, &hdr_cfg)
+            .expect("HDR pipeline");
+
+        assert_eq!(single.n_orders_detected, merged.n_orders_detected);
+        assert_eq!(
+            single.per_order_diagnostics.len(),
+            merged.per_order_diagnostics.len()
+        );
+        for (a, b) in single
+            .per_order_diagnostics
+            .iter()
+            .zip(merged.per_order_diagnostics.iter())
+        {
+            assert_eq!(a.order_index, b.order_index);
+            assert_eq!(
+                a.n_lines_detected, b.n_lines_detected,
+                "HDR duplicate merge should not change detected line counts (order {})",
+                a.order_index
+            );
+        }
     }
 
     #[test]
