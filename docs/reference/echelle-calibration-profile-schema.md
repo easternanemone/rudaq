@@ -208,7 +208,7 @@ Each order contains:
   - zero-based order index within the profile
 - `physical_order_number` (`Option<i32>`)
   - spectrograph/echelle physical order ID (m value for echelle equation)
-  - automatically computed by 3-pass pipeline from echelle grating constant and trace position
+  - automatically computed by the 3-pass pipeline using a robust cross-correlation search over candidate physical orders ($m \in [first\_m - 50, first\_m + 150]$) to handle sparse trace illumination safely (bd-ft49).
   - used by physics bootstrap (Pass 3) to predict wavelengths for uncalibrated orders
 - `sample_start`, `sample_end` (`u32`, inclusive)
   - valid sample range along the dispersion axis for this order
@@ -475,7 +475,7 @@ Current tests covering this policy live in:
 - `crates/common/src/echelle.rs`
 - `crates/common/tests/echelle_profile_fixture.rs`
 
-## Runtime UI Loading and Hot Reload Notes
+### Runtime UI Loading and Hot Reload Notes
 
 The UI cache implementation is in:
 
@@ -487,6 +487,13 @@ Behavior:
 - reloads when file modification time changes
 - reports load/parse/validation errors
 - preserves the previous valid profile if a reload fails
+
+#### Merged Visualization logic
+
+The "Merged" 1D spectrum viewer (`ImageViewerPanel`) combines multiple echelle orders into a single continuous plot.
+- **Blaze Weighting**: Overlap regions are weighted by a theoretical sinc² blaze envelope. Weights are clamped to a `BLAZE_FLOOR` (0.1) to prevent noise amplification at detector edges (bd-rjhk).
+- **Gap Handling**: To prevent drawing misleading interpolation lines between widely separated orders, the merging algorithm injects `f64::NAN` markers into the flux array whenever the wavelength gap between consecutive samples exceeds 2.0 nm (bd-rjhk).
+
 
 This is intentional to support iterative calibration editing without breaking
 live image viewing when a profile file is temporarily invalid during edits.

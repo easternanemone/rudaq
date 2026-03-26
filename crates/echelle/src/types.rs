@@ -1780,7 +1780,7 @@ fn echelle_blaze_sinc_squared(lambda_nm: f64, lambda_blaze_nm: f64, fsr_nm: f64)
         return 1.0;
     }
     let sinc = arg.sin() / arg;
-    (sinc * sinc).clamp(1e-12, 1.0)
+    (sinc * sinc).clamp(BLAZE_FLOOR, 1.0)
 }
 
 /// Per-order grating constant estimate: median of `m · λ` over samples with
@@ -1862,13 +1862,28 @@ fn build_merged_preview(
     weighted.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
 
     let bin_width = ECHELLE_MERGE_BIN_WIDTH_NM;
+    let gap_threshold = 2.0; // Break the plot line if orders are > 2nm apart
     let mut binned_wl = Vec::with_capacity(weighted.len());
     let mut binned_flux = Vec::with_capacity(weighted.len());
     let mut bin_start = weighted[0].0;
     let mut bin_w_sum = 0.0;
     let mut bin_fw_sum = 0.0;
+    let mut last_wl = bin_start;
 
     for &(wl, fl, w) in &weighted {
+        if wl - last_wl > gap_threshold {
+            if bin_w_sum > 0.0 {
+                binned_wl.push(bin_start + bin_width * 0.5);
+                binned_flux.push(bin_fw_sum / bin_w_sum);
+                bin_w_sum = 0.0;
+                bin_fw_sum = 0.0;
+            }
+            // Inject a NAN gap to break the egui line segment
+            binned_wl.push(last_wl + gap_threshold * 0.5);
+            binned_flux.push(f64::NAN);
+            bin_start = wl;
+        }
+
         if wl - bin_start < bin_width {
             bin_w_sum += w;
             bin_fw_sum += fl * w;
@@ -1881,6 +1896,7 @@ fn build_merged_preview(
             bin_w_sum = w;
             bin_fw_sum = fl * w;
         }
+        last_wl = wl;
     }
     if bin_w_sum > 0.0 {
         binned_wl.push(bin_start + bin_width * 0.5);
@@ -2134,6 +2150,44 @@ pub fn blaze_curve_from_flat_flux(flat_flux: &[f64]) -> Vec<f64> {
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    #[test]
+    fn test_merged_preview_injects_nan_gaps() {
+        let order1 = EchelleOrderPreview {
+            relative_index: 0,
+            physical_order_number: Some(100),
+            wavelength_unit: "nm".to_string(),
+            wavelengths: vec![300.0, 300.01, 300.02],
+            flux: vec![1000.0, 1000.0, 1000.0],
+            valid_fraction: vec![1.0, 1.0, 1.0],
+            saturated: vec![false, false, false],
+            total_samples: 3,
+            covered_samples: 3,
+            saturated_samples: 0,
+        };
+
+        let order2 = EchelleOrderPreview {
+            relative_index: 1,
+            physical_order_number: Some(90),
+            wavelength_unit: "nm".to_string(),
+            wavelengths: vec![310.0, 310.01, 310.02],
+            flux: vec![1000.0, 1000.0, 1000.0],
+            valid_fraction: vec![1.0, 1.0, 1.0],
+            saturated: vec![false, false, false],
+            total_samples: 3,
+            covered_samples: 3,
+            saturated_samples: 0,
+        };
+
+        let merged =
+            build_merged_preview(&[order1, order2], false).expect("Should build merged preview");
+
+        let has_nan = merged.flux.iter().any(|f| f.is_nan());
+        assert!(
+            has_nan,
+            "Merged preview should inject f64::NAN for large wavelength gaps"
+        );
+    }
 
     fn minimal_profile() -> EchelleCalibrationProfile {
         EchelleCalibrationProfile {

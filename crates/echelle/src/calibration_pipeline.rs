@@ -458,40 +458,111 @@ fn run_calibration_pipeline_impl(
 
     for (order_idx, trace) in traces.iter().enumerate() {
         let oi = order_idx as u32;
-        // Build per-order two-phase config with the correct physical order.
-        let tp_config = two_phase_base.map(|(gc, first_m, step)| {
-            let physical_order = (first_m + step * order_idx as i32) as f64;
-            TwoPhaseMatchConfig {
-                primary_window_nm: 2.0,
-                final_tolerance_nm: config.wl_config.seed_tolerance_nm,
-                fallback_tolerance_nm: 1.0,
-                grating_constant_nm: gc,
-                gc_tolerance: 0.01,
-                // Each order has 0-2 primary anchors in its FSR, so requiring
-                // 10 is impossible. Phase 2 matches the full atlas at 0.5nm
-                // regardless — primary anchors are bonus high-confidence matches.
-                min_primary_matches: 0,
-                physical_order,
-            }
-        });
-        let diag = process_single_order(
-            &arc_line_sources,
-            width,
-            height,
-            trace,
-            oi,
-            config,
-            &seed_fns[order_idx],
-            tp_config.as_ref(),
-        );
 
-        if diag.success {
-            if let Some(ref sol) = diag.wl_solution {
+        let lines =
+            match extract_and_detect_lines(&arc_line_sources, width, height, trace, oi, config) {
+                Ok(l) => l,
+                Err(e) => {
+                    diagnostics.push(OrderDiagnostic {
+                        order_index: oi,
+                        n_lines_detected: 0,
+                        n_lines_matched: 0,
+                        n_lines_used: 0,
+                        rms_nm: 0.0,
+                        success: false,
+                        failure_reason: Some(e),
+                        detected_lines: Vec::new(),
+                        wl_solution: None,
+                    });
+                    continue;
+                }
+            };
+
+        let mut best_diag = None;
+
+        if let Some((gc, first_m, step)) = two_phase_base {
+            // Search over candidate physical orders to robustly handle sparse traces.
+            // We enforce uniqueness: an 'm' value can only be claimed by one trace.
+            let search_start = (first_m - 50).max(1);
+            let search_end = first_m + 150;
+
+            let mut max_matched = 0;
+            let mut min_rms = f64::MAX;
+
+            let npx = f64::from(width.max(1));
+
+            for candidate_m in search_start..=search_end {
+                // Skip if this physical order was already successfully claimed by a previous trace
+                if order_calibrations
+                    .iter()
+                    .any(|c: &EchelleOrderCalibration| c.physical_order_number == Some(candidate_m))
+                {
+                    continue;
+                }
+
+                let physical_order = candidate_m as f64;
+                let tp_config = TwoPhaseMatchConfig {
+                    primary_window_nm: 2.0,
+                    final_tolerance_nm: config.wl_config.seed_tolerance_nm,
+                    fallback_tolerance_nm: 1.0,
+                    grating_constant_nm: gc,
+                    gc_tolerance: 0.01,
+                    min_primary_matches: 0,
+                    physical_order,
+                };
+
+                let lambda_center = gc / physical_order;
+                let fsr = gc / (physical_order * physical_order);
+                let dispersion = fsr / npx;
+                let lambda_start = lambda_center - dispersion * (npx / 2.0);
+
+                let seed_fn = move |pixel: f64| -> f64 { lambda_start + dispersion * pixel };
+
+                let cand_diag = match_and_fit(&lines, oi, config, &seed_fn, Some(&tp_config));
+
+                if cand_diag.success {
+                    if cand_diag.n_lines_matched > max_matched
+                        || (cand_diag.n_lines_matched == max_matched && cand_diag.rms_nm < min_rms)
+                    {
+                        max_matched = cand_diag.n_lines_matched;
+                        min_rms = cand_diag.rms_nm;
+                        best_diag = Some(cand_diag);
+                    }
+                }
+            }
+        } else {
+            let tp_config = None;
+            let cand_diag = match_and_fit(&lines, oi, config, &seed_fns[order_idx], tp_config);
+            // Keep diagnostic even if match_and_fit failed
+            best_diag = Some(cand_diag);
+        }
+
+        let final_diag = best_diag.unwrap_or_else(|| OrderDiagnostic {
+            order_index: oi,
+            n_lines_detected: lines.len(),
+            n_lines_matched: 0,
+            n_lines_used: 0,
+            rms_nm: 0.0,
+            success: false,
+            failure_reason: Some(
+                "No physical order candidate produced a successful match".to_string(),
+            ),
+            detected_lines: lines.clone(),
+            wl_solution: None,
+        });
+
+        if final_diag.success {
+            if let Some(ref sol) = final_diag.wl_solution {
                 let order_cal = build_order_calibration(trace, sol, oi, width, grating_constant_nm);
+                eprintln!(
+                    "Pass 1: Order {} matched physical order {:?}",
+                    oi, order_cal.physical_order_number
+                );
                 order_calibrations.push(order_cal);
             }
         }
-        diagnostics.push(diag);
+
+        diagnostics.push(final_diag);
     }
 
     // ── Pass 2: Refine seeds for failed orders ───────────────────────
@@ -558,6 +629,10 @@ fn run_calibration_pipeline_impl(
                 if diag.success {
                     if let Some(ref sol) = diag.wl_solution {
                         let order_cal = build_order_calibration(trace, sol, oi, width, Some(gc));
+                        eprintln!(
+                            "Pass 2: Order {} matched physical order {:?}",
+                            oi, order_cal.physical_order_number
+                        );
                         order_calibrations.push(order_cal);
                     }
                 }
@@ -597,8 +672,12 @@ fn run_calibration_pipeline_impl(
         for cal in &mut order_calibrations {
             if let Some(m) = cal.physical_order_number {
                 if !seen_m.insert(m) {
+                    eprintln!(
+                        "Deduplicator: Clearing order {} because physical order {} is duplicate",
+                        cal.relative_index, m
+                    );
                     cal.physical_order_number = None;
-                    if let Some(ref mut notes) = cal.notes {
+                    if let Some(notes) = cal.notes.as_mut() {
                         notes.push_str(" [physical_order_number cleared: duplicate]");
                     }
                 }
@@ -713,33 +792,20 @@ fn extract_order_spectrum_f32(
     Some(spectrum_f64.iter().map(|&v| v as f32).collect())
 }
 
-/// Process a single order: rectify → extract → detect lines (HDR merge if multiple frames) → match → fit.
+/// Extracts the 1D spectrum for a single order and detects arc lines within it.
+/// If multiple frames are provided (HDR mode), it processes each frame and merges
+/// the detected lines, preferring unsaturated peaks.
 #[allow(clippy::too_many_arguments)]
-fn process_single_order(
+fn extract_and_detect_lines(
     line_frames: &[&[f32]],
     width: u32,
     height: u32,
     trace: &OrderTrace,
     order_index: u32,
     config: &CalibrationPipelineConfig,
-    seed_fn: &dyn Fn(f64) -> f64,
-    two_phase: Option<&TwoPhaseMatchConfig>,
-) -> OrderDiagnostic {
-    let mut diag = OrderDiagnostic {
-        order_index,
-        n_lines_detected: 0,
-        n_lines_matched: 0,
-        n_lines_used: 0,
-        rms_nm: 0.0,
-        success: false,
-        failure_reason: None,
-        detected_lines: Vec::new(),
-        wl_solution: None,
-    };
-
+) -> Result<Vec<ArcLine>, String> {
     if line_frames.is_empty() {
-        diag.failure_reason = Some("internal error: no arc frames for line detection".into());
-        return diag;
+        return Err("internal error: no arc frames for line detection".into());
     }
 
     // ── Stages 3–5: rectify → extract → detect (optional HDR merge across exposures)
@@ -747,8 +813,7 @@ fn process_single_order(
         let Some(spectrum_f32) =
             extract_order_spectrum_f32(line_frames[0], width, height, trace, order_index, config)
         else {
-            diag.failure_reason = Some("rectification failed (trace out of bounds)".into());
-            return diag;
+            return Err("rectification failed (trace out of bounds)".into());
         };
         detect_arc_lines(&spectrum_f32, order_index, &config.arc_config)
     } else {
@@ -757,9 +822,9 @@ fn process_single_order(
             let Some(spectrum_f32) =
                 extract_order_spectrum_f32(frame, width, height, trace, order_index, config)
             else {
-                diag.failure_reason =
-                    Some("rectification failed on an HDR arc frame (trace out of bounds)".into());
-                return diag;
+                return Err(
+                    "rectification failed on an HDR arc frame (trace out of bounds)".into(),
+                );
             };
             runs.push(detect_arc_lines(
                 &spectrum_f32,
@@ -774,8 +839,29 @@ fn process_single_order(
         )
     };
 
-    diag.n_lines_detected = lines.len();
-    diag.detected_lines.clone_from(&lines);
+    Ok(lines)
+}
+
+/// Takes detected arc lines and performs cross-correlation against the reference atlas
+/// using the provided seed function and Phase 2 config. Returns a full wavelength solution.
+fn match_and_fit(
+    lines: &[ArcLine],
+    order_index: u32,
+    config: &CalibrationPipelineConfig,
+    seed_fn: &dyn Fn(f64) -> f64,
+    two_phase: Option<&TwoPhaseMatchConfig>,
+) -> OrderDiagnostic {
+    let mut diag = OrderDiagnostic {
+        order_index,
+        n_lines_detected: lines.len(),
+        n_lines_matched: 0,
+        n_lines_used: 0,
+        rms_nm: 0.0,
+        success: false,
+        failure_reason: None,
+        detected_lines: lines.to_vec(),
+        wl_solution: None,
+    };
 
     if lines.len() < config.min_lines_per_order {
         diag.failure_reason = Some(format!(
@@ -788,10 +874,10 @@ fn process_single_order(
 
     // ── Stage 6: Match to atlas and fit wavelength solution ──────────
     let matches = if let Some(tp_config) = two_phase {
-        match_lines_two_phase(&lines, &config.atlas, seed_fn, tp_config)
+        match_lines_two_phase(lines, &config.atlas, seed_fn, tp_config)
     } else {
         match_lines_to_atlas(
-            &lines,
+            lines,
             &config.atlas,
             seed_fn,
             config.wl_config.seed_tolerance_nm,
@@ -809,7 +895,7 @@ fn process_single_order(
     }
 
     match fit_order_wavelength(
-        &lines,
+        lines,
         &config.atlas,
         &matches,
         order_index,
@@ -822,12 +908,44 @@ fn process_single_order(
             diag.wl_solution = Some(sol);
         }
         None => {
-            diag.failure_reason =
-                Some("wavelength fit failed (singular or too few points after clipping)".into());
+            diag.failure_reason = Some("wavelength fitting failed".into());
         }
     }
 
     diag
+}
+
+/// Process a single order: rectify → extract → detect lines (HDR merge if multiple frames) → match → fit.
+/// Now incorporates dynamic `candidate_m` evaluation to robustly map traces to physical order numbers.
+#[allow(clippy::too_many_arguments)]
+fn process_single_order(
+    line_frames: &[&[f32]],
+    width: u32,
+    height: u32,
+    trace: &OrderTrace,
+    order_index: u32,
+    config: &CalibrationPipelineConfig,
+    seed_fn: &dyn Fn(f64) -> f64,
+    two_phase: Option<&TwoPhaseMatchConfig>,
+) -> OrderDiagnostic {
+    let lines =
+        match extract_and_detect_lines(line_frames, width, height, trace, order_index, config) {
+            Ok(l) => l,
+            Err(e) => {
+                return OrderDiagnostic {
+                    order_index,
+                    n_lines_detected: 0,
+                    n_lines_matched: 0,
+                    n_lines_used: 0,
+                    rms_nm: 0.0,
+                    success: false,
+                    failure_reason: Some(e),
+                    detected_lines: Vec::new(),
+                    wl_solution: None,
+                };
+            }
+        };
+    match_and_fit(&lines, order_index, config, seed_fn, two_phase)
 }
 
 /// Simple aperture-weighted summation extraction.
