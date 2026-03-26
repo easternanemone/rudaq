@@ -135,9 +135,7 @@ impl UniversalDriverFactory {
                 "ShutterControl" => Some(CoreCapability::ShutterControl),
                 "EmissionControl" => Some(CoreCapability::EmissionControl),
                 "Commandable" => Some(CoreCapability::Commandable),
-                // Parameterized is not implemented by UniversalDriver;
-                // skip it to avoid advertising unsupported capabilities.
-                "Parameterized" => None,
+                "Parameterized" => Some(CoreCapability::Parameterized),
                 _ => None,
             })
             .collect();
@@ -412,6 +410,16 @@ impl DriverFactory for UniversalDriverFactory {
                     driver_arc.clone() as Arc<dyn common::capabilities::EmissionControl>
                 );
             }
+            if manifest
+                .device
+                .capability_names
+                .iter()
+                .any(|c| c == "Parameterized")
+            {
+                components = components.with_parameterized(
+                    driver_arc.clone() as Arc<dyn common::capabilities::Parameterized>
+                );
+            }
 
             // StateRefreshable: always wired — queries only configured capabilities (bd-47p2)
             components = components.with_state_refreshable(
@@ -599,6 +607,9 @@ mod tests {
         assert!(factory.driver_type().contains("ell14"));
         assert_eq!(factory.name(), "Thorlabs ELL14");
         assert!(factory.capabilities().contains(&CoreCapability::Movable));
+        assert!(factory
+            .capabilities()
+            .contains(&CoreCapability::Parameterized));
     }
 
     #[test]
@@ -672,6 +683,48 @@ read = { command = "read" }
         let components = factory.build(config.into()).await.unwrap();
         assert!(components.readable.is_some());
         assert!(components.movable.is_none());
+    }
+
+    #[tokio::test]
+    async fn factory_build_wires_parameterized_when_declared() {
+        let factory = UniversalDriverFactory::from_toml_str(
+            r#"
+schema_version = 3
+
+[device]
+name = "Parameterized Device"
+capabilities = ["Settable", "Parameterized"]
+
+[connection]
+type = "serial"
+baud_rate = 9600
+
+[commands.set]
+template = "SET {{ value }}"
+expects_response = false
+
+[capabilities.settable]
+set = { command = "set", from_param = "value" }
+
+[parameters.gain]
+default = 1.0
+type = "float"
+min = 0.0
+max = 10.0
+"#,
+        )
+        .unwrap();
+
+        let config = toml::toml! {
+            mock = true
+            address = "0"
+        };
+
+        let components = factory.build(config.into()).await.unwrap();
+        assert!(components.parameterized.is_some());
+        assert!(factory
+            .capabilities()
+            .contains(&CoreCapability::Parameterized));
     }
 
     #[tokio::test]

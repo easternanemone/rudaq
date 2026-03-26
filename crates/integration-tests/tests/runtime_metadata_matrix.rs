@@ -185,6 +185,31 @@ async fn matrix_universal_device_capabilities_match_factory_info() {
 }
 
 #[tokio::test]
+async fn matrix_universal_parameterized_runtime_parity() {
+    let registry = create_profile_registry("config/profiles/mock_ell14.toml").await;
+
+    for device in registry.list_devices() {
+        let parameterized = registry
+            .get_parameterized(&device.id)
+            .expect("universal ELL14 profile device should expose Parameterized");
+        let names = parameterized.parameters().names();
+        assert!(
+            !names.is_empty(),
+            "device '{}' should expose runtime parameters",
+            device.id
+        );
+        assert!(
+            device
+                .capabilities
+                .iter()
+                .any(|c| c.as_str() == "parameterized"),
+            "device '{}' should advertise Parameterized capability",
+            device.id
+        );
+    }
+}
+
+#[tokio::test]
 async fn matrix_hybrid_universal_factory_info_present_for_universal_devices() {
     let registry = create_profile_registry("config/profiles/mock_maitai_lab.toml").await;
 
