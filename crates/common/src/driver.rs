@@ -70,8 +70,8 @@ use crate::capabilities::{
     Commandable, CounterConfigurable, DeviceCategory, DeviceIntrospection, EmissionControl,
     ExposureControl, FrameProducer, GatedCamera, Movable, Parameterized, PulseGenerator,
     RangeIntrospectable, Readable, ReadableWithMetadata, Reconfigurable, SafetyInterlock, Settable,
-    ShutterControl, SpectrometerControl, Stageable, StateRefreshable, TriggerOnPosition,
-    Triggerable, WavelengthTunable,
+    ShutterControl, SpectrometerControl, SpectrumReadable, Stageable, StateRefreshable,
+    TriggerOnPosition, Triggerable, WavelengthTunable,
 };
 use crate::data::Frame;
 use crate::pipeline::MeasurementSource;
@@ -194,6 +194,10 @@ pub enum Capability {
     /// Reads with raw value, voltage, and timestamp metadata (bd-09ls)
     /// Corresponds to [`crate::capabilities::ReadableWithMetadata`]
     ReadableWithMetadata,
+
+    /// Produces 1D vector/spectrum data (linear detectors, spectrometers, waveform digitizers)
+    /// Corresponds to [`crate::capabilities::SpectrumReadable`]
+    SpectrumReadable,
 }
 
 impl Capability {
@@ -223,6 +227,7 @@ impl Capability {
             Self::RangeIntrospectable => "Range Introspectable",
             Self::DeviceIntrospection => "Device Introspection",
             Self::ReadableWithMetadata => "Readable With Metadata",
+            Self::SpectrumReadable => "Spectrum Readable",
         }
     }
 
@@ -252,6 +257,7 @@ impl Capability {
             Self::RangeIntrospectable => "range_introspectable",
             Self::DeviceIntrospection => "device_introspection",
             Self::ReadableWithMetadata => "readable_with_metadata",
+            Self::SpectrumReadable => "spectrum_readable",
         }
     }
 }
@@ -364,6 +370,9 @@ pub struct DeviceComponents {
     /// ReadableWithMetadata implementation (structured analog reads, bd-09ls)
     pub readable_with_metadata: Option<Arc<dyn ReadableWithMetadata>>,
 
+    /// SpectrumReadable implementation (1D detector/spectrum data, bd-lncj.1.2)
+    pub spectrum_readable: Option<Arc<dyn SpectrumReadable>>,
+
     /// Optional lifecycle hooks for device registration/shutdown
     pub lifecycle: Option<Arc<dyn DeviceLifecycle>>,
 
@@ -446,6 +455,9 @@ impl DeviceComponents {
         }
         if self.readable_with_metadata.is_some() {
             caps.push(Capability::ReadableWithMetadata);
+        }
+        if self.spectrum_readable.is_some() {
+            caps.push(Capability::SpectrumReadable);
         }
 
         caps
@@ -604,6 +616,12 @@ impl DeviceComponents {
     /// Set ReadableWithMetadata implementation (bd-09ls)
     pub fn with_readable_with_metadata(mut self, r: Arc<dyn ReadableWithMetadata>) -> Self {
         self.readable_with_metadata = Some(r);
+        self
+    }
+
+    /// Set SpectrumReadable implementation (bd-lncj.1.2)
+    pub fn with_spectrum_readable(mut self, s: Arc<dyn SpectrumReadable>) -> Self {
+        self.spectrum_readable = Some(s);
         self
     }
 

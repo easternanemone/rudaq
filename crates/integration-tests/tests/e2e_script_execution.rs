@@ -24,46 +24,25 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use driver_registry::create_registry_from_config;
 use experiment::Document;
 use experiment::{EngineState, RunEngine};
-use hardware::registry::{register_mock_factories, DeviceRegistry};
+use hardware::registry::{DeviceRegistry, HardwareConfig};
 use scripting::script_runner::ScriptPlanRunner;
 use tokio::time::timeout;
 
-/// Create a registry with mock devices
+#[path = "common/path_helpers.rs"]
+mod path_helpers;
+
+/// Create a registry with canonical mock profile devices.
 async fn create_test_registry() -> DeviceRegistry {
-    let registry = DeviceRegistry::new();
-    register_mock_factories(&registry);
-
-    // Register a mock stage
-    registry
-        .register_from_toml(
-            "stage_x",
-            "X Stage",
-            "mock_stage",
-            toml::toml! {
-                initial_position = 0.0
-            }
-            .into(),
-        )
+    let root = path_helpers::workspace_root();
+    let profile = root.join("config/demo.toml");
+    let devices_dir = root.join("config/devices");
+    let config = HardwareConfig::from_file(&profile).expect("demo profile should parse");
+    create_registry_from_config(&config, Some(&devices_dir))
         .await
-        .expect("Failed to register mock stage");
-
-    // Register mock power meter
-    registry
-        .register_from_toml(
-            "power_meter",
-            "Test Power Meter",
-            "mock_power_meter",
-            toml::toml! {
-                base_power = 1e-3
-            }
-            .into(),
-        )
-        .await
-        .expect("Failed to register power_meter");
-
-    registry
+        .expect("demo registry should build")
 }
 
 /// Test: Execute a script that yields a simple Count plan
@@ -79,7 +58,7 @@ async fn test_e2e_script_count_plan() {
     let script = r#"
         // Yield a count plan with 5 iterations
         // count(points, detector, delay)
-        yield_plan(__yield_handle, count(5, "power_meter", 0.0));
+        yield_plan(__yield_handle, count(5, "mock_power_meter", 0.0));
         ()
     "#;
 
@@ -108,8 +87,8 @@ async fn test_e2e_script_linescan_plan() {
     let runner = ScriptPlanRunner::new(run_engine.clone());
 
     let script = r#"
-        // Line scan: axis="stage_x", start=0, stop=10, points=5, detector="power_meter"
-        let plan = line_scan("stage_x", 0.0, 10.0, 5, "power_meter");
+        // Line scan on canonical demo profile IDs
+        let plan = line_scan("mock_stage", 0.0, 10.0, 5, "mock_power_meter");
         yield_plan(__yield_handle, plan);
         ()
     "#;
@@ -133,8 +112,8 @@ async fn test_e2e_script_multiple_plans() {
     let runner = ScriptPlanRunner::new(run_engine.clone());
 
     let script = r#"
-        yield_plan(__yield_handle, count(2, "power_meter", 0.0));
-        yield_plan(__yield_handle, count(3, "power_meter", 0.0));
+        yield_plan(__yield_handle, count(2, "mock_power_meter", 0.0));
+        yield_plan(__yield_handle, count(3, "mock_power_meter", 0.0));
         ()
     "#;
 

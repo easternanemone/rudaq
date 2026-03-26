@@ -1800,6 +1800,50 @@ pub trait ReadableWithMetadata: Send + Sync {
 }
 
 // =============================================================================
+// 1D Detector / Spectrum Readable (bd-lncj.1.2)
+// =============================================================================
+
+/// Result of a 1D detector read (spectrum, waveform, or vector data).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpectrumData {
+    /// Raw intensity/signal values along the detector axis.
+    pub values: Vec<f64>,
+    /// Optional wavelength/channel axis (same length as `values`).
+    /// When `None`, the axis is integer pixel indices.
+    pub axis: Option<Vec<f64>>,
+    /// Units of the values (e.g., "counts", "W", "V").
+    pub value_units: String,
+    /// Units of the axis (e.g., "nm", "eV", "cm-1", "channel").
+    pub axis_units: Option<String>,
+}
+
+/// Capability: 1D Detector / Spectrum Readable
+///
+/// Devices that produce vector (1D) data: linear detectors, spectrometers,
+/// multichannel analyzers, waveform digitizers. Fills the gap between
+/// `Readable` (0D scalar) and `FrameProducer` (2D image).
+///
+/// # Contract
+/// - `read_spectrum()` returns a single snapshot of 1D data
+/// - The length of `SpectrumData.values` is device-specific and may change
+///   with configuration (binning, ROI)
+/// - For streaming 1D data, combine with `Triggerable` for triggered reads
+///
+/// # Examples
+/// - CCD line sensor (1D pixel array)
+/// - Echelle spectrometer (extracted 1D spectrum)
+/// - Multichannel DAQ (simultaneous analog channels)
+/// - Waveform digitizer (time-domain trace)
+#[async_trait]
+pub trait SpectrumReadable: Send + Sync {
+    /// Read the current 1D detector data.
+    async fn read_spectrum(&self) -> Result<SpectrumData>;
+
+    /// Number of channels/pixels in the detector.
+    fn spectrum_length(&self) -> usize;
+}
+
+// =============================================================================
 // Composite Capabilities (bd-bog5)
 // =============================================================================
 
@@ -1850,6 +1894,8 @@ pub trait CapabilityProvider: Send + Sync {
     fn get_device_introspection(&self, id: &str) -> Option<Arc<dyn DeviceIntrospection>>;
     /// Get a device's ReadableWithMetadata capability (if supported).
     fn get_readable_with_metadata(&self, id: &str) -> Option<Arc<dyn ReadableWithMetadata>>;
+    /// Get a device's SpectrumReadable capability (if supported).
+    fn get_spectrum_readable(&self, id: &str) -> Option<Arc<dyn SpectrumReadable>>;
 }
 
 #[cfg(test)]

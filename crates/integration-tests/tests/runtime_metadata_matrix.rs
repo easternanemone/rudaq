@@ -185,6 +185,31 @@ async fn matrix_universal_device_capabilities_match_factory_info() {
 }
 
 #[tokio::test]
+async fn matrix_universal_parameterized_runtime_parity() {
+    let registry = create_profile_registry("config/profiles/mock_ell14.toml").await;
+
+    for device in registry.list_devices() {
+        let parameterized = registry
+            .get_parameterized(&device.id)
+            .expect("universal ELL14 profile device should expose Parameterized");
+        let names = parameterized.parameters().names();
+        assert!(
+            !names.is_empty(),
+            "device '{}' should expose runtime parameters",
+            device.id
+        );
+        assert!(
+            device
+                .capabilities
+                .iter()
+                .any(|c| c.as_str() == "parameterized"),
+            "device '{}' should advertise Parameterized capability",
+            device.id
+        );
+    }
+}
+
+#[tokio::test]
 async fn matrix_hybrid_universal_factory_info_present_for_universal_devices() {
     let registry = create_profile_registry("config/profiles/mock_maitai_lab.toml").await;
 
@@ -387,6 +412,279 @@ async fn matrix_db_manifest_features_persisted() {
     assert_eq!(stored_position.unit.as_deref(), Some("degrees"));
 }
 
+// =========================================================================
+// Cross-profile universal parity assertions (bd-lncj.3.3)
+// =========================================================================
+
+#[tokio::test]
+async fn matrix_universal_panel_kind_populated() {
+    let registry = create_profile_registry("config/profiles/mock_maitai_lab.toml").await;
+
+    let universal_devices: Vec<_> = registry
+        .list_devices()
+        .into_iter()
+        .filter(|d| d.driver_type.starts_with("universal_"))
+        .collect();
+    assert!(
+        !universal_devices.is_empty(),
+        "expected at least one universal_* device in mock_maitai_lab profile"
+    );
+
+    for device in &universal_devices {
+        assert!(
+            device.metadata.panel_kind.is_some(),
+            "universal device '{}' ({}) should have panel_kind from manifest [ui]",
+            device.id,
+            device.driver_type
+        );
+    }
+}
+
+#[tokio::test]
+async fn matrix_universal_category_set() {
+    let registry = create_profile_registry("config/profiles/mock_maitai_lab.toml").await;
+
+    let universal_devices: Vec<_> = registry
+        .list_devices()
+        .into_iter()
+        .filter(|d| d.driver_type.starts_with("universal_"))
+        .collect();
+    assert!(
+        !universal_devices.is_empty(),
+        "expected at least one universal_* device in mock_maitai_lab profile"
+    );
+
+    for device in &universal_devices {
+        assert!(
+            device.metadata.category.is_some(),
+            "universal device '{}' ({}) should have category",
+            device.id,
+            device.driver_type
+        );
+    }
+}
+
+#[tokio::test]
+async fn matrix_same_driver_type_yields_identical_capabilities() {
+    let registry = create_profile_registry("config/profiles/mock_maitai_lab.toml").await;
+    let devices = registry.list_devices();
+
+    let mut by_driver: std::collections::HashMap<String, Vec<Vec<String>>> =
+        std::collections::HashMap::new();
+    for d in &devices {
+        let caps = normalize_capabilities(&d.capabilities);
+        by_driver
+            .entry(d.driver_type.clone())
+            .or_default()
+            .push(caps);
+    }
+    for (driver, instances) in &by_driver {
+        if instances.len() > 1 {
+            for (i, caps) in instances.iter().enumerate().skip(1) {
+                assert_eq!(
+                    &instances[0], caps,
+                    "driver '{}' instance 0 vs {} has capability mismatch",
+                    driver, i
+                );
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn matrix_same_driver_type_yields_identical_commands() {
+    let registry = create_profile_registry("config/profiles/mock_maitai_lab.toml").await;
+    let devices = registry.list_devices();
+
+    let mut by_driver: std::collections::HashMap<String, Vec<Vec<String>>> =
+        std::collections::HashMap::new();
+    for d in &devices {
+        let cmds = normalize(&d.metadata.available_commands);
+        by_driver
+            .entry(d.driver_type.clone())
+            .or_default()
+            .push(cmds);
+    }
+    for (driver, instances) in &by_driver {
+        if instances.len() > 1 {
+            for (i, cmds) in instances.iter().enumerate().skip(1) {
+                assert_eq!(
+                    &instances[0], cmds,
+                    "driver '{}' instance 0 vs {} has command catalog mismatch",
+                    driver, i
+                );
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn matrix_cross_profile_driver_type_parity() {
+    let ell14_registry = create_profile_registry("config/profiles/mock_ell14.toml").await;
+    let maitai_registry = create_profile_registry("config/profiles/mock_maitai_lab.toml").await;
+
+    let ell14_device = ell14_registry.list_devices().into_iter().next().unwrap();
+    let maitai_ell14 = maitai_registry
+        .list_devices()
+        .into_iter()
+        .find(|d| d.driver_type == ell14_device.driver_type)
+        .expect("same driver type should exist across compared profiles");
+
+    assert_eq!(
+        normalize_capabilities(&ell14_device.capabilities),
+        normalize_capabilities(&maitai_ell14.capabilities),
+        "same driver type across profiles must expose identical capabilities"
+    );
+    assert_eq!(
+        normalize(&ell14_device.metadata.available_commands),
+        normalize(&maitai_ell14.metadata.available_commands),
+        "same driver type across profiles must expose identical command catalog"
+    );
+    assert_eq!(
+        ell14_device.metadata.panel_kind, maitai_ell14.metadata.panel_kind,
+        "same driver type across profiles must expose identical panel_kind"
+    );
+}
+
+#[tokio::test]
+async fn matrix_universal_parameterized_parity_across_profiles() {
+    let ell14_registry = create_profile_registry("config/profiles/mock_ell14.toml").await;
+    let maitai_registry = create_profile_registry("config/profiles/mock_maitai_lab.toml").await;
+
+    let ell14_device = ell14_registry.list_devices().into_iter().next().unwrap();
+
+    let ell14_params = ell14_registry
+        .get_parameterized(&ell14_device.id)
+        .expect("ELL14 device should be Parameterized");
+    let ell14_names: Vec<String> = {
+        let mut n: Vec<String> = ell14_params
+            .parameters()
+            .names()
+            .into_iter()
+            .map(String::from)
+            .collect();
+        n.sort();
+        n
+    };
+
+    let maitai_ell14 = maitai_registry
+        .list_devices()
+        .into_iter()
+        .find(|d| d.driver_type == ell14_device.driver_type)
+        .expect("same driver type should exist across compared profiles");
+    let maitai_params = maitai_registry
+        .get_parameterized(&maitai_ell14.id)
+        .expect("same driver type in other profile should also be Parameterized");
+    let maitai_names: Vec<String> = {
+        let mut n: Vec<String> = maitai_params
+            .parameters()
+            .names()
+            .into_iter()
+            .map(String::from)
+            .collect();
+        n.sort();
+        n
+    };
+    assert_eq!(
+        ell14_names, maitai_names,
+        "Parameterized names must be identical for same driver type across profiles"
+    );
+}
+
+#[tokio::test]
+async fn matrix_universal_manifest_features_match_parameterized() {
+    let registry = create_profile_registry("config/profiles/mock_ell14.toml").await;
+    let devices = registry.list_devices();
+    let device = &devices[0];
+
+    let param_feature_names: Vec<String> = {
+        let mut names: Vec<_> = device
+            .metadata
+            .manifest_features
+            .iter()
+            .filter(|f| f.feature_type != "command")
+            .map(|f| f.name.clone())
+            .collect();
+        names.sort();
+        names
+    };
+
+    let parameterized = registry
+        .get_parameterized(&device.id)
+        .expect("device should be Parameterized");
+    let runtime_names: Vec<String> = {
+        let mut n: Vec<String> = parameterized
+            .parameters()
+            .names()
+            .into_iter()
+            .map(String::from)
+            .collect();
+        n.sort();
+        n
+    };
+
+    assert_eq!(
+        param_feature_names, runtime_names,
+        "manifest feature parameter names must match runtime Parameterized names"
+    );
+}
+
+#[tokio::test]
+async fn matrix_native_camera_has_no_manifest_features() {
+    let registry = create_profile_registry("config/profiles/mock_maitai_lab.toml").await;
+    let camera = registry
+        .list_devices()
+        .into_iter()
+        .find(|d| d.driver_type == "mock_camera")
+        .expect("hybrid profile should include mock_camera");
+
+    assert!(
+        camera.metadata.manifest_features.is_empty(),
+        "native camera should not have manifest-derived features"
+    );
+    assert!(
+        camera.metadata.ui_schema_json.is_none(),
+        "native camera should not have universal UI schema"
+    );
+}
+
+#[tokio::test]
+async fn matrix_camera_native_exception_driver_type_contract() {
+    let config = load_profile("config/profiles/mock_maitai_lab.toml");
+    let camera = config
+        .devices
+        .iter()
+        .find(|d| d.driver.driver_type == "mock_camera")
+        .expect("mock_maitai_lab profile should include camera device");
+    assert_eq!(
+        camera.driver.driver_type, "mock_camera",
+        "camera native exception should remain on mock_camera, not universal_*"
+    );
+}
+
+#[tokio::test]
+async fn matrix_comedi_and_dover_driver_types_remain_native_exceptions() {
+    let config = load_profile("config/maitai_universal.toml");
+    let native_driver_types: Vec<&str> = config
+        .devices
+        .iter()
+        .map(|d| d.driver.driver_type.as_str())
+        .filter(|t| t.starts_with("comedi_") || *t == "dover_axis")
+        .collect();
+
+    assert!(
+        !native_driver_types.is_empty(),
+        "maitai_universal profile should include native DAQ/motion exception drivers"
+    );
+    assert!(
+        native_driver_types
+            .iter()
+            .all(|t| !t.starts_with("universal_")),
+        "comedi/dover driver types must remain native exceptions, found: {:?}",
+        native_driver_types
+    );
+}
+
 #[cfg(feature = "db-surreal-mem")]
 #[tokio::test]
 async fn matrix_db_on_hybrid_driver_metadata_parity() {
@@ -463,4 +761,83 @@ async fn matrix_db_on_hybrid_driver_metadata_parity() {
             expected.driver_type
         );
     }
+}
+
+// =============================================================================
+// SpectrumReadable (1D detector) parity tests (bd-lncj.1.2 / bd-lncj.2.2)
+// =============================================================================
+
+#[tokio::test]
+async fn matrix_universal_spectrometer_has_spectrum_readable() {
+    let registry = create_profile_registry("config/profiles/mock_spectrometer.toml").await;
+    let devices = registry.list_devices();
+    let spec = devices
+        .iter()
+        .find(|d| d.id == "spectrometer")
+        .expect("mock_spectrometer profile should contain 'spectrometer' device");
+
+    let cap_strs: Vec<&str> = spec.capabilities.iter().map(|c| c.as_str()).collect();
+    assert!(
+        cap_strs.contains(&"spectrum_readable"),
+        "spectrometer should advertise SpectrumReadable capability, got: {:?}",
+        cap_strs
+    );
+    assert!(
+        cap_strs.contains(&"readable"),
+        "spectrometer should also advertise Readable capability"
+    );
+}
+
+#[tokio::test]
+async fn matrix_universal_spectrometer_read_spectrum_returns_data() {
+    let registry = create_profile_registry("config/profiles/mock_spectrometer.toml").await;
+    let spec_readable = registry
+        .get_spectrum_readable("spectrometer")
+        .expect("spectrometer should provide SpectrumReadable");
+
+    let data = spec_readable
+        .read_spectrum()
+        .await
+        .expect("read_spectrum should succeed");
+    assert!(
+        !data.values.is_empty(),
+        "spectrum data should contain at least one value"
+    );
+    assert_eq!(data.value_units, "counts");
+    assert_eq!(data.axis_units.as_deref(), Some("nm"));
+}
+
+#[tokio::test]
+async fn matrix_universal_spectrometer_spectrum_length() {
+    let registry = create_profile_registry("config/profiles/mock_spectrometer.toml").await;
+    let spec_readable = registry
+        .get_spectrum_readable("spectrometer")
+        .expect("spectrometer should provide SpectrumReadable");
+
+    assert_eq!(
+        spec_readable.spectrum_length(),
+        1024,
+        "spectrum_length should match manifest config"
+    );
+}
+
+#[tokio::test]
+async fn matrix_universal_spectrometer_category_is_detector() {
+    let registry = create_profile_registry("config/profiles/mock_spectrometer.toml").await;
+    let devices = registry.list_devices();
+    let spec = devices
+        .iter()
+        .find(|d| d.id == "spectrometer")
+        .expect("spectrometer should exist");
+
+    assert_eq!(
+        spec.metadata.category,
+        Some(common::capabilities::DeviceCategory::Detector),
+        "spectrometer category should be Detector"
+    );
+    assert_eq!(
+        spec.metadata.panel_kind.as_deref(),
+        Some("detector"),
+        "spectrometer panel_kind should be 'detector'"
+    );
 }

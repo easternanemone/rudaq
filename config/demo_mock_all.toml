@@ -1,39 +1,55 @@
-# Demo configuration with all mock devices
-# This demonstrates the full mock driver system with all 6 device types
+# Demo configuration with broad mock coverage.
+# Universal-eligible instruments use driver-universal with `mock = true`.
+# Native exceptions remain on driver-mock.
 
 [[devices]]
 id = "mock_camera"
-type = "mock_camera"
+name = "Demo Camera (Mock)"
 enabled = true
-[devices.config]
+[devices.driver]
+type = "mock_camera"
 width = 1024
 height = 1024
 
 [[devices]]
 id = "mock_stage"
-type = "mock_stage"
+name = "Demo Stage (Universal Mock)"
 enabled = true
+[devices.driver]
+type = "universal_newport_esp300"
+mock = true
+address = "1"
 
 [[devices]]
 id = "mock_power_meter"
-type = "mock_power_meter"
+name = "Demo Power Meter (Universal Mock)"
 enabled = true
-[devices.config]
-base_power = 0.001
+[devices.driver]
+type = "universal_newport_1830-c"
+mock = true
 
 [[devices]]
 id = "mock_laser"
-type = "mock_laser"
+name = "Demo Laser (Universal Mock)"
 enabled = true
+[devices.driver]
+type = "universal_spectra-physics_maitai"
+mock = true
+address = "0"
 
 [[devices]]
 id = "mock_rotator"
-type = "mock_rotator"
+name = "Demo Rotator (Universal Mock)"
 enabled = true
+[devices.driver]
+type = "universal_thorlabs_ell14"
+mock = true
+address = "2"
 
 [[devices]]
 id = "mock_daq_ao"
-type = "mock_daq_output"
+name = "Demo DAQ Output (Mock)"
 enabled = true
-[devices.config]
+[devices.driver]
+type = "mock_daq_output"
 channel = 0

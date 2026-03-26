@@ -451,12 +451,31 @@ impl DaemonInstance {
                     load_hardware_config(default_path, "lab", &config.runtime_mode).await?;
                 (reg, Some(hw))
             } else {
-                println!("   Using mock devices (no hardware config specified)");
-                println!("   Runtime policy [mock]: universal=0, native_exception=0, deprecated_native=0");
-                let reg = create_mock_registry()
-                    .await
-                    .context("Failed to create mock registry")?;
-                (reg, None)
+                let default_mock_profile =
+                    std::path::Path::new("config/profiles/mock_maitai_lab.toml");
+                if default_mock_profile.exists() {
+                    println!(
+                        "   Using mock profile bootstrap: {}",
+                        default_mock_profile.display()
+                    );
+                    let (reg, hw) = load_hardware_config(
+                        default_mock_profile,
+                        "mock-profile",
+                        &config.runtime_mode,
+                    )
+                    .await?;
+                    (reg, Some(hw))
+                } else {
+                    println!(
+                        "   Mock profile not found ({}); falling back to legacy mock registry",
+                        default_mock_profile.display()
+                    );
+                    println!("   Runtime policy [mock]: universal=0, native_exception=0, deprecated_native=0");
+                    let reg = create_mock_registry()
+                        .await
+                        .context("Failed to create fallback mock registry")?;
+                    (reg, None)
+                }
             };
 
             // Register driver factories for plugin-based device creation

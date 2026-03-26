@@ -27,79 +27,32 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
+use driver_registry::create_registry_from_config;
 use experiment::plans::{Count, GridScan, LineScan, Plan};
 use experiment::{Document, EngineState, RunEngine};
-use hardware::registry::{register_mock_factories, DeviceRegistry};
+use hardware::registry::{DeviceRegistry, HardwareConfig};
 use tokio::sync::broadcast;
 use tokio::time::timeout;
+
+#[path = "common/path_helpers.rs"]
+mod path_helpers;
 
 // =============================================================================
 // Test Registry Setup
 // =============================================================================
 
-/// Create a registry with mock devices for multi-device testing
+/// Create a registry from the canonical multi-device mock profile.
+///
+/// Stages and power meter run through driver-universal with `mock = true`;
+/// camera remains a native mock exception.
 async fn create_multi_device_registry() -> DeviceRegistry {
-    let registry = DeviceRegistry::new();
-    register_mock_factories(&registry);
-
-    // Register X stage
-    registry
-        .register_from_toml(
-            "stage_x",
-            "X Stage",
-            "mock_stage",
-            toml::toml! {
-                initial_position = 0.0
-            }
-            .into(),
-        )
+    let root = path_helpers::workspace_root();
+    let profile = root.join("config/profiles/mock_multi_device.toml");
+    let devices_dir = root.join("config/devices");
+    let config = HardwareConfig::from_file(&profile).expect("multi-device profile should parse");
+    create_registry_from_config(&config, Some(&devices_dir))
         .await
-        .expect("Failed to register stage_x");
-
-    // Register Y stage
-    registry
-        .register_from_toml(
-            "stage_y",
-            "Y Stage",
-            "mock_stage",
-            toml::toml! {
-                initial_position = 0.0
-            }
-            .into(),
-        )
-        .await
-        .expect("Failed to register stage_y");
-
-    // Register mock camera
-    registry
-        .register_from_toml(
-            "camera",
-            "Test Camera",
-            "mock_camera",
-            toml::toml! {
-                width = 64
-                height = 64
-            }
-            .into(),
-        )
-        .await
-        .expect("Failed to register camera");
-
-    // Register mock power meter
-    registry
-        .register_from_toml(
-            "power_meter",
-            "Test Power Meter",
-            "mock_power_meter",
-            toml::toml! {
-                base_power = 1e-3
-            }
-            .into(),
-        )
-        .await
-        .expect("Failed to register power_meter");
-
-    registry
+        .expect("multi-device registry should build")
 }
 
 /// Collect all documents from a subscription until Stop
