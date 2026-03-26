@@ -619,13 +619,48 @@ impl common::capabilities::SpectrumReadable for UniversalDriver {
         let raw_value = Self::extract_response_value(&fields, mapping.output_field.as_ref())?;
 
         let values: Vec<f64> = match raw_value {
-            serde_json::Value::Array(arr) => arr.iter().filter_map(|v| v.as_f64()).collect(),
-            serde_json::Value::String(s) => s
-                .split([',', ' ', '\t'])
-                .filter(|s| !s.is_empty())
-                .filter_map(|s| s.parse::<f64>().ok())
-                .collect(),
-            _ => vec![raw_value.as_f64().unwrap_or(0.0)],
+            serde_json::Value::Array(arr) => {
+                let mut vals = Vec::with_capacity(arr.len());
+                for (idx, v) in arr.iter().enumerate() {
+                    let num = v.as_f64().ok_or_else(|| {
+                        anyhow!(
+                            "expected numeric spectrum array element at index {}, got: {}",
+                            idx,
+                            v
+                        )
+                    })?;
+                    vals.push(num);
+                }
+                vals
+            }
+            serde_json::Value::String(s) => {
+                let mut vals = Vec::new();
+                for (idx, token) in s
+                    .split([',', ' ', '\t'])
+                    .filter(|s| !s.is_empty())
+                    .enumerate()
+                {
+                    let num = token.parse::<f64>().map_err(|e| {
+                        anyhow!(
+                            "failed to parse spectrum token '{}' at position {}: {}",
+                            token,
+                            idx,
+                            e
+                        )
+                    })?;
+                    vals.push(num);
+                }
+                vals
+            }
+            other => {
+                let num = other.as_f64().ok_or_else(|| {
+                    anyhow!(
+                        "expected numeric spectrum value or numeric vector/string, got: {}",
+                        other
+                    )
+                })?;
+                vec![num]
+            }
         };
 
         let sr_config = self

@@ -21,7 +21,6 @@
 // Only run when scripting feature is enabled
 #![cfg(feature = "scripting")]
 
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -32,18 +31,12 @@ use hardware::registry::{DeviceRegistry, HardwareConfig};
 use scripting::script_runner::ScriptPlanRunner;
 use tokio::time::timeout;
 
-fn workspace_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("integration-tests crate should be under /crates")
-        .parent()
-        .expect("workspace root should exist")
-        .to_path_buf()
-}
+#[path = "common/path_helpers.rs"]
+mod path_helpers;
 
 /// Create a registry with canonical mock profile devices.
 async fn create_test_registry() -> DeviceRegistry {
-    let root = workspace_root();
+    let root = path_helpers::workspace_root();
     let profile = root.join("config/demo.toml");
     let devices_dir = root.join("config/devices");
     let config = HardwareConfig::from_file(&profile).expect("demo profile should parse");

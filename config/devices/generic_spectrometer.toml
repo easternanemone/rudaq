@@ -35,23 +35,20 @@ timeout_ms = 5000
 
 [parameters.integration_time_ms]
 description = "Integration time"
-data_type = "float"
-units = "ms"
+type = "float"
+unit = "ms"
 default = 100.0
-min = 0.1
-max = 60000.0
+range = [0.1, 60000.0]
 read_command = "SENS:INT?"
-write_command = "SENS:INT {value}"
+write_command = "SENS:INT {{ value }}"
 
 [parameters.averaging]
 description = "Number of averages"
-data_type = "int"
-units = ""
+type = "int"
 default = 1
-min = 1
-max = 1000
+range = [1, 1000]
 read_command = "SENS:AVER?"
-write_command = "SENS:AVER {value}"
+write_command = "SENS:AVER {{ value }}"
 
 # ==============================================================================
 # Commands
@@ -69,7 +66,7 @@ response = "single_float"
 
 [commands.set_integration]
 description = "Set integration time"
-template = "SENS:INT {value}"
+template = "SENS:INT {{ value }}"
 
 [commands.get_integration]
 description = "Query integration time"

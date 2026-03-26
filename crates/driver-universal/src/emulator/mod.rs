@@ -105,7 +105,7 @@ pub enum EmulatorProfile {
     Realistic,
     /// Adds gaussian noise to numeric responses.
     Noisy,
-    /// Randomly injects timeout/error responses (~5% of commands).
+    /// Deterministically injects timeout/error responses (every 20th call, ~5%).
     Faulty,
 }
 
@@ -913,6 +913,30 @@ mod tests {
             "realistic profile should add transport delay, elapsed={:?}",
             elapsed
         );
+    }
+
+    #[test]
+    fn faulty_injection_is_deterministic_periodic() {
+        let mut fault_indices: Vec<usize> = Vec::new();
+        for i in 0..80 {
+            if super::should_inject_fault() {
+                fault_indices.push(i);
+            }
+        }
+
+        assert!(
+            fault_indices.len() >= 3,
+            "expected multiple injected faults in 80 calls, got {:?}",
+            fault_indices
+        );
+        for w in fault_indices.windows(2) {
+            assert_eq!(
+                w[1] - w[0],
+                20,
+                "fault injection should repeat every 20 calls, got {:?}",
+                fault_indices
+            );
+        }
     }
 
     #[test]

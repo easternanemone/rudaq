@@ -425,6 +425,10 @@ async fn matrix_universal_panel_kind_populated() {
         .into_iter()
         .filter(|d| d.driver_type.starts_with("universal_"))
         .collect();
+    assert!(
+        !universal_devices.is_empty(),
+        "expected at least one universal_* device in mock_maitai_lab profile"
+    );
 
     for device in &universal_devices {
         assert!(
@@ -445,6 +449,10 @@ async fn matrix_universal_category_set() {
         .into_iter()
         .filter(|d| d.driver_type.starts_with("universal_"))
         .collect();
+    assert!(
+        !universal_devices.is_empty(),
+        "expected at least one universal_* device in mock_maitai_lab profile"
+    );
 
     for device in &universal_devices {
         assert!(
@@ -519,24 +527,23 @@ async fn matrix_cross_profile_driver_type_parity() {
     let maitai_ell14 = maitai_registry
         .list_devices()
         .into_iter()
-        .find(|d| d.driver_type == ell14_device.driver_type);
+        .find(|d| d.driver_type == ell14_device.driver_type)
+        .expect("same driver type should exist across compared profiles");
 
-    if let Some(maitai_device) = maitai_ell14 {
-        assert_eq!(
-            normalize_capabilities(&ell14_device.capabilities),
-            normalize_capabilities(&maitai_device.capabilities),
-            "same driver type across profiles must expose identical capabilities"
-        );
-        assert_eq!(
-            normalize(&ell14_device.metadata.available_commands),
-            normalize(&maitai_device.metadata.available_commands),
-            "same driver type across profiles must expose identical command catalog"
-        );
-        assert_eq!(
-            ell14_device.metadata.panel_kind, maitai_device.metadata.panel_kind,
-            "same driver type across profiles must expose identical panel_kind"
-        );
-    }
+    assert_eq!(
+        normalize_capabilities(&ell14_device.capabilities),
+        normalize_capabilities(&maitai_ell14.capabilities),
+        "same driver type across profiles must expose identical capabilities"
+    );
+    assert_eq!(
+        normalize(&ell14_device.metadata.available_commands),
+        normalize(&maitai_ell14.metadata.available_commands),
+        "same driver type across profiles must expose identical command catalog"
+    );
+    assert_eq!(
+        ell14_device.metadata.panel_kind, maitai_ell14.metadata.panel_kind,
+        "same driver type across profiles must expose identical panel_kind"
+    );
 }
 
 #[tokio::test]
@@ -560,29 +567,28 @@ async fn matrix_universal_parameterized_parity_across_profiles() {
         n
     };
 
-    if let Some(maitai_ell14) = maitai_registry
+    let maitai_ell14 = maitai_registry
         .list_devices()
         .into_iter()
         .find(|d| d.driver_type == ell14_device.driver_type)
-    {
-        let maitai_params = maitai_registry
-            .get_parameterized(&maitai_ell14.id)
-            .expect("same driver type in other profile should also be Parameterized");
-        let maitai_names: Vec<String> = {
-            let mut n: Vec<String> = maitai_params
-                .parameters()
-                .names()
-                .into_iter()
-                .map(String::from)
-                .collect();
-            n.sort();
-            n
-        };
-        assert_eq!(
-            ell14_names, maitai_names,
-            "Parameterized names must be identical for same driver type across profiles"
-        );
-    }
+        .expect("same driver type should exist across compared profiles");
+    let maitai_params = maitai_registry
+        .get_parameterized(&maitai_ell14.id)
+        .expect("same driver type in other profile should also be Parameterized");
+    let maitai_names: Vec<String> = {
+        let mut n: Vec<String> = maitai_params
+            .parameters()
+            .names()
+            .into_iter()
+            .map(String::from)
+            .collect();
+        n.sort();
+        n
+    };
+    assert_eq!(
+        ell14_names, maitai_names,
+        "Parameterized names must be identical for same driver type across profiles"
+    );
 }
 
 #[tokio::test]

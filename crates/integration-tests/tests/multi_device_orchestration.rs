@@ -24,7 +24,6 @@
 )]
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -35,25 +34,19 @@ use hardware::registry::{DeviceRegistry, HardwareConfig};
 use tokio::sync::broadcast;
 use tokio::time::timeout;
 
+#[path = "common/path_helpers.rs"]
+mod path_helpers;
+
 // =============================================================================
 // Test Registry Setup
 // =============================================================================
-
-fn workspace_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("integration-tests crate should be under /crates")
-        .parent()
-        .expect("workspace root should exist")
-        .to_path_buf()
-}
 
 /// Create a registry from the canonical multi-device mock profile.
 ///
 /// Stages and power meter run through driver-universal with `mock = true`;
 /// camera remains a native mock exception.
 async fn create_multi_device_registry() -> DeviceRegistry {
-    let root = workspace_root();
+    let root = path_helpers::workspace_root();
     let profile = root.join("config/profiles/mock_multi_device.toml");
     let devices_dir = root.join("config/devices");
     let config = HardwareConfig::from_file(&profile).expect("multi-device profile should parse");
