@@ -1,0 +1,35 @@
+# Multi-device mock profile for RunEngine orchestration tests.
+#
+# Universal-eligible instruments (stages, power meter) use driver-universal
+# with `mock = true`. Camera remains a native mock exception.
+
+[[devices]]
+id = "stage_x"
+name = "X Stage (Universal Mock)"
+[devices.driver]
+type = "universal_newport_esp300"
+mock = true
+address = "1"
+
+[[devices]]
+id = "stage_y"
+name = "Y Stage (Universal Mock)"
+[devices.driver]
+type = "universal_newport_esp300"
+mock = true
+address = "2"
+
+[[devices]]
+id = "power_meter"
+name = "Power Meter (Universal Mock)"
+[devices.driver]
+type = "universal_newport_1830-c"
+mock = true
+
+[[devices]]
+id = "camera"
+name = "Test Camera (Mock)"
+[devices.driver]
+type = "mock_camera"
+width = 64
+height = 64
