@@ -99,6 +99,14 @@ pub struct InstanceConfig {
     /// Use a mock transport instead of real hardware (for testing).
     #[serde(default)]
     pub mock: bool,
+    /// Emulator fidelity profile when `mock = true`.
+    ///
+    /// - `"fast"` (default): instant responses, no noise
+    /// - `"realistic"`: simulated transport delays
+    /// - `"noisy"`: adds gaussian noise to numeric responses
+    /// - `"faulty"`: randomly injects timeout/error responses
+    #[serde(default)]
+    pub mock_profile: Option<String>,
 }
 
 fn default_address() -> String {
@@ -229,12 +237,17 @@ impl DriverFactory for UniversalDriverFactory {
             let transport: SharedTransport = if instance.mock {
                 #[cfg(feature = "emulator")]
                 {
-                    Arc::new(Mutex::new(
-                        Box::new(crate::emulator::create_emulator_transport(
+                    let profile = crate::emulator::EmulatorProfile::from_str_opt(
+                        instance.mock_profile.as_deref(),
+                    );
+                    Arc::new(Mutex::new(Box::new(
+                        crate::emulator::create_emulator_transport_with_profile(
                             &manifest,
                             &instance.address,
-                        )?) as Box<dyn crate::transport::Transport>,
-                    ))
+                            profile,
+                        )?,
+                    )
+                        as Box<dyn crate::transport::Transport>))
                 }
                 #[cfg(not(feature = "emulator"))]
                 {
@@ -925,6 +938,83 @@ read = { command = "read_power" }
         // On macOS this fails with "only supported on Linux"; on Linux it fails
         // with "requires 'device'". Either way, it should fail.
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn factory_build_metadata_parity_real_vs_mock() {
+        let toml_str = r#"
+schema_version = 3
+
+[device]
+name = "Metadata Parity Device"
+capabilities = ["Movable", "Parameterized"]
+category = "stage"
+
+[connection]
+type = "serial"
+baud_rate = 9600
+
+[commands.move_absolute]
+template = "PA{{ position }}"
+parameters = { position = "float" }
+expects_response = false
+
+[commands.get_position]
+template = "TP?"
+response = "position"
+
+[responses.position]
+transform = ["trim", "to_float"]
+
+[capabilities.movable.move_abs]
+command = "move_absolute"
+input_param = "position"
+from_param = "position"
+
+[capabilities.movable.position]
+command = "get_position"
+output_field = "value"
+
+[parameters.position_mm]
+type = "float"
+default = 0.0
+unit = "mm"
+description = "Current position"
+
+[ui]
+panel_kind = "stage"
+"#;
+
+        let factory = UniversalDriverFactory::from_toml_str(toml_str).unwrap();
+
+        let mock_config = toml::toml! {
+            mock = true
+            address = "1"
+        };
+        let mock_components = factory.build(mock_config.into()).await.unwrap();
+
+        assert_eq!(
+            mock_components.metadata.category,
+            Some(DeviceCategory::Stage),
+            "mock build should set category from manifest"
+        );
+        assert_eq!(
+            mock_components.metadata.panel_kind.as_deref(),
+            Some("stage"),
+            "mock build should set panel_kind from manifest [ui]"
+        );
+        assert!(
+            !mock_components.metadata.available_commands.is_empty(),
+            "mock build should populate available_commands from manifest"
+        );
+        assert!(
+            !mock_components.metadata.manifest_features.is_empty(),
+            "mock build should populate manifest_features"
+        );
+        assert!(
+            mock_components.parameterized.is_some(),
+            "mock build should wire Parameterized"
+        );
     }
 
     #[test]
