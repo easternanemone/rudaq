@@ -416,7 +416,7 @@ impl ImageViewerPanel {
                 activate_after: activate_after_save,
                 profile,
             };
-            return Ok(path);
+            Ok(path)
         }
 
         #[cfg(not(target_arch = "wasm32"))]

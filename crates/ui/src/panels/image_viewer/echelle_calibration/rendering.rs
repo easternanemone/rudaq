@@ -1435,10 +1435,168 @@ impl ImageViewerPanel {
             }
         }
 
-        // ── Section 8: Legacy manual-points residual display ─────────────
+        // ── Section 8: Calibration quality report (bd-du24) ──────────────
         let Some(profile) = self.echelle_cal_ui.editor_profile.as_ref() else {
             return;
         };
+        let selected_order = profile
+            .orders
+            .get(self.echelle_cal_ui.selected_order_edit_idx)
+            .or_else(|| profile.orders.first());
+        let selected_relative_index = selected_order.map(|o| o.relative_index);
+        let matched_lines = build_quality_matched_lines(&self.echelle_cal_ui, profile);
+        let quality_report = echelle::calibration_quality::compute_quality_report(
+            profile,
+            &matched_lines,
+            36_300.0,
+            4,
+            3,
+        );
+
+        ui.separator();
+        ui.horizontal_wrapped(|ui| {
+            ui.strong("Calibration Quality");
+            ui.separator();
+            ui.small(format!(
+                "Global RMS: {:.4} nm",
+                quality_report.global_rms_nm
+            ));
+            ui.separator();
+            ui.small(match quality_report.loo_rms {
+                Some(v) => format!("LOO RMS: {:.4} nm", v),
+                None => "LOO RMS: n/a".to_string(),
+            });
+            ui.separator();
+            if let Some(max_overlap) = quality_report
+                .overlap_disagreements
+                .iter()
+                .map(|o| o.max_disagreement_nm)
+                .reduce(f64::max)
+            {
+                ui.small(format!("Max overlap Δλ: {:.4} nm", max_overlap));
+            } else {
+                ui.small("Max overlap Δλ: n/a");
+            }
+            ui.separator();
+            if let Some(max_gc_frac) = quality_report
+                .gc_deviations
+                .iter()
+                .map(|g| g.fractional_deviation.abs())
+                .reduce(f64::max)
+            {
+                ui.small(format!("Max |mλ-gc|: {:.2}%", max_gc_frac * 100.0));
+            } else {
+                ui.small("Max |mλ-gc|: n/a");
+            }
+        });
+        ui.small(format!(
+            "Matched atlas lines used for quality metrics: {}",
+            matched_lines.len()
+        ));
+        if let Some(rel_idx) = selected_relative_index {
+            if let Some(order_metrics) = quality_report
+                .per_order_rms
+                .iter()
+                .find(|o| o.relative_index == rel_idx)
+            {
+                ui.small(format!(
+                    "Selected order rel={} | matched={} | RMS={:.4} nm{}",
+                    order_metrics.relative_index,
+                    order_metrics.n_matched_lines,
+                    order_metrics.rms_nm,
+                    order_metrics
+                        .wavelength_range_nm
+                        .map(|(a, b)| format!(" | range {:.2}-{:.2} nm", a, b))
+                        .unwrap_or_default()
+                ));
+            }
+        }
+        if let Some(max_overlap) = quality_report
+            .overlap_disagreements
+            .iter()
+            .max_by(|a, b| a.max_disagreement_nm.total_cmp(&b.max_disagreement_nm))
+        {
+            ui.small(format!(
+                "Worst overlap: rel {} vs {} | Δλ {:.4} nm over {:.2}-{:.2} nm",
+                max_overlap.order_a,
+                max_overlap.order_b,
+                max_overlap.max_disagreement_nm,
+                max_overlap.overlap_range_nm.0,
+                max_overlap.overlap_range_nm.1
+            ));
+        }
+        let n_gc_out_of_band = quality_report
+            .gc_deviations
+            .iter()
+            .filter(|g| g.fractional_deviation.abs() > 0.01)
+            .count();
+        ui.small(format!(
+            "Grating-constant consistency: {} / {} orders outside 1% band",
+            n_gc_out_of_band,
+            quality_report.gc_deviations.len()
+        ));
+        if !quality_report.per_order_rms.is_empty() {
+            ui.collapsing("Per-order quality", |ui| {
+                egui::ScrollArea::vertical()
+                    .max_height(170.0)
+                    .id_salt("echelle_quality_per_order")
+                    .show(ui, |ui| {
+                        egui::Grid::new("echelle_quality_per_order_grid")
+                            .striped(true)
+                            .show(ui, |ui| {
+                                ui.strong("rel");
+                                ui.strong("m");
+                                ui.strong("RMS nm");
+                                ui.strong("matched");
+                                ui.strong("range nm");
+                                ui.strong("blaze peak");
+                                ui.end_row();
+
+                                for order_metrics in &quality_report.per_order_rms {
+                                    let order = profile
+                                        .orders
+                                        .iter()
+                                        .find(|o| o.relative_index == order_metrics.relative_index);
+                                    let blaze_peak = order.and_then(|o| {
+                                        blaze_peak_wavelength_nm_for_order(
+                                            profile,
+                                            o,
+                                            order_metrics.relative_index,
+                                        )
+                                    });
+                                    ui.label(order_metrics.relative_index.to_string());
+                                    ui.label(
+                                        order_metrics
+                                            .physical_order
+                                            .map(|m| m.to_string())
+                                            .unwrap_or_else(|| "-".to_string()),
+                                    );
+                                    ui.label(format!("{:.4}", order_metrics.rms_nm));
+                                    ui.label(order_metrics.n_matched_lines.to_string());
+                                    ui.label(
+                                        order_metrics
+                                            .wavelength_range_nm
+                                            .map(|(a, b)| format!("{:.2}-{:.2}", a, b))
+                                            .unwrap_or_else(|| "-".to_string()),
+                                    );
+                                    ui.label(
+                                        blaze_peak
+                                            .map(|p| format!("{:.2} nm", p))
+                                            .unwrap_or_else(|| "-".to_string()),
+                                    );
+                                    ui.end_row();
+                                }
+                            });
+                    });
+            });
+        }
+        if matched_lines.is_empty() {
+            ui.small(
+                "Quality metrics that depend on atlas matches (RMS/LOO) are empty. Detect lines and run atlas matching to populate them.",
+            );
+        }
+
+        // ── Section 9: Legacy manual-points residual display ─────────────
 
         let mut global_count = 0usize;
         let mut global_sum_sq = 0.0f64;
@@ -1897,6 +2055,74 @@ impl ImageViewerPanel {
             }
         }
         out
+    }
+}
+
+fn build_quality_matched_lines(
+    ui_state: &EchelleCalibrationUiState,
+    profile: &EchelleCalibrationProfile,
+) -> Vec<echelle::calibration_quality::MatchedLine> {
+    ui_state
+        .matched_pairs
+        .iter()
+        .filter(|r| r.included)
+        .filter_map(|row| {
+            let line = ui_state.detected_arc_lines.get(row.detected_line_idx)?;
+            let relative_order = line.order;
+            let order = profile
+                .orders
+                .iter()
+                .find(|o| o.relative_index == relative_order)?;
+            let physical_order = order.physical_order_number.and_then(|m| {
+                let abs = m.unsigned_abs();
+                (abs != 0).then_some(abs)
+            })?;
+            Some(echelle::calibration_quality::MatchedLine {
+                pixel: line.pixel_center,
+                physical_order,
+                relative_order,
+                atlas_wavelength_nm: row.matched_wavelength_nm,
+            })
+        })
+        .collect()
+}
+
+fn blaze_peak_wavelength_nm_for_order(
+    profile: &EchelleCalibrationProfile,
+    order: &EchelleOrderCalibration,
+    relative_index: u32,
+) -> Option<f64> {
+    let curves = profile.corrections.blaze_curves.as_ref()?;
+    let pos = profile
+        .orders
+        .iter()
+        .position(|o| o.relative_index == relative_index)?;
+    let curve = curves.get(pos)?;
+    let (peak_idx, _) = curve.iter().enumerate().max_by(|a, b| a.1.total_cmp(b.1))?;
+    let peak_idx = u32::try_from(peak_idx).ok()?;
+    let sample = order.sample_start.saturating_add(peak_idx);
+    wavelength_at_sample(order, sample)
+}
+
+fn wavelength_at_sample(order: &EchelleOrderCalibration, sample: u32) -> Option<f64> {
+    match &order.wavelength {
+        EchelleWavelengthModel::Polynomial {
+            basis,
+            coefficients,
+            domain_start,
+            domain_end,
+            ..
+        } => eval_polynomial_for_ui(
+            *basis,
+            coefficients,
+            *domain_start,
+            *domain_end,
+            f64::from(sample),
+        ),
+        EchelleWavelengthModel::Sampled { wavelengths, .. } => {
+            let idx = sample.checked_sub(order.sample_start)? as usize;
+            wavelengths.get(idx).copied()
+        }
     }
 }
 

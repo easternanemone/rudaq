@@ -480,7 +480,7 @@ fn run_calibration_pipeline_impl(
 
         let mut best_diag = None;
 
-        if let Some((gc, first_m, step)) = two_phase_base {
+        if let Some((gc, first_m, _step)) = two_phase_base {
             // Search over candidate physical orders to robustly handle sparse traces.
             // We enforce uniqueness: an 'm' value can only be claimed by one trace.
             let search_start = (first_m - 50).max(1);
@@ -520,14 +520,13 @@ fn run_calibration_pipeline_impl(
 
                 let cand_diag = match_and_fit(&lines, oi, config, &seed_fn, Some(&tp_config));
 
-                if cand_diag.success {
-                    if cand_diag.n_lines_matched > max_matched
-                        || (cand_diag.n_lines_matched == max_matched && cand_diag.rms_nm < min_rms)
-                    {
-                        max_matched = cand_diag.n_lines_matched;
-                        min_rms = cand_diag.rms_nm;
-                        best_diag = Some(cand_diag);
-                    }
+                if cand_diag.success
+                    && (cand_diag.n_lines_matched > max_matched
+                        || (cand_diag.n_lines_matched == max_matched && cand_diag.rms_nm < min_rms))
+                {
+                    max_matched = cand_diag.n_lines_matched;
+                    min_rms = cand_diag.rms_nm;
+                    best_diag = Some(cand_diag);
                 }
             }
         } else {
