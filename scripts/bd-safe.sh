@@ -74,4 +74,10 @@ if [[ "$bd_help" == *"--no-auto-import"* ]]; then
   bd_args+=(--no-auto-import)
 fi
 
+# Important: `bd --db <canonical>` is not enough on its own when invoked from a
+# git worktree. Beads still resolves `.beads` config relative to the current
+# working directory, which can silently rebind commands back onto the
+# worktree-local runtime state. Run from the common checkout so config and DB
+# routing agree.
+cd "$common_root"
 exec bd "${bd_args[@]}" "$@"
