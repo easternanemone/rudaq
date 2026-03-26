@@ -165,7 +165,7 @@ registry.register_from_config(DeviceConfig { id, name, driver: DriverConfig { ty
 
 ## Tools & Workflow
 
-**Issue tracking**: `bd` (beads) — Run `bd prime` for workflow context (auto-injected at session start). Run `bd onboard` to generate AGENTS.md.
+**Issue tracking**: `bd` (beads) — Run `bd prime` for workflow context (auto-injected at session start). If a worktree cannot resolve the canonical beads DB, use `bash scripts/bd-safe.sh ...`. If `bd dolt push` reports missing remote `origin`, run `bash scripts/ops/setup-beads-dolt-remote.sh`.
 
 **Advanced features:**
 - `bd query "status=open AND priority<=1"` — compound query language
@@ -280,6 +280,7 @@ pub fn set_page_title(title: &str) {
 | `scripts/ops/env-check.sh` | Source before hardware tests |
 | `scripts/ops/install-hooks.sh [quick]` | Pre-commit hooks (full or format-only) |
 | `scripts/ops/calibrate-comedi.sh` | Comedi DAQ calibration |
+| `scripts/ops/setup-beads-dolt-remote.sh` | Configure beads Dolt `origin` remote when sync/push fails |
 | `scripts/ops/post-crash-forensics.sh` | Post-crash system forensics (dmesg, coredumps, journal, network) |
 | **ci/** | |
 | `scripts/ci/pre-push-gate.sh` | Pre-push quality gate (fmt, optional mdBook build, clippy, tests) |
