@@ -711,8 +711,9 @@ impl ImageViewerPanel {
     ///
     /// Uses the same algorithm as [`echelle::extract_flat_blaze_curves`]: simple-sum extraction
     /// on the current camera buffer (no prior blaze correction), peak-normalise per order, then
-    /// store vectors in `corrections.blaze_curves`. Live extraction still uses the **active**
-    /// profile until you save and activate (or Save+Activate).
+    /// store vectors in `corrections.blaze_curves`. Frame compatibility is checked inside that
+    /// path (via [`echelle::extract_preview`]) so diagnostics stay single-sourced. Live
+    /// extraction still uses the **active** profile until you save and activate (or Save+Activate).
     pub(in crate::panels::image_viewer) fn extract_flat_blaze_from_current_frame(
         &mut self,
     ) -> Result<(), String> {
@@ -739,24 +740,6 @@ impl ImageViewerPanel {
                     .to_string()
             })?
         };
-
-        let compat = profile.check_frame_compatibility(&echelle::EchelleFrameContext {
-            width: self.width,
-            height: self.height,
-            bit_depth: Some(bit_depth),
-            ..Default::default()
-        });
-        if !compat.is_usable() {
-            let msgs: Vec<String> = compat
-                .diagnostics()
-                .iter()
-                .map(ToString::to_string)
-                .collect();
-            return Err(format!(
-                "Editor profile incompatible with current frame: {}",
-                msgs.join("; ")
-            ));
-        }
 
         let curves = echelle::extract_flat_blaze_curves(
             profile,
