@@ -69,7 +69,7 @@ use common::capabilities::{
     CapabilityProvider, Commandable, CounterConfigurable, DeviceIntrospection, EmissionControl,
     ExposureControl, FrameProducer, GatedCamera, Movable, Parameterized, RangeIntrospectable,
     Readable, ReadableWithMetadata, Reconfigurable, Settable, ShutterControl, SpectrometerControl,
-    Stageable, StateRefreshable, Triggerable, WavelengthTunable,
+    SpectrumReadable, Stageable, StateRefreshable, Triggerable, WavelengthTunable,
 };
 use common::data::Frame;
 use common::driver::{
@@ -340,6 +340,8 @@ struct RegisteredDevice {
     device_introspection: Option<Arc<dyn DeviceIntrospection>>,
     /// ReadableWithMetadata implementation (if supported) - structured analog reads (bd-09ls)
     readable_with_metadata: Option<Arc<dyn ReadableWithMetadata>>,
+    /// SpectrumReadable implementation (if supported) - 1D detector/spectrum data (bd-lncj.1.2)
+    spectrum_readable: Option<Arc<dyn SpectrumReadable>>,
     /// Optional lifecycle hooks for registration/shutdown
     lifecycle: Option<Arc<dyn DeviceLifecycle>>,
     /// Device metadata (units, ranges, etc.)
@@ -428,6 +430,9 @@ impl RegisteredDevice {
         }
         if self.readable_with_metadata.is_some() {
             caps.push(Capability::ReadableWithMetadata);
+        }
+        if self.spectrum_readable.is_some() {
+            caps.push(Capability::SpectrumReadable);
         }
 
         caps
@@ -948,6 +953,7 @@ impl DeviceRegistry {
             range_introspectable: components.range_introspectable,
             device_introspection: components.device_introspection,
             readable_with_metadata: components.readable_with_metadata,
+            spectrum_readable: components.spectrum_readable,
             lifecycle: components.lifecycle,
             metadata,
             config_hash: 0, // Default — set by reconciler when registering from DB
@@ -1443,6 +1449,7 @@ impl DeviceRegistry {
                         range_introspectable: None,
                         device_introspection: None,
                         readable_with_metadata: None,
+                        spectrum_readable: None,
                         lifecycle: None,
                         metadata: old_metadata,
                         config_hash: 0,
@@ -1643,6 +1650,13 @@ impl DeviceRegistry {
             .and_then(|d| d.readable_with_metadata.clone())
     }
 
+    /// Get a device as SpectrumReadable (if it supports 1D detector/spectrum data, bd-lncj.1.2)
+    pub fn get_spectrum_readable(&self, id: &str) -> Option<Arc<dyn SpectrumReadable>> {
+        self.devices
+            .get(id)
+            .and_then(|d| d.spectrum_readable.clone())
+    }
+
     /// Get the config hash for a registered device (for change detection).
     pub fn config_hash(&self, id: &str) -> Option<u64> {
         self.devices.get(id).map(|d| d.config_hash)
@@ -1832,6 +1846,7 @@ impl DeviceRegistry {
             range_introspectable: None,
             device_introspection: None,
             readable_with_metadata: None,
+            spectrum_readable: None,
             lifecycle: None,
             metadata,
             config_hash: 0,
@@ -1949,6 +1964,10 @@ impl CapabilityProvider for DeviceRegistry {
 
     fn get_readable_with_metadata(&self, id: &str) -> Option<Arc<dyn ReadableWithMetadata>> {
         self.get_readable_with_metadata(id)
+    }
+
+    fn get_spectrum_readable(&self, id: &str) -> Option<Arc<dyn SpectrumReadable>> {
+        self.get_spectrum_readable(id)
     }
 }
 

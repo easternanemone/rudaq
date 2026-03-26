@@ -164,6 +164,30 @@ impl ManifestEmulator {
             &mut setter_routes,
         );
 
+        // 2b. Seed synthetic 1D data for SpectrumReadable devices
+        if let Some(sr) = &manifest.capabilities.spectrum_readable {
+            if let Some(read_cfg) = &sr.read_spectrum {
+                let key = response_key_for(
+                    &read_cfg.command.0,
+                    manifest.commands.get(&read_cfg.command.0).unwrap(),
+                );
+                let entry = state.entry(key).or_default();
+                let n = sr.spectrum_length;
+                #[allow(clippy::cast_precision_loss)]
+                let n_f = n as f64;
+                let synthetic: Vec<String> = (0..n)
+                    .map(|i| {
+                        #[allow(clippy::cast_precision_loss)]
+                        let x = i as f64 / n_f;
+                        let intensity = 100.0 * (-((x - 0.4) * 8.0).powi(2)).exp()
+                            + 50.0 * (-((x - 0.7) * 12.0).powi(2)).exp();
+                        format!("{intensity:.2}")
+                    })
+                    .collect();
+                entry.insert("value".to_string(), json!(synthetic.join(",")));
+            }
+        }
+
         // 3. Add SCPI pairing heuristic for non-capability commands
         add_scpi_pairing_routes(&manifest.commands, &manifest.responses, &mut setter_routes);
 
@@ -368,6 +392,7 @@ fn add_numeric_noise(response: &str) -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
     static NOISE_COUNTER: AtomicU64 = AtomicU64::new(0);
     let n = NOISE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    #[allow(clippy::cast_precision_loss)]
     let noise = ((n as f64 * 0.618_033_988_749_895).fract() - 0.5) * 0.001;
 
     if let Ok(val) = response.trim().parse::<f64>() {

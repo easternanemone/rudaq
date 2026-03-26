@@ -419,6 +419,13 @@ mod tests {
         ) -> Option<Arc<dyn common::capabilities::ReadableWithMetadata>> {
             None
         }
+
+        fn get_spectrum_readable(
+            &self,
+            _id: &str,
+        ) -> Option<Arc<dyn common::capabilities::SpectrumReadable>> {
+            None
+        }
     }
 
     // ---- Tests ----

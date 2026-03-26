@@ -332,6 +332,7 @@ pub struct CapabilitySet {
     pub shutter_control: Option<ShutterControlConfig>,
     pub wavelength_tunable: Option<WavelengthTunableConfig>,
     pub emission_control: Option<EmissionControlConfig>,
+    pub spectrum_readable: Option<SpectrumReadableConfig>,
 }
 
 /// Validated Movable capability configuration.
@@ -377,6 +378,15 @@ pub struct EmissionControlConfig {
     pub enable: Option<MethodConfig>,
     pub disable: Option<MethodConfig>,
     pub is_enabled: Option<MethodConfig>,
+}
+
+/// Validated SpectrumReadable capability configuration (1D detectors).
+#[derive(Debug)]
+pub struct SpectrumReadableConfig {
+    pub read_spectrum: Option<MethodConfig>,
+    pub spectrum_length: usize,
+    pub value_units: String,
+    pub axis_units: Option<String>,
 }
 
 /// A validated method-to-command mapping.

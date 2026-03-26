@@ -606,6 +606,53 @@ impl common::capabilities::Readable for UniversalDriver {
 }
 
 #[async_trait]
+impl common::capabilities::SpectrumReadable for UniversalDriver {
+    async fn read_spectrum(&self) -> Result<common::capabilities::SpectrumData> {
+        let mapping = capability_method!(
+            self,
+            spectrum_readable,
+            read_spectrum,
+            "SpectrumReadable",
+            "read_spectrum"
+        );
+        let fields = self.execute_method(mapping, None).await?;
+        let raw_value = Self::extract_response_value(&fields, mapping.output_field.as_ref())?;
+
+        let values: Vec<f64> = match raw_value {
+            serde_json::Value::Array(arr) => arr.iter().filter_map(|v| v.as_f64()).collect(),
+            serde_json::Value::String(s) => s
+                .split([',', ' ', '\t'])
+                .filter(|s| !s.is_empty())
+                .filter_map(|s| s.parse::<f64>().ok())
+                .collect(),
+            _ => vec![raw_value.as_f64().unwrap_or(0.0)],
+        };
+
+        let sr_config = self
+            .manifest
+            .capabilities
+            .spectrum_readable
+            .as_ref()
+            .expect("SpectrumReadable config must exist");
+
+        Ok(common::capabilities::SpectrumData {
+            values,
+            axis: None,
+            value_units: sr_config.value_units.clone(),
+            axis_units: sr_config.axis_units.clone(),
+        })
+    }
+
+    fn spectrum_length(&self) -> usize {
+        self.manifest
+            .capabilities
+            .spectrum_readable
+            .as_ref()
+            .map_or(0, |sr| sr.spectrum_length)
+    }
+}
+
+#[async_trait]
 impl common::capabilities::Settable for UniversalDriver {
     async fn set_value(&self, name: &str, value: serde_json::Value) -> Result<()> {
         let mapping = capability_method!(self, settable, set, "Settable", "set");
@@ -872,6 +919,13 @@ impl common::capabilities::StateRefreshable for UniversalDriver {
                     }
                 }
             }
+        }
+
+        if let Some(sr_cfg) = &self.manifest.capabilities.spectrum_readable {
+            state.insert(
+                "spectrum_length".to_string(),
+                serde_json::json!(sr_cfg.spectrum_length),
+            );
         }
 
         tracing::debug!(

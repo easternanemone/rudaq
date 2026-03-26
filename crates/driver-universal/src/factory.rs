@@ -144,6 +144,7 @@ impl UniversalDriverFactory {
                 "EmissionControl" => Some(CoreCapability::EmissionControl),
                 "Commandable" => Some(CoreCapability::Commandable),
                 "Parameterized" => Some(CoreCapability::Parameterized),
+                "SpectrumReadable" => Some(CoreCapability::SpectrumReadable),
                 _ => None,
             })
             .collect();
@@ -431,6 +432,11 @@ impl DriverFactory for UniversalDriverFactory {
             {
                 components = components.with_parameterized(
                     driver_arc.clone() as Arc<dyn common::capabilities::Parameterized>
+                );
+            }
+            if manifest.capabilities.spectrum_readable.is_some() {
+                components = components.with_spectrum_readable(
+                    driver_arc.clone() as Arc<dyn common::capabilities::SpectrumReadable>
                 );
             }
 

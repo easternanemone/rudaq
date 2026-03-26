@@ -1,0 +1,113 @@
+# config/devices/generic_spectrometer.toml
+# Generic USB Spectrometer - 1D Detector Protocol Definition
+#
+# Represents a typical fiber-coupled spectrometer that returns
+# comma-separated intensity values over a fixed wavelength axis.
+# Serves as the canonical example for SpectrumReadable devices.
+#
+# Protocol: Simple ASCII/SCPI over serial or TCP.
+# Response: Comma-separated float values (one per pixel).
+
+schema_version = 3
+
+[device]
+name = "Generic Spectrometer"
+description = "1D fiber-coupled spectrometer with configurable integration time"
+manufacturer = "Generic"
+model = "SPEC-1024"
+protocol = "scpi"
+category = "detector"
+capabilities = ["SpectrumReadable", "Readable", "Parameterized"]
+
+# ==============================================================================
+# Connection Settings
+# ==============================================================================
+
+[connection]
+type = "tcp"
+host = "192.168.1.100"
+port = 5025
+timeout_ms = 5000
+
+# ==============================================================================
+# Parameters
+# ==============================================================================
+
+[parameters.integration_time_ms]
+description = "Integration time"
+data_type = "float"
+units = "ms"
+default = 100.0
+min = 0.1
+max = 60000.0
+read_command = "SENS:INT?"
+write_command = "SENS:INT {value}"
+
+[parameters.averaging]
+description = "Number of averages"
+data_type = "int"
+units = ""
+default = 1
+min = 1
+max = 1000
+read_command = "SENS:AVER?"
+write_command = "SENS:AVER {value}"
+
+# ==============================================================================
+# Commands
+# ==============================================================================
+
+[commands.read_spectrum]
+description = "Read the full 1D spectrum (comma-separated intensities)"
+template = "MEAS:SPEC?"
+response = "csv_floats"
+
+[commands.read_peak]
+description = "Read the peak intensity value"
+template = "MEAS:PEAK?"
+response = "single_float"
+
+[commands.set_integration]
+description = "Set integration time"
+template = "SENS:INT {value}"
+
+[commands.get_integration]
+description = "Query integration time"
+template = "SENS:INT?"
+response = "single_float"
+
+# ==============================================================================
+# Response Parsers
+# ==============================================================================
+
+[responses.csv_floats]
+type = "format"
+format = "{value}"
+
+[responses.single_float]
+type = "format"
+format = "{value}"
+
+# ==============================================================================
+# Capability Mappings
+# ==============================================================================
+
+[capabilities.spectrum_readable]
+spectrum_length = 1024
+value_units = "counts"
+axis_units = "nm"
+
+[capabilities.spectrum_readable.read_spectrum]
+command = "read_spectrum"
+
+[capabilities.readable]
+
+[capabilities.readable.read]
+command = "read_peak"
+
+# ==============================================================================
+# UI Metadata
+# ==============================================================================
+
+[ui]
+panel_kind = "detector"

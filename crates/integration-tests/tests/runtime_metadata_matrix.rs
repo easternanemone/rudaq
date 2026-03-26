@@ -642,6 +642,43 @@ async fn matrix_native_camera_has_no_manifest_features() {
     );
 }
 
+#[tokio::test]
+async fn matrix_camera_native_exception_driver_type_contract() {
+    let config = load_profile("config/profiles/mock_maitai_lab.toml");
+    let camera = config
+        .devices
+        .iter()
+        .find(|d| d.driver.driver_type == "mock_camera")
+        .expect("mock_maitai_lab profile should include camera device");
+    assert_eq!(
+        camera.driver.driver_type, "mock_camera",
+        "camera native exception should remain on mock_camera, not universal_*"
+    );
+}
+
+#[tokio::test]
+async fn matrix_comedi_and_dover_driver_types_remain_native_exceptions() {
+    let config = load_profile("config/maitai_universal.toml");
+    let native_driver_types: Vec<&str> = config
+        .devices
+        .iter()
+        .map(|d| d.driver.driver_type.as_str())
+        .filter(|t| t.starts_with("comedi_") || *t == "dover_axis")
+        .collect();
+
+    assert!(
+        !native_driver_types.is_empty(),
+        "maitai_universal profile should include native DAQ/motion exception drivers"
+    );
+    assert!(
+        native_driver_types
+            .iter()
+            .all(|t| !t.starts_with("universal_")),
+        "comedi/dover driver types must remain native exceptions, found: {:?}",
+        native_driver_types
+    );
+}
+
 #[cfg(feature = "db-surreal-mem")]
 #[tokio::test]
 async fn matrix_db_on_hybrid_driver_metadata_parity() {
@@ -718,4 +755,83 @@ async fn matrix_db_on_hybrid_driver_metadata_parity() {
             expected.driver_type
         );
     }
+}
+
+// =============================================================================
+// SpectrumReadable (1D detector) parity tests (bd-lncj.1.2 / bd-lncj.2.2)
+// =============================================================================
+
+#[tokio::test]
+async fn matrix_universal_spectrometer_has_spectrum_readable() {
+    let registry = create_profile_registry("config/profiles/mock_spectrometer.toml").await;
+    let devices = registry.list_devices();
+    let spec = devices
+        .iter()
+        .find(|d| d.id == "spectrometer")
+        .expect("mock_spectrometer profile should contain 'spectrometer' device");
+
+    let cap_strs: Vec<&str> = spec.capabilities.iter().map(|c| c.as_str()).collect();
+    assert!(
+        cap_strs.contains(&"spectrum_readable"),
+        "spectrometer should advertise SpectrumReadable capability, got: {:?}",
+        cap_strs
+    );
+    assert!(
+        cap_strs.contains(&"readable"),
+        "spectrometer should also advertise Readable capability"
+    );
+}
+
+#[tokio::test]
+async fn matrix_universal_spectrometer_read_spectrum_returns_data() {
+    let registry = create_profile_registry("config/profiles/mock_spectrometer.toml").await;
+    let spec_readable = registry
+        .get_spectrum_readable("spectrometer")
+        .expect("spectrometer should provide SpectrumReadable");
+
+    let data = spec_readable
+        .read_spectrum()
+        .await
+        .expect("read_spectrum should succeed");
+    assert!(
+        !data.values.is_empty(),
+        "spectrum data should contain at least one value"
+    );
+    assert_eq!(data.value_units, "counts");
+    assert_eq!(data.axis_units.as_deref(), Some("nm"));
+}
+
+#[tokio::test]
+async fn matrix_universal_spectrometer_spectrum_length() {
+    let registry = create_profile_registry("config/profiles/mock_spectrometer.toml").await;
+    let spec_readable = registry
+        .get_spectrum_readable("spectrometer")
+        .expect("spectrometer should provide SpectrumReadable");
+
+    assert_eq!(
+        spec_readable.spectrum_length(),
+        1024,
+        "spectrum_length should match manifest config"
+    );
+}
+
+#[tokio::test]
+async fn matrix_universal_spectrometer_category_is_detector() {
+    let registry = create_profile_registry("config/profiles/mock_spectrometer.toml").await;
+    let devices = registry.list_devices();
+    let spec = devices
+        .iter()
+        .find(|d| d.id == "spectrometer")
+        .expect("spectrometer should exist");
+
+    assert_eq!(
+        spec.metadata.category,
+        Some(common::capabilities::DeviceCategory::Detector),
+        "spectrometer category should be Detector"
+    );
+    assert_eq!(
+        spec.metadata.panel_kind.as_deref(),
+        Some("detector"),
+        "spectrometer panel_kind should be 'detector'"
+    );
 }
