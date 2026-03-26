@@ -706,4 +706,59 @@ impl ImageViewerPanel {
         self.echelle_cal_ui.last_error = None;
         Ok(())
     }
+
+    /// Extract per-order blaze curves from a **continuum flat-lamp** frame using the editor profile.
+    ///
+    /// Uses the same algorithm as [`echelle::extract_flat_blaze_curves`]: simple-sum extraction
+    /// on the current camera buffer (no prior blaze correction), peak-normalise per order, then
+    /// store vectors in `corrections.blaze_curves`. Frame compatibility is checked inside that
+    /// path (via [`echelle::extract_preview`]) so diagnostics stay single-sourced. Live
+    /// extraction still uses the **active** profile until you save and activate (or Save+Activate).
+    pub(in crate::panels::image_viewer) fn extract_flat_blaze_from_current_frame(
+        &mut self,
+    ) -> Result<(), String> {
+        let profile = self
+            .echelle_cal_ui
+            .editor_profile
+            .as_ref()
+            .ok_or_else(|| "No calibration profile in editor".to_string())?;
+
+        let data = self.last_frame_data.as_ref().ok_or_else(|| {
+            "No frame in memory — start the camera stream (or load a frame) while pointing at a flat lamp"
+                .to_string()
+        })?;
+
+        if self.width == 0 || self.height == 0 {
+            return Err("Current frame has invalid dimensions (0×0)".to_string());
+        }
+
+        let bit_depth = if self.bit_depth > 0 {
+            self.bit_depth
+        } else {
+            profile.compatibility.bit_depth.ok_or_else(|| {
+                "Bit depth is unknown — receive at least one frame so metadata is populated"
+                    .to_string()
+            })?
+        };
+
+        let curves = echelle::extract_flat_blaze_curves(
+            profile,
+            data.as_slice(),
+            self.width,
+            self.height,
+            bit_depth,
+        )?;
+
+        let Some(profile_mut) = self.echelle_cal_ui.editor_profile.as_mut() else {
+            return Err("Editor profile was removed while extracting blaze curves".to_string());
+        };
+        profile_mut.corrections.blaze_curves = Some(curves);
+        self.mark_echelle_editor_dirty();
+        self.echelle_cal_ui.status_message = Some(
+            "Flat-lamp blaze: stored per-order blaze_curves in editor — use Save+Activate for live extraction"
+                .to_string(),
+        );
+        self.echelle_cal_ui.last_error = None;
+        Ok(())
+    }
 }

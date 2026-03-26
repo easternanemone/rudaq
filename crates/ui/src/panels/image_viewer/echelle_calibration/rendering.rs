@@ -1627,6 +1627,31 @@ impl ImageViewerPanel {
         &mut self,
         ui: &mut egui::Ui,
     ) {
+        ui.small("Use a continuum flat (e.g. DH-3) on the camera stream, then extract blaze envelopes into the editor profile.");
+        ui.add_space(4.0);
+
+        let can_extract_flat = self.echelle_cal_ui.editor_profile.is_some()
+            && self.last_frame_data.is_some()
+            && self.width > 0
+            && self.height > 0;
+        ui.horizontal_wrapped(|ui| {
+            if ui
+                .add_enabled(
+                    can_extract_flat,
+                    egui::Button::new("Extract blaze from current frame"),
+                )
+                .on_hover_text(
+                    "Runs simple-sum extraction on the live frame buffer (treated as a flat lamp), peak-normalises each order, and writes corrections.blaze_curves",
+                )
+                .clicked()
+            {
+                match self.extract_flat_blaze_from_current_frame() {
+                    Ok(()) => {}
+                    Err(e) => self.echelle_cal_ui.last_error = Some(e),
+                }
+            }
+        });
+
         ui.horizontal_wrapped(|ui| {
             ui.checkbox(
                 &mut self.echelle_cal_ui.blaze_preview_enabled,
@@ -1638,7 +1663,7 @@ impl ImageViewerPanel {
                     .speed(0.05)
                     .prefix("scale "),
             );
-            ui.small("MVP: scalar preview overlay while blaze artifact generation UI is staged.");
+            ui.small("Scalar overlay divisor (MVP); prefer empirical blaze_curves above for real correction.");
         });
         ui.horizontal_wrapped(|ui| {
             if ui
@@ -1705,8 +1730,22 @@ impl ImageViewerPanel {
             ));
         }
 
+        if let Some(buf) = self.last_frame_data.as_ref() {
+            ui.small(format!(
+                "Frame buffer: {}×{} px, {}-bit, {} bytes",
+                self.width,
+                self.height,
+                self.bit_depth,
+                buf.len()
+            ));
+        } else {
+            ui.weak("No frame buffer — connect a camera and stream to extract a flat-lamp blaze.");
+        }
+
         let Some(preview) = &self.echelle_preview else {
-            ui.weak("No extracted preview available for blaze/flat comparison.");
+            ui.weak(
+                "No extracted preview yet — activate a compatible profile so spectra render here.",
+            );
             return;
         };
         let Some(order) = preview.orders.get(self.echelle_selected_order_plot) else {
