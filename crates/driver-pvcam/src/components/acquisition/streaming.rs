@@ -46,8 +46,10 @@ impl PvcamAcquisition {
         binning: (u16, u16),
         exposure_ms: f64,
         buffer_mode: String,
-        host_summing_enabled: Parameter<bool>, // bd-oqo7.7
-        host_summing_count: Parameter<u32>,    // bd-oqo7.7
+        host_summing_enabled: Parameter<bool>,     // bd-oqo7.7
+        host_summing_count: Parameter<u32>,        // bd-oqo7.7
+        smart_stream_enabled: Parameter<bool>,     // bd-oqo7.1
+        smart_stream_exposures: Parameter<String>, // bd-oqo7.1
     ) -> Result<()> {
         tracing::info!(
             "start_stream: roi=({},{} {}x{}), binning=({},{}), exposure={:.1}ms, mode={}",
@@ -66,6 +68,8 @@ impl PvcamAcquisition {
         let _ = buffer_mode;
         let _ = &host_summing_enabled;
         let _ = &host_summing_count;
+        let _ = &smart_stream_enabled;
+        let _ = &smart_stream_exposures;
         if self.streaming.get() {
             tracing::warn!("start_stream: already streaming");
             bail!("Already streaming");
@@ -94,32 +98,53 @@ impl PvcamAcquisition {
             tracing::info!("Hardware path: hcam={}", h);
             // Hardware path
 
-            // Check if metadata decoding is enabled (via enable_metadata() call)
-            let use_metadata = self.metadata_enabled.load(Ordering::Acquire);
-
-            // Configure PVCAM metadata based on whether decoding is enabled (Gemini SDK review).
-            // When metadata is enabled, frame buffers contain header data before pixels.
-            // We only enable it when pl_md_frame_decode will be used to parse the data.
+            // Auto-enable metadata for all acquisitions (bd-oqo7.2).
+            // Hardware timestamps are essential for data provenance and timing.
+            // The metadata_enabled atomic controls whether decoded metadata is sent
+            // through the metadata channel, but SDK-level PARAM_METADATA_ENABLED
+            // should always be true when the camera supports it.
             let current_metadata = PvcamFeatures::is_metadata_enabled(conn).unwrap_or(false);
-            if use_metadata && !current_metadata {
-                tracing::info!("Enabling PVCAM metadata for hardware timestamp decoding");
+            if !current_metadata {
+                tracing::info!(
+                    "Auto-enabling PVCAM metadata for hardware timestamp decoding (bd-oqo7.2)"
+                );
                 if let Err(e) = PvcamFeatures::set_metadata_enabled(conn, true) {
                     tracing::error!(
-                        "Failed to enable metadata: {}. Falling back to no metadata",
-                        e
-                    );
-                    self.metadata_enabled.store(false, Ordering::Release);
-                }
-            } else if !use_metadata && current_metadata {
-                // Disable metadata to prevent data corruption when not decoding
-                tracing::debug!("Disabling PVCAM metadata (no decoder configured)");
-                if let Err(e) = PvcamFeatures::set_metadata_enabled(conn, false) {
-                    tracing::warn!(
-                        "Failed to disable metadata: {}. Data may include headers",
+                        "Failed to enable metadata: {}. Hardware timestamps unavailable",
                         e
                     );
                 }
             }
+            // Always decode metadata in the frame loop for Frame.timestamp accuracy
+            self.metadata_enabled.store(true, Ordering::Release);
+
+            // bd-oqo7.1: Configure SMART Streaming before acquisition setup.
+            // SMART Streaming lets the FPGA cycle through pre-programmed exposures,
+            // eliminating host communication latency between exposure changes.
+            let use_smart_stream = smart_stream_enabled.get();
+            let smart_exposures: Vec<u32> = if use_smart_stream {
+                let json_str = smart_stream_exposures.get();
+                serde_json::from_str(&json_str).unwrap_or_default()
+            } else {
+                vec![]
+            };
+            let smart_stream_count: usize = if use_smart_stream && !smart_exposures.is_empty() {
+                tracing::info!(
+                    "SMART Streaming enabled: {} exposures {:?}ms",
+                    smart_exposures.len(),
+                    smart_exposures
+                );
+                PvcamFeatures::set_smart_stream_enabled(conn, true)?;
+                PvcamFeatures::upload_smart_stream(conn, &smart_exposures)?;
+                smart_exposures.len()
+            } else {
+                if use_smart_stream && smart_exposures.is_empty() {
+                    tracing::warn!(
+                        "SMART streaming enabled but no exposures configured - using standard mode"
+                    );
+                }
+                0
+            };
 
             let (x_bin, y_bin) = binning;
             let start_span = tracing::info_span!(
@@ -254,6 +279,7 @@ impl PvcamAcquisition {
                         use_metadata,
                         host_summing_enabled,
                         host_summing_count,
+                        smart_stream_count, // bd-oqo7.1
                     )
                     .await;
             }
@@ -786,8 +812,8 @@ impl PvcamAcquisition {
 
             // Gemini SDK review: Metadata channel for hardware timestamps
             let metadata_tx = self.metadata_tx.lock().await.clone();
-            // Re-check use_metadata after potential error during enable
-            let use_metadata = self.metadata_enabled.load(Ordering::Acquire);
+            // Metadata decoding is always enabled (bd-oqo7.2)
+            let use_metadata = true;
 
             // Gemini SDK review: Create error channel for involuntary stop signaling.
             // Fatal errors (READOUT_FAILED, etc.) are sent from frame loop to update streaming state.
@@ -894,6 +920,7 @@ impl PvcamAcquisition {
                     primary_frame_pool, // bd-r8ux: Pool<FrameData> for primary_tx
                     host_summing_enabled, // bd-oqo7.7
                     host_summing_count, // bd-oqo7.7
+                    smart_stream_count, // bd-oqo7.1: SMART Streaming exposure cycle length
                 );
             });
 
@@ -977,6 +1004,9 @@ impl PvcamAcquisition {
         host_summing_count: Parameter<u32>,    // bd-oqo7.7
     ) -> Result<Frame> {
         let mut rx = self.frame_tx.subscribe();
+        // Single-frame acquisition doesn't use SMART streaming; pass disabled defaults.
+        let smart_disabled = Parameter::new("_single_frame_smart_disabled", false);
+        let smart_empty = Parameter::new("_single_frame_smart_exposures", "[]".to_string());
         self.start_stream(
             conn,
             roi,
@@ -985,6 +1015,8 @@ impl PvcamAcquisition {
             self.buffer_mode.get(),
             host_summing_enabled,
             host_summing_count,
+            smart_disabled,
+            smart_empty,
         )
         .await?;
 
@@ -1202,6 +1234,11 @@ impl PvcamAcquisition {
                         "PVCAM stop_stream: EOF callback deregistered, global ctx cleared"
                     );
                 }
+                // bd-oqo7.1: Disable SMART streaming on stop to return camera to normal mode.
+                // Best-effort: we don't fail the stop if this doesn't succeed.
+                if let Err(e) = PvcamFeatures::set_smart_stream_enabled(conn, false) {
+                    tracing::debug!("SMART streaming disable on stop (non-fatal): {}", e);
+                }
             } else {
                 tracing::debug!("PVCAM stop_stream: no camera handle, skipping SDK cleanup");
             }
@@ -1242,6 +1279,7 @@ impl PvcamAcquisition {
         _use_metadata: bool,
         host_summing_enabled: Parameter<bool>, // bd-oqo7.7
         host_summing_count: Parameter<u32>,    // bd-oqo7.7
+        smart_stream_count: usize,             // bd-oqo7.1
     ) -> Result<()> {
         let (x_bin, y_bin) = binning;
         let binned_width = roi.width / x_bin as u32;
@@ -1336,6 +1374,7 @@ impl PvcamAcquisition {
                 tap_registry,         // bd-0dax.4: For tap observers
                 host_summing_enabled, // bd-oqo7.7
                 host_summing_count,   // bd-oqo7.7
+                smart_stream_count,   // bd-oqo7.1
             );
         });
 

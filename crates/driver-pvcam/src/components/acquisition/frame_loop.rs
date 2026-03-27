@@ -59,6 +59,7 @@ impl PvcamAcquisition {
         tap_registry: Arc<TapRegistry>, // bd-0dax.4: For synchronous tap observers
         host_summing_enabled: Parameter<bool>, // bd-oqo7.7
         host_summing_count: Parameter<u32>, // bd-oqo7.7
+        smart_stream_count: usize,      // bd-oqo7.1: SMART Streaming exposure cycle length
     ) {
         // Main sequence loop
         let mut total_frames: u64 = 0;
@@ -154,9 +155,22 @@ impl PvcamAcquisition {
                         } else {
                             None
                         };
+                        let extra = if smart_stream_count > 0 {
+                            let exposure_index = (total_frames as usize) % smart_stream_count;
+                            let mut m = std::collections::HashMap::new();
+                            m.insert("smart_stream_index".to_string(), exposure_index.to_string());
+                            m.insert(
+                                "smart_stream_count".to_string(),
+                                smart_stream_count.to_string(),
+                            );
+                            m
+                        } else {
+                            std::collections::HashMap::new()
+                        };
                         let ext_metadata = common::data::FrameMetadata {
                             binning: Some(binning),
                             summing_count,
+                            extra,
                             ..Default::default()
                         };
                         let frame = Arc::new(
@@ -270,6 +284,9 @@ impl PvcamAcquisition {
     /// * `circ_overwrite` - Whether the acquisition was configured with CIRC_OVERWRITE
     /// * `buffer_pool` - Pre-allocated buffer pool for TRUE zero-allocation frame handling (bd-0dax.4).
     ///                  Uses bytes::Bytes with freeze() - no allocations during steady-state streaming.
+    /// * `smart_stream_count` - Number of SMART Streaming exposures in the cycle (0 = disabled, bd-oqo7.1).
+    ///                         When > 0, each frame's extended metadata includes `smart_stream_index`
+    ///                         and `smart_stream_count` for downstream HDR merging.
     #[cfg(feature = "pvcam_sdk")]
     #[allow(clippy::too_many_arguments)]
     pub(super) fn frame_loop_hardware(
@@ -307,6 +324,7 @@ impl PvcamAcquisition {
         primary_frame_pool: Option<Arc<Pool<FrameData>>>, // bd-r8ux
         host_summing_enabled: Parameter<bool>, // bd-oqo7.7
         host_summing_count: Parameter<u32>, // bd-oqo7.7
+        smart_stream_count: usize, // bd-oqo7.1: SMART Streaming exposure cycle length
     ) {
         let loop_span = tracing::debug_span!(
             "pvcam_frame_loop",
@@ -1163,9 +1181,49 @@ impl PvcamAcquisition {
                 } else {
                     None
                 };
+                // bd-oqo7.1: Tag frames with SMART Streaming exposure index
+                // bd-oqo7.2: Bridge hardware metadata fields to extra map
+                let extra = {
+                    let mut m = std::collections::HashMap::new();
+                    // SMART Streaming exposure tagging (bd-oqo7.1)
+                    if smart_stream_count > 0 {
+                        let exposure_index = (monotonic_frame_count as usize) % smart_stream_count;
+                        m.insert("smart_stream_index".to_string(), exposure_index.to_string());
+                        m.insert(
+                            "smart_stream_count".to_string(),
+                            smart_stream_count.to_string(),
+                        );
+                    }
+                    // Hardware metadata fields (bd-oqo7.2)
+                    if let Some(ref md) = frame_metadata {
+                        m.insert("hw_frame_nr".to_string(), md.frame_nr.to_string());
+                        m.insert(
+                            "timestamp_bof_ns".to_string(),
+                            md.timestamp_bof_ns.to_string(),
+                        );
+                        m.insert(
+                            "timestamp_eof_ns".to_string(),
+                            md.timestamp_eof_ns.to_string(),
+                        );
+                        m.insert(
+                            "exposure_time_ns".to_string(),
+                            md.exposure_time_ns.to_string(),
+                        );
+                        m.insert("bit_depth".to_string(), md.bit_depth.to_string());
+                        m.insert("roi_count".to_string(), md.roi_count.to_string());
+                        // Derived: readout time = EOF - BOF - exposure (bd-oqo7.2)
+                        if md.timestamp_eof_ns > md.timestamp_bof_ns + md.exposure_time_ns {
+                            let readout_ns =
+                                md.timestamp_eof_ns - md.timestamp_bof_ns - md.exposure_time_ns;
+                            m.insert("readout_time_ns".to_string(), readout_ns.to_string());
+                        }
+                    }
+                    m
+                };
                 let ext_metadata = common::data::FrameMetadata {
                     binning: Some(binning),
                     summing_count,
+                    extra,
                     ..Default::default()
                 };
                 frame = frame.with_metadata(ext_metadata);

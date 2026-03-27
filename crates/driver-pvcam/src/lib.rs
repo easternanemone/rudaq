@@ -679,8 +679,8 @@ impl PvcamDriver {
                 )
                 .with_group("Streaming");
 
-        let metadata_enabled = Parameter::new("processing.metadata_enabled", false)
-            .with_description("Enable per-frame metadata")
+        let metadata_enabled = Parameter::new("processing.metadata_enabled", true)
+            .with_description("Enable hardware timestamp metadata decoding (always recommended)")
             .with_dtype("bool")
             .with_group("Processing");
 
@@ -2421,6 +2421,8 @@ impl FrameProducer for PvcamDriver {
                 self.buffer_mode.get(),
                 self.host_summing_enabled.clone(),
                 self.host_summing_count.clone(),
+                self.smart_stream_enabled.clone(),
+                self.smart_stream_exposures.clone(),
             )
             .await
     }

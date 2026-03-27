@@ -218,10 +218,11 @@ impl PvcamAcquisition {
             tap_registry: Arc::new(TapRegistry::new()),
 
             // Metadata channel and state (Gemini SDK review)
+            // Default to true: metadata decoding is always enabled (bd-oqo7.2)
             #[cfg(feature = "pvcam_sdk")]
             metadata_tx: Arc::new(Mutex::new(None)),
             #[cfg(feature = "pvcam_sdk")]
-            metadata_enabled: Arc::new(AtomicBool::new(false)),
+            metadata_enabled: Arc::new(AtomicBool::new(true)),
 
             // Frame loss detection counters (bd-ek9n.3)
             lost_frames: Arc::new(AtomicU64::new(0)),
