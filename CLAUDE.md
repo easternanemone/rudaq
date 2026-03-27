@@ -12,6 +12,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 cargo build                              # Default feature set (see Cargo.toml)
+cargo check --workspace --exclude ui     # Fast compile smoke (developer loop)
 cargo nextest run                        # Parallel test runner (install: cargo install cargo-nextest --locked)
 cargo nextest run test_name              # Single test by name
 cargo nextest run -p common              # Single crate
@@ -34,6 +35,8 @@ cargo flamegraph --bin rust-daq-daemon       # CPU flamegraph (requires dtrace o
 cargo bloat --release -p ui --target wasm32-unknown-unknown  # WASM binary size breakdown
 cargo deny check                             # License/advisory/ban audit
 cargo machete                                # Find unused dependencies
+bash scripts/ops/fast-check.sh               # Quick smoke (check + nextest + doctests, excludes UI)
+bash scripts/generate-feature-matrix.sh --check  # Detect feature-doc drift from cargo metadata
 ```
 
 ### Maitai Hardware Build (Critical)
@@ -270,6 +273,7 @@ pub fn set_page_title(title: &str) {
 | Script | Purpose |
 |--------|---------|
 | **deploy/** | |
+| `scripts/deploy/deploy.sh` | Preferred unified deploy entry point (`--target maitai|leabs-dev`); wrapper scripts delegate here |
 | `scripts/deploy/deploy-maitai.sh` | Full deploy to maitai (pull, clean, build, daemon, GUI) |
 | `scripts/deploy/deploy-leabs.sh` | Full deploy to leabs-dev (remote checkout+pull+build, daemon restart, optional GUI). Use `--wasm-gui` to build+serve WASM GUI on leabs-dev:8080 |
 | `scripts/deploy/install-service.sh` | Install daemon as systemd service |
@@ -280,6 +284,7 @@ pub fn set_page_title(title: &str) {
 | `scripts/ops/env-check.sh` | Source before hardware tests |
 | `scripts/ops/install-hooks.sh [quick]` | Pre-commit hooks (full or format-only) |
 | `scripts/ops/calibrate-comedi.sh` | Comedi DAQ calibration |
+| `scripts/ops/fast-check.sh` | Fast local smoke loop (cargo check + nextest + doctests), not a replacement for pre-push gates |
 | `scripts/ops/setup-beads-dolt-remote.sh` | Configure beads Dolt `origin` remote when sync/push fails |
 | `scripts/ops/post-crash-forensics.sh` | Post-crash system forensics (dmesg, coredumps, journal, network) |
 | **ci/** | |
@@ -305,6 +310,7 @@ pub fn set_page_title(title: &str) {
 | `scripts/echelle/validate_vs_pypeit.py` | E2E validation: compare rust-daq extraction vs PypeIt reference |
 | **root** | |
 | `scripts/bd-safe.sh` | Worktree-safe beads commands (auto-discovers Dolt/SQLite backend) |
+| `scripts/generate-feature-matrix.sh` | Generate/check feature matrix from Cargo metadata (`--check`, `--output`) |
 
 ### Echelle Calibration CLI
 
@@ -341,6 +347,8 @@ bash scripts/repro/istar-stream-overnight-matrix.sh --hours 10 --batch-size 6   
 
 ## Quick Commands
 
+- `/rust-check` — CI-style Rust gate (`cargo fmt --all -- --check`, workspace clippy gate, nextest `--profile ci`)
+- `/security-audit` — Structural audit via `bash scripts/ci/run-ast-grep.sh`
 - `/test [crate] [--ci|--hardware|--coverage]` — Run nextest with smart defaults
 - `/clippy [crate] [--fix]` — Clippy with CI-parity flags
 - `/check [crate] [--wasm|--all]` — Fast cargo check
