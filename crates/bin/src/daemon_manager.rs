@@ -28,7 +28,7 @@ use server::health::{HealthMonitorConfig, SystemHealthMonitor};
 #[cfg(feature = "networking")]
 use driver_registry::register_all_factories;
 #[cfg(feature = "networking")]
-use hardware::registry::{create_mock_registry, HardwareConfig};
+use hardware::registry::HardwareConfig;
 #[cfg(feature = "networking")]
 use server::grpc::start_server_with_hardware;
 
@@ -466,15 +466,11 @@ impl DaemonInstance {
                     .await?;
                     (reg, Some(hw))
                 } else {
-                    println!(
-                        "   Mock profile not found ({}); falling back to legacy mock registry",
+                    anyhow::bail!(
+                        "No hardware config specified and default mock profile not found: {}\n\
+                         Use --hardware-config <path> or ensure the mock profile exists.",
                         default_mock_profile.display()
                     );
-                    println!("   Runtime policy [mock]: universal=0, native_exception=0, deprecated_native=0");
-                    let reg = create_mock_registry()
-                        .await
-                        .context("Failed to create fallback mock registry")?;
-                    (reg, None)
                 }
             };
 
@@ -1319,13 +1315,23 @@ mod tests {
         );
     }
 
+    /// Resolve the canonical mock hardware profile from the workspace root.
+    fn mock_profile_path() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("bin crate should be under crates/")
+            .parent()
+            .expect("workspace root should exist")
+            .join("config/profiles/mock_maitai_lab.toml")
+    }
+
     /// Integration test: verify that a DaemonInstance can be started with
-    /// mock hardware (no config file, port 0) and then shut down cleanly.
+    /// canonical mock profile (port 0) and then shut down cleanly.
     #[tokio::test]
     async fn test_daemon_start_and_shutdown_mock() {
         let config = DaemonConfig {
             port: 0,
-            hardware_config: None,
+            hardware_config: Some(mock_profile_path()),
             lab_hardware: false,
             runtime_mode: "mock".to_string(),
             #[cfg(feature = "db-surreal")]
@@ -1352,7 +1358,7 @@ mod tests {
     async fn test_shutdown_log_matches_contract() {
         let config = DaemonConfig {
             port: 0,
-            hardware_config: None,
+            hardware_config: Some(mock_profile_path()),
             lab_hardware: false,
             runtime_mode: "mock".to_string(),
             #[cfg(feature = "db-surreal")]

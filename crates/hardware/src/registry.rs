@@ -2179,7 +2179,15 @@ pub async fn populate_registry_from_config(
 // Convenience Functions for Lab Configuration
 // =============================================================================
 
-/// Create a DeviceRegistry with mock devices for testing
+/// Create a DeviceRegistry with mock devices for testing.
+///
+/// **Deprecated**: Prefer `driver_registry::create_canonical_mock_registry()` which
+/// uses universal-driver emulators for universal-eligible instruments. This function
+/// uses handwritten `driver-mock` implementations that don't exercise the manifest
+/// emulator code path.
+#[deprecated(
+    note = "use driver_registry::create_canonical_mock_registry() for universal mock parity"
+)]
 pub async fn create_mock_registry() -> Result<DeviceRegistry, DaqError> {
     let registry = DeviceRegistry::new();
     register_mock_factories(&registry);
@@ -2253,6 +2261,7 @@ pub fn register_mock_factories(registry: &DeviceRegistry) {
 // =============================================================================
 
 #[cfg(test)]
+#[allow(deprecated)] // TODO(bd-lncj.3.2): migrate to driver_registry::create_canonical_mock_registry
 mod tests {
     use super::*;
     use anyhow::{anyhow, Result};

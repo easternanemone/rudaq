@@ -223,7 +223,7 @@ pub async fn register_all_factories(
 /// 3. Loads manifest-driver plugins from configured search paths
 /// 4. Registers all configured devices
 ///
-/// For test/mock usage, prefer [`hardware::registry::create_mock_registry`].
+/// For test/mock usage, prefer [`create_canonical_mock_registry`].
 pub async fn create_registry_from_config(
     config: &HardwareConfig,
     config_dir: Option<&std::path::Path>,
@@ -251,4 +251,152 @@ pub async fn create_registry_from_file(path: &std::path::Path) -> Result<DeviceR
         .map(|p| p.join("devices"))
         .filter(|p| p.exists());
     create_registry_from_config(&config, config_dir.as_deref()).await
+}
+
+/// Create a canonical mock registry using universal-driver emulators.
+///
+/// This is the **recommended** way to create mock registries for tests and demos.
+/// Universal-eligible instruments (stages, meters, lasers, rotators) use the
+/// manifest emulator path, while cameras remain on the native `mock_camera` driver.
+///
+/// The minimal profile provides three devices:
+/// - `stage` — `universal_newport_esp300` (mock transport, address "1")
+/// - `power_meter` — `universal_newport_1830-c` (mock transport)
+/// - `camera` — `mock_camera` (native exception, 640x480)
+///
+/// For the full maitai lab mock profile (10 devices), use
+/// [`create_registry_from_config`] with `config/profiles/mock_maitai_lab.toml`
+/// and pass `config/devices` as the manifest directory (since
+/// [`create_registry_from_file`] resolves manifests relative to the config
+/// file's parent, which doesn't work for profiles nested under `config/profiles/`).
+///
+/// # Arguments
+/// * `workspace_root` — Path to the repository root (for resolving device manifests
+///   in `config/devices/`). Use `env!("CARGO_MANIFEST_DIR")` and navigate upward.
+///
+/// # Errors
+/// Returns `DaqError::Config` if `<workspace_root>/config/devices` does not exist.
+pub async fn create_canonical_mock_registry(
+    workspace_root: &std::path::Path,
+) -> Result<DeviceRegistry, DaqError> {
+    let config: HardwareConfig = toml::from_str(CANONICAL_MOCK_CONFIG)
+        .map_err(|e| DaqError::Config(format!("Failed to parse canonical mock config: {e}")))?;
+    let devices_dir = workspace_root.join("config/devices");
+    if !devices_dir.exists() {
+        return Err(DaqError::Config(format!(
+            "Device manifest directory not found at '{}'. \
+             This is required for universal_* device registration.",
+            devices_dir.display()
+        )));
+    }
+    create_registry_from_config(&config, Some(devices_dir.as_path())).await
+}
+
+/// Embedded TOML for the canonical 3-device mock registry.
+///
+/// Universal-eligible instruments use `driver-universal` with `mock = true`.
+/// Camera uses native `mock_camera` (SDK-bound, not expressible as a manifest).
+const CANONICAL_MOCK_CONFIG: &str = r#"
+[[devices]]
+id = "stage"
+name = "Stage (Universal Mock)"
+[devices.driver]
+type = "universal_newport_esp300"
+mock = true
+address = "1"
+
+[[devices]]
+id = "power_meter"
+name = "Power Meter (Universal Mock)"
+[devices.driver]
+type = "universal_newport_1830-c"
+mock = true
+
+[[devices]]
+id = "camera"
+name = "Camera (Mock)"
+[devices.driver]
+type = "mock_camera"
+width = 640
+height = 480
+"#;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use common::driver::Capability;
+
+    fn workspace_root() -> std::path::PathBuf {
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("crate should be under crates/")
+            .parent()
+            .expect("workspace root should exist")
+            .to_path_buf()
+    }
+
+    #[tokio::test]
+    async fn canonical_mock_registry_has_three_devices() {
+        let registry = create_canonical_mock_registry(&workspace_root())
+            .await
+            .expect("canonical mock registry should build");
+
+        assert_eq!(registry.len(), 3);
+        assert!(registry.contains("stage"));
+        assert!(registry.contains("power_meter"));
+        assert!(registry.contains("camera"));
+    }
+
+    #[tokio::test]
+    async fn canonical_mock_registry_capabilities() {
+        let registry = create_canonical_mock_registry(&workspace_root())
+            .await
+            .expect("canonical mock registry should build");
+
+        let devices = registry.list_devices();
+
+        // Stage: universal ESP300 — Movable + Settable + Parameterized + StateRefreshable
+        let stage = devices.iter().find(|d| d.id == "stage").unwrap();
+        assert!(
+            stage.capabilities.contains(&Capability::Movable),
+            "universal stage should be Movable"
+        );
+        assert_eq!(stage.driver_type, "universal_newport_esp300");
+
+        // Power meter: universal 1830-C — Readable + Settable + Parameterized
+        let meter = devices.iter().find(|d| d.id == "power_meter").unwrap();
+        assert!(
+            meter.capabilities.contains(&Capability::Readable),
+            "universal power meter should be Readable"
+        );
+        assert_eq!(meter.driver_type, "universal_newport_1830-c");
+
+        // Camera: native mock — FrameProducer + Triggerable + ExposureControl
+        let camera = devices.iter().find(|d| d.id == "camera").unwrap();
+        assert!(
+            camera.capabilities.contains(&Capability::FrameProducer),
+            "mock camera should be FrameProducer"
+        );
+        assert_eq!(camera.driver_type, "mock_camera");
+    }
+
+    #[tokio::test]
+    async fn canonical_mock_registry_universal_devices_are_parameterized() {
+        let registry = create_canonical_mock_registry(&workspace_root())
+            .await
+            .expect("canonical mock registry should build");
+
+        let devices = registry.list_devices();
+        let stage = devices.iter().find(|d| d.id == "stage").unwrap();
+        let meter = devices.iter().find(|d| d.id == "power_meter").unwrap();
+
+        assert!(
+            stage.capabilities.contains(&Capability::Parameterized),
+            "universal stage should expose Parameterized"
+        );
+        assert!(
+            meter.capabilities.contains(&Capability::Parameterized),
+            "universal power meter should expose Parameterized"
+        );
+    }
 }

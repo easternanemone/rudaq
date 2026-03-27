@@ -1287,4 +1287,62 @@ mod integration_tests {
         let pos = driver.position().await.expect("position");
         assert!((pos - 45.0).abs() < 0.5, "expected ~45.0, got {pos}");
     }
+
+    // =====================================================================
+    // Profile fidelity: faulty transport propagates errors through driver
+    // =====================================================================
+
+    #[tokio::test]
+    async fn faulty_profile_propagates_errors_through_driver() {
+        use super::create_emulator_transport_with_profile;
+
+        let manifest = load_manifest(crate::test_fixtures::SCPI_TCP_TOML);
+        let manifest = Arc::new(manifest);
+        let transport = Box::new(
+            create_emulator_transport_with_profile(&manifest, "", super::EmulatorProfile::Faulty)
+                .expect("create faulty emulator"),
+        );
+        let driver = UniversalDriver::new(manifest, transport, "");
+
+        // Issue enough commands to trigger at least one fault (every 20th call).
+        // Faulty profile errors on call index n where n % 20 == 7.
+        let mut error_count = 0;
+        for _ in 0..40 {
+            if driver.read().await.is_err() {
+                error_count += 1;
+            }
+        }
+        assert!(
+            error_count >= 1,
+            "faulty profile should cause at least 1 error in 40 reads, got {error_count}"
+        );
+    }
+
+    // =====================================================================
+    // StateRefreshable: refresh_state round-trips through emulator
+    // =====================================================================
+
+    #[tokio::test]
+    async fn state_refresh_through_emulator() {
+        use common::capabilities::StateRefreshable;
+
+        let manifest = load_manifest(crate::test_fixtures::ELL14_TOML);
+        let driver = build_emulated_driver(manifest, "2");
+
+        // Move to a known position first
+        driver.move_abs(90.0).await.expect("move_abs");
+
+        // Refresh state — should re-query the device and update internal state
+        driver
+            .refresh_state()
+            .await
+            .expect("refresh_state should succeed through emulator");
+
+        // Position should still read correctly after refresh
+        let pos = driver.position().await.expect("position after refresh");
+        assert!(
+            (pos - 90.0).abs() < 0.5,
+            "position should be ~90.0 after refresh, got {pos}"
+        );
+    }
 }
