@@ -117,6 +117,7 @@ impl PvcamAcquisition {
             }
             // Always decode metadata in the frame loop for Frame.timestamp accuracy
             self.metadata_enabled.store(true, Ordering::Release);
+            let use_metadata = true;
 
             // bd-oqo7.1: Configure SMART Streaming before acquisition setup.
             // SMART Streaming lets the FPGA cycle through pre-programmed exposures,
@@ -812,8 +813,6 @@ impl PvcamAcquisition {
 
             // Gemini SDK review: Metadata channel for hardware timestamps
             let metadata_tx = self.metadata_tx.lock().await.clone();
-            // Metadata decoding is always enabled (bd-oqo7.2)
-            let use_metadata = true;
 
             // Gemini SDK review: Create error channel for involuntary stop signaling.
             // Fatal errors (READOUT_FAILED, etc.) are sent from frame loop to update streaming state.
