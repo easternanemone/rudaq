@@ -129,6 +129,7 @@ impl RunEngine {
                 collected_data: HashMap::new(),
                 collected_frames: HashMap::new(),
                 collected_summing_counts: HashMap::new(),
+                collected_metadata: HashMap::new(),
                 current_positions: HashMap::new(),
                 frame_observers,
                 frame_channels,
