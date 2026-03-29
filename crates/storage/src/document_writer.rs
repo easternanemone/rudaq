@@ -43,6 +43,7 @@ struct ActiveRun {
 
 #[allow(dead_code)]
 struct DescriptorInfo {
+    stream_name: String,
     data_keys: HashMap<String, common::experiment::document::DataKey>,
 }
 
