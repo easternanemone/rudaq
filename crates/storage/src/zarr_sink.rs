@@ -750,8 +750,27 @@ mod tests {
 
         // Verify chunk files exist (1-D array, each event = 1 chunk)
         let store_path = temp.path().join(format!("{run_uid}.zarr"));
-        let array_dir = store_path.join("primary/intensity");
-        assert!(array_dir.exists(), "Array directory should exist");
+
+        // Debug: list all files in the store
+        fn list_files(dir: &std::path::Path, prefix: &str) {
+            if let Ok(entries) = std::fs::read_dir(dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    let name = format!("{prefix}/{}", entry.file_name().to_string_lossy());
+                    if path.is_dir() {
+                        eprintln!("  DIR:  {name}");
+                        list_files(&path, &name);
+                    } else {
+                        eprintln!("  FILE: {name}");
+                    }
+                }
+            }
+        }
+        eprintln!("=== Zarr store tree: {} ===", store_path.display());
+        list_files(&store_path, ".");
+
+        let array_dir = store_path.join("primary").join("intensity");
+        assert!(array_dir.exists(), "Array directory should exist at {}", array_dir.display());
 
         // Zarr V3: chunk files at c/0, c/1, c/2
         let chunk_dir = array_dir.join("c");
