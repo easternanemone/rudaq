@@ -342,6 +342,11 @@ impl RunEngine {
                                     ctx.collected_frames.insert(device_id.clone(), capture.data);
                                     ctx.collected_summing_counts
                                         .insert(device_id.clone(), summing_count);
+                                    // bd-p6r4: Collect frame metadata for EventDoc propagation
+                                    if !capture.metadata.is_empty() {
+                                        ctx.collected_metadata
+                                            .insert(device_id.clone(), capture.metadata);
+                                    }
                                     debug!(
                                         device = %device_id,
                                         size = %data_len,
