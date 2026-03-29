@@ -171,21 +171,15 @@ impl DocumentWriter {
                             use hdf5::File;
                             let file = File::open_rw(&run.file_path)?;
 
-                            // Find the stream group associated with this descriptor
-                            // For now, we need to iterate or store map.
-                            // TODO(bd-p2a1): optimize descriptor-to-group lookup instead of assuming "primary"
-                            // Actually, we should store the stream name in DescriptorInfo.
-                            // Hack for now: check all groups or derive from descriptor doc (not available here directly)
-                            // Assuming primary stream for standard plans.
-                            // Let's assume the descriptor name was used as group name.
-                            // We'll search for the dataset in "primary" first.
-
-                            let group = if file.group("primary").is_ok() {
-                                file.group("primary")?
-                            } else {
-                                // Fallback
-                                file.groups()?.first().ok_or(anyhow!("No groups"))?.clone()
-                            };
+                            // Look up the stream name from the descriptor (bd-jcrz)
+                            let stream_name = &desc_info.stream_name;
+                            let group = file.group(stream_name).map_err(|_| {
+                                anyhow!(
+                                    "HDF5 group '{}' not found for descriptor {}",
+                                    stream_name,
+                                    event.descriptor_uid
+                                )
+                            })?;
 
                             // Write scalar data (f64)
                             for (key, value) in &event.data {
