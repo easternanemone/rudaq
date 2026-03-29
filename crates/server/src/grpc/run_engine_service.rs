@@ -205,22 +205,7 @@ impl RunEngineServiceImpl {
                         let status = build_engine_status(&engine_for_state, domain_state).await;
                         #[cfg(feature = "metrics")]
                         if let Some(ref m) = metrics_for_state {
-                            use crate::grpc::metrics_service::EngineState as MetricsEngineState;
-                            let ms = match domain_state {
-                                experiment::run_engine::EngineState::Idle => {
-                                    MetricsEngineState::Idle
-                                }
-                                experiment::run_engine::EngineState::Running => {
-                                    MetricsEngineState::Running
-                                }
-                                experiment::run_engine::EngineState::Paused => {
-                                    MetricsEngineState::Paused
-                                }
-                                experiment::run_engine::EngineState::Aborting => {
-                                    MetricsEngineState::Error
-                                }
-                            };
-                            m.set_engine_state(ms);
+                            m.set_engine_state(domain_to_metrics_state(domain_state));
                         }
                         let _ = state_sender_clone.send(Arc::new(status));
                     }
@@ -339,6 +324,25 @@ fn proto_snapshot_to_domain(
     }
 
     Ok(snapshot)
+}
+
+/// Keepalive interval for streaming connections. Must be well under the
+/// orphan-plan watchdog timeout (default 5 min) to prevent false aborts
+/// when clients switch from polling to streaming.
+const STREAM_KEEPALIVE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// Convert domain engine state to Prometheus metrics enum.
+#[cfg(feature = "metrics")]
+fn domain_to_metrics_state(
+    state: experiment::run_engine::EngineState,
+) -> crate::grpc::metrics_service::EngineState {
+    use crate::grpc::metrics_service::EngineState as MetricsEngineState;
+    match state {
+        experiment::run_engine::EngineState::Idle => MetricsEngineState::Idle,
+        experiment::run_engine::EngineState::Running => MetricsEngineState::Running,
+        experiment::run_engine::EngineState::Paused => MetricsEngineState::Paused,
+        experiment::run_engine::EngineState::Aborting => MetricsEngineState::Error,
+    }
 }
 
 async fn build_engine_status(
@@ -648,15 +652,7 @@ impl RunEngineService for RunEngineServiceImpl {
         // Prometheus fallback (metrics are now reactively updated by converter task)
         #[cfg(feature = "metrics")]
         if let Some(ref m) = self.metrics {
-            use crate::grpc::metrics_service::EngineState as MetricsEngineState;
-            use experiment::run_engine::EngineState as DomainEngineState;
-            let ms = match domain_state {
-                DomainEngineState::Idle => MetricsEngineState::Idle,
-                DomainEngineState::Running => MetricsEngineState::Running,
-                DomainEngineState::Paused => MetricsEngineState::Paused,
-                DomainEngineState::Aborting => MetricsEngineState::Error,
-            };
-            m.set_engine_state(ms);
+            m.set_engine_state(domain_to_metrics_state(domain_state));
         }
         Ok(Response::new(status))
     }
@@ -1164,7 +1160,7 @@ impl RunEngineService for RunEngineServiceImpl {
             loop {
                 tokio::select! {
                     () = keepalive_cancel.cancelled() => break,
-                    () = tokio::time::sleep(std::time::Duration::from_secs(15)) => {
+                    () = tokio::time::sleep(STREAM_KEEPALIVE_INTERVAL) => {
                         engine_for_keepalive.touch_activity().await;
                     }
                 }
