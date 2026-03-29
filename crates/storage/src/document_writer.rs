@@ -394,7 +394,9 @@ mod tests {
     #[allow(unused_imports)]
     use super::*;
     #[allow(unused_imports)]
-    use common::experiment::document::{DescriptorDoc, EventDoc, StartDoc, StopDoc};
+    use common::experiment::document::{
+        DescriptorDoc, EventDoc, ExperimentManifest, StartDoc, StopDoc,
+    };
     #[allow(unused_imports)]
     use tempfile::TempDir;
 
