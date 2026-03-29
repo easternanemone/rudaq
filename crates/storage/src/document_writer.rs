@@ -501,7 +501,24 @@ mod tests {
         };
         writer.write(Document::Event(event)).await.unwrap();
 
-        // 4. Stop
+        // 4. Manifest
+        let mut manifest_params = HashMap::new();
+        let mut cam_params = HashMap::new();
+        cam_params.insert("exposure_ms".to_string(), serde_json::json!(100.0));
+        manifest_params.insert("cam1".to_string(), cam_params);
+
+        let manifest = ExperimentManifest::new(
+            "test_run_1",
+            "count",
+            "Count",
+            manifest_params,
+        );
+        writer
+            .write(Document::Manifest(manifest))
+            .await
+            .unwrap();
+
+        // 5. Stop
         let stop = StopDoc {
             uid: "stop_1".to_string(),
             run_uid: "test_run_1".to_string(),
