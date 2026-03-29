@@ -159,6 +159,7 @@ impl DocumentWriter {
                         run.descriptors.insert(
                             desc.uid.clone(),
                             DescriptorInfo {
+                                stream_name: desc.name.clone(),
                                 data_keys: desc.data_keys.clone(),
                             },
                         );
