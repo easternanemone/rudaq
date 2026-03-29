@@ -472,25 +472,6 @@ pub trait FrameProducer: Send + Sync {
     /// This is immutable - use separate ROI trait for cropping.
     fn resolution(&self) -> (u32, u32);
 
-    /// Take the frame receiver for consuming streamed frames
-    ///
-    /// **DEPRECATED**: Use `register_primary_output()` instead for zero-allocation pooled frames.
-    ///
-    /// This can only be called once - subsequent calls return None.
-    /// Call this BEFORE `start_stream()` to receive frames.
-    ///
-    /// # Returns
-    /// - Some(receiver) if receiver is available
-    /// - None if receiver was already taken or not supported by this device
-    #[deprecated(
-        since = "0.2.0",
-        note = "Use register_primary_output() for zero-allocation pooled frame delivery. Sunset: v1.0"
-    )]
-    async fn take_frame_receiver(&self) -> Option<tokio::sync::mpsc::Receiver<crate::data::Frame>> {
-        // Default: no frame receiver support
-        None
-    }
-
     /// Subscribe to the frame stream
     ///
     /// **DEPRECATED**: Use `register_primary_output()` for zero-allocation pooled frames,

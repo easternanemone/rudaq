@@ -172,19 +172,6 @@ impl GenericDriver {
     ///
     /// # Returns
     /// A new GenericDriver instance, or an error if regex compilation fails.
-    #[deprecated(since = "0.2.0", note = "use new_serial instead. Sunset: v1.0")]
-    pub fn new(config: InstrumentConfig, port: DynSerial) -> Result<Self> {
-        Self::new_serial(config, port)
-    }
-
-    /// Creates a new GenericDriver from an InstrumentConfig and a serial port.
-    ///
-    /// # Arguments
-    /// * `config` - The instrument configuration loaded from YAML
-    /// * `port` - An open serial port (common::serial::DynSerial, e.g. from open_serial_async)
-    ///
-    /// # Returns
-    /// A new GenericDriver instance, or an error if regex compilation fails.
     pub fn new_serial(config: InstrumentConfig, port: DynSerial) -> Result<Self> {
         Self::new_with_connection(config, Connection::Serial(port))
     }
@@ -1556,7 +1543,7 @@ impl GenericDriver {
         &self,
         tx: tokio::sync::mpsc::Sender<crate::capabilities::LoanedFrame>,
     ) -> Result<()> {
-        // TODO(bd-p2a1): plugin-based devices don't yet support pooled frames.
+        // TODO(bd-wev5): plugin-based devices don't yet support pooled frames.
         // This is a stub for API compatibility. When pooled frame support is added,
         // this method will store the sender and use it during frame acquisition.
         let mut primary = self.primary_output.write().await;

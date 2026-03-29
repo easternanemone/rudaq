@@ -2907,57 +2907,6 @@ impl PvcamFeatures {
         Ok(())
     }
 
-    /// Control a programmable I/O script on the camera (bd-ncbd).
-    ///
-    /// # Deprecation Notice
-    ///
-    /// `pl_io_script_control` is a PVCAM 2.x Class 3 legacy function.
-    /// In PVCAM 3.x, I/O scripting should use `PARAM_IO_STATE` and related
-    /// parameter-based APIs instead. This function is retained for backward
-    /// compatibility but should be migrated when PVCAM 3.x is the minimum
-    /// supported version.
-    ///
-    /// Sends a start, stop, or reset command to the I/O script engine at the
-    /// given script address. Script commands:
-    /// - 0: Start the script
-    /// - 1: Stop the script
-    /// - 2: Reset the script
-    ///
-    /// # SDK Reference
-    /// Uses `pl_io_script_control` which programs the camera's I/O scripting
-    /// engine for automated signal generation during acquisition.
-    #[deprecated(
-        since = "0.1.0",
-        note = "Use io_control() or set_io_address/set_io_direction/set_io_state instead (PVCAM 3.x parameter-based API)"
-    )]
-    pub fn io_script_control(
-        _conn: &PvcamConnection,
-        _script_addr: u16,
-        _script_cmd: u16,
-    ) -> Result<()> {
-        #[cfg(feature = "pvcam_sdk")]
-        if let Some(h) = _conn.handle() {
-            let addr = _script_addr as uns16;
-            let state = f64::from(_script_cmd);
-            // location = 0 for default script location (SCR_PRE_OPEN_SHTR).
-            let location: uns32 = 0;
-            // SAFETY: h is a valid camera handle from a successful pl_cam_open().
-            // All arguments are value types passed by value. pl_io_script_control
-            // does not write to any caller-provided buffers.
-            unsafe {
-                if pl_io_script_control(h, addr, state, location) == 0 {
-                    return Err(anyhow!(
-                        "Failed to execute I/O script control (addr={}, cmd={}): {}",
-                        _script_addr,
-                        _script_cmd,
-                        get_pvcam_error()
-                    ));
-                }
-            }
-        }
-        Ok(())
-    }
-
     // =========================================================================
     // I/O Diagnostics & Extended Parameters (bd-oqo7.6)
     // =========================================================================

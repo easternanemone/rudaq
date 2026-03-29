@@ -302,12 +302,6 @@ impl PvcamDriver {
         Self::create(camera_name, connection).await
     }
 
-    #[deprecated(note = "Use new_async(). Sunset: v1.0")]
-    pub fn new(camera_name: &str) -> Result<Self> {
-        let rt = tokio::runtime::Handle::current();
-        rt.block_on(Self::new_async(camera_name.to_string()))
-    }
-
     async fn create(camera_name: String, connection: Arc<Mutex<PvcamConnection>>) -> Result<Self> {
         // Query sensor size
         let (width, height) = {

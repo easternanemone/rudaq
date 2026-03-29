@@ -845,9 +845,8 @@ impl MockCamera {
                                     }
                                 }
 
-                                // LEGACY: Arc<Frame> broadcast and reliable channels for deprecated
-                                // subscribe_frames() / take_frame_receiver() APIs. Remove after v1.0
-                                // when those trait methods are removed. See deprecation-plan.md 3.8.
+                                // LEGACY: Arc<Frame> broadcast for deprecated subscribe_frames() API.
+                                // Remove after v1.0 when subscribe_frames() is removed.
                                 let frame_metadata = common::data::FrameMetadata {
                                     temperature_c: Some(current_temp),
                                     gain_mode: Some(gain_mode.clone()),
