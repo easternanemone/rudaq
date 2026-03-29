@@ -47,8 +47,6 @@ struct CachedDescriptor {
 
 /// Tracks per-array state after creation.
 struct ArrayState {
-    /// True once the Zarr array has been created in the store.
-    created: bool,
     /// Zarr data type string used for runtime dispatch on writes.
     dtype: String,
     /// Spatial shape from `DataKey.shape` (empty for scalars).
