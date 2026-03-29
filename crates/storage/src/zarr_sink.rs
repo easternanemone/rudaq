@@ -230,7 +230,6 @@ impl ZarrSink {
             self.arrays.insert(
                 full_name.clone(),
                 ArrayState {
-                    created: true,
                     dtype: data_key.dtype.clone(),
                     spatial_shape: data_key.shape.clone(),
                 },
