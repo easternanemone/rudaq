@@ -14,7 +14,8 @@ use crate::grpc::proto::{
     PauseEngineRequest, PauseEngineResponse, PlanTypeInfo, QueuePlanRequest, QueuePlanResponse,
     ResumeEngineRequest, ResumeEngineResponse, SavePlanRequest, SavePlanResponse,
     SetCalibrationSnapshotRequest, SetCalibrationSnapshotResponse, StartEngineRequest,
-    StartEngineResponse, StreamDocumentsRequest, run_engine_service_server::RunEngineService,
+    StartEngineResponse, StreamDocumentsRequest, StreamEngineStatusRequest,
+    run_engine_service_server::RunEngineService,
 };
 #[cfg(feature = "db-surreal")]
 use crate::grpc::proto::{RunRecord as ProtoRunRecord, SavedPlanSummary};
@@ -50,9 +51,9 @@ pub struct RunEngineServiceImpl {
     plan_registry: Arc<PlanRegistry>,
     /// Persists documents to HDF5 (bd-jwsc)
     document_writer: Arc<DocumentWriter>,
+    /// Proto engine-status broadcast for push-based state updates (bd-sz76)
+    proto_state_sender: tokio::sync::broadcast::Sender<Arc<EngineStatus>>,
     /// Prometheus metrics for observability (bd-2r60, bd-4de1)
-    /// TODO(bd-4de1): Engine state is currently updated opportunistically on status polls.
-    /// Wire a push-based state-change subscription when RunEngine supports it.
     #[cfg(feature = "metrics")]
     metrics: Option<Arc<crate::grpc::metrics_service::DaqMetrics>>,
     /// Optional SurrealDB handle for plan storage (bd-yz1w)
@@ -191,12 +192,53 @@ impl RunEngineServiceImpl {
             }
         });
 
+        let (proto_state_sender, _) = tokio::sync::broadcast::channel(16);
+        let engine_for_state = engine.clone();
+        let state_sender_clone = proto_state_sender.clone();
+        #[cfg(feature = "metrics")]
+        let metrics_for_state = metrics.clone();
+        tokio::spawn(async move {
+            let mut state_rx = engine_for_state.subscribe_state();
+            loop {
+                match state_rx.recv().await {
+                    Ok(domain_state) => {
+                        let status = build_engine_status(&engine_for_state, domain_state).await;
+                        #[cfg(feature = "metrics")]
+                        if let Some(ref m) = metrics_for_state {
+                            use crate::grpc::metrics_service::EngineState as MetricsEngineState;
+                            let ms = match domain_state {
+                                experiment::run_engine::EngineState::Idle => {
+                                    MetricsEngineState::Idle
+                                }
+                                experiment::run_engine::EngineState::Running => {
+                                    MetricsEngineState::Running
+                                }
+                                experiment::run_engine::EngineState::Paused => {
+                                    MetricsEngineState::Paused
+                                }
+                                experiment::run_engine::EngineState::Aborting => {
+                                    MetricsEngineState::Error
+                                }
+                            };
+                            m.set_engine_state(ms);
+                        }
+                        let _ = state_sender_clone.send(Arc::new(status));
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                        tracing::warn!(skipped = n, "State converter task lagged");
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                }
+            }
+        });
+
         Self {
             engine,
             proto_doc_sender,
             active_streams,
             plan_registry,
             document_writer,
+            proto_state_sender,
             #[cfg(feature = "metrics")]
             metrics,
             #[cfg(feature = "db-surreal")]
@@ -220,6 +262,7 @@ impl Clone for RunEngineServiceImpl {
             active_streams: self.active_streams.clone(),
             plan_registry: self.plan_registry.clone(),
             document_writer: self.document_writer.clone(),
+            proto_state_sender: self.proto_state_sender.clone(),
             #[cfg(feature = "metrics")]
             metrics: self.metrics.clone(),
             #[cfg(feature = "db-surreal")]
@@ -296,6 +339,43 @@ fn proto_snapshot_to_domain(
     }
 
     Ok(snapshot)
+}
+
+async fn build_engine_status(
+    engine: &RunEngine,
+    domain_state: experiment::run_engine::EngineState,
+) -> EngineStatus {
+    use crate::grpc::proto::EngineState as ProtoEngineState;
+    use experiment::run_engine::EngineState as DomainEngineState;
+    let proto_state = match domain_state {
+        DomainEngineState::Idle => ProtoEngineState::EngineIdle,
+        DomainEngineState::Running => ProtoEngineState::EngineRunning,
+        DomainEngineState::Paused => ProtoEngineState::EnginePaused,
+        DomainEngineState::Aborting => ProtoEngineState::EngineAborting,
+    };
+    #[allow(clippy::cast_possible_truncation)]
+    let queue_len = engine.queue_len().await as u32;
+    let run_start_ns = engine.current_run_start_ns().await.unwrap_or(0);
+    #[allow(clippy::cast_possible_truncation)]
+    let elapsed_ns = if run_start_ns > 0 {
+        let now_ns = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos() as u64)
+            .unwrap_or(0);
+        now_ns.saturating_sub(run_start_ns)
+    } else {
+        0
+    };
+    EngineStatus {
+        state: proto_state as i32,
+        current_run_uid: None,
+        current_plan_type: None,
+        current_event_number: None,
+        total_events_expected: None,
+        queued_plans: queue_len,
+        run_start_ns,
+        elapsed_ns,
+    }
 }
 
 #[tonic::async_trait]
@@ -562,61 +642,23 @@ impl RunEngineService for RunEngineServiceImpl {
         &self,
         _request: Request<GetEngineStatusRequest>,
     ) -> Result<Response<EngineStatus>, Status> {
-        // Refresh watchdog — client is polling status, proving liveness (bd-c9z1)
         self.engine.touch_activity().await;
-
-        use crate::grpc::proto::EngineState as ProtoEngineState;
-        use experiment::run_engine::EngineState as DomainEngineState;
-
         let domain_state = self.engine.state().await;
-        #[allow(clippy::cast_possible_truncation)]
-        // SAFETY: value is bounded and fits in target type
-        let queue_len = self.engine.queue_len().await as u32;
-
-        let proto_state = match domain_state {
-            DomainEngineState::Idle => ProtoEngineState::EngineIdle,
-            DomainEngineState::Running => ProtoEngineState::EngineRunning,
-            DomainEngineState::Paused => ProtoEngineState::EnginePaused,
-            DomainEngineState::Aborting => ProtoEngineState::EngineAborting,
-        };
-
-        // Prometheus: opportunistically update engine state gauge on status poll (bd-4de1)
+        let status = build_engine_status(&self.engine, domain_state).await;
+        // Prometheus fallback (metrics are now reactively updated by converter task)
         #[cfg(feature = "metrics")]
         if let Some(ref m) = self.metrics {
             use crate::grpc::metrics_service::EngineState as MetricsEngineState;
-            let metrics_state = match domain_state {
+            use experiment::run_engine::EngineState as DomainEngineState;
+            let ms = match domain_state {
                 DomainEngineState::Idle => MetricsEngineState::Idle,
                 DomainEngineState::Running => MetricsEngineState::Running,
                 DomainEngineState::Paused => MetricsEngineState::Paused,
                 DomainEngineState::Aborting => MetricsEngineState::Error,
             };
-            m.set_engine_state(metrics_state);
+            m.set_engine_state(ms);
         }
-
-        // Get run timing information
-        let run_start_ns = self.engine.current_run_start_ns().await.unwrap_or(0);
-        let elapsed_ns = if run_start_ns > 0 {
-            #[allow(clippy::cast_possible_truncation)]
-            // SAFETY: value is bounded and fits in target type
-            let now_ns = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_nanos() as u64)
-                .unwrap_or(0);
-            now_ns.saturating_sub(run_start_ns)
-        } else {
-            0
-        };
-
-        Ok(Response::new(EngineStatus {
-            state: proto_state as i32,
-            current_run_uid: None,
-            current_plan_type: None,
-            current_event_number: None,
-            total_events_expected: None,
-            queued_plans: queue_len,
-            run_start_ns,
-            elapsed_ns,
-        }))
+        Ok(Response::new(status))
     }
 
     // =========================================================================
@@ -1071,6 +1113,92 @@ impl RunEngineService for RunEngineServiceImpl {
         };
 
         Ok(Response::new(Box::pin(wrapped_stream)))
+    }
+
+    type StreamEngineStatusStream =
+        std::pin::Pin<Box<dyn tokio_stream::Stream<Item = Result<EngineStatus, Status>> + Send>>;
+
+    async fn stream_engine_status(
+        &self,
+        _request: Request<StreamEngineStatusRequest>,
+    ) -> Result<Response<Self::StreamEngineStatusStream>, Status> {
+        self.engine.touch_activity().await;
+
+        // Subscribe BEFORE reading state to avoid missing transitions between
+        // snapshot and subscription (race-free: any transition after subscribe()
+        // is captured, and the snapshot covers the pre-subscribe state).
+        let proto_rx = self.proto_state_sender.subscribe();
+        let initial_state = self.engine.state().await;
+        let initial_status = build_engine_status(&self.engine, initial_state).await;
+        let initial_stream = tokio_stream::once(Ok(initial_status));
+
+        // On lag, emit a fresh snapshot instead of dropping — state changes are
+        // rare so a missed transition could leave the client permanently stale.
+        let engine_for_resync = self.engine.clone();
+        let broadcast_stream =
+            futures::StreamExt::filter_map(BroadcastStream::new(proto_rx), move |result| {
+                let engine = engine_for_resync.clone();
+                async move {
+                    match result {
+                        Ok(status_arc) => Some(Ok((*status_arc).clone())),
+                        Err(BroadcastStreamRecvError::Lagged(n)) => {
+                            tracing::warn!(
+                                skipped = n,
+                                "Engine status stream lagged, sending resync snapshot"
+                            );
+                            let state = engine.state().await;
+                            Some(Ok(build_engine_status(&engine, state).await))
+                        }
+                    }
+                }
+            });
+
+        // Spawn a keepalive task that periodically touches the watchdog so
+        // long-running streams keep the orphan-plan detector happy.
+        // The task runs until the CancellationToken is cancelled (when the
+        // stream is dropped, the token goes out of scope).
+        let engine_for_keepalive = self.engine.clone();
+        let keepalive_cancel = tokio_util::sync::CancellationToken::new();
+        let keepalive_token = keepalive_cancel.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    () = keepalive_cancel.cancelled() => break,
+                    () = tokio::time::sleep(std::time::Duration::from_secs(15)) => {
+                        engine_for_keepalive.touch_activity().await;
+                    }
+                }
+            }
+        });
+
+        use tokio_stream::StreamExt as TokioStreamExt;
+        let combined = TokioStreamExt::chain(initial_stream, broadcast_stream);
+
+        // Wrap the stream to cancel the keepalive task on drop
+        let wrapped = StreamWithKeepalive {
+            inner: Box::pin(combined),
+            _keepalive_token: keepalive_token,
+        };
+        tracing::info!("New engine status stream client connected");
+        Ok(Response::new(Box::pin(wrapped)))
+    }
+}
+
+/// Wrapper that cancels a keepalive task when the stream is dropped.
+struct StreamWithKeepalive<S> {
+    inner: std::pin::Pin<Box<S>>,
+    _keepalive_token: tokio_util::sync::CancellationToken,
+}
+
+impl<S: tokio_stream::Stream<Item = Result<EngineStatus, Status>>> tokio_stream::Stream
+    for StreamWithKeepalive<S>
+{
+    type Item = Result<EngineStatus, Status>;
+    fn poll_next(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        self.inner.as_mut().poll_next(cx)
     }
 }
 

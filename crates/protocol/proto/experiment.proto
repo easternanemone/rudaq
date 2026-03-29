@@ -672,6 +672,9 @@ service RunEngineService {
   // Get engine status
   rpc GetEngineStatus(GetEngineStatusRequest) returns (EngineStatus);
 
+  // Stream engine state changes (push-based, bd-sz76)
+  rpc StreamEngineStatus(StreamEngineStatusRequest) returns (stream EngineStatus);
+
   // ==========================================================================
   // Stored Plan Management
   // ==========================================================================
@@ -866,6 +869,10 @@ message HaltEngineResponse {
 
 message GetEngineStatusRequest {
   // Empty
+}
+
+message StreamEngineStatusRequest {
+  // Empty for now
 }
 
 // Engine execution state

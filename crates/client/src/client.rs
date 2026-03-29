@@ -150,6 +150,7 @@ use protocol::daq::{
     StopScanRequest,
     StopStreamRequest,
     StreamDocumentsRequest,
+    StreamEngineStatusRequest,
     StreamFramesRequest,
     // Observable streaming (bd-qqjq stub for bd-r5vb)
     StreamObservablesRequest,
@@ -1099,6 +1100,17 @@ impl DaqClient {
         let response = self
             .run_engine
             .get_engine_status(GetEngineStatusRequest {})
+            .await?;
+        Ok(response.into_inner())
+    }
+
+    /// Stream engine state changes (push-based, bd-sz76).
+    pub async fn stream_engine_status(
+        &mut self,
+    ) -> Result<impl futures::Stream<Item = Result<EngineStatus, tonic::Status>>> {
+        let response = self
+            .run_engine
+            .stream_engine_status(StreamEngineStatusRequest {})
             .await?;
         Ok(response.into_inner())
     }

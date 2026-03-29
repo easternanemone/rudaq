@@ -285,7 +285,8 @@ impl RunEngine {
 
         // Clear run context
         *self.run_context.lock().await = None;
-        *self.state.write().await = super::state_machine::EngineState::Idle;
+        self.set_state(super::state_machine::EngineState::Idle)
+            .await;
 
         info!(
             run_uid = %run_uid,
@@ -411,7 +412,8 @@ impl RunEngine {
 
                 if *self.pause_requested.read().await {
                     info!("Pausing at checkpoint");
-                    *self.state.write().await = super::state_machine::EngineState::Paused;
+                    self.set_state(super::state_machine::EngineState::Paused)
+                        .await;
                 }
                 Ok(false)
             }

@@ -106,6 +106,9 @@ pub struct RunEngine {
     /// Document broadcast channel
     pub(crate) doc_sender: broadcast::Sender<Document>,
 
+    /// State-change broadcast channel (push-based state updates, bd-sz76)
+    pub(crate) state_sender: broadcast::Sender<EngineState>,
+
     /// Pause request flag
     pub(crate) pause_requested: RwLock<bool>,
 
@@ -139,6 +142,7 @@ impl RunEngine {
     /// Create a new RunEngine
     pub fn new(device_registry: Arc<DeviceRegistry>) -> Self {
         let (doc_sender, _) = broadcast::channel(1024);
+        let (state_sender, _) = broadcast::channel(16);
         let (feedback_tx, feedback_rx) = mpsc::channel(256);
 
         Self {
@@ -147,6 +151,7 @@ impl RunEngine {
             task_queue: TaskQueue::new(),
             watchdog: WatchdogManager::new(),
             doc_sender,
+            state_sender,
             pause_requested: RwLock::new(false),
             abort_requested: RwLock::new(false),
             run_context: Mutex::new(None),
@@ -271,6 +276,19 @@ impl RunEngine {
         self.doc_sender.subscribe()
     }
 
+    // ---- State subscription (bd-sz76) ----
+
+    /// Subscribe to engine state changes (push-based).
+    pub fn subscribe_state(&self) -> broadcast::Receiver<EngineState> {
+        self.state_sender.subscribe()
+    }
+
+    /// Set engine state and broadcast the change to all subscribers.
+    pub(crate) async fn set_state(&self, new_state: EngineState) {
+        *self.state.write().await = new_state;
+        let _ = self.state_sender.send(new_state);
+    }
+
     // ---- State queries ----
 
     /// Get current engine state
@@ -370,7 +388,7 @@ impl RunEngine {
             .await
             .ok_or_else(|| anyhow::anyhow!("No plans in queue"))?;
 
-        *self.state.write().await = EngineState::Running;
+        self.set_state(EngineState::Running).await;
         self.watchdog.touch().await;
         info!("Engine started");
 
@@ -402,7 +420,7 @@ impl RunEngine {
 
         info!("Resuming from pause");
         *self.pause_requested.write().await = false;
-        *self.state.write().await = EngineState::Running;
+        self.set_state(EngineState::Running).await;
         self.watchdog.touch().await;
         Ok(())
     }
@@ -431,7 +449,7 @@ impl RunEngine {
                     EngineState::Running | EngineState::Paused => {
                         info!(reason = %reason, "Abort requested for current run");
                         *self.abort_requested.write().await = true;
-                        *self.state.write().await = EngineState::Aborting;
+                        self.set_state(EngineState::Aborting).await;
                         Ok(())
                     }
                     _ => anyhow::bail!("Cannot abort: engine is {}", current_state),
@@ -443,7 +461,7 @@ impl RunEngine {
                 if current_run_uid.as_deref() == Some(uid) {
                     info!(run_uid = %uid, reason = %reason, "Abort requested for current run");
                     *self.abort_requested.write().await = true;
-                    *self.state.write().await = EngineState::Aborting;
+                    self.set_state(EngineState::Aborting).await;
                     return Ok(());
                 }
 
@@ -468,7 +486,7 @@ impl RunEngine {
     pub async fn halt(&self) -> anyhow::Result<()> {
         warn!("HALT requested - emergency stop");
         *self.abort_requested.write().await = true;
-        *self.state.write().await = EngineState::Aborting;
+        self.set_state(EngineState::Aborting).await;
         // In a real implementation, this would also send stop commands to all hardware
         Ok(())
     }
