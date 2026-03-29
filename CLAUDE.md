@@ -51,7 +51,7 @@ source scripts/ops/env-check.sh && cargo nextest run --profile hardware --featur
 
 ## Architecture
 
-### Crate Dependency Layers (25 workspace crates)
+### Crate Dependency Layers (27 workspace crates)
 
 ```
 Foundation
@@ -94,7 +94,8 @@ Services & Storage
 
 Applications
   bin              ← CLI daemon (mimalloc allocator), reconciler, safety sentinel, safety heartbeat, snapshot + calibrate subcommands
-  ui               ← Web-based user interface
+  ui               ← Web-based user interface (egui/eframe + WASM)
+  ui-slint         ← [EXPERIMENTAL] Slint evaluation UI (native + WASM)
 
 Testing
   integration-tests ← Cross-crate integration test suite
@@ -104,13 +105,13 @@ Testing
 
 ### Key Abstractions
 
-**Capability traits** (`common/src/capabilities.rs`): `Movable`, `Readable`, `FrameProducer`, `Triggerable`, `ExposureControl`, `ShutterControl`, `WavelengthTunable`, `EmissionControl`, `Stageable`, `Settable`, `Switchable`, `Actionable`, `Loggable`, `Parameterized`, `Camera`, `Commandable`, `GatedCamera`, `SpectrometerControl`, `TriggerOnPosition`, `PulseGenerator`, `SafetyInterlock`, `Reconfigurable`, etc. All are `async_trait + Send + Sync`. Devices are defined by what they *do*, not what they *are*. **`CompositeCapability`** orchestrates multi-device operations (e.g., move+trigger+read); **`CapabilityProvider`** is the trait that supplies typed device lookups for composites (implemented by `DeviceRegistry`).
+**Capability traits** (`common/src/capabilities.rs`): `Movable`, `Readable`, `FrameProducer`, `Triggerable`, `ExposureControl`, `ShutterControl`, `WavelengthTunable`, `EmissionControl`, `Stageable`, `Settable`, `Switchable`, `Actionable`, `Loggable`, `Parameterized`, `Camera`, `Commandable`, `GatedCamera`, `SpectrometerControl`, `SpectrumReadable`, `TriggerOnPosition`, `PulseGenerator`, `SafetyInterlock`, `Reconfigurable`, etc. All are `async_trait + Send + Sync`. Devices are defined by what they *do*, not what they *are*. **`SpectrumReadable`** + **`SpectrumData`** (bd-lncj) provide the 1D detector abstraction for spectrometers and line detectors — `read_spectrum()` returns wavelength/intensity arrays with units. **`CompositeCapability`** orchestrates multi-device operations (e.g., move+trigger+read); **`CapabilityProvider`** is the trait that supplies typed device lookups for composites (implemented by `DeviceRegistry`).
 
 **`DeviceComponents`** (`common/src/driver.rs`): Capability bag returned by `DriverFactory::build()` — one `Option<Arc<dyn Trait>>` per capability. The `DeviceRegistry` stores these and provides typed accessors (`get_movable("stage_1")`).
 
 **`Parameter<T>`** (`common/src/parameter.rs`): Reactive state inspired by QCodes/ScopeFoundry. Wraps `Observable<T>` + hardware callbacks. Flow: `set(value)` → validate constraints → call `hardware_writer` (async BoxFuture) → update internal value (notifies subscribers) → call change listeners. Use `Parameter<T>` for device state, never raw `Arc<Mutex<T>>`.
 
-**`Plan` + `RunEngine`** (`experiment/src/`): Bluesky-inspired. Plans yield `PlanCommand` variants (`MoveTo`, `Read`, `Trigger`, `Wait`, `Checkpoint`, `EmitEvent`, `Set`, `ConditionalBranch`, `WaitSettled`, `RepeatWhile`). RunEngine executes them as a state machine (`Idle → Running → Paused → Aborting`) and emits Bluesky-style documents (`Start`, `Descriptor`, `Event`, `Stop`, `Manifest`). `ConditionalBranch` evaluates an `EvalCondition` (threshold, comparison, expression) and dispatches to then/else command lists. `WaitSettled` blocks until a device reports stable. `RepeatWhile` loops a command body with a safety cap on iterations. `EmitEvent` carries optional `scan_indices: Vec<(String, usize)>` for dimensional scan coordinates (used by `ZarrSink` for chunk placement). **`AcquisitionCoordinator`** (`experiment/src/coordinator.rs`) composes move+trigger+read workflows via `CompositeCapability`. **Feedback system** (`experiment/src/feedback.rs`): `FeedbackEvent` (ThresholdCrossed, StabilityReached, ValueUpdate) feeds adaptive scans; `execute_adaptive()` on RunEngine runs plans with a feedback channel. `FeedbackRouter` (`server/src/grpc/feedback_router.rs`) bridges gRPC streams to the feedback channel.
+**`Plan` + `RunEngine`** (`experiment/src/`): Bluesky-inspired. Plans yield `PlanCommand` variants (`MoveTo`, `Read`, `Trigger`, `Wait`, `Checkpoint`, `EmitEvent`, `Set`, `ConditionalBranch`, `WaitSettled`, `RepeatWhile`). RunEngine executes them as a state machine (`Idle → Running → Paused → Aborting`) and emits Bluesky-style documents (`Start`, `Descriptor`, `Event`, `Stop`, `Manifest`). State is push-based: `subscribe_state()` returns a `broadcast::Receiver<EngineState>` for reactive UIs, and the server exposes a `StreamEngineStatus` streaming RPC (client: `stream_engine_status()`). `ConditionalBranch` evaluates an `EvalCondition` (threshold, comparison, expression) and dispatches to then/else command lists. `WaitSettled` blocks until a device reports stable. `RepeatWhile` loops a command body with a safety cap on iterations. `EmitEvent` carries optional `scan_indices: Vec<(String, usize)>` for dimensional scan coordinates (used by `ZarrSink` for chunk placement). **Frame metadata pipeline**: `Frame.metadata` (hardware timestamps, bit_depth, roi_count, etc.) flows through RunEngine `Event` documents into HDF5 storage via `ExperimentFrameObserver`. **`AcquisitionCoordinator`** (`experiment/src/coordinator.rs`) composes move+trigger+read workflows via `CompositeCapability`. **Feedback system** (`experiment/src/feedback.rs`): `FeedbackEvent` (ThresholdCrossed, StabilityReached, ValueUpdate) feeds adaptive scans; `execute_adaptive()` on RunEngine runs plans with a feedback channel. `FeedbackRouter` (`server/src/grpc/feedback_router.rs`) bridges gRPC streams to the feedback channel.
 
 **`RingBuffer`** (`storage/src/ring_buffer.rs`): mmap-backed circular buffer with seqlock for lock-free reads. Uses Apache Arrow IPC format. "Tap" consumers receive every Nth frame via async channel for live visualization without blocking writers.
 
@@ -162,7 +163,7 @@ registry.register_from_config(DeviceConfig { id, name, driver: DriverConfig { ty
 
 - **Nextest profiles**: `default` (local, 2 retries), `ci` (3 retries, no fail-fast), `hardware` (single-threaded, 6min timeout), `libs-hardware` (inherits hardware), `coverage` (no retries).
 - **Test groups**: `serial-hardware`, `pvcam-hardware`, `andor-hardware`, `elliptec-hardware`, `daemon-e2e` — each max-threads=1 for shared resource serialization.
-- **Mock devices**: Always available without feature flags. Use `register_mock_factories(&registry)` for integration tests. `MockCameraProfile`/`MockStageProfile` select fidelity (Fast, Realistic, Noisy, Faulty). `ScenarioConfig` groups multiple mock devices with a shared RNG seed for deterministic multi-device tests.
+- **Mock devices**: Always available without feature flags. Use `driver_registry::create_canonical_mock_registry()` for new tests — it registers all mock + universal-manifest factories with correct config paths. (`hardware::registry::create_mock_registry()` is deprecated.) `MockCameraProfile`/`MockStageProfile` select fidelity (Fast, Realistic, Noisy, Faulty). `ScenarioConfig` groups multiple mock devices with a shared RNG seed for deterministic multi-device tests.
 - **Timing tests**: Use `#[tokio::test(start_paused = true)]` with `tokio::time::Instant` for deterministic timing. Wall-clock tests use `TimingTolerance` helpers from `integration-tests/tests/common/`.
 - **Hardware gating**: `#[cfg(feature = "hardware_tests")]` + `#[ignore]` for real-device tests.
 
