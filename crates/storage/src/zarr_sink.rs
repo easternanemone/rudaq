@@ -175,9 +175,10 @@ impl ZarrSink {
             _ => builder.dtype_f64(),
         };
 
-        builder.build().await.with_context(|| {
-            format!("Failed to create Zarr array '{array_name}'")
-        })?;
+        builder
+            .build()
+            .await
+            .with_context(|| format!("Failed to create Zarr array '{array_name}'"))?;
 
         Ok(())
     }
@@ -419,9 +420,7 @@ impl ZarrSink {
                 }
                 let data: Vec<f64> = bytes
                     .chunks_exact(8)
-                    .map(|b| {
-                        f64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]])
-                    })
+                    .map(|b| f64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]))
                     .collect();
                 writer
                     .write_chunk::<f64>(array_name, chunk_indices, data)
@@ -455,9 +454,9 @@ impl DocumentSink for ZarrSink {
 
                 // Create the store directory for this run.
                 let store_path = self.base_path.join(format!("{}.zarr", start.uid));
-                let writer = ZarrWriter::new(&store_path)
-                    .await
-                    .with_context(|| format!("Failed to create Zarr store at {}", store_path.display()))?;
+                let writer = ZarrWriter::new(&store_path).await.with_context(|| {
+                    format!("Failed to create Zarr store at {}", store_path.display())
+                })?;
 
                 // Write run metadata as group attributes.
                 writer
@@ -650,9 +649,7 @@ impl DocumentSink for ZarrSink {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::experiment::document::{
-        DataKey, DescriptorDoc, EventDoc, StartDoc, StopDoc,
-    };
+    use common::experiment::document::{DataKey, DescriptorDoc, EventDoc, StartDoc, StopDoc};
 
     #[tokio::test]
     async fn test_zarr_sink_lifecycle() {
@@ -853,10 +850,7 @@ mod tests {
 
         // Write event at (outer=2, inner=5)
         let mut event = EventDoc::new(&run_uid, &desc_uid, 0).with_datum("signal", 42.0);
-        event.scan_indices = Some(vec![
-            ("outer".to_string(), 2),
-            ("inner".to_string(), 5),
-        ]);
+        event.scan_indices = Some(vec![("outer".to_string(), 2), ("inner".to_string(), 5)]);
         sink.on_document(&Document::Event(event))
             .await
             .expect("event");
@@ -893,19 +887,15 @@ mod tests {
             .expect("start");
 
         let stop = StopDoc::success(&run_uid, 0);
-        sink.on_document(&Document::Stop(stop))
-            .await
-            .expect("stop");
+        sink.on_document(&Document::Stop(stop)).await.expect("stop");
 
         // Verify root group metadata
         let store_path = temp.path().join(format!("{run_uid}.zarr"));
         let root_json_path = store_path.join("zarr.json");
         assert!(root_json_path.exists(), "Root zarr.json should exist");
 
-        let content =
-            std::fs::read_to_string(&root_json_path).expect("read zarr.json");
-        let metadata: serde_json::Value =
-            serde_json::from_str(&content).expect("parse zarr.json");
+        let content = std::fs::read_to_string(&root_json_path).expect("read zarr.json");
+        let metadata: serde_json::Value = serde_json::from_str(&content).expect("parse zarr.json");
         let attrs = metadata
             .get("attributes")
             .expect("attributes should exist in root group");
