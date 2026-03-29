@@ -43,6 +43,7 @@ struct ActiveRun {
 
 #[allow(dead_code)]
 struct DescriptorInfo {
+    stream_name: String,
     data_keys: HashMap<String, common::experiment::document::DataKey>,
 }
 
@@ -158,6 +159,7 @@ impl DocumentWriter {
                         run.descriptors.insert(
                             desc.uid.clone(),
                             DescriptorInfo {
+                                stream_name: desc.name.clone(),
                                 data_keys: desc.data_keys.clone(),
                             },
                         );
@@ -169,21 +171,15 @@ impl DocumentWriter {
                             use hdf5::File;
                             let file = File::open_rw(&run.file_path)?;
 
-                            // Find the stream group associated with this descriptor
-                            // For now, we need to iterate or store map.
-                            // TODO(bd-p2a1): optimize descriptor-to-group lookup instead of assuming "primary"
-                            // Actually, we should store the stream name in DescriptorInfo.
-                            // Hack for now: check all groups or derive from descriptor doc (not available here directly)
-                            // Assuming primary stream for standard plans.
-                            // Let's assume the descriptor name was used as group name.
-                            // We'll search for the dataset in "primary" first.
-
-                            let group = if file.group("primary").is_ok() {
-                                file.group("primary")?
-                            } else {
-                                // Fallback
-                                file.groups()?.first().ok_or(anyhow!("No groups"))?.clone()
-                            };
+                            // Look up the stream name from the descriptor (bd-jcrz)
+                            let stream_name = &desc_info.stream_name;
+                            let group = file.group(stream_name).map_err(|_| {
+                                anyhow!(
+                                    "HDF5 group '{}' not found for descriptor {}",
+                                    stream_name,
+                                    event.descriptor_uid
+                                )
+                            })?;
 
                             // Write scalar data (f64)
                             for (key, value) in &event.data {
@@ -253,6 +249,20 @@ impl DocumentWriter {
                                 ds.resize((shape[0] + 1,))?;
                                 ds.write_slice(&[ts_secs], shape[0]..)?;
                             }
+
+                            // Write event metadata as sub-groups (bd-p6r4)
+                            if !event.metadata.is_empty() {
+                                let md_group = if group.group("event_metadata").is_ok() {
+                                    group.group("event_metadata")?
+                                } else {
+                                    group.create_group("event_metadata")?
+                                };
+                                let md_key = format!("seq_{:06}", event.seq_num);
+                                let event_md_group = md_group.create_group(&md_key)?;
+                                for (key, value) in &event.metadata {
+                                    write_group_attr(&event_md_group, key, value)?;
+                                }
+                            }
                         }
                     }
                     return Ok(()); // Return Ok from closure
@@ -270,8 +280,49 @@ impl DocumentWriter {
                         }
                     }
                 }
-                Document::Manifest(_) => {
-                    // TODO(bd-p2a1): handle Manifest document writing to HDF5
+                Document::Manifest(manifest) => {
+                    if let Some(run) = guard.as_ref() {
+                        use hdf5::File;
+                        let file = File::open_rw(&run.file_path)?;
+
+                        let group = file.create_group("manifest")?;
+
+                        // Core fields
+                        write_group_attr(&group, "run_uid", &manifest.run_uid)?;
+                        write_group_attr(&group, "plan_type", &manifest.plan_type)?;
+                        write_group_attr(&group, "plan_name", &manifest.plan_name)?;
+                        write_group_attr(
+                            &group,
+                            "timestamp_ns",
+                            &manifest.timestamp_ns.to_string(),
+                        )?;
+
+                        // Optional git info
+                        if let Some(ref commit) = manifest.git_commit {
+                            write_group_attr(&group, "git_commit", commit)?;
+                        }
+                        if let Some(dirty) = manifest.git_dirty {
+                            write_group_attr(&group, "git_dirty", &dirty.to_string())?;
+                        }
+
+                        // System info as attributes
+                        for (key, value) in &manifest.system_info {
+                            write_group_attr(&group, &format!("sys.{key}"), value)?;
+                        }
+
+                        // Metadata as attributes
+                        for (key, value) in &manifest.metadata {
+                            write_group_attr(&group, &format!("meta.{key}"), value)?;
+                        }
+
+                        // Device parameters as sub-groups
+                        for (device_id, params) in &manifest.parameters {
+                            let dev_group = group.create_group(device_id)?;
+                            for (param_name, param_value) in params {
+                                write_group_attr(&dev_group, param_name, &param_value.to_string())?;
+                            }
+                        }
+                    }
                     return Ok(());
                 }
             }
@@ -339,7 +390,9 @@ mod tests {
     #[allow(unused_imports)]
     use super::*;
     #[allow(unused_imports)]
-    use common::experiment::document::{DescriptorDoc, EventDoc, StartDoc, StopDoc};
+    use common::experiment::document::{
+        DescriptorDoc, EventDoc, ExperimentManifest, StartDoc, StopDoc,
+    };
     #[allow(unused_imports)]
     use tempfile::TempDir;
 
@@ -425,13 +478,17 @@ mod tests {
         }
         arrays.insert("cam1".to_string(), bytes::Bytes::from(frame_bytes));
 
+        let mut event_metadata = HashMap::new();
+        event_metadata.insert("hw_timestamp".to_string(), "12345678".to_string());
+        event_metadata.insert("quality".to_string(), "good".to_string());
+
         let event = EventDoc {
             descriptor_uid: "desc_1".to_string(),
             seq_num: 1,
             data,
             arrays,
             timestamps: HashMap::new(),
-            metadata: HashMap::new(),
+            metadata: event_metadata,
             run_uid: "test_run_1".to_string(),
             time_ns: 1_000_000_000,
             uid: "event_1".to_string(),
@@ -440,7 +497,16 @@ mod tests {
         };
         writer.write(Document::Event(event)).await.unwrap();
 
-        // 4. Stop
+        // 4. Manifest
+        let mut manifest_params = HashMap::new();
+        let mut cam_params = HashMap::new();
+        cam_params.insert("exposure_ms".to_string(), serde_json::json!(100.0));
+        manifest_params.insert("cam1".to_string(), cam_params);
+
+        let manifest = ExperimentManifest::new("test_run_1", "count", "Count", manifest_params);
+        writer.write(Document::Manifest(manifest)).await.unwrap();
+
+        // 5. Stop
         let stop = StopDoc {
             uid: "stop_1".to_string(),
             run_uid: "test_run_1".to_string(),
