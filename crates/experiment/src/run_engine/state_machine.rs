@@ -3,6 +3,8 @@
 //! Contains the `EngineState` enum, its `Display` impl, and the
 //! `ExperimentFrameObserver` used for secondary frame capture during runs.
 
+use std::collections::HashMap;
+
 use bytes::Bytes;
 use common::capabilities::FrameObserver;
 use common::data::FrameView;
