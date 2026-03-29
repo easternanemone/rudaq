@@ -133,6 +133,8 @@ web-sys = { version = "0.3", features = [
     "Window", "Document", "HtmlCanvasElement",
     # Ghost DOM overlay (bd-dmk8): create hidden HTML elements for automation discovery
     "Element", "HtmlElement", "HtmlDivElement", "Node", "CssStyleDeclaration",
+    # URL-based daemon selection (bd-5k2m): read ?daemon= param from page URL
+    "Location", "UrlSearchParams",
 ] }
 console_error_panic_hook = "0.1"
 tracing-wasm = "0.2"
