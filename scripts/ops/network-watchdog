@@ -33,6 +33,11 @@ CAPTIVE_PORTAL_SCRIPT="/usr/local/bin/captive-portal-login"
 OK_LOG_INTERVAL=1800  # log "all OK" every 30 minutes (in seconds)
 OK_LOG_STATE="/run/network-watchdog-last-ok"
 
+# WiFi auth recovery
+WIFI_FAIL_STATE="/run/network-watchdog-wifi-fails"
+WIFI_MAX_SOFT_RETRIES=3           # nmcli connection up attempts before hard reset
+WIFI_STUCK_AUTH_SECONDS=180       # 3 min without connection = stuck auth
+
 # Tailscale recovery
 TAILSCALE_AUTHKEY_FILE="/etc/tailscale-authkey"
 TAILSCALE_RESTART_STATE="/run/network-watchdog-ts-restarts"
@@ -90,23 +95,77 @@ recover_wifi_interface() {
     return 0
 }
 
+wifi_fail_count() {
+    if [[ -f "$WIFI_FAIL_STATE" ]]; then
+        cat "$WIFI_FAIL_STATE" 2>/dev/null || echo 0
+    else
+        echo 0
+    fi
+}
+
+wifi_fail_increment() {
+    local count
+    count=$(wifi_fail_count)
+    echo $(( count + 1 )) > "$WIFI_FAIL_STATE"
+}
+
+wifi_fail_reset() {
+    rm -f "$WIFI_FAIL_STATE"
+}
+
 recover_wifi_connection() {
     local active_ssid
     active_ssid=$(nmcli -t -f active,ssid dev wifi list ifname "$WIFI_IFACE" 2>/dev/null | grep '^yes:' | cut -d: -f2)
 
-    if [[ "$active_ssid" != "$WIFI_CONN" ]]; then
-        log "WARN: not connected to $WIFI_CONN (current: '${active_ssid:-none}'), reconnecting"
-        nmcli connection up "$WIFI_CONN" 2>&1 | while read -r line; do log "  nmcli: $line"; done
-        sleep 5
-        active_ssid=$(nmcli -t -f active,ssid dev wifi list ifname "$WIFI_IFACE" 2>/dev/null | grep '^yes:' | cut -d: -f2)
-        if [[ "$active_ssid" == "$WIFI_CONN" ]]; then
-            log "RECOVERED: connected to $WIFI_CONN"
-        else
-            log "ERROR: failed to connect to $WIFI_CONN (got: '${active_ssid:-none}')"
-            return 1
-        fi
+    if [[ "$active_ssid" == "$WIFI_CONN" ]]; then
+        wifi_fail_reset
+        return 0
     fi
-    return 0
+
+    local fails
+    fails=$(wifi_fail_count)
+    wifi_fail_increment
+
+    if (( fails < WIFI_MAX_SOFT_RETRIES )); then
+        # Soft recovery: just ask NM to reconnect
+        log "WARN: not connected to $WIFI_CONN (current: '${active_ssid:-none}'), soft reconnect attempt $(( fails + 1 ))/$WIFI_MAX_SOFT_RETRIES"
+        nmcli connection up "$WIFI_CONN" 2>&1 | while read -r line; do log "  nmcli: $line"; done
+        sleep 8
+    else
+        # Hard recovery: full disconnect → rescan → reconnect cycle
+        # This handles stuck PEAP-MSCHAPV2 auth loops where NM's supplicant
+        # is wedged in associating→timeout→retry without ever completing.
+        log "WARN: $WIFI_CONN connection failed $fails times, performing hard WiFi reset"
+
+        # 1. Fully disconnect and disable the interface
+        nmcli device disconnect "$WIFI_IFACE" 2>/dev/null || true
+        sleep 2
+
+        # 2. Bounce the supplicant by toggling the interface
+        nmcli radio wifi off 2>/dev/null || true
+        sleep 3
+        nmcli radio wifi on 2>/dev/null || true
+        sleep 3
+
+        # 3. Force a fresh scan so NM sees current APs
+        nmcli device wifi rescan ifname "$WIFI_IFACE" 2>/dev/null || true
+        sleep 3
+
+        # 4. Reconnect with a fresh association
+        log "  hard reset: reconnecting to $WIFI_CONN"
+        nmcli connection up "$WIFI_CONN" 2>&1 | while read -r line; do log "  nmcli: $line"; done
+        sleep 10
+    fi
+
+    active_ssid=$(nmcli -t -f active,ssid dev wifi list ifname "$WIFI_IFACE" 2>/dev/null | grep '^yes:' | cut -d: -f2)
+    if [[ "$active_ssid" == "$WIFI_CONN" ]]; then
+        log "RECOVERED: connected to $WIFI_CONN (after $(( fails + 1 )) attempts)"
+        wifi_fail_reset
+        return 0
+    fi
+
+    log "ERROR: failed to connect to $WIFI_CONN (got: '${active_ssid:-none}', attempt $(( fails + 1 )))"
+    return 1
 }
 
 check_ip_address() {
