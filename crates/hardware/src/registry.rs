@@ -63,8 +63,6 @@
 //! }
 //! ```
 
-// use anyhow::{anyhow, Result}; // Removed
-// use anyhow::anyhow; // Removed
 use common::capabilities::{
     CapabilityProvider, Commandable, CounterConfigurable, DeviceIntrospection, EmissionControl,
     ExposureControl, FrameProducer, GatedCamera, Movable, Parameterized, RangeIntrospectable,

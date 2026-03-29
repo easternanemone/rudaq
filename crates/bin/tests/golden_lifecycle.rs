@@ -321,9 +321,8 @@ fn test_golden_invalid_hardware_config_syntax() {
     assert!(
         combined.contains("parse")
             || combined.contains("TOML")
-            || combined.contains("Failed")
-            || combined.contains("Error")
-            || combined.contains("error"),
+            || combined.contains("syntax")
+            || combined.contains("expected"),
         "Output should indicate a config parse error, got:\nstdout: {}\nstderr: {}",
         stdout,
         stderr
