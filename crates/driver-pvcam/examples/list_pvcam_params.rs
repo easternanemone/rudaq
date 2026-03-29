@@ -314,7 +314,7 @@ fn main() {
                     for i in 0..val_count {
                         let mut enum_val: i32 = 0;
                         let mut enum_name = [0i8; 256];
-                        let enum_str_len: u32 = 256;
+                        let mut enum_str_len: u32 = 256;
                         if pl_enum_str_length(
                             hcam,
                             *param_id,
