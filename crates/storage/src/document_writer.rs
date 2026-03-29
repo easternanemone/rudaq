@@ -280,8 +280,53 @@ impl DocumentWriter {
                         }
                     }
                 }
-                Document::Manifest(_) => {
-                    // TODO(bd-p2a1): handle Manifest document writing to HDF5
+                Document::Manifest(manifest) => {
+                    if let Some(run) = guard.as_ref() {
+                        use hdf5::File;
+                        let file = File::open_rw(&run.file_path)?;
+
+                        let group = file.create_group("manifest")?;
+
+                        // Core fields
+                        write_group_attr(&group, "run_uid", &manifest.run_uid)?;
+                        write_group_attr(&group, "plan_type", &manifest.plan_type)?;
+                        write_group_attr(&group, "plan_name", &manifest.plan_name)?;
+                        write_group_attr(
+                            &group,
+                            "timestamp_ns",
+                            &manifest.timestamp_ns.to_string(),
+                        )?;
+
+                        // Optional git info
+                        if let Some(ref commit) = manifest.git_commit {
+                            write_group_attr(&group, "git_commit", commit)?;
+                        }
+                        if let Some(dirty) = manifest.git_dirty {
+                            write_group_attr(&group, "git_dirty", &dirty.to_string())?;
+                        }
+
+                        // System info as attributes
+                        for (key, value) in &manifest.system_info {
+                            write_group_attr(&group, &format!("sys.{key}"), value)?;
+                        }
+
+                        // Metadata as attributes
+                        for (key, value) in &manifest.metadata {
+                            write_group_attr(&group, &format!("meta.{key}"), value)?;
+                        }
+
+                        // Device parameters as sub-groups
+                        for (device_id, params) in &manifest.parameters {
+                            let dev_group = group.create_group(device_id)?;
+                            for (param_name, param_value) in params {
+                                write_group_attr(
+                                    &dev_group,
+                                    param_name,
+                                    &param_value.to_string(),
+                                )?;
+                            }
+                        }
+                    }
                     return Ok(());
                 }
             }
