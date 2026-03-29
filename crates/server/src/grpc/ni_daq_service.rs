@@ -77,7 +77,7 @@ use tracing::instrument;
 /// and its internal `ffi_lock` serializes all FFI calls, so sharing a single handle
 /// across RPCs is both safe and eliminates the kernel deadlock risk from concurrent opens.
 ///
-/// # TODO(bd-krmn): Remove `device_cache` once remaining 2 RPCs use registry handles.
+/// # TODO(bd-wev5): Remove `device_cache` once remaining 2 RPCs use registry handles.
 /// Only used by: `configure_analog_output` (fallback path) and `stream_analog_input`.
 /// All other RPCs now use registry traits.
 #[derive(Clone)]
@@ -323,7 +323,7 @@ impl NiDaqService for NiDaqServiceImpl {
                 ));
             }
 
-            // TODO(bd-krmn): Multi-channel continuous streaming is deeply Comedi-specific
+            // TODO(bd-wev5): Multi-channel continuous streaming is deeply Comedi-specific
             // (CMD-based DMA acquisition). No registry trait equivalent exists.
             // This is fundamentally different from single-value Readable::read() and
             // would require a StreamingAcquisition trait to express in the HAL.
@@ -1619,7 +1619,7 @@ impl NiDaqService for NiDaqServiceImpl {
             ao_channels,
             dio_channels,
             counter_channels,
-            // TODO: ai/ao_resolution_bits require extending the trait to expose
+            // TODO(bd-wev5): ai/ao_resolution_bits require extending the trait to expose
             // per-subdevice maxdata/bit-width — not available from current
             // RangeIntrospectable or DeviceIntrospection.
             ai_resolution_bits: 0,

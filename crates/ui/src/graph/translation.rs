@@ -489,7 +489,7 @@ fn translate_node_with_snarl(
             // - _ARRAY_DIMENSIONS: ["outer_dim_name", "inner_dim_name", ...] for xarray compat
             // - Each EmitEvent includes dimensional indices for Zarr coordinate assignment
             //
-            // TODO(bd-p2a1): Implement Zarr writer setup:
+            // TODO(bd-wev5): Implement Zarr writer setup:
             // 1. Create Zarr V3 store with shape (outer_points, inner_points, ...)
             // 2. Set _ARRAY_DIMENSIONS attribute with dimension names from config
             // 3. Create coordinate arrays for each dimension
@@ -598,7 +598,7 @@ fn translate_node_with_snarl(
 
                     // Include dimensional indices for Zarr coordinate assignment
                     // Convention: "_outer_idx", "_inner_idx" are reserved keys
-                    // TODO(bd-ih4p): Remove these once all consumers use scan_indices
+                    // TODO(bd-wev5): Remove these once all consumers use scan_indices
                     positions.insert("_outer_idx".to_string(), f64::from(outer_idx));
                     positions.insert("_inner_idx".to_string(), f64::from(inner_idx));
 

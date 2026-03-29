@@ -817,7 +817,7 @@ impl HardwareService for HardwareServiceImpl {
 }
 
 #[cfg(test)]
-#[allow(deprecated)] // TODO(bd-lncj.3.2): migrate to driver_registry::create_canonical_mock_registry
+#[allow(deprecated)] // TODO(bd-wev5): migrate to driver_registry::create_canonical_mock_registry
 mod tests {
     use super::*;
     use hardware::registry::create_mock_registry;

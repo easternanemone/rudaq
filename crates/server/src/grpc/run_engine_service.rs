@@ -1298,7 +1298,7 @@ fn domain_to_proto_document(doc: Document) -> Result<Option<crate::grpc::proto::
                 time_ns: event.time_ns,
                 data: event.data.clone(),
                 timestamps: event.timestamps.clone(),
-                bulk_data: std::collections::HashMap::new(), // TODO(bd-p2a1): populate bulk_data from event arrays
+                bulk_data: std::collections::HashMap::new(), // TODO(bd-wev5): populate bulk_data from event arrays
                 // Middle-data support (bd-9unn)
                 metadata: event.metadata.clone(),
                 arrays: event

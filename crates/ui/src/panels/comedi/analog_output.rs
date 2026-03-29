@@ -363,7 +363,7 @@ impl AnalogOutputPanel {
                 });
 
                 ui.horizontal(|ui| {
-                    // TODO(bd-p2a1): implement waveform generation via NiDaqService
+                    // TODO(bd-wev5): implement waveform generation via NiDaqService
                     ui.add_enabled(false, egui::Button::new("Start Waveform"))
                         .on_disabled_hover_text("Waveform generation not yet implemented");
                     ui.add_enabled(false, egui::Button::new("Stop"))

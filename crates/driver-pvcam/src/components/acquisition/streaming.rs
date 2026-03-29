@@ -319,7 +319,7 @@ impl PvcamAcquisition {
             // after unlock, causing a data race on frame_ptr. Until the frame loop
             // is restructured to copy-then-unlock, CIRC_OVERWRITE is unsafe.
             //
-            // TODO(bd-g3ap): Restructure frame loop to copy data before unlock,
+            // TODO(bd-wev5): Restructure frame loop to copy data before unlock,
             // then re-enable CIRC_OVERWRITE for better throughput.
             let mut circ_overwrite = false;
             if matches!(buffer_mode.as_str(), "Overwrite") {

@@ -298,7 +298,7 @@ impl PlanRunnerPanel {
                     });
                 }
                 PlanType::GridScan => {
-                    // TODO(bd-p2a1): implement 2D grid scan parameter form
+                    // TODO(bd-wev5): implement 2D grid scan parameter form
                     ui.label(
                         egui::RichText::new("Grid scan parameter form not yet available.").weak(),
                     );
@@ -326,7 +326,7 @@ impl PlanRunnerPanel {
                         "line_scan".to_string()
                     }
                     PlanType::GridScan => {
-                        // TODO(bd-p2a1): add grid scan parameters to QueuePlan request
+                        // TODO(bd-wev5): add grid scan parameters to QueuePlan request
                         "grid_scan".to_string()
                     }
                 };
@@ -368,8 +368,8 @@ impl PlanRunnerPanel {
 
         ui.add_space(12.0);
 
-        // TODO(bd-p2a1): poll get_engine_status for live status updates
-        // TODO(bd-p2a1): validate plan parameters before queueing
+        // TODO(bd-wev5): poll get_engine_status for live status updates
+        // TODO(bd-wev5): validate plan parameters before queueing
 
         // Execute pending action
         if let Some(action) = self.pending_action.take() {

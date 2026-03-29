@@ -197,7 +197,7 @@ impl ScriptPluginLoader {
 
                 Ok(ScriptModuleInfo {
                     type_id: module.type_id().to_string(),
-                    display_name: module.type_id().to_string(), // TODO(bd-p2a1): extract display_name from ScriptModule type_info metadata
+                    display_name: module.type_id().to_string(), // TODO(bd-wev5): extract display_name from ScriptModule type_info metadata
                     description: String::new(),
                     version: "1.0.0".to_string(),
                     script_path: path.to_path_buf(),

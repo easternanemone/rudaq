@@ -232,7 +232,7 @@ impl DaqClient {
             .buffer_size(1024 * 1024) // 1MB buffer for high-bandwidth streaming
             .initial_stream_window_size(1024 * 1024); // 1MB initial window
 
-        // TODO(bd-otbx): Add TLS configuration for https:// addresses
+        // TODO(bd-wev5): Add TLS configuration for https:// addresses
         // if address.is_tls() {
         //     let tls_config = load_tls_config()?;
         //     endpoint = endpoint.tls_config(tls_config)?;

@@ -799,7 +799,7 @@ impl ComediStreamWriter {
             bytes_written: self.bytes_written.load(Ordering::Relaxed),
             chunks_written: self.chunks_written.load(Ordering::Relaxed),
             write_errors: self.write_errors.load(Ordering::Relaxed),
-            write_rate: 0.0, // TODO(bd-p2a1): calculate write_rate from elapsed time and bytes_written
+            write_rate: 0.0, // TODO(bd-wev5): calculate write_rate from elapsed time and bytes_written
         }
     }
 

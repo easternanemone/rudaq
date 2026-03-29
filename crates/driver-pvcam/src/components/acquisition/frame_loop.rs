@@ -968,7 +968,7 @@ impl PvcamAcquisition {
                                     );
                                 }
                             }
-                            // TODO(bd-0o6b): Pass roi_data to downstream consumers
+                            // TODO(bd-wev5): Pass roi_data to downstream consumers
                             // when multi-ROI Frame output format is defined.
                         }
                         Err(e) => {

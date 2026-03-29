@@ -444,7 +444,7 @@ impl SettingsWindow {
                 ui.label("Log File Path:");
                 ui.horizontal(|ui| {
                     ui.text_edit_singleline(&mut self.working_settings.logging.log_file_path);
-                    // TODO(bd-p2a1): integrate native file picker (rfd crate)
+                    // TODO(bd-wev5): integrate native file picker (rfd crate)
                     if ui
                         .add_enabled(false, egui::Button::new("Browse..."))
                         .on_disabled_hover_text(
@@ -480,7 +480,7 @@ impl SettingsWindow {
                 ui.label("Default Save Directory:");
                 ui.horizontal(|ui| {
                     ui.text_edit_singleline(&mut self.working_settings.storage.default_save_dir);
-                    // TODO(bd-p2a1): integrate native directory picker (rfd crate)
+                    // TODO(bd-wev5): integrate native directory picker (rfd crate)
                     if ui
                         .add_enabled(false, egui::Button::new("Browse..."))
                         .on_disabled_hover_text(
