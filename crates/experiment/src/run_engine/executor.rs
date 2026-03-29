@@ -129,6 +129,7 @@ impl RunEngine {
                 collected_data: HashMap::new(),
                 collected_frames: HashMap::new(),
                 collected_summing_counts: HashMap::new(),
+                collected_metadata: HashMap::new(),
                 current_positions: HashMap::new(),
                 frame_observers,
                 frame_channels,
@@ -341,6 +342,11 @@ impl RunEngine {
                                     ctx.collected_frames.insert(device_id.clone(), capture.data);
                                     ctx.collected_summing_counts
                                         .insert(device_id.clone(), summing_count);
+                                    // bd-p6r4: Collect frame metadata for EventDoc propagation
+                                    if !capture.metadata.is_empty() {
+                                        ctx.collected_metadata
+                                            .insert(device_id.clone(), capture.metadata);
+                                    }
                                     debug!(
                                         device = %device_id,
                                         size = %data_len,
@@ -456,6 +462,13 @@ impl RunEngine {
                                 .metadata
                                 .insert(format!("{device_id}.summing_count"), n.to_string());
                         }
+                    }
+                }
+
+                // bd-p6r4: Propagate frame metadata into EventDoc
+                for (device_id, frame_md) in ctx.collected_metadata.drain() {
+                    for (key, value) in frame_md {
+                        event.metadata.insert(format!("{device_id}.{key}"), value);
                     }
                 }
 

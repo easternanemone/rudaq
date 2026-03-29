@@ -43,6 +43,7 @@ struct ActiveRun {
 
 #[allow(dead_code)]
 struct DescriptorInfo {
+    stream_name: String,
     data_keys: HashMap<String, common::experiment::document::DataKey>,
 }
 
@@ -158,6 +159,7 @@ impl DocumentWriter {
                         run.descriptors.insert(
                             desc.uid.clone(),
                             DescriptorInfo {
+                                stream_name: desc.name.clone(),
                                 data_keys: desc.data_keys.clone(),
                             },
                         );
@@ -169,21 +171,15 @@ impl DocumentWriter {
                             use hdf5::File;
                             let file = File::open_rw(&run.file_path)?;
 
-                            // Find the stream group associated with this descriptor
-                            // For now, we need to iterate or store map.
-                            // TODO(bd-p2a1): optimize descriptor-to-group lookup instead of assuming "primary"
-                            // Actually, we should store the stream name in DescriptorInfo.
-                            // Hack for now: check all groups or derive from descriptor doc (not available here directly)
-                            // Assuming primary stream for standard plans.
-                            // Let's assume the descriptor name was used as group name.
-                            // We'll search for the dataset in "primary" first.
-
-                            let group = if file.group("primary").is_ok() {
-                                file.group("primary")?
-                            } else {
-                                // Fallback
-                                file.groups()?.first().ok_or(anyhow!("No groups"))?.clone()
-                            };
+                            // Look up the stream name from the descriptor (bd-jcrz)
+                            let stream_name = &desc_info.stream_name;
+                            let group = file.group(stream_name).map_err(|_| {
+                                anyhow!(
+                                    "HDF5 group '{}' not found for descriptor {}",
+                                    stream_name,
+                                    event.descriptor_uid
+                                )
+                            })?;
 
                             // Write scalar data (f64)
                             for (key, value) in &event.data {
@@ -253,6 +249,20 @@ impl DocumentWriter {
                                 ds.resize((shape[0] + 1,))?;
                                 ds.write_slice(&[ts_secs], shape[0]..)?;
                             }
+
+                            // Write event metadata as sub-groups (bd-p6r4)
+                            if !event.metadata.is_empty() {
+                                let md_group = if group.group("event_metadata").is_ok() {
+                                    group.group("event_metadata")?
+                                } else {
+                                    group.create_group("event_metadata")?
+                                };
+                                let md_key = format!("seq_{:06}", event.seq_num);
+                                let event_md_group = md_group.create_group(&md_key)?;
+                                for (key, value) in &event.metadata {
+                                    write_group_attr(&event_md_group, key, value)?;
+                                }
+                            }
                         }
                     }
                     return Ok(()); // Return Ok from closure
@@ -270,9 +280,71 @@ impl DocumentWriter {
                         }
                     }
                 }
-                Document::Manifest(_) => {
-                    // TODO(bd-p2a1): handle Manifest document writing to HDF5
-                    return Ok(());
+                Document::Manifest(manifest) => {
+                    if let Some(run) = guard.as_ref() {
+                        if run.run_uid != manifest.run_uid {
+                            return Err(anyhow!("Manifest run_uid mismatch"));
+                        }
+
+                        use hdf5::File;
+                        let file = File::open_rw(&run.file_path)?;
+                        let group = file.create_group("manifest")?;
+
+                        // Top-level scalar attributes
+                        write_group_attr(&group, "run_uid", &manifest.run_uid)?;
+                        write_group_attr(&group, "plan_type", &manifest.plan_type)?;
+                        write_group_attr(&group, "plan_name", &manifest.plan_name)?;
+                        write_group_attr(
+                            &group,
+                            "timestamp_ns",
+                            &manifest.timestamp_ns.to_string(),
+                        )?;
+
+                        // Provenance fields (when present)
+                        if let Some(ref sha) = manifest.git_commit {
+                            write_group_attr(&group, "git_commit", sha)?;
+                        }
+                        if let Some(dirty) = manifest.git_dirty {
+                            write_group_attr(&group, "git_dirty", &dirty.to_string())?;
+                        }
+                        if let Some(ref hash) = manifest.graph_hash {
+                            write_group_attr(&group, "graph_hash", hash)?;
+                        }
+                        if let Some(ref path) = manifest.graph_file {
+                            write_group_attr(&group, "graph_file", path)?;
+                        }
+
+                        // System info sub-group
+                        if !manifest.system_info.is_empty() {
+                            let sys_group = group.create_group("system_info")?;
+                            for (key, value) in &manifest.system_info {
+                                write_group_attr(&sys_group, key, value)?;
+                            }
+                        }
+
+                        // User metadata sub-group
+                        if !manifest.metadata.is_empty() {
+                            let meta_group = group.create_group("metadata")?;
+                            for (key, value) in &manifest.metadata {
+                                write_group_attr(&meta_group, key, value)?;
+                            }
+                        }
+
+                        // Device parameters: one sub-group per device
+                        if !manifest.parameters.is_empty() {
+                            let params_group = group.create_group("parameters")?;
+                            for (device_id, params) in &manifest.parameters {
+                                let device_group = params_group.create_group(device_id.as_str())?;
+                                for (param_name, param_value) in params {
+                                    let value_str = match param_value {
+                                        serde_json::Value::String(s) => s.clone(),
+                                        other => other.to_string(),
+                                    };
+                                    write_group_attr(&device_group, param_name, &value_str)?;
+                                }
+                            }
+                        }
+                    }
                 }
             }
             Ok(())
@@ -339,7 +411,9 @@ mod tests {
     #[allow(unused_imports)]
     use super::*;
     #[allow(unused_imports)]
-    use common::experiment::document::{DescriptorDoc, EventDoc, StartDoc, StopDoc};
+    use common::experiment::document::{
+        DescriptorDoc, EventDoc, ExperimentManifest, StartDoc, StopDoc,
+    };
     #[allow(unused_imports)]
     use tempfile::TempDir;
 
@@ -425,13 +499,17 @@ mod tests {
         }
         arrays.insert("cam1".to_string(), bytes::Bytes::from(frame_bytes));
 
+        let mut event_metadata = HashMap::new();
+        event_metadata.insert("hw_timestamp".to_string(), "12345678".to_string());
+        event_metadata.insert("quality".to_string(), "good".to_string());
+
         let event = EventDoc {
             descriptor_uid: "desc_1".to_string(),
             seq_num: 1,
             data,
             arrays,
             timestamps: HashMap::new(),
-            metadata: HashMap::new(),
+            metadata: event_metadata,
             run_uid: "test_run_1".to_string(),
             time_ns: 1_000_000_000,
             uid: "event_1".to_string(),
@@ -440,7 +518,16 @@ mod tests {
         };
         writer.write(Document::Event(event)).await.unwrap();
 
-        // 4. Stop
+        // 4. Manifest
+        let mut manifest_params = HashMap::new();
+        let mut cam_params = HashMap::new();
+        cam_params.insert("exposure_ms".to_string(), serde_json::json!(100.0));
+        manifest_params.insert("cam1".to_string(), cam_params);
+
+        let manifest = ExperimentManifest::new("test_run_1", "count", "Count", manifest_params);
+        writer.write(Document::Manifest(manifest)).await.unwrap();
+
+        // 5. Stop
         let stop = StopDoc {
             uid: "stop_1".to_string(),
             run_uid: "test_run_1".to_string(),
@@ -457,5 +544,393 @@ mod tests {
         assert!(file_path.exists());
 
         // Verify contents logic would go here (requires hdf5 crate in dev-dependencies)
+    }
+
+    #[tokio::test]
+    #[cfg(feature = "storage_hdf5")]
+    async fn test_multi_group_descriptor_routing() {
+        let temp_dir = TempDir::new().unwrap();
+        let writer = DocumentWriter::new(temp_dir.path().to_path_buf());
+
+        // 1. Start
+        let start = StartDoc {
+            uid: "multi_run".to_string(),
+            time_ns: 2000,
+            plan_type: "grid_scan".to_string(),
+            plan_name: "Multi-stream Grid".to_string(),
+            plan_args: HashMap::new(),
+            metadata: HashMap::new(),
+            hints: vec![],
+        };
+        writer.write(Document::Start(start)).await.unwrap();
+
+        // 2. Primary descriptor (camera data)
+        let mut primary_keys = HashMap::new();
+        primary_keys.insert(
+            "camera".to_string(),
+            common::experiment::document::DataKey {
+                source: "cam1".to_string(),
+                dtype: "number".to_string(),
+                shape: vec![],
+                units: "counts".to_string(),
+                precision: None,
+                lower_limit: None,
+                upper_limit: None,
+            },
+        );
+        let primary_desc = DescriptorDoc {
+            run_uid: "multi_run".to_string(),
+            uid: "desc_primary".to_string(),
+            name: "primary".to_string(),
+            data_keys: primary_keys,
+            configuration: HashMap::new(),
+            time_ns: 0,
+        };
+        writer
+            .write(Document::Descriptor(primary_desc))
+            .await
+            .unwrap();
+
+        // 3. Baseline descriptor (monitor readings)
+        let mut baseline_keys = HashMap::new();
+        baseline_keys.insert(
+            "power_meter".to_string(),
+            common::experiment::document::DataKey {
+                source: "pm1".to_string(),
+                dtype: "number".to_string(),
+                shape: vec![],
+                units: "W".to_string(),
+                precision: None,
+                lower_limit: None,
+                upper_limit: None,
+            },
+        );
+        let baseline_desc = DescriptorDoc {
+            run_uid: "multi_run".to_string(),
+            uid: "desc_baseline".to_string(),
+            name: "baseline".to_string(),
+            data_keys: baseline_keys,
+            configuration: HashMap::new(),
+            time_ns: 0,
+        };
+        writer
+            .write(Document::Descriptor(baseline_desc))
+            .await
+            .unwrap();
+
+        // 4. Events targeting different descriptors
+        let mut primary_data = HashMap::new();
+        primary_data.insert("camera".to_string(), 1024.0);
+        let primary_event = EventDoc {
+            descriptor_uid: "desc_primary".to_string(),
+            seq_num: 1,
+            data: primary_data,
+            arrays: HashMap::new(),
+            timestamps: HashMap::new(),
+            metadata: HashMap::new(),
+            run_uid: "multi_run".to_string(),
+            time_ns: 1_000_000_000,
+            uid: "evt_primary_1".to_string(),
+            positions: HashMap::new(),
+            scan_indices: None,
+        };
+        writer.write(Document::Event(primary_event)).await.unwrap();
+
+        let mut baseline_data = HashMap::new();
+        baseline_data.insert("power_meter".to_string(), 0.042);
+        let baseline_event = EventDoc {
+            descriptor_uid: "desc_baseline".to_string(),
+            seq_num: 1,
+            data: baseline_data,
+            arrays: HashMap::new(),
+            timestamps: HashMap::new(),
+            metadata: HashMap::new(),
+            run_uid: "multi_run".to_string(),
+            time_ns: 1_100_000_000,
+            uid: "evt_baseline_1".to_string(),
+            positions: HashMap::new(),
+            scan_indices: None,
+        };
+        writer.write(Document::Event(baseline_event)).await.unwrap();
+
+        // 5. Stop
+        let stop = StopDoc {
+            uid: "stop_multi".to_string(),
+            run_uid: "multi_run".to_string(),
+            time_ns: 3_000_000_000,
+            exit_status: "success".to_string(),
+            reason: String::new(),
+            num_events: 2,
+        };
+        writer.write(Document::Stop(stop)).await.unwrap();
+
+        // 6. Verify the HDF5 file has both groups with correct data
+        let file_path = temp_dir.path().join("multi_run_2000.h5");
+        assert!(file_path.exists());
+
+        use hdf5::File;
+        let file = File::open(&file_path).unwrap();
+
+        // Primary group should have 'camera' dataset with value 1024.0
+        let primary_group = file.group("primary").expect("primary group should exist");
+        let camera_ds = primary_group
+            .dataset("camera")
+            .expect("camera dataset should exist in primary");
+        let camera_data: Vec<f64> = camera_ds.read_raw().unwrap();
+        assert_eq!(camera_data, vec![1024.0]);
+
+        // Baseline group should have 'power_meter' dataset with value 0.042
+        let baseline_group = file.group("baseline").expect("baseline group should exist");
+        let pm_ds = baseline_group
+            .dataset("power_meter")
+            .expect("power_meter dataset should exist in baseline");
+        let pm_data: Vec<f64> = pm_ds.read_raw().unwrap();
+        assert_eq!(pm_data, vec![0.042]);
+
+        // Neither group should contain the other's dataset
+        assert!(
+            primary_group.dataset("power_meter").is_err(),
+            "power_meter should NOT be in primary group"
+        );
+        assert!(
+            baseline_group.dataset("camera").is_err(),
+            "camera should NOT be in baseline group"
+        );
+    }
+
+    #[tokio::test]
+    #[cfg(feature = "storage_hdf5")]
+    async fn test_document_writer_manifest() {
+        let temp_dir = TempDir::new().unwrap();
+        let writer = DocumentWriter::new(temp_dir.path().to_path_buf());
+
+        let start = StartDoc {
+            uid: "manifest_run".to_string(),
+            time_ns: 5000,
+            plan_type: "grid_scan".to_string(),
+            plan_name: "Grid Scan".to_string(),
+            plan_args: HashMap::new(),
+            metadata: HashMap::new(),
+            hints: vec![],
+        };
+        writer.write(Document::Start(start)).await.unwrap();
+
+        let mut parameters = HashMap::new();
+        let mut camera_params = HashMap::new();
+        camera_params.insert("exposure_ms".to_string(), serde_json::json!(100.0));
+        camera_params.insert("gain".to_string(), serde_json::json!(1.5));
+        camera_params.insert("binning".to_string(), serde_json::json!(2));
+        camera_params.insert("mode".to_string(), serde_json::json!("normal"));
+        parameters.insert("mock_camera".to_string(), camera_params);
+
+        let mut stage_params = HashMap::new();
+        stage_params.insert("position".to_string(), serde_json::json!(0.0));
+        stage_params.insert("velocity".to_string(), serde_json::json!(1.0));
+        parameters.insert("mock_stage".to_string(), stage_params);
+
+        let mut system_info = HashMap::new();
+        system_info.insert("software_version".to_string(), "0.1.0".to_string());
+        system_info.insert("hostname".to_string(), "test-host".to_string());
+
+        let mut metadata = HashMap::new();
+        metadata.insert("operator".to_string(), "Alice".to_string());
+        metadata.insert("sample".to_string(), "Si wafer #42".to_string());
+
+        let manifest = common::experiment::document::ExperimentManifest {
+            timestamp_ns: 6000,
+            run_uid: "manifest_run".to_string(),
+            plan_type: "grid_scan".to_string(),
+            plan_name: "Grid Scan".to_string(),
+            parameters,
+            system_info,
+            metadata,
+            git_commit: Some("abc123def456".to_string()),
+            git_dirty: Some(false),
+            graph_hash: Some("deadbeef".repeat(8)),
+            graph_file: Some("/tmp/test.expgraph".to_string()),
+        };
+        writer.write(Document::Manifest(manifest)).await.unwrap();
+
+        let stop = StopDoc {
+            uid: "stop_m".to_string(),
+            run_uid: "manifest_run".to_string(),
+            time_ns: 7000,
+            exit_status: "success".to_string(),
+            reason: String::new(),
+            num_events: 0,
+        };
+        writer.write(Document::Stop(stop)).await.unwrap();
+
+        let file_path = temp_dir.path().join("manifest_run_5000.h5");
+        assert!(file_path.exists(), "HDF5 file should exist");
+
+        use hdf5::File;
+        let file = File::open(&file_path).unwrap();
+        let manifest_group = file.group("manifest").expect("manifest group should exist");
+
+        let read_attr = |group: &hdf5::Group, name: &str| -> String {
+            use hdf5::types::VarLenUnicode;
+            let attr = group
+                .attr(name)
+                .unwrap_or_else(|_| panic!("attr {name} missing"));
+            let val: VarLenUnicode = attr.read_scalar().unwrap_or_else(|_| panic!("read {name}"));
+            val.to_string()
+        };
+
+        assert_eq!(read_attr(&manifest_group, "run_uid"), "manifest_run");
+        assert_eq!(read_attr(&manifest_group, "plan_type"), "grid_scan");
+        assert_eq!(read_attr(&manifest_group, "plan_name"), "Grid Scan");
+        assert_eq!(read_attr(&manifest_group, "timestamp_ns"), "6000");
+
+        assert_eq!(read_attr(&manifest_group, "git_commit"), "abc123def456");
+        assert_eq!(read_attr(&manifest_group, "git_dirty"), "false");
+        assert_eq!(
+            read_attr(&manifest_group, "graph_file"),
+            "/tmp/test.expgraph"
+        );
+
+        let sys_group = manifest_group
+            .group("system_info")
+            .expect("system_info group");
+        assert_eq!(read_attr(&sys_group, "software_version"), "0.1.0");
+        assert_eq!(read_attr(&sys_group, "hostname"), "test-host");
+
+        let meta_group = manifest_group.group("metadata").expect("metadata group");
+        assert_eq!(read_attr(&meta_group, "operator"), "Alice");
+        assert_eq!(read_attr(&meta_group, "sample"), "Si wafer #42");
+
+        let params_group = manifest_group
+            .group("parameters")
+            .expect("parameters group");
+        let camera_group = params_group
+            .group("mock_camera")
+            .expect("mock_camera group");
+        assert_eq!(read_attr(&camera_group, "exposure_ms"), "100.0");
+        assert_eq!(read_attr(&camera_group, "gain"), "1.5");
+        assert_eq!(read_attr(&camera_group, "binning"), "2");
+        assert_eq!(read_attr(&camera_group, "mode"), "normal");
+
+        let stage_group = params_group.group("mock_stage").expect("mock_stage group");
+        assert_eq!(read_attr(&stage_group, "position"), "0.0");
+        assert_eq!(read_attr(&stage_group, "velocity"), "1.0");
+    }
+
+    #[tokio::test]
+    #[cfg(feature = "storage_hdf5")]
+    async fn test_manifest_run_uid_mismatch() {
+        let temp_dir = TempDir::new().unwrap();
+        let writer = DocumentWriter::new(temp_dir.path().to_path_buf());
+
+        let start = StartDoc {
+            uid: "run_a".to_string(),
+            time_ns: 1000,
+            plan_type: "count".to_string(),
+            plan_name: "Count".to_string(),
+            plan_args: HashMap::new(),
+            metadata: HashMap::new(),
+            hints: vec![],
+        };
+        writer.write(Document::Start(start)).await.unwrap();
+
+        let manifest = ExperimentManifest {
+            timestamp_ns: 2000,
+            run_uid: "wrong_run".to_string(),
+            plan_type: "count".to_string(),
+            plan_name: "Count".to_string(),
+            parameters: HashMap::new(),
+            system_info: HashMap::new(),
+            metadata: HashMap::new(),
+            git_commit: None,
+            git_dirty: None,
+            graph_hash: None,
+            graph_file: None,
+        };
+        let result = writer.write(Document::Manifest(manifest)).await;
+        assert!(result.is_err(), "Mismatched run_uid should produce error");
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Manifest run_uid mismatch"),);
+    }
+
+    #[tokio::test]
+    #[cfg(feature = "storage_hdf5")]
+    async fn test_manifest_without_active_run() {
+        let temp_dir = TempDir::new().unwrap();
+        let writer = DocumentWriter::new(temp_dir.path().to_path_buf());
+
+        let manifest = ExperimentManifest {
+            timestamp_ns: 1000,
+            run_uid: "orphan".to_string(),
+            plan_type: "count".to_string(),
+            plan_name: "Count".to_string(),
+            parameters: HashMap::new(),
+            system_info: HashMap::new(),
+            metadata: HashMap::new(),
+            git_commit: None,
+            git_dirty: None,
+            graph_hash: None,
+            graph_file: None,
+        };
+        let result = writer.write(Document::Manifest(manifest)).await;
+        assert!(
+            result.is_ok(),
+            "Manifest without active run should be Ok (no-op)"
+        );
+    }
+
+    #[tokio::test]
+    #[cfg(feature = "storage_hdf5")]
+    async fn test_manifest_empty_optional_fields() {
+        let temp_dir = TempDir::new().unwrap();
+        let writer = DocumentWriter::new(temp_dir.path().to_path_buf());
+
+        let start = StartDoc {
+            uid: "minimal_run".to_string(),
+            time_ns: 1000,
+            plan_type: "count".to_string(),
+            plan_name: "Count".to_string(),
+            plan_args: HashMap::new(),
+            metadata: HashMap::new(),
+            hints: vec![],
+        };
+        writer.write(Document::Start(start)).await.unwrap();
+
+        let manifest = ExperimentManifest {
+            timestamp_ns: 2000,
+            run_uid: "minimal_run".to_string(),
+            plan_type: "count".to_string(),
+            plan_name: "Count".to_string(),
+            parameters: HashMap::new(),
+            system_info: HashMap::new(),
+            metadata: HashMap::new(),
+            git_commit: None,
+            git_dirty: None,
+            graph_hash: None,
+            graph_file: None,
+        };
+        writer.write(Document::Manifest(manifest)).await.unwrap();
+
+        let file_path = temp_dir.path().join("minimal_run_1000.h5");
+        assert!(file_path.exists());
+
+        use hdf5::File;
+        let file = File::open(&file_path).unwrap();
+        let manifest_group = file.group("manifest").expect("manifest group should exist");
+
+        let sub_groups = manifest_group.groups().unwrap();
+        assert!(
+            sub_groups.is_empty(),
+            "No sub-groups expected for empty manifest collections"
+        );
+
+        assert!(
+            manifest_group.attr("git_commit").is_err(),
+            "git_commit should not exist when None"
+        );
+        assert!(
+            manifest_group.attr("git_dirty").is_err(),
+            "git_dirty should not exist when None"
+        );
     }
 }

@@ -3,6 +3,8 @@
 //! Contains the `EngineState` enum, its `Display` impl, and the
 //! `ExperimentFrameObserver` used for secondary frame capture during runs.
 
+use std::collections::HashMap;
+
 use bytes::Bytes;
 use common::capabilities::FrameObserver;
 use common::data::FrameView;
@@ -44,6 +46,9 @@ pub(crate) struct FrameCapture {
     /// Number of raw frames summed into this output frame (host-side summing, bd-oqo7.7).
     /// `None` or `Some(1)` means no summing. `Some(N)` means N frames were accumulated.
     pub summing_count: Option<u32>,
+    /// Frame metadata for EventDoc propagation (bd-p6r4).
+    /// Contains hardware timestamps, SMART stream index, driver-specific fields.
+    pub metadata: HashMap<String, String>,
 }
 
 /// Observer that captures frames for experiment persistence
@@ -54,6 +59,24 @@ pub(crate) struct ExperimentFrameObserver {
 
 impl FrameObserver for ExperimentFrameObserver {
     fn on_frame(&self, frame: &FrameView<'_>) {
+        // bd-p6r4: Collect driver-specific extra metadata plus core FrameView fields
+        // that aren't captured as typed fields on FrameCapture.
+        let metadata = {
+            let mut md = frame.extra.clone();
+            md.insert("timestamp_ns".into(), frame.timestamp_ns.to_string());
+            if let Some(exp) = frame.exposure_ms {
+                md.insert("exposure_ms".into(), exp.to_string());
+            }
+            if let Some((bx, by)) = frame.binning {
+                md.insert("binning_x".into(), bx.to_string());
+                md.insert("binning_y".into(), by.to_string());
+            }
+            if let Some(temp) = frame.temperature_c {
+                md.insert("temperature_c".into(), temp.to_string());
+            }
+            md
+        };
+
         let capture = FrameCapture {
             device_id: self.device_id.clone(),
             data: Bytes::copy_from_slice(frame.pixels()),
@@ -61,6 +84,7 @@ impl FrameObserver for ExperimentFrameObserver {
             height: frame.height,
             frame_number: frame.frame_number,
             summing_count: frame.summing_count,
+            metadata,
         };
         // Non-blocking send - drop frames if channel is full
         let _ = self.tx.try_send(capture);
