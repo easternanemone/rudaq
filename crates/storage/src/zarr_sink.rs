@@ -25,7 +25,7 @@ use std::path::PathBuf;
 
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
-use common::experiment::document::{DataKey, DescriptorDoc, Document, EventDoc};
+use common::experiment::document::{DataKey, Document, EventDoc};
 use serde_json::json;
 use tracing::{debug, trace, warn};
 
