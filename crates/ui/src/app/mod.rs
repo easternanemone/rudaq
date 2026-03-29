@@ -743,10 +743,22 @@ impl DaqApp {
             cheat_sheet_panel: CheatSheetPanel::new(),
             show_cheat_sheet: false,
             wasm_connection: {
-                let url = cc
+                // bd-5k2m: URL param takes highest priority, then stored, then default.
+                // detect_daemon_url() checks ?daemon= param first, then page origin.
+                let detected = detect_daemon_url();
+                let stored = cc
                     .storage
-                    .and_then(|s| eframe::get_value::<String>(s, WASM_SERVER_URL_KEY))
-                    .unwrap_or_else(|| WASM_DEFAULT_SERVER_URL.to_string());
+                    .and_then(|s| eframe::get_value::<String>(s, WASM_SERVER_URL_KEY));
+                // Use detected URL if it came from ?daemon= param (not the fallback default),
+                // otherwise use stored value, otherwise use detected (which falls back to default).
+                let url = if detected != WASM_DEFAULT_SERVER_URL {
+                    // detect_daemon_url found a ?daemon= param or page origin — use it
+                    detected
+                } else if let Some(stored_url) = stored {
+                    stored_url
+                } else {
+                    detected
+                };
                 WasmConnectionState {
                     url_input: url,
                     ..Default::default()
