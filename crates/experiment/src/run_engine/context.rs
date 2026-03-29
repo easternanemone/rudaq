@@ -33,6 +33,9 @@ pub(crate) struct RunContext {
     /// Summing count for each collected frame (bd-oqo7.7).
     /// Tracks how many raw frames were summed into each collected frame.
     pub(crate) collected_summing_counts: HashMap<String, Option<u32>>,
+    /// Frame metadata for EventDoc propagation (bd-p6r4).
+    /// Maps device_id -> metadata key-value pairs from `FrameCapture::metadata`.
+    pub(crate) collected_metadata: HashMap<String, HashMap<String, String>>,
     /// Last-known position for each mover device.
     pub(crate) current_positions: HashMap<String, f64>,
 
