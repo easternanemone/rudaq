@@ -468,9 +468,7 @@ impl RunEngine {
                 // bd-p6r4: Propagate frame metadata into EventDoc
                 for (device_id, frame_md) in ctx.collected_metadata.drain() {
                     for (key, value) in frame_md {
-                        event
-                            .metadata
-                            .insert(format!("{device_id}.{key}"), value);
+                        event.metadata.insert(format!("{device_id}.{key}"), value);
                     }
                 }
 
