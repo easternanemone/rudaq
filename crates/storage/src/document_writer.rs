@@ -482,13 +482,17 @@ mod tests {
         }
         arrays.insert("cam1".to_string(), bytes::Bytes::from(frame_bytes));
 
+        let mut event_metadata = HashMap::new();
+        event_metadata.insert("hw_timestamp".to_string(), "12345678".to_string());
+        event_metadata.insert("quality".to_string(), "good".to_string());
+
         let event = EventDoc {
             descriptor_uid: "desc_1".to_string(),
             seq_num: 1,
             data,
             arrays,
             timestamps: HashMap::new(),
-            metadata: HashMap::new(),
+            metadata: event_metadata,
             run_uid: "test_run_1".to_string(),
             time_ns: 1_000_000_000,
             uid: "event_1".to_string(),
