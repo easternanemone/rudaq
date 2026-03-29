@@ -442,6 +442,18 @@ pub struct FrameView<'a> {
     /// `None` or `Some(1)` means no summing. `Some(N)` where N > 1 means N raw frames
     /// were accumulated before emission.
     pub summing_count: Option<u32>,
+
+    /// Driver-specific metadata (hardware timestamps, SMART stream index, etc.).
+    /// Empty HashMap reference when no metadata available (bd-p6r4).
+    pub extra: &'a HashMap<String, String>,
+}
+
+/// Static empty HashMap for FrameView default extra field.
+static EMPTY_EXTRA: std::sync::OnceLock<HashMap<String, String>> = std::sync::OnceLock::new();
+
+/// Returns a static reference to an empty `HashMap<String, String>`.
+fn empty_extra() -> &'static HashMap<String, String> {
+    EMPTY_EXTRA.get_or_init(HashMap::new)
 }
 
 impl<'a> FrameView<'a> {
@@ -468,6 +480,7 @@ impl<'a> FrameView<'a> {
             temperature_c: None,
             binning: None,
             summing_count: None,
+            extra: empty_extra(),
         }
     }
 
@@ -487,7 +500,19 @@ impl<'a> FrameView<'a> {
             temperature_c: frame.metadata.as_ref().and_then(|m| m.temperature_c),
             binning: frame.metadata.as_ref().and_then(|m| m.binning),
             summing_count: frame.metadata.as_ref().and_then(|m| m.summing_count),
+            extra: frame
+                .metadata
+                .as_ref()
+                .map(|m| &m.extra)
+                .unwrap_or_else(|| empty_extra()),
         }
+    }
+
+    /// Set extra metadata (builder pattern, bd-p6r4).
+    #[must_use]
+    pub fn with_extra(mut self, extra: &'a HashMap<String, String>) -> Self {
+        self.extra = extra;
+        self
     }
 
     /// Set exposure time (builder pattern).
