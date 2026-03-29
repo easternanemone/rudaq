@@ -36,7 +36,6 @@ OK_LOG_STATE="/run/network-watchdog-last-ok"
 # WiFi auth recovery
 WIFI_FAIL_STATE="/run/network-watchdog-wifi-fails"
 WIFI_MAX_SOFT_RETRIES=3           # nmcli connection up attempts before hard reset
-WIFI_STUCK_AUTH_SECONDS=180       # 3 min without connection = stuck auth
 
 # Tailscale recovery
 TAILSCALE_AUTHKEY_FILE="/etc/tailscale-authkey"

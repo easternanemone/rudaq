@@ -157,12 +157,9 @@ impl PvcamAcquisition {
                         };
                         let extra = if smart_stream_count > 0 {
                             let exposure_index = (total_frames as usize) % smart_stream_count;
-                            let mut m = std::collections::HashMap::new();
-                            m.insert("smart_stream_index".to_string(), exposure_index.to_string());
-                            m.insert(
-                                "smart_stream_count".to_string(),
-                                smart_stream_count.to_string(),
-                            );
+                            let mut m = std::collections::HashMap::with_capacity(2);
+                            m.insert("smart_stream_index".into(), exposure_index.to_string());
+                            m.insert("smart_stream_count".into(), smart_stream_count.to_string());
                             m
                         } else {
                             std::collections::HashMap::new()
@@ -1184,38 +1181,26 @@ impl PvcamAcquisition {
                 // bd-oqo7.1: Tag frames with SMART Streaming exposure index
                 // bd-oqo7.2: Bridge hardware metadata fields to extra map
                 let extra = {
-                    let mut m = std::collections::HashMap::new();
+                    let mut m = std::collections::HashMap::with_capacity(9);
                     // SMART Streaming exposure tagging (bd-oqo7.1)
                     if smart_stream_count > 0 {
                         let exposure_index = (monotonic_frame_count as usize) % smart_stream_count;
-                        m.insert("smart_stream_index".to_string(), exposure_index.to_string());
-                        m.insert(
-                            "smart_stream_count".to_string(),
-                            smart_stream_count.to_string(),
-                        );
+                        m.insert("smart_stream_index".into(), exposure_index.to_string());
+                        m.insert("smart_stream_count".into(), smart_stream_count.to_string());
                     }
                     // Hardware metadata fields (bd-oqo7.2)
                     if let Some(ref md) = frame_metadata {
-                        m.insert("hw_frame_nr".to_string(), md.frame_nr.to_string());
-                        m.insert(
-                            "timestamp_bof_ns".to_string(),
-                            md.timestamp_bof_ns.to_string(),
-                        );
-                        m.insert(
-                            "timestamp_eof_ns".to_string(),
-                            md.timestamp_eof_ns.to_string(),
-                        );
-                        m.insert(
-                            "exposure_time_ns".to_string(),
-                            md.exposure_time_ns.to_string(),
-                        );
-                        m.insert("bit_depth".to_string(), md.bit_depth.to_string());
-                        m.insert("roi_count".to_string(), md.roi_count.to_string());
+                        m.insert("hw_frame_nr".into(), md.frame_nr.to_string());
+                        m.insert("timestamp_bof_ns".into(), md.timestamp_bof_ns.to_string());
+                        m.insert("timestamp_eof_ns".into(), md.timestamp_eof_ns.to_string());
+                        m.insert("exposure_time_ns".into(), md.exposure_time_ns.to_string());
+                        m.insert("bit_depth".into(), md.bit_depth.to_string());
+                        m.insert("roi_count".into(), md.roi_count.to_string());
                         // Derived: readout time = EOF - BOF - exposure (bd-oqo7.2)
                         if md.timestamp_eof_ns > md.timestamp_bof_ns + md.exposure_time_ns {
                             let readout_ns =
                                 md.timestamp_eof_ns - md.timestamp_bof_ns - md.exposure_time_ns;
-                            m.insert("readout_time_ns".to_string(), readout_ns.to_string());
+                            m.insert("readout_time_ns".into(), readout_ns.to_string());
                         }
                     }
                     m

@@ -138,12 +138,12 @@ impl PvcamAcquisition {
                 PvcamFeatures::set_smart_stream_enabled(conn, true)?;
                 PvcamFeatures::upload_smart_stream(conn, &smart_exposures)?;
                 smart_exposures.len()
+            } else if use_smart_stream {
+                tracing::warn!(
+                    "SMART streaming enabled but no exposures configured - using standard mode"
+                );
+                0
             } else {
-                if use_smart_stream && smart_exposures.is_empty() {
-                    tracing::warn!(
-                        "SMART streaming enabled but no exposures configured - using standard mode"
-                    );
-                }
                 0
             };
 
