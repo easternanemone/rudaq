@@ -725,4 +725,45 @@ mod tests {
         let view = FrameView::from_frame(&frame);
         assert_eq!(view.summing_count, Some(1));
     }
+
+    // === Extra metadata propagation tests (bd-p6r4) ===
+
+    #[test]
+    fn frame_view_from_frame_preserves_extra_metadata() {
+        let mut extra = HashMap::new();
+        extra.insert("timestamp_bof_ns".into(), "123456789".into());
+        extra.insert("smart_stream_index".into(), "3".into());
+
+        let frame = Frame::from_u16(2, 2, &[1, 2, 3, 4]).with_metadata(FrameMetadata {
+            extra,
+            ..Default::default()
+        });
+
+        let view = FrameView::from_frame(&frame);
+        assert_eq!(view.extra.len(), 2);
+        assert_eq!(view.extra.get("timestamp_bof_ns").unwrap(), "123456789");
+        assert_eq!(view.extra.get("smart_stream_index").unwrap(), "3");
+    }
+
+    #[test]
+    fn frame_view_from_frame_no_metadata_has_empty_extra() {
+        let frame = Frame::from_u16(2, 2, &[1, 2, 3, 4]);
+        let view = FrameView::from_frame(&frame);
+        assert!(view.extra.is_empty());
+    }
+
+    #[test]
+    fn frame_view_new_defaults_to_empty_extra() {
+        let view = FrameView::new(2, 2, 16, &[0; 8], 1, 0);
+        assert!(view.extra.is_empty());
+    }
+
+    #[test]
+    fn frame_view_with_extra_builder() {
+        let mut extra = HashMap::new();
+        extra.insert("hw_key".into(), "hw_val".into());
+
+        let view = FrameView::new(2, 2, 16, &[0; 8], 1, 0).with_extra(&extra);
+        assert_eq!(view.extra.get("hw_key").unwrap(), "hw_val");
+    }
 }
