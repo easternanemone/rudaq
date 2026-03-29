@@ -115,7 +115,11 @@ impl PvcamAcquisition {
                     );
                 }
             }
-            // Always decode metadata in the frame loop for Frame.timestamp accuracy
+            // Always decode metadata in the frame loop for Frame.timestamp accuracy.
+            // Note: the driver's `processing.metadata_enabled` Parameter defaults to true
+            // and is synced at creation time. If a client sets it to false, the write
+            // callback toggles this atomic, which is overridden here. This is intentional:
+            // disabling metadata mid-acquisition risks data corruption.
             self.metadata_enabled.store(true, Ordering::Release);
             let use_metadata = true;
 
@@ -125,7 +129,17 @@ impl PvcamAcquisition {
             let use_smart_stream = smart_stream_enabled.get();
             let smart_exposures: Vec<u32> = if use_smart_stream {
                 let json_str = smart_stream_exposures.get();
-                serde_json::from_str(&json_str).unwrap_or_default()
+                match serde_json::from_str(&json_str) {
+                    Ok(exposures) => exposures,
+                    Err(e) => {
+                        tracing::error!(
+                            "Failed to parse SMART stream exposures JSON '{}': {}",
+                            json_str,
+                            e
+                        );
+                        vec![]
+                    }
+                }
             } else {
                 vec![]
             };
@@ -136,7 +150,16 @@ impl PvcamAcquisition {
                     smart_exposures
                 );
                 PvcamFeatures::set_smart_stream_enabled(conn, true)?;
-                PvcamFeatures::upload_smart_stream(conn, &smart_exposures)?;
+                if let Err(err) = PvcamFeatures::upload_smart_stream(conn, &smart_exposures) {
+                    // Rollback: disable SMART streaming to keep camera in known state
+                    if let Err(disable_err) = PvcamFeatures::set_smart_stream_enabled(conn, false) {
+                        tracing::warn!(
+                            "Failed to disable SMART Streaming after upload error: {}",
+                            disable_err
+                        );
+                    }
+                    return Err(err.into());
+                }
                 smart_exposures.len()
             } else if use_smart_stream {
                 tracing::warn!(

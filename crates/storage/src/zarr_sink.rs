@@ -16,7 +16,7 @@
 //! ```ignore
 //! use storage::zarr_sink::ZarrSink;
 //!
-//! let mut sink = ZarrSink::new("/tmp/experiment.zarr");
+//! let mut sink = ZarrSink::new("/tmp/zarr_data");
 //! sink.on_document(&Document::Event(event)).await?;
 //! ```
 
@@ -171,7 +171,8 @@ impl ZarrSink {
             "int64" | "i64" => builder.dtype_i64(),
             "float32" | "f32" => builder.dtype_f32(),
             "float64" | "f64" => builder.dtype_f64(),
-            // Default: "number", "array", or anything else -> f64.
+            "array" => builder.dtype_u8(),
+            // Default: "number" or anything else -> f64.
             _ => builder.dtype_f64(),
         };
 
@@ -366,6 +367,27 @@ impl ZarrSink {
                     .write_chunk::<u32>(array_name, chunk_indices, data)
                     .await
             }
+            "uint64" | "u64" => {
+                if bytes.len() % 8 != 0 {
+                    return Err(anyhow!(
+                        "u64 array data has invalid byte count ({})",
+                        bytes.len()
+                    ));
+                }
+                let data: Vec<u64> = bytes
+                    .chunks_exact(8)
+                    .map(|b| u64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]))
+                    .collect();
+                writer
+                    .write_chunk::<u64>(array_name, chunk_indices, data)
+                    .await
+            }
+            "int8" | "i8" => {
+                let data: Vec<i8> = bytes.iter().map(|&b| b as i8).collect();
+                writer
+                    .write_chunk::<i8>(array_name, chunk_indices, data)
+                    .await
+            }
             "int16" | "i16" => {
                 if bytes.len() % 2 != 0 {
                     return Err(anyhow!(
@@ -394,6 +416,21 @@ impl ZarrSink {
                     .collect();
                 writer
                     .write_chunk::<i32>(array_name, chunk_indices, data)
+                    .await
+            }
+            "int64" | "i64" => {
+                if bytes.len() % 8 != 0 {
+                    return Err(anyhow!(
+                        "i64 array data has invalid byte count ({})",
+                        bytes.len()
+                    ));
+                }
+                let data: Vec<i64> = bytes
+                    .chunks_exact(8)
+                    .map(|b| i64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]))
+                    .collect();
+                writer
+                    .write_chunk::<i64>(array_name, chunk_indices, data)
                     .await
             }
             "float32" | "f32" => {
@@ -518,6 +555,15 @@ impl DocumentSink for ZarrSink {
                 // Lazily capture scan dimension names from the first event.
                 if self.scan_dimensions.is_none() {
                     self.scan_dimensions = Some(dim_names.clone());
+                } else if let Some(expected_dims) = &self.scan_dimensions {
+                    if expected_dims != &dim_names {
+                        return Err(anyhow!(
+                            "Inconsistent scan dimensions: initial {:?} but event {} uses {:?}",
+                            expected_dims,
+                            event.seq_num,
+                            dim_names
+                        ));
+                    }
                 }
 
                 // Ensure arrays exist for this descriptor's data keys.

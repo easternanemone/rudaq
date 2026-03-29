@@ -156,7 +156,7 @@ impl PvcamAcquisition {
                             None
                         };
                         let extra = if smart_stream_count > 0 {
-                            let exposure_index = (total_frames as usize) % smart_stream_count;
+                            let exposure_index = ((total_frames - 1) as usize) % smart_stream_count;
                             let mut m = std::collections::HashMap::with_capacity(2);
                             m.insert("smart_stream_index".into(), exposure_index.to_string());
                             m.insert("smart_stream_count".into(), smart_stream_count.to_string());
@@ -1184,7 +1184,8 @@ impl PvcamAcquisition {
                     let mut m = std::collections::HashMap::with_capacity(9);
                     // SMART Streaming exposure tagging (bd-oqo7.1)
                     if smart_stream_count > 0 {
-                        let exposure_index = (monotonic_frame_count as usize) % smart_stream_count;
+                        let exposure_index =
+                            ((monotonic_frame_count - 1) as usize) % smart_stream_count;
                         m.insert("smart_stream_index".into(), exposure_index.to_string());
                         m.insert("smart_stream_count".into(), smart_stream_count.to_string());
                     }
