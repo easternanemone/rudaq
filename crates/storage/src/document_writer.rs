@@ -319,11 +319,7 @@ impl DocumentWriter {
                         for (device_id, params) in &manifest.parameters {
                             let dev_group = group.create_group(device_id)?;
                             for (param_name, param_value) in params {
-                                write_group_attr(
-                                    &dev_group,
-                                    param_name,
-                                    &param_value.to_string(),
-                                )?;
+                                write_group_attr(&dev_group, param_name, &param_value.to_string())?;
                             }
                         }
                     }
@@ -507,16 +503,8 @@ mod tests {
         cam_params.insert("exposure_ms".to_string(), serde_json::json!(100.0));
         manifest_params.insert("cam1".to_string(), cam_params);
 
-        let manifest = ExperimentManifest::new(
-            "test_run_1",
-            "count",
-            "Count",
-            manifest_params,
-        );
-        writer
-            .write(Document::Manifest(manifest))
-            .await
-            .unwrap();
+        let manifest = ExperimentManifest::new("test_run_1", "count", "Count", manifest_params);
+        writer.write(Document::Manifest(manifest)).await.unwrap();
 
         // 5. Stop
         let stop = StopDoc {
