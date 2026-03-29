@@ -249,6 +249,20 @@ impl DocumentWriter {
                                 ds.resize((shape[0] + 1,))?;
                                 ds.write_slice(&[ts_secs], shape[0]..)?;
                             }
+
+                            // Write event metadata as sub-groups (bd-p6r4)
+                            if !event.metadata.is_empty() {
+                                let md_group = if group.group("event_metadata").is_ok() {
+                                    group.group("event_metadata")?
+                                } else {
+                                    group.create_group("event_metadata")?
+                                };
+                                let md_key = format!("seq_{:06}", event.seq_num);
+                                let event_md_group = md_group.create_group(&md_key)?;
+                                for (key, value) in &event.metadata {
+                                    write_group_attr(&event_md_group, key, value)?;
+                                }
+                            }
                         }
                     }
                     return Ok(()); // Return Ok from closure
