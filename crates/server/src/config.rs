@@ -84,7 +84,7 @@ impl Default for GrpcSettings {
             tls_key_path: None,
             auth_enabled: false,
             auth_token: None,
-            allowed_origins: Vec::new(),
+            allowed_origins: vec!["*".to_string()],
             bind_address: Some(IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)),
             web_ui_path: None,
         }
