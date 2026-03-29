@@ -168,7 +168,7 @@ registry.register_from_config(DeviceConfig { id, name, driver: DriverConfig { ty
 
 ## Tools & Workflow
 
-**Issue tracking**: `bd` (beads) — Run `bd prime` for workflow context (auto-injected at session start). If a worktree cannot resolve the canonical beads DB, use `bash scripts/bd-safe.sh ...`. If `bd dolt push` reports missing remote `origin`, run `bash scripts/ops/setup-beads-dolt-remote.sh`.
+**Issue tracking**: `bd` (beads) — Run `bd prime` for workflow context (auto-injected at session start). If a worktree cannot resolve the canonical beads DB, use `bash scripts/bd-safe.sh ...` (including `ready`, `where`, and `memories` lookups). If `bd dolt push` reports missing remote `origin`, run `bash scripts/ops/setup-beads-dolt-remote.sh`.
 
 **Advanced features:**
 - `bd query "status=open AND priority<=1"` — compound query language
@@ -194,7 +194,9 @@ registry.register_from_config(DeviceConfig { id, name, driver: DriverConfig { ty
 
 **Structural search**: `sg` (ast-grep) for AST-aware code patterns. E.g., `sg -p '$EXPR.unwrap()' --lang rust`.
 
-**Quality gates**: `bd close` runs lightweight check (fmt + ast-grep). `git push` runs full gate (fmt + clippy + tests). `bd preflight --check` for PR readiness.
+**Quality gates**: `bd close` triggers hook checks (`validate-epic-close` + `quality-gate-on-close`: fmt check + ast-grep error scan). `git push` triggers `.claude/hooks/pre-push-checks.sh` (fmt + clippy + tests, excluding `ui` and `integration-tests`, nextest `--profile ci` when available). `bd preflight --check` for PR readiness.
+
+**Hook dispatch**: `.claude/hooks/pretool-dispatch.sh` routes `bd close` and `git push` to the relevant checks, and blocks `git worktree remove` unless the command starts with an explicit `cd` to a safe directory.
 
 **LSP**: `rust-analyzer` enabled via `.claude/settings.json`.
 
