@@ -237,6 +237,112 @@ fn main() {
         }
     }
 
+    // Detailed scan mode parameter introspection
+    println!("\n=== Scan Mode Parameter Details ===\n");
+    let scan_params: Vec<(&str, u32)> = vec![
+        ("PARAM_SCAN_MODE", PARAM_SCAN_MODE),
+        ("PARAM_SCAN_DIRECTION", PARAM_SCAN_DIRECTION),
+        ("PARAM_SCAN_LINE_DELAY", PARAM_SCAN_LINE_DELAY),
+        ("PARAM_SCAN_LINE_TIME", PARAM_SCAN_LINE_TIME),
+        ("PARAM_SCAN_WIDTH", PARAM_SCAN_WIDTH),
+        ("PARAM_EXPOSE_OUT_MODE", PARAM_EXPOSE_OUT_MODE),
+    ];
+
+    for (name, param_id) in &scan_params {
+        let mut avail: rs_bool = 0;
+        unsafe {
+            if pl_get_param(
+                hcam,
+                *param_id,
+                ATTR_AVAIL as i16,
+                &mut avail as *mut _ as *mut _,
+            ) != 0
+                && avail != 0
+            {
+                let mut val_cur: i64 = 0;
+                let mut val_min: i64 = 0;
+                let mut val_max: i64 = 0;
+                let mut val_def: i64 = 0;
+                let mut val_type: u16 = 0;
+                let mut val_count: u32 = 0;
+
+                pl_get_param(
+                    hcam,
+                    *param_id,
+                    ATTR_TYPE as i16,
+                    &mut val_type as *mut _ as *mut _,
+                );
+                pl_get_param(
+                    hcam,
+                    *param_id,
+                    ATTR_CURRENT as i16,
+                    &mut val_cur as *mut _ as *mut _,
+                );
+                pl_get_param(
+                    hcam,
+                    *param_id,
+                    ATTR_MIN as i16,
+                    &mut val_min as *mut _ as *mut _,
+                );
+                pl_get_param(
+                    hcam,
+                    *param_id,
+                    ATTR_MAX as i16,
+                    &mut val_max as *mut _ as *mut _,
+                );
+                pl_get_param(
+                    hcam,
+                    *param_id,
+                    ATTR_DEFAULT as i16,
+                    &mut val_def as *mut _ as *mut _,
+                );
+                pl_get_param(
+                    hcam,
+                    *param_id,
+                    ATTR_COUNT as i16,
+                    &mut val_count as *mut _ as *mut _,
+                );
+
+                println!("  {} (type={}):", name, val_type);
+                println!(
+                    "    current={}, min={}, max={}, default={}, count={}",
+                    val_cur, val_min, val_max, val_def, val_count
+                );
+
+                // If enum type, list all choices
+                if val_count > 1 {
+                    for i in 0..val_count {
+                        let mut enum_val: i32 = 0;
+                        let mut enum_name = [0i8; 256];
+                        let enum_str_len: u32 = 256;
+                        if pl_enum_str_length(
+                            hcam,
+                            *param_id,
+                            i,
+                            &mut enum_str_len as *const _ as *mut _,
+                        ) != 0
+                        {
+                            if pl_get_enum_param(
+                                hcam,
+                                *param_id,
+                                i,
+                                &mut enum_val,
+                                enum_name.as_mut_ptr(),
+                                256,
+                            ) != 0
+                            {
+                                let s = CStr::from_ptr(enum_name.as_ptr()).to_string_lossy();
+                                println!("      [{}] = {} (\"{}\")", i, enum_val, s);
+                            }
+                        }
+                    }
+                }
+            } else {
+                println!("  {} — NOT AVAILABLE", name);
+            }
+        }
+    }
+
     println!("\n=== Summary ===");
     println!("Available: {}", available_count);
     println!("Unavailable: {}", unavailable_count);
