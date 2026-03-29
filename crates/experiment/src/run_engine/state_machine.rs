@@ -46,6 +46,9 @@ pub(crate) struct FrameCapture {
     /// Number of raw frames summed into this output frame (host-side summing, bd-oqo7.7).
     /// `None` or `Some(1)` means no summing. `Some(N)` means N frames were accumulated.
     pub summing_count: Option<u32>,
+    /// Frame metadata for EventDoc propagation (bd-p6r4).
+    /// Contains hardware timestamps, SMART stream index, driver-specific fields.
+    pub metadata: HashMap<String, String>,
 }
 
 /// Observer that captures frames for experiment persistence
