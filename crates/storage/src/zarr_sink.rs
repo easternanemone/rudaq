@@ -734,11 +734,12 @@ mod tests {
             .await
             .expect("descriptor");
 
-        // Write 3 events sequentially
-        for i in 0..3 {
+        // Write 3 events sequentially (use non-zero values to avoid
+        // sparse-chunk elision when fill_value == 0.0).
+        for i in 0..3u32 {
             #[allow(clippy::cast_lossless)]
-            let event =
-                EventDoc::new(&run_uid, &desc_uid, i).with_datum("intensity", i as f64 * 10.0);
+            let event = EventDoc::new(&run_uid, &desc_uid, i)
+                .with_datum("intensity", (i + 1) as f64 * 10.0);
             sink.on_document(&Document::Event(event))
                 .await
                 .expect("event");
@@ -750,27 +751,12 @@ mod tests {
 
         // Verify chunk files exist (1-D array, each event = 1 chunk)
         let store_path = temp.path().join(format!("{run_uid}.zarr"));
-
-        // Debug: list all files in the store
-        fn list_files(dir: &std::path::Path, prefix: &str) {
-            if let Ok(entries) = std::fs::read_dir(dir) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    let name = format!("{prefix}/{}", entry.file_name().to_string_lossy());
-                    if path.is_dir() {
-                        eprintln!("  DIR:  {name}");
-                        list_files(&path, &name);
-                    } else {
-                        eprintln!("  FILE: {name}");
-                    }
-                }
-            }
-        }
-        eprintln!("=== Zarr store tree: {} ===", store_path.display());
-        list_files(&store_path, ".");
-
         let array_dir = store_path.join("primary").join("intensity");
-        assert!(array_dir.exists(), "Array directory should exist at {}", array_dir.display());
+        assert!(
+            array_dir.exists(),
+            "Array directory should exist at {}",
+            array_dir.display()
+        );
 
         // Zarr V3: chunk files at c/0, c/1, c/2
         let chunk_dir = array_dir.join("c");
