@@ -2345,7 +2345,11 @@ fn resolve_universal_factory_name(config: &toml::Value) -> Result<String, DaqErr
 // =============================================================================
 
 #[cfg(test)]
-#[allow(deprecated)] // TODO(bd-wev5): migrate to driver_registry::create_canonical_mock_registry
+// Uses deprecated `register_mock_factories`/`create_mock_registry` because these tests
+// exercise the low-level registry API (factory registration, TOML config loading,
+// duplicate detection, etc.) which requires direct factory control. The canonical
+// mock registry lives in `driver-registry` and can't be used here (circular dep).
+#[allow(deprecated)]
 mod tests {
     use super::*;
     use anyhow::{anyhow, Result};

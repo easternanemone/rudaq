@@ -817,7 +817,11 @@ impl HardwareService for HardwareServiceImpl {
 }
 
 #[cfg(test)]
-#[allow(deprecated)] // TODO(bd-wev5): migrate to driver_registry::create_canonical_mock_registry
+// Uses deprecated `create_mock_registry` because these tests depend on mock driver
+// internals (Parameter<f64> typed access, specific parameter names/bounds/units)
+// that differ from the universal-driver-backed canonical mock registry.
+// New server tests should use `driver_registry::create_canonical_mock_registry`.
+#[allow(deprecated)]
 mod tests {
     use super::*;
     use hardware::registry::create_mock_registry;

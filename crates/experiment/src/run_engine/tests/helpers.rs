@@ -17,7 +17,7 @@ use hardware::registry::DeviceRegistry;
 // ---- MockSpectrometer ----
 
 pub(super) struct MockSpectrometer {
-    pub grating: u8,
+    pub grating: i32,
     pub wavelength_nm: f64,
 }
 
@@ -28,7 +28,7 @@ impl SpectrometerControl for MockSpectrometer {
     }
 
     async fn get_grating(&self) -> anyhow::Result<i32> {
-        Ok(i32::from(self.grating))
+        Ok(self.grating)
     }
 
     async fn set_wavelength(&self, _nm: f64) -> anyhow::Result<()> {
@@ -58,7 +58,7 @@ impl SpectrometerControl for MockSpectrometer {
 }
 
 pub(super) struct MockSpectrometerFactory {
-    pub grating: u8,
+    pub grating: i32,
     pub wavelength_nm: f64,
 }
 
@@ -101,7 +101,7 @@ pub(super) async fn make_spectroscopy_registry() -> Arc<DeviceRegistry> {
 }
 
 pub(super) async fn make_spectroscopy_registry_with_spectrometer(
-    grating: u8,
+    grating: i32,
     wavelength_nm: f64,
 ) -> Arc<DeviceRegistry> {
     let registry = Arc::new(DeviceRegistry::new());
