@@ -293,7 +293,6 @@ impl DaqApp {
         }
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
     pub(super) fn on_connection_established(&mut self) {
         tracing::info!("Connection established - triggering panel refreshes");
 
@@ -310,6 +309,12 @@ impl DaqApp {
 
         self.logging_panel
             .info("Connection", "Connected - panels will refresh data");
+
+        // Update browser tab title to show connected daemon
+        #[cfg(target_arch = "wasm32")]
+        if let Some(doc) = web_sys::window().and_then(|w| w.document()) {
+            doc.set_title(&format!("DAQ Panel — Connected ({})", self.current_daemon_url()));
+        }
 
         // Start device reconciliation to validate persisted panels
         self.start_device_reconcile();
