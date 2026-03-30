@@ -357,7 +357,7 @@ impl ScriptEditorPanel {
             let result = client
                 .stop_script(&execution_id, false)
                 .await
-                .map(|resp| resp.message)
+                .map(|resp| (resp.stopped, resp.message))
                 .map_err(|e| e.to_string());
 
             let _ = tx.send(ActionResult::StopCompleted(result)).await;
