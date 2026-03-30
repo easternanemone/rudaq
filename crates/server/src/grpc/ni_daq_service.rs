@@ -36,17 +36,12 @@
 //!   (bd-3bjp); Comedi FFI fallback for devices without the trait.
 //!
 //! ## Still Using Direct Comedi Access
-//! The following RPCs still use `get_or_open_device()` for direct Comedi FFI.
-//! Each has a specific blocker documented inline:
+//! The following RPCs still bypass registry traits for direct Comedi FFI:
 //!
-//! - `configure_analog_output`: Fallback path only; primary path now uses
-//!   `RangeIntrospectable` trait via registry (bd-3bjp, migrated).
-//! - `stream_analog_input`: Multi-channel continuous acquisition via
-//!   `ComediMultiChannelAcquisition` -- no registry equivalent.
-//!
-//! ## Forward Path
-//! To complete the migration (1 RPC remaining):
-//! 1. `stream_analog_input`: Add `StreamingAcquisition` trait (deeply Comedi-specific)
+//! - `configure_analog_output`: Fallback path uses `get_or_open_device()` for
+//!   devices that predate `RangeIntrospectable` wiring (primary path migrated, bd-3bjp).
+//! - `stream_analog_input`: Uses `ComediMultiChannelAcquisition::new_async()`
+//!   directly (CMD-based DMA, no registry trait equivalent — see bd-rwk8).
 
 use anyhow::Error as AnyError;
 use common::limits::RPC_TIMEOUT;
@@ -77,9 +72,11 @@ use tracing::instrument;
 /// and its internal `ffi_lock` serializes all FFI calls, so sharing a single handle
 /// across RPCs is both safe and eliminates the kernel deadlock risk from concurrent opens.
 ///
-/// # TODO(bd-wev5): Remove `device_cache` once remaining 2 RPCs use registry handles.
-/// Only used by: `configure_analog_output` (fallback path) and `stream_analog_input`.
-/// All other RPCs now use registry traits.
+/// # Device Cache
+/// `device_cache` is only used by `configure_analog_output` (fallback path for
+/// devices that predate `RangeIntrospectable` wiring). `stream_analog_input`
+/// opens its own handle via `ComediMultiChannelAcquisition::new_async`.
+/// Removal blocked on: migrating the AO fallback to a registry trait (bd-ucyu.4).
 #[derive(Clone)]
 pub struct NiDaqServiceImpl {
     /// Device registry for looking up Comedi devices
@@ -323,10 +320,10 @@ impl NiDaqService for NiDaqServiceImpl {
                 ));
             }
 
-            // TODO(bd-wev5): Multi-channel continuous streaming is deeply Comedi-specific
-            // (CMD-based DMA acquisition). No registry trait equivalent exists.
-            // This is fundamentally different from single-value Readable::read() and
-            // would require a StreamingAcquisition trait to express in the HAL.
+            // Multi-channel continuous streaming is deeply Comedi-specific (CMD-based
+            // DMA acquisition). A future StreamingAcquisition trait (bd-rwk8) would
+            // decouple this from direct Comedi FFI, but the semantics are fundamentally
+            // different from single-value Readable::read().
             let device_path = self.resolve_device_path(&req.device_id);
 
             // Create multi-channel acquisition instance
@@ -1619,9 +1616,9 @@ impl NiDaqService for NiDaqServiceImpl {
             ao_channels,
             dio_channels,
             counter_channels,
-            // TODO(bd-wev5): ai/ao_resolution_bits require extending the trait to expose
-            // per-subdevice maxdata/bit-width — not available from current
-            // RangeIntrospectable or DeviceIntrospection.
+            // ai/ao_resolution_bits require a trait extension to expose per-subdevice
+            // maxdata/bit-width. Not available from RangeIntrospectable or
+            // DeviceIntrospection (blocked on HAL trait extension, bd-ucyu.4).
             ai_resolution_bits: 0,
             ao_resolution_bits: 0,
             ai_ranges,
