@@ -77,9 +77,14 @@ impl SpectrometerControl for MockSpectrograph {
     async fn get_calibration(&self, num_pixels: usize) -> Result<Vec<f64>> {
         let center = *self.wavelength_nm.lock().await;
         let dispersion = 0.05; // nm per pixel
+        #[allow(clippy::cast_precision_loss)]
         let half = num_pixels as f64 / 2.0;
         let wavelengths: Vec<f64> = (0..num_pixels)
-            .map(|i| center + (i as f64 - half) * dispersion)
+            .map(|i| {
+                #[allow(clippy::cast_precision_loss)]
+                let fi = i as f64;
+                center + (fi - half) * dispersion
+            })
             .collect();
         Ok(wavelengths)
     }

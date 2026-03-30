@@ -2329,10 +2329,7 @@ fn resolve_universal_factory_name(config: &toml::Value) -> Result<String, DaqErr
             ))
         })?;
 
-    let derived = format!(
-        "universal_{}",
-        device_name.to_lowercase().replace(' ', "_")
-    );
+    let derived = format!("universal_{}", device_name.to_lowercase().replace(' ', "_"));
 
     tracing::info!(
         manifest = %manifest_path,
@@ -3442,8 +3439,8 @@ baud_rate = 115200
             toml::Value::String("/dev/ttyUSB7".to_string()),
         );
 
-        let derived = resolve_universal_factory_name(&toml::Value::Table(config))
-            .expect("should resolve");
+        let derived =
+            resolve_universal_factory_name(&toml::Value::Table(config)).expect("should resolve");
         assert_eq!(derived, "universal_siglent_sdg1025");
     }
 
@@ -3475,10 +3472,7 @@ baud_rate = 115200
         let err = resolve_universal_factory_name(&toml::Value::Table(config))
             .expect_err("should fail with missing file");
         let msg = err.to_string();
-        assert!(
-            msg.contains("Failed to read"),
-            "unexpected error: {msg}"
-        );
+        assert!(msg.contains("Failed to read"), "unexpected error: {msg}");
     }
 
     #[test]

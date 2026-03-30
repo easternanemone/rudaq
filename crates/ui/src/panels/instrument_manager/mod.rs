@@ -1308,6 +1308,10 @@ impl InstrumentManagerPanel {
                 if ui.checkbox(&mut checked, "").changed() {
                     *edit_value = checked.to_string();
                 }
+            } else if Self::is_binning_param(param) {
+                Self::render_binning_widget(ui, &param.name, edit_value);
+            } else if Self::is_roi_param(param) {
+                Self::render_roi_widget(ui, edit_value);
             } else {
                 let response = ui.add(egui::TextEdit::singleline(edit_value).desired_width(100.0));
                 if param.min_value.is_some() || param.max_value.is_some() {
@@ -1325,7 +1329,14 @@ impl InstrumentManagerPanel {
                 }
             }
         } else {
-            ui.label(param.current_value.as_deref().unwrap_or("-"));
+            // Read-only: show friendly display for structured types (bd-ldjy.2)
+            if Self::is_binning_param(param) {
+                Self::render_binning_readonly(ui, param.current_value.as_deref());
+            } else if Self::is_roi_param(param) {
+                Self::render_roi_readonly(ui, param.current_value.as_deref());
+            } else {
+                ui.label(param.current_value.as_deref().unwrap_or("-"));
+            }
         }
 
         // Column 3: Units
@@ -1352,6 +1363,150 @@ impl InstrumentManagerPanel {
         } else {
             ui.label("");
         }
+    }
+
+    // =========================================================================
+    // Structured parameter widgets (bd-ldjy.2)
+    // =========================================================================
+
+    /// Detect binning parameters: JSON array `[x,y]` with name containing "binning".
+    fn is_binning_param(param: &ParameterInfo) -> bool {
+        param.name.contains("binning")
+            && (param.dtype == "array"
+                || param
+                    .current_value
+                    .as_ref()
+                    .is_some_and(|v| v.starts_with('[')))
+    }
+
+    /// Detect ROI parameters: JSON object with x/y/width/height fields.
+    fn is_roi_param(param: &ParameterInfo) -> bool {
+        param.name.contains("roi")
+            && (param.dtype == "object"
+                || param
+                    .current_value
+                    .as_ref()
+                    .is_some_and(|v| v.contains("\"width\"")))
+    }
+
+    /// Render binning as two linked spinners with preset dropdown (bd-ldjy.2).
+    fn render_binning_widget(ui: &mut egui::Ui, param_name: &str, edit_value: &mut String) {
+        let (mut bx, mut by) = Self::parse_binning(edit_value);
+
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 4.0;
+
+            // Preset dropdown with common binning values
+            let preset_label = format!("{bx}x{by}");
+            egui::ComboBox::from_id_salt(format!("binning_preset_{param_name}"))
+                .selected_text(preset_label)
+                .width(60.0)
+                .show_ui(ui, |ui| {
+                    for n in [1u16, 2, 4, 8] {
+                        let label = format!("{n}x{n}");
+                        if ui.selectable_label(bx == n && by == n, &label).clicked() {
+                            bx = n;
+                            by = n;
+                        }
+                    }
+                });
+
+            // Individual X/Y spinners for asymmetric binning
+            ui.weak("X:");
+            ui.add(egui::DragValue::new(&mut bx).range(1..=16).speed(0.1));
+            ui.weak("Y:");
+            ui.add(egui::DragValue::new(&mut by).range(1..=16).speed(0.1));
+        });
+
+        *edit_value = format!("[{bx},{by}]");
+    }
+
+    /// Render ROI as four spinners: X, Y, Width, Height (bd-ldjy.2).
+    fn render_roi_widget(ui: &mut egui::Ui, edit_value: &mut String) {
+        let (mut x, mut y, mut w, mut h) = Self::parse_roi(edit_value);
+
+        ui.vertical(|ui| {
+            ui.spacing_mut().item_spacing.y = 2.0;
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 4.0;
+                ui.weak("X:");
+                ui.add(egui::DragValue::new(&mut x).range(0..=u32::MAX).speed(1.0))
+                    .on_hover_text("X offset in pixels");
+                ui.weak("Y:");
+                ui.add(egui::DragValue::new(&mut y).range(0..=u32::MAX).speed(1.0))
+                    .on_hover_text("Y offset in pixels");
+            });
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 4.0;
+                ui.weak("W:");
+                ui.add(egui::DragValue::new(&mut w).range(1..=u32::MAX).speed(1.0))
+                    .on_hover_text("Width in pixels");
+                ui.weak("H:");
+                ui.add(egui::DragValue::new(&mut h).range(1..=u32::MAX).speed(1.0))
+                    .on_hover_text("Height in pixels");
+            });
+
+            // Quick-reset to full sensor
+            if ui
+                .small_button("Full sensor")
+                .on_hover_text(format!("Reset ROI offset to 0,0 (keep {w}x{h})"))
+                .clicked()
+            {
+                x = 0;
+                y = 0;
+            }
+        });
+
+        // Serialize back to the JSON object format the server expects
+        *edit_value = format!("{{\"x\":{x},\"y\":{y},\"width\":{w},\"height\":{h}}}");
+    }
+
+    /// Parse a binning JSON value `[x,y]` into `(u16, u16)`, defaulting to `(1,1)`.
+    fn parse_binning(value: &str) -> (u16, u16) {
+        serde_json::from_str::<Vec<u16>>(value)
+            .ok()
+            .and_then(|v| {
+                if v.len() == 2 {
+                    Some((v[0], v[1]))
+                } else {
+                    None
+                }
+            })
+            .unwrap_or((1, 1))
+    }
+
+    /// Parse an ROI JSON value into `(x, y, width, height)`, defaulting to
+    /// `(0, 0, 2048, 2048)`.
+    fn parse_roi(value: &str) -> (u32, u32, u32, u32) {
+        #[derive(serde::Deserialize)]
+        struct RoiFields {
+            #[serde(default)]
+            x: u32,
+            #[serde(default)]
+            y: u32,
+            #[serde(default = "default_dim")]
+            width: u32,
+            #[serde(default = "default_dim")]
+            height: u32,
+        }
+        fn default_dim() -> u32 {
+            2048
+        }
+        serde_json::from_str::<RoiFields>(value)
+            .map(|r| (r.x, r.y, r.width, r.height))
+            .unwrap_or((0, 0, 2048, 2048))
+    }
+
+    /// Read-only display for binning: "2x2" instead of raw JSON.
+    fn render_binning_readonly(ui: &mut egui::Ui, value: Option<&str>) {
+        let (bx, by) = value.map_or((1, 1), Self::parse_binning);
+        ui.label(format!("{bx}x{by}"));
+    }
+
+    /// Read-only display for ROI: "0,0 2048x2048" instead of raw JSON.
+    fn render_roi_readonly(ui: &mut egui::Ui, value: Option<&str>) {
+        let (x, y, w, h) = value.map_or((0, 0, 2048, 2048), Self::parse_roi);
+        ui.label(format!("{x},{y} {w}x{h}"));
     }
 
     // =========================================================================

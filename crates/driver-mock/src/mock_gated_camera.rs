@@ -84,12 +84,12 @@ impl Triggerable for MockGatedCamera {
 #[async_trait]
 impl GatedCamera for MockGatedCamera {
     async fn set_gate_mode(&self, mode: &str) -> Result<()> {
-        *self.gate_mode.lock().await = mode.to_owned();
+        mode.clone_into(&mut *self.gate_mode.lock().await);
         Ok(())
     }
 
     async fn set_trigger_mode(&self, mode: &str) -> Result<()> {
-        *self.trigger_mode.lock().await = mode.to_owned();
+        mode.clone_into(&mut *self.trigger_mode.lock().await);
         Ok(())
     }
 
