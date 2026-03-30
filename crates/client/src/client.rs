@@ -232,11 +232,16 @@ impl DaqClient {
             .buffer_size(1024 * 1024) // 1MB buffer for high-bandwidth streaming
             .initial_stream_window_size(1024 * 1024); // 1MB initial window
 
-        // TODO(bd-wev5): Add TLS configuration for https:// addresses
-        // if address.is_tls() {
-        //     let tls_config = load_tls_config()?;
-        //     endpoint = endpoint.tls_config(tls_config)?;
-        // }
+        // Enable TLS for https:// addresses using system root certificates
+        let (endpoint, streaming_endpoint) = if address.is_tls() {
+            let tls = tonic::transport::ClientTlsConfig::new();
+            (
+                endpoint.tls_config(tls.clone())?,
+                streaming_endpoint.tls_config(tls)?,
+            )
+        } else {
+            (endpoint, streaming_endpoint)
+        };
 
         let channel = endpoint.connect().await?;
         let streaming_channel = streaming_endpoint.connect().await?;
