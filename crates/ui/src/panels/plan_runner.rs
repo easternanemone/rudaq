@@ -75,15 +75,33 @@ pub struct PlanRunnerPanel {
     motor_name: String,
     detector_name: String,
 
+    /// Grid scan parameters
+    grid_x_motor: String,
+    grid_y_motor: String,
+    grid_x_start: String,
+    grid_x_end: String,
+    grid_x_points: String,
+    grid_y_start: String,
+    grid_y_end: String,
+    grid_y_points: String,
+    grid_detector: String,
+
     /// Engine state display
     engine_state: String,
     queue_length: usize,
     current_run_uid: String,
+    /// Current plan type (from status polling)
+    current_plan_type: String,
+    /// Current event / total events for progress display
+    current_event: Option<u32>,
+    total_events: Option<u32>,
 
     /// Status message
     status: Option<String>,
     /// Error message
     error: Option<String>,
+    /// Validation errors for the current plan form
+    validation_errors: Vec<String>,
 
     /// Pending action
     pending_action: Option<PendingAction>,
@@ -93,6 +111,9 @@ pub struct PlanRunnerPanel {
     action_rx: mpsc::Receiver<ActionResult>,
     /// Number of in-flight async actions
     action_in_flight: usize,
+
+    /// Last time we polled engine status
+    last_status_poll: Option<std::time::Instant>,
 }
 
 #[derive(Default, PartialEq)]
