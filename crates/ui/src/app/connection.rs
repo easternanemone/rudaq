@@ -391,8 +391,13 @@ impl DaqApp {
             dock.retain_tabs(|tab| !matches!(tab, Panel::DeviceControl { .. }));
         }
         // Update browser tab title to show disconnected state
-        if let Some(doc) = web_sys::window().and_then(|w| w.document()) {
-            doc.set_title("DAQ Panel — Disconnected");
-        }
+        set_page_title("DAQ Panel — Disconnected");
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn set_page_title(title: &str) {
+    if let Some(doc) = web_sys::window().and_then(|w| w.document()) {
+        doc.set_title(title);
     }
 }
