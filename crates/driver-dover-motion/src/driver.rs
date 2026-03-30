@@ -369,7 +369,7 @@ impl Drop for DoverAxisDriver {
             axis = %self.axis_name,
             "Dover Motion axis dropped with a live SDK handle but safe-state \
              shutdown is not yet implemented — stage may still be in motion. \
-             See TODO(bd-wev5) in DoverAxisDriver::Drop."
+             Blocked on dover-motion-sys FFI extension — see DoverAxisDriver::Drop."
         );
     }
 }
