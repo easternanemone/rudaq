@@ -101,12 +101,17 @@ impl<Tab> DockArea<'_, Tab> {
         if external_drag_active {
             if let Some(pointer_pos) = ui.ctx().pointer_hover_pos() {
                 state.drag_start.get_or_insert(pointer_pos);
+                // Use a reasonable default size for the synthetic drag rect so that
+                // overlay feedback (split preview, window preview) renders correctly.
+                // Native tab drags use the source leaf's rect; for external drags we
+                // approximate with a small panel-sized rect.
+                let default_drag_size = Vec2::new(200.0, 150.0);
                 ui.memory_mut(|mem| {
                     mem.data.insert_temp(
                         self.id.with("drag_data"),
                         Some(super::drag_and_drop::DragData {
                             src: TreeComponent::External,
-                            rect: Rect::from_center_size(pointer_pos, Vec2::ZERO),
+                            rect: Rect::from_center_size(pointer_pos, default_drag_size),
                         }),
                     );
                 });
@@ -304,9 +309,11 @@ impl<Tab> DockArea<'_, Tab> {
                 tab_viewer.allowed_in_windows(&mut leaf.tabs[tab.0])
             }
             // External drags originate outside the dock (e.g. device panel drops from the
-            // instrument list). There is no existing tab to query, so we conservatively allow
-            // the drop into floating windows.
-            TreeComponent::External => true,
+            // instrument list). There is no existing tab to query, and floating windows
+            // would produce confusing UX for external items. Disable window destinations
+            // so the overlay only offers split and append — matching native tab semantics
+            // for items that should dock into the existing layout (bd-lsg2).
+            TreeComponent::External => false,
             _ => todo!("collections of tabs, like nodes or surfaces, can't be dragged! (yet)"),
         };
 
