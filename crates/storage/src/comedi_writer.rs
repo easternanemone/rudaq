@@ -796,6 +796,7 @@ impl ComediStreamWriter {
     }
 
     /// Get current statistics
+    #[allow(clippy::cast_precision_loss)] // samples_written as f64: acceptable for rate metric
     pub fn stats(&self) -> StreamStats {
         let samples_written = self.samples_written.load(Ordering::Relaxed);
         let elapsed_secs = self.created_at.elapsed().as_secs_f64();
