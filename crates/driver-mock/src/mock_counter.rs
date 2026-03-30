@@ -143,11 +143,11 @@ impl Settable for MockCounter {
     async fn set_value(&self, name: &str, value: Value) -> Result<()> {
         match name {
             "value" | "count" => {
-                #[allow(clippy::cast_possible_truncation)]
                 let v = value
                     .as_u64()
-                    .ok_or_else(|| anyhow::anyhow!("count must be an unsigned integer"))?
-                    as u32;
+                    .ok_or_else(|| anyhow::anyhow!("count must be an unsigned integer"))?;
+                let v =
+                    u32::try_from(v).map_err(|_| anyhow::anyhow!("value out of u32 range"))?;
                 self.value.set(v).await?;
                 Ok(())
             }
