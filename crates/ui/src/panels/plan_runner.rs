@@ -523,7 +523,7 @@ impl PlanRunnerPanel {
                 Some(last) => last.elapsed() > std::time::Duration::from_secs(2),
                 None => true,
             };
-            if should_poll && self.pending_action.is_none() {
+            if should_poll && self.pending_action.is_none() && self.action_in_flight == 0 {
                 self.pending_action = Some(PendingAction::PollStatus);
                 self.last_status_poll = Some(std::time::Instant::now());
             }
