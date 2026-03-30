@@ -851,8 +851,8 @@ mod tests {
             calibrator: Arc::new(RadianceCalibrator::new(lamp, cals)),
         };
 
-        assert!(handle.calibrator.has_grating(1));
-        assert!(!handle.calibrator.has_grating(2));
+        assert!(handle.calibrator.grating_calibration(1).is_some());
+        assert!(handle.calibrator.grating_calibration(2).is_none());
     }
 
     #[test]
