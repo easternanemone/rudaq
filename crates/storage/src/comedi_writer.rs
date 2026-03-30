@@ -60,7 +60,8 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use std::time::Instant;
+use tokio::sync::{OnceCell, RwLock};
 
 #[cfg(feature = "storage_arrow")]
 use arrow::array::{ArrayRef, Float64Array};
@@ -340,6 +341,7 @@ impl ComediStreamWriterBuilder {
             chunks_written: AtomicU64::new(0),
             write_errors: AtomicU64::new(0),
             initialized: RwLock::new(false),
+            first_write_at: OnceCell::new(),
         })
     }
 }
@@ -364,6 +366,8 @@ pub struct ComediStreamWriter {
     chunks_written: AtomicU64,
     write_errors: AtomicU64,
     initialized: RwLock<bool>,
+    /// Timestamp of first `write_samples` call (set once on first write).
+    first_write_at: OnceCell<Instant>,
 }
 
 impl ComediStreamWriter {
@@ -544,6 +548,9 @@ impl ComediStreamWriter {
 
     /// Write interleaved samples (channel0_sample0, channel1_sample0, channel0_sample1, ...)
     pub async fn write_samples(&self, samples: &[f64]) -> Result<()> {
+        // Record first-write timestamp for accurate write_rate calculation
+        let _ = self.first_write_at.set(Instant::now());
+
         // Auto-initialize if needed
         if !*self.initialized.read().await {
             self.initialize().await?;
@@ -793,13 +800,27 @@ impl ComediStreamWriter {
     }
 
     /// Get current statistics
+    #[allow(clippy::cast_precision_loss)] // samples_written as f64: acceptable for rate metric
     pub fn stats(&self) -> StreamStats {
+        let samples_written = self.samples_written.load(Ordering::Relaxed);
+        let write_rate = self
+            .first_write_at
+            .get()
+            .map(|t| {
+                let elapsed_secs = t.elapsed().as_secs_f64();
+                if elapsed_secs > 0.0 {
+                    samples_written as f64 / elapsed_secs
+                } else {
+                    0.0
+                }
+            })
+            .unwrap_or(0.0);
         StreamStats {
-            samples_written: self.samples_written.load(Ordering::Relaxed),
+            samples_written,
             bytes_written: self.bytes_written.load(Ordering::Relaxed),
             chunks_written: self.chunks_written.load(Ordering::Relaxed),
             write_errors: self.write_errors.load(Ordering::Relaxed),
-            write_rate: 0.0, // TODO(bd-wev5): calculate write_rate from elapsed time and bytes_written
+            write_rate,
         }
     }
 
