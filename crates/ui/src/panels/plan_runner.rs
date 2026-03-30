@@ -34,6 +34,14 @@ enum ActionResult {
         success: bool,
         error: Option<String>,
     },
+    EngineStatus {
+        state: String,
+        queued_plans: u32,
+        current_run_uid: Option<String>,
+        current_plan_type: Option<String>,
+        current_event: Option<u32>,
+        total_events: Option<u32>,
+    },
 }
 
 /// Pending action to execute
