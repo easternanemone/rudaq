@@ -12,6 +12,8 @@ use super::TapRegistry;
 #[cfg(feature = "pvcam_sdk")]
 use super::{get_pvcam_error, CallbackContext, FrameMetadata};
 #[cfg(feature = "pvcam_sdk")]
+use crate::components::features::PvcamFeatures;
+#[cfg(feature = "pvcam_sdk")]
 use bytes::Bytes;
 #[cfg(feature = "pvcam_sdk")]
 use common::data::Frame;
@@ -127,14 +129,7 @@ impl PvcamAcquisition {
                 }
 
                 if status == READOUT_COMPLETE {
-                    // Extract frames from buffer.
-                    // bd-ldjy.3: PARAM_HOST_FRAME_ROTATE and PARAM_HOST_FRAME_FLIP are
-                    // SDK host-side post-processing features. The PVCAM SDK applies
-                    // rotation/flip to pixel data during readout (pl_exp_setup_seq sets
-                    // up the transform; data in the buffer is already transformed).
-                    // No manual pixel manipulation is needed here. The caller
-                    // (start_stream_sequence_impl) swaps width/height for 90/270 rotation
-                    // so Frame dimensions match the rotated output.
+                    // Extract frames from buffer
                     for frame_idx in 0..SEQUENCE_BATCH_SIZE {
                         let offset = frame_idx as usize * frame_bytes;
                         if offset + frame_bytes > buffer.len() {
@@ -329,6 +324,7 @@ impl PvcamAcquisition {
         host_summing_enabled: Parameter<bool>, // bd-oqo7.7
         host_summing_count: Parameter<u32>, // bd-oqo7.7
         smart_stream_count: usize, // bd-oqo7.1: SMART Streaming exposure cycle length
+        use_prime_locate: bool,  // bd-ldjy.4: PrimeLocate emits event records, not pixels
     ) {
         let loop_span = tracing::debug_span!(
             "pvcam_frame_loop",
@@ -343,7 +339,8 @@ impl PvcamAcquisition {
             roi_y,
             bin_x = binning.0,
             bin_y = binning.1,
-            metadata = use_metadata
+            metadata = use_metadata,
+            prime_locate = use_prime_locate
         );
         let _enter = loop_span.enter();
 
@@ -805,13 +802,6 @@ impl PvcamAcquisition {
             // Step 2: Copy pixel data AFTER unlock
             // In CIRC_NO_OVERWRITE mode, the frame_ptr data is still valid because
             // the SDK won't reuse this buffer slot until all 20 slots are filled.
-            //
-            // bd-ldjy.3: PARAM_HOST_FRAME_ROTATE and PARAM_HOST_FRAME_FLIP are SDK
-            // host-side post-processing features. The PVCAM SDK applies rotation/flip
-            // to pixel data during pl_exp_get_oldest_frame readout — the data pointed
-            // to by frame_ptr is already transformed. No manual pixel manipulation is
-            // needed here. The caller (start_stream) swaps width/height for 90/270
-            // rotation so Frame dimensions match the rotated output.
             let copy_bytes = frame_bytes.min(expected_frame_bytes);
 
             // Allocation tracking instrumentation (bd-0dax.1.1)
@@ -1216,6 +1206,16 @@ impl PvcamAcquisition {
                             let readout_ns =
                                 md.timestamp_eof_ns - md.timestamp_bof_ns - md.exposure_time_ns;
                             m.insert("readout_time_ns".into(), readout_ns.to_string());
+                        }
+                    }
+                    if use_prime_locate {
+                        m.insert("prime_locate_enabled".into(), "true".into());
+                        let events = PvcamFeatures::parse_localization_events(&pixel_data);
+                        m.insert("localization_event_count".into(), events.len().to_string());
+                        if !events.is_empty() {
+                            if let Ok(json) = serde_json::to_string(&events) {
+                                m.insert("localization_events_json".into(), json);
+                            }
                         }
                     }
                     m

@@ -127,6 +127,21 @@ pub const PARAM_EXP_MIN_TIME: u32 = 0x0402_0209; // flt64, class2, ord=521
 #[cfg(feature = "pvcam-sdk")]
 pub const PARAM_EDGE_TRIGGER: u32 = 0x0902_0037;
 
+// Programmable scan parameter IDs (bd-ldjy.4).
+// These are complex macros in pvcam.h that bindgen does not emit as consts.
+#[cfg(feature = "pvcam-sdk")]
+pub const PARAM_SCAN_MODE: u32 = 0x0903_00FA; // enum, class3, ord=250
+#[cfg(feature = "pvcam-sdk")]
+pub const PARAM_SCAN_DIRECTION: u32 = 0x0903_00FB; // enum, class3, ord=251
+#[cfg(feature = "pvcam-sdk")]
+pub const PARAM_SCAN_DIRECTION_RESET: u32 = 0x0B03_00FC; // bool, class3, ord=252
+#[cfg(feature = "pvcam-sdk")]
+pub const PARAM_SCAN_LINE_DELAY: u32 = 0x0603_00FD; // uns16, class3, ord=253
+#[cfg(feature = "pvcam-sdk")]
+pub const PARAM_SCAN_LINE_TIME: u32 = 0x1003_00FE; // int64, class3, ord=254
+#[cfg(feature = "pvcam-sdk")]
+pub const PARAM_SCAN_WIDTH: u32 = 0x0603_00FF; // uns16, class3, ord=255
+
 // Post-Processing feature parameter IDs (bd-oqo7.3).
 // Complex macros in master.h: CLASS3 << 16 | TYPE << 24 | ordinal
 #[cfg(feature = "pvcam-sdk")]

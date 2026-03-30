@@ -1213,7 +1213,210 @@ impl PvcamFeatures {
             (0, "First Row".to_string()),
             (1, "All Rows".to_string()),
             (2, "Any Row".to_string()),
+            (3, "Rolling Shutter".to_string()),
+            (4, "Line Output".to_string()),
         ])
+    }
+
+    // =========================================================================
+    // Programmable Scan Mode (bd-ldjy.4)
+    // =========================================================================
+
+    /// Get programmable scan mode.
+    pub fn get_scan_mode(_conn: &PvcamConnection) -> Result<ScanMode> {
+        #[cfg(feature = "pvcam_sdk")]
+        if let Some(h) = _conn.handle() {
+            if !Self::is_param_available(h, PARAM_SCAN_MODE) {
+                return Err(anyhow!("PARAM_SCAN_MODE is not available on this camera"));
+            }
+            let mut value: i32 = 0;
+            // SAFETY: h is valid handle; value is writable i32 on stack.
+            unsafe {
+                if pl_get_param(
+                    h,
+                    PARAM_SCAN_MODE,
+                    ATTR_CURRENT,
+                    &mut value as *mut _ as *mut _,
+                ) == 0
+                {
+                    return Err(anyhow!("Failed to get scan mode: {}", get_pvcam_error()));
+                }
+            }
+            return ScanMode::from_pvcam(value)
+                .ok_or_else(|| anyhow!("Unknown scan mode value {}", value));
+        }
+        Ok(ScanMode::Auto)
+    }
+
+    /// Set programmable scan mode.
+    pub fn set_scan_mode(_conn: &PvcamConnection, _mode: ScanMode) -> Result<()> {
+        #[cfg(feature = "pvcam_sdk")]
+        if let Some(h) = _conn.handle() {
+            if !Self::is_param_available(h, PARAM_SCAN_MODE) {
+                return Err(anyhow!("PARAM_SCAN_MODE is not available on this camera"));
+            }
+            let value = _mode.to_pvcam();
+            // SAFETY: h is valid handle; value pointer valid for duration of call.
+            unsafe {
+                if pl_set_param(h, PARAM_SCAN_MODE, &value as *const _ as *mut _) == 0 {
+                    return Err(anyhow!("Failed to set scan mode: {}", get_pvcam_error()));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Get programmable scan direction.
+    pub fn get_scan_direction(_conn: &PvcamConnection) -> Result<ScanDirection> {
+        #[cfg(feature = "pvcam_sdk")]
+        if let Some(h) = _conn.handle() {
+            if !Self::is_param_available(h, PARAM_SCAN_DIRECTION) {
+                return Err(anyhow!(
+                    "PARAM_SCAN_DIRECTION is not available on this camera"
+                ));
+            }
+            let mut value: i32 = 0;
+            // SAFETY: h is valid handle; value is writable i32 on stack.
+            unsafe {
+                if pl_get_param(
+                    h,
+                    PARAM_SCAN_DIRECTION,
+                    ATTR_CURRENT,
+                    &mut value as *mut _ as *mut _,
+                ) == 0
+                {
+                    return Err(anyhow!(
+                        "Failed to get scan direction: {}",
+                        get_pvcam_error()
+                    ));
+                }
+            }
+            return ScanDirection::from_pvcam(value)
+                .ok_or_else(|| anyhow!("Unknown scan direction value {}", value));
+        }
+        Ok(ScanDirection::Down)
+    }
+
+    /// Set programmable scan direction.
+    pub fn set_scan_direction(_conn: &PvcamConnection, _direction: ScanDirection) -> Result<()> {
+        #[cfg(feature = "pvcam_sdk")]
+        if let Some(h) = _conn.handle() {
+            if !Self::is_param_available(h, PARAM_SCAN_DIRECTION) {
+                return Err(anyhow!(
+                    "PARAM_SCAN_DIRECTION is not available on this camera"
+                ));
+            }
+            let value = _direction.to_pvcam();
+            // SAFETY: h is valid handle; value pointer valid for duration of call.
+            unsafe {
+                if pl_set_param(h, PARAM_SCAN_DIRECTION, &value as *const _ as *mut _) == 0 {
+                    return Err(anyhow!(
+                        "Failed to set scan direction: {}",
+                        get_pvcam_error()
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Get programmable scan line delay.
+    pub fn get_scan_line_delay(_conn: &PvcamConnection) -> Result<u16> {
+        #[cfg(feature = "pvcam_sdk")]
+        if let Some(h) = _conn.handle() {
+            if !Self::is_param_available(h, PARAM_SCAN_LINE_DELAY) {
+                return Err(anyhow!(
+                    "PARAM_SCAN_LINE_DELAY is not available on this camera"
+                ));
+            }
+            return Self::get_u16_param_impl(h, PARAM_SCAN_LINE_DELAY)
+                .map_err(|e| anyhow!("Failed to get scan line delay: {}", e));
+        }
+        Ok(0)
+    }
+
+    /// Set programmable scan line delay.
+    pub fn set_scan_line_delay(_conn: &PvcamConnection, _line_delay: u16) -> Result<()> {
+        #[cfg(feature = "pvcam_sdk")]
+        if let Some(h) = _conn.handle() {
+            if !Self::is_param_available(h, PARAM_SCAN_LINE_DELAY) {
+                return Err(anyhow!(
+                    "PARAM_SCAN_LINE_DELAY is not available on this camera"
+                ));
+            }
+            let value: uns16 = _line_delay;
+            // SAFETY: h is valid handle; value pointer valid for duration of call.
+            unsafe {
+                if pl_set_param(h, PARAM_SCAN_LINE_DELAY, &value as *const _ as *mut _) == 0 {
+                    return Err(anyhow!(
+                        "Failed to set scan line delay: {}",
+                        get_pvcam_error()
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Get programmable scan line time in nanoseconds.
+    pub fn get_scan_line_time_ns(_conn: &PvcamConnection) -> Result<i64> {
+        #[cfg(feature = "pvcam_sdk")]
+        if let Some(h) = _conn.handle() {
+            if !Self::is_param_available(h, PARAM_SCAN_LINE_TIME) {
+                return Err(anyhow!(
+                    "PARAM_SCAN_LINE_TIME is not available on this camera"
+                ));
+            }
+            let mut value: i64 = 0;
+            // SAFETY: h is valid handle; value is writable i64 on stack.
+            unsafe {
+                if pl_get_param(
+                    h,
+                    PARAM_SCAN_LINE_TIME,
+                    ATTR_CURRENT,
+                    &mut value as *mut _ as *mut _,
+                ) == 0
+                {
+                    return Err(anyhow!(
+                        "Failed to get scan line time: {}",
+                        get_pvcam_error()
+                    ));
+                }
+            }
+            return Ok(value);
+        }
+        Ok(0)
+    }
+
+    /// Get programmable scan width.
+    pub fn get_scan_width(_conn: &PvcamConnection) -> Result<u16> {
+        #[cfg(feature = "pvcam_sdk")]
+        if let Some(h) = _conn.handle() {
+            if !Self::is_param_available(h, PARAM_SCAN_WIDTH) {
+                return Err(anyhow!("PARAM_SCAN_WIDTH is not available on this camera"));
+            }
+            return Self::get_u16_param_impl(h, PARAM_SCAN_WIDTH)
+                .map_err(|e| anyhow!("Failed to get scan width: {}", e));
+        }
+        Ok(0)
+    }
+
+    /// Set programmable scan width.
+    pub fn set_scan_width(_conn: &PvcamConnection, _width: u16) -> Result<()> {
+        #[cfg(feature = "pvcam_sdk")]
+        if let Some(h) = _conn.handle() {
+            if !Self::is_param_available(h, PARAM_SCAN_WIDTH) {
+                return Err(anyhow!("PARAM_SCAN_WIDTH is not available on this camera"));
+            }
+            let value: uns16 = _width;
+            // SAFETY: h is valid handle; value pointer valid for duration of call.
+            unsafe {
+                if pl_set_param(h, PARAM_SCAN_WIDTH, &value as *const _ as *mut _) == 0 {
+                    return Err(anyhow!("Failed to set scan width: {}", get_pvcam_error()));
+                }
+            }
+        }
+        Ok(())
     }
 
     // =========================================================================
@@ -1998,12 +2201,13 @@ impl PvcamFeatures {
                 // Get parameter info
                 let param = PPParam {
                     index: i as u16,
-                    id: Self::get_u16_param_impl(h, PARAM_PP_PARAM_ID).unwrap_or(0),
+                    id: Self::get_u16_param_impl(h, PARAM_PP_PARAM_ID).unwrap_or(i as u16),
                     name: Self::get_pp_param_name_impl(h)
                         .unwrap_or_else(|_| format!("Param {}", i)),
                     value: Self::get_u32_param_impl(h, PARAM_PP_PARAM).unwrap_or(0),
-                    min: 0,
-                    max: u32::MAX,
+                    min: Self::get_u32_param_attr_impl(h, PARAM_PP_PARAM, ATTR_MIN).unwrap_or(0),
+                    max: Self::get_u32_param_attr_impl(h, PARAM_PP_PARAM, ATTR_MAX)
+                        .unwrap_or(u32::MAX),
                 };
                 params.push(param);
             }
@@ -3434,37 +3638,18 @@ impl PvcamFeatures {
                             )
                             .to_string();
 
-                            // Read current value
-                            let mut pval: u32 = 0;
-                            // SAFETY: h valid; pval writable u32.
-                            let _ = pl_get_param(
-                                h,
-                                PARAM_PP_PARAM,
-                                ATTR_CURRENT,
-                                &mut pval as *mut _ as *mut _,
-                            );
-
-                            // Read min/max
-                            let mut pmin: u32 = 0;
-                            let mut pmax: u32 = 0;
-                            // SAFETY: h valid; pmin/pmax writable u32.
-                            let _ = pl_get_param(
-                                h,
-                                PARAM_PP_PARAM,
-                                ATTR_MIN,
-                                &mut pmin as *mut _ as *mut _,
-                            );
-                            let _ = pl_get_param(
-                                h,
-                                PARAM_PP_PARAM,
-                                ATTR_MAX,
-                                &mut pmax as *mut _ as *mut _,
-                            );
+                            let pid = Self::get_u16_param_impl(h, PARAM_PP_PARAM_ID)
+                                .unwrap_or(param_idx as u16);
+                            let pval = Self::get_u32_param_impl(h, PARAM_PP_PARAM).unwrap_or(0);
+                            let pmin = Self::get_u32_param_attr_impl(h, PARAM_PP_PARAM, ATTR_MIN)
+                                .unwrap_or(0);
+                            let pmax = Self::get_u32_param_attr_impl(h, PARAM_PP_PARAM, ATTR_MAX)
+                                .unwrap_or(u32::MAX);
 
                             params.push(PPParam {
                                 name: pname,
                                 index: param_idx as u16,
-                                id: param_idx as u16,
+                                id: pid,
                                 value: pval,
                                 min: pmin,
                                 max: pmax,
@@ -4102,6 +4287,23 @@ impl PvcamFeatures {
                 return Err(anyhow!(
                     "Failed to get parameter {}: {}",
                     param,
+                    get_pvcam_error()
+                ));
+            }
+        }
+        Ok(value)
+    }
+
+    #[cfg(any(feature = "pvcam_sdk", feature = "pvcam_hardware"))]
+    pub(crate) fn get_u32_param_attr_impl(h: i16, param: u32, attr: i16) -> Result<u32> {
+        let mut value: uns32 = 0;
+        // SAFETY: h is valid; value is writable uns32 on stack.
+        unsafe {
+            if pl_get_param(h, param, attr, &mut value as *mut _ as *mut _) == 0 {
+                return Err(anyhow!(
+                    "Failed to get parameter {} attr {}: {}",
+                    param,
+                    attr,
                     get_pvcam_error()
                 ));
             }

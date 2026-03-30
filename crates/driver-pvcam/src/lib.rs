@@ -56,8 +56,8 @@ use tokio::sync::Mutex;
 pub use crate::components::features::{
     CameraInfo, CentroidsConfig, CentroidsMode, ClearMode, EdgeTrigger, ExposeOutMode,
     ExposureMode, ExposureResolution, FanSpeed, FrameFlip, FrameRotate, GainMode, IoType,
-    LocalizationEvent, LogicOutput, PPFeature, PPParam, ReadoutPort, ShutterMode, ShutterStatus,
-    SmartStreamEntry, SmartStreamMode, SpeedMode,
+    LocalizationEvent, LogicOutput, PPFeature, PPParam, ReadoutPort, ScanDirection, ScanMode,
+    ShutterMode, ShutterStatus, SmartStreamEntry, SmartStreamMode, SpeedMode,
 };
 // Re-export feature functions for direct access
 pub use crate::components::features::{
@@ -87,6 +87,52 @@ struct PvcamConfig {
 pub struct PvcamFactory;
 
 const PVCAM_COMMAND_CATALOG: &[&str] = &["list_pp_features", "reset_pp", "upload_smart_stream"];
+
+fn slugify_feature_name(name: &str) -> String {
+    let mut slug = String::with_capacity(name.len());
+    let mut last_was_sep = false;
+    for ch in name.chars() {
+        if ch.is_ascii_alphanumeric() {
+            slug.push(ch.to_ascii_lowercase());
+            last_was_sep = false;
+        } else if !last_was_sep {
+            slug.push('_');
+            last_was_sep = true;
+        }
+    }
+    slug.trim_matches('_').to_string()
+}
+
+fn pp_param_name(feature_name: &str, param_name: &str) -> String {
+    format!(
+        "pp.{}.{}",
+        slugify_feature_name(feature_name),
+        slugify_feature_name(param_name)
+    )
+}
+
+fn pmode_name(mode: i32) -> &'static str {
+    match mode {
+        1 => "Frame Transfer",
+        2 => "MPP",
+        3 => "Frame Transfer MPP",
+        _ => "Normal",
+    }
+}
+
+fn pmode_from_name(name: &str) -> i32 {
+    match name {
+        "Frame Transfer" => 1,
+        "MPP" => 2,
+        "Frame Transfer MPP" => 3,
+        _ => 0,
+    }
+}
+
+fn is_pp_bool_param(param_name: &str) -> bool {
+    let normalized = slugify_feature_name(param_name);
+    normalized == "enabled" || normalized.ends_with("_enabled")
+}
 
 impl DriverFactory for PvcamFactory {
     fn driver_type(&self) -> &'static str {
@@ -734,6 +780,7 @@ impl PvcamDriver {
                 .with_choices_introspectable(vec![
                     "Normal".into(),
                     "Frame Transfer".into(),
+                    "MPP".into(),
                     "Frame Transfer MPP".into(),
                 ])
                 .with_group("I/O");
@@ -761,12 +808,12 @@ impl PvcamDriver {
             .with_choices_introspectable(vec!["TTL".into(), "DAC".into()])
             .read_only()
             .with_group("I/O");
-        let logic_output =
+        let mut logic_output =
             Parameter::new("io.logic_output", LogicOutput::NotScan.as_str().to_string())
                 .with_description("Logic output signal mode")
                 .with_choices_introspectable(LogicOutput::all_choices())
                 .with_group("I/O");
-        let logic_output_invert = Parameter::new("io.logic_output_invert", false)
+        let mut logic_output_invert = Parameter::new("io.logic_output_invert", false)
             .with_description("Invert logic output signal")
             .with_group("I/O");
         let controller_alive = Parameter::new("diagnostics.controller_alive", true)
@@ -786,8 +833,15 @@ impl PvcamDriver {
             .read_only()
             .with_group("Diagnostics");
 
-        // Read initial I/O diagnostics from hardware (bd-oqo7.6)
-        {
+        let mut edge_trigger = edge_trigger;
+        let (
+            edge_trigger_available,
+            logic_output_available,
+            logic_output_invert_available,
+            controller_alive_available,
+            ccs_status_available,
+            exp_min_time_available,
+        ) = {
             let conn_guard = connection.lock().await;
             if let Ok(bd) = PvcamFeatures::get_io_bitdepth(&conn_guard) {
                 let _ = io_bitdepth.set_from_hardware(bd).await;
@@ -795,23 +849,121 @@ impl PvcamDriver {
             if let Ok(t) = PvcamFeatures::get_io_type(&conn_guard) {
                 let _ = io_type.set_from_hardware(t.as_str().to_string()).await;
             }
-            if let Ok(mode) = PvcamFeatures::get_logic_output(&conn_guard) {
-                let _ = logic_output
+            if let Ok(mode) = PvcamFeatures::get_clear_mode(&conn_guard) {
+                let _ = clear_mode
                     .set_from_hardware(mode.as_str().to_string())
                     .await;
             }
-            if let Ok(inv) = PvcamFeatures::get_logic_output_invert(&conn_guard) {
-                let _ = logic_output_invert.set_from_hardware(inv).await;
+            if let Ok(mode) = PvcamFeatures::get_expose_out_mode(&conn_guard) {
+                let _ = expose_out_mode
+                    .set_from_hardware(mode.as_str().to_string())
+                    .await;
             }
-            if let Ok(alive) = PvcamFeatures::get_controller_alive(&conn_guard) {
-                let _ = controller_alive.set_from_hardware(alive).await;
+            if let Ok(mode) = PvcamFeatures::get_pmode(&conn_guard) {
+                let _ = frame_transfer_mode
+                    .set_from_hardware(pmode_name(mode).to_string())
+                    .await;
             }
-            if let Ok(status) = PvcamFeatures::get_ccs_status(&conn_guard) {
-                let _ = ccs_status.set_from_hardware(status).await;
+
+            #[cfg(feature = "pvcam_sdk")]
+            {
+                if let Some(h) = conn_guard.handle() {
+                    let edge_trigger_available =
+                        PvcamFeatures::is_param_available(h, PARAM_EDGE_TRIGGER);
+                    let logic_output_available =
+                        PvcamFeatures::is_param_available(h, PARAM_LOGIC_OUTPUT);
+                    let logic_output_invert_available =
+                        PvcamFeatures::is_param_available(h, PARAM_LOGIC_OUTPUT_INVERT);
+                    let controller_alive_available =
+                        PvcamFeatures::is_param_available(h, PARAM_CONTROLLER_ALIVE);
+                    let ccs_status_available =
+                        PvcamFeatures::is_param_available(h, PARAM_CCS_STATUS);
+                    let exp_min_time_available =
+                        PvcamFeatures::is_param_available(h, PARAM_EXP_MIN_TIME);
+
+                    if edge_trigger_available {
+                        if let Ok(mode) = PvcamFeatures::get_edge_trigger(&conn_guard) {
+                            let _ = edge_trigger
+                                .set_from_hardware(mode.as_str().to_string())
+                                .await;
+                        }
+                    }
+                    if logic_output_available {
+                        if let Ok(mode) = PvcamFeatures::get_logic_output(&conn_guard) {
+                            let _ = logic_output
+                                .set_from_hardware(mode.as_str().to_string())
+                                .await;
+                        }
+                    }
+                    if logic_output_invert_available {
+                        if let Ok(inv) = PvcamFeatures::get_logic_output_invert(&conn_guard) {
+                            let _ = logic_output_invert.set_from_hardware(inv).await;
+                        }
+                    }
+                    if controller_alive_available {
+                        if let Ok(alive) = PvcamFeatures::get_controller_alive(&conn_guard) {
+                            let _ = controller_alive.set_from_hardware(alive).await;
+                        }
+                    }
+                    if ccs_status_available {
+                        if let Ok(status) = PvcamFeatures::get_ccs_status(&conn_guard) {
+                            let _ = ccs_status.set_from_hardware(status).await;
+                        }
+                    }
+                    if exp_min_time_available {
+                        if let Ok(min_t) = PvcamFeatures::get_exp_min_time(&conn_guard) {
+                            let _ = exp_min_time.set_from_hardware(min_t).await;
+                        }
+                    }
+
+                    (
+                        edge_trigger_available,
+                        logic_output_available,
+                        logic_output_invert_available,
+                        controller_alive_available,
+                        ccs_status_available,
+                        exp_min_time_available,
+                    )
+                } else {
+                    (false, false, false, false, false, false)
+                }
             }
-            if let Ok(min_t) = PvcamFeatures::get_exp_min_time(&conn_guard) {
-                let _ = exp_min_time.set_from_hardware(min_t).await;
+            #[cfg(not(feature = "pvcam_sdk"))]
+            {
+                if let Ok(mode) = PvcamFeatures::get_edge_trigger(&conn_guard) {
+                    let _ = edge_trigger
+                        .set_from_hardware(mode.as_str().to_string())
+                        .await;
+                }
+                if let Ok(mode) = PvcamFeatures::get_logic_output(&conn_guard) {
+                    let _ = logic_output
+                        .set_from_hardware(mode.as_str().to_string())
+                        .await;
+                }
+                if let Ok(inv) = PvcamFeatures::get_logic_output_invert(&conn_guard) {
+                    let _ = logic_output_invert.set_from_hardware(inv).await;
+                }
+                if let Ok(alive) = PvcamFeatures::get_controller_alive(&conn_guard) {
+                    let _ = controller_alive.set_from_hardware(alive).await;
+                }
+                if let Ok(status) = PvcamFeatures::get_ccs_status(&conn_guard) {
+                    let _ = ccs_status.set_from_hardware(status).await;
+                }
+                if let Ok(min_t) = PvcamFeatures::get_exp_min_time(&conn_guard) {
+                    let _ = exp_min_time.set_from_hardware(min_t).await;
+                }
+                (true, true, true, true, true, true)
             }
+        };
+
+        if !edge_trigger_available {
+            edge_trigger = edge_trigger.read_only();
+        }
+        if !logic_output_available {
+            logic_output = logic_output.read_only();
+        }
+        if !logic_output_invert_available {
+            logic_output_invert = logic_output_invert.read_only();
         }
 
         // Reset PP features to defaults so PARAM_PP_INDEX becomes available (bd-ldjy.1).
@@ -820,6 +972,394 @@ impl PvcamDriver {
             let conn_guard = connection.lock().await;
             if let Err(e) = PvcamFeatures::reset_pp_features(&conn_guard) {
                 tracing::warn!("Failed to reset PP features: {e} — PP features may be unavailable");
+            }
+        }
+
+        let mut clear_cycles_param = None;
+        let mut exposure_resolution_param = None;
+        let mut exposure_resolution_index_param = None;
+        let mut binning_serial_choices_param = None;
+        let mut binning_parallel_choices_param = None;
+        let mut centroids_enabled_param = None;
+        let mut centroids_mode_param = None;
+        let mut centroids_radius_param = None;
+        let mut centroids_max_count_param = None;
+        let mut centroids_threshold_param = None;
+        let mut scan_mode_param = None;
+        let mut scan_direction_param = None;
+        let mut scan_line_delay_param = None;
+        let mut scan_width_param = None;
+        let mut scan_line_time_param = None;
+
+        {
+            let conn_guard = connection.lock().await;
+
+            if let Ok(current_cycles) = PvcamFeatures::get_clear_cycles(&conn_guard) {
+                let mut param = Parameter::new("acquisition.clear_cycles", current_cycles)
+                    .with_description("Number of sensor clearing cycles before exposure")
+                    .with_group("Acquisition");
+                param.connect_to_hardware_write({
+                    let conn = connection.clone();
+                    move |val| {
+                        let conn = conn.clone();
+                        Box::pin(async move {
+                            let conn_guard = conn.lock_owned().await;
+                            tokio::task::spawn_blocking(move || {
+                                PvcamFeatures::set_clear_cycles(&conn_guard, val)
+                                    .map_err(|e| DaqError::Instrument(e.to_string()))
+                            })
+                            .await
+                            .map_err(|e| DaqError::Instrument(e.to_string()))?
+                        })
+                    }
+                });
+                clear_cycles_param = Some(param);
+            }
+
+            if let Ok(current_res) = PvcamFeatures::get_exposure_resolution(&conn_guard) {
+                let mut param = Parameter::new(
+                    "acquisition.exposure_resolution",
+                    current_res.as_str().to_string(),
+                )
+                .with_description("Exposure time resolution")
+                .with_choices_introspectable(ExposureResolution::all_choices())
+                .with_group("Acquisition");
+                param.connect_to_hardware_write({
+                    let conn = connection.clone();
+                    move |val| {
+                        let conn = conn.clone();
+                        Box::pin(async move {
+                            let conn_guard = conn.lock_owned().await;
+                            let res = ExposureResolution::from_str(&val);
+                            tokio::task::spawn_blocking(move || {
+                                PvcamFeatures::set_exposure_resolution(&conn_guard, res)
+                                    .map_err(|e| DaqError::Instrument(e.to_string()))
+                            })
+                            .await
+                            .map_err(|e| DaqError::Instrument(e.to_string()))?
+                        })
+                    }
+                });
+                exposure_resolution_param = Some(param);
+            }
+
+            if let Ok(current_index) = PvcamFeatures::get_exposure_resolution_index(&conn_guard) {
+                let mut param =
+                    Parameter::new("acquisition.exposure_resolution_index", current_index)
+                        .with_description("Raw PVCAM exposure-resolution index")
+                        .with_group("Acquisition");
+                param.connect_to_hardware_write({
+                    let conn = connection.clone();
+                    move |val| {
+                        let conn = conn.clone();
+                        Box::pin(async move {
+                            let conn_guard = conn.lock_owned().await;
+                            tokio::task::spawn_blocking(move || {
+                                PvcamFeatures::set_exposure_resolution_index(&conn_guard, val)
+                                    .map_err(|e| DaqError::Instrument(e.to_string()))
+                            })
+                            .await
+                            .map_err(|e| DaqError::Instrument(e.to_string()))?
+                        })
+                    }
+                });
+                exposure_resolution_index_param = Some(param);
+            }
+
+            if let Ok(factors) = PvcamFeatures::list_serial_binning(&conn_guard) {
+                binning_serial_choices_param = Some(
+                    Parameter::new(
+                        "acquisition.binning_serial_choices",
+                        serde_json::to_string(&factors).unwrap_or_else(|_| "[]".to_string()),
+                    )
+                    .with_description("Available horizontal binning factors as JSON array")
+                    .read_only()
+                    .with_group("Acquisition"),
+                );
+            }
+
+            if let Ok(factors) = PvcamFeatures::list_parallel_binning(&conn_guard) {
+                binning_parallel_choices_param = Some(
+                    Parameter::new(
+                        "acquisition.binning_parallel_choices",
+                        serde_json::to_string(&factors).unwrap_or_else(|_| "[]".to_string()),
+                    )
+                    .with_description("Available vertical binning factors as JSON array")
+                    .read_only()
+                    .with_group("Acquisition"),
+                );
+            }
+
+            if let Ok(config) = PvcamFeatures::get_centroids_config(&conn_guard) {
+                let mut enabled = Parameter::new(
+                    "processing.centroids_enabled",
+                    PvcamFeatures::get_centroids_enabled(&conn_guard).unwrap_or(false),
+                )
+                .with_description("Enable centroids / PrimeLocate particle tracking")
+                .with_dtype("bool")
+                .with_group("Post-Processing");
+                enabled.connect_to_hardware_write({
+                    let conn = connection.clone();
+                    move |val| {
+                        let conn = conn.clone();
+                        Box::pin(async move {
+                            let conn_guard = conn.lock_owned().await;
+                            tokio::task::spawn_blocking(move || {
+                                PvcamFeatures::set_centroids_enabled(&conn_guard, val)
+                                    .map_err(|e| DaqError::Instrument(e.to_string()))
+                            })
+                            .await
+                            .map_err(|e| DaqError::Instrument(e.to_string()))?
+                        })
+                    }
+                });
+                centroids_enabled_param = Some(enabled);
+
+                let threshold = Parameter::new(
+                    "processing.centroids_threshold",
+                    PvcamFeatures::get_centroids_threshold(&conn_guard).unwrap_or(config.threshold),
+                )
+                .with_description("Minimum pixel intensity for centroids detection")
+                .with_group("Post-Processing");
+
+                let mut mode = Parameter::new(
+                    "processing.centroids_mode",
+                    config.mode.as_str().to_string(),
+                )
+                .with_description("Centroids processing mode")
+                .with_choices_introspectable(CentroidsMode::all_choices())
+                .with_group("Post-Processing");
+                let mut radius = Parameter::new("processing.centroids_radius", config.radius)
+                    .with_description("Centroids search radius")
+                    .with_group("Post-Processing");
+                let mut max_count =
+                    Parameter::new("processing.centroids_max_count", config.max_count)
+                        .with_description("Maximum number of centroids per frame")
+                        .with_group("Post-Processing");
+                let mut threshold = threshold;
+
+                {
+                    let conn = connection.clone();
+                    let radius_param = radius.clone();
+                    let max_count_param = max_count.clone();
+                    let threshold_param = threshold.clone();
+                    mode.connect_to_hardware_write(move |val| {
+                        let conn = conn.clone();
+                        let radius = radius_param.get();
+                        let max_count = max_count_param.get();
+                        let threshold = threshold_param.get();
+                        Box::pin(async move {
+                            let conn_guard = conn.lock_owned().await;
+                            let config = CentroidsConfig {
+                                mode: CentroidsMode::from_str(&val),
+                                radius,
+                                max_count,
+                                threshold,
+                            };
+                            tokio::task::spawn_blocking(move || {
+                                PvcamFeatures::set_centroids_config(&conn_guard, &config)
+                                    .map_err(|e| DaqError::Instrument(e.to_string()))
+                            })
+                            .await
+                            .map_err(|e| DaqError::Instrument(e.to_string()))?
+                        })
+                    });
+                }
+
+                {
+                    let conn = connection.clone();
+                    let mode_param = mode.clone();
+                    let max_count_param = max_count.clone();
+                    let threshold_param = threshold.clone();
+                    radius.connect_to_hardware_write(move |val| {
+                        let conn = conn.clone();
+                        let mode = CentroidsMode::from_str(&mode_param.get());
+                        let max_count = max_count_param.get();
+                        let threshold = threshold_param.get();
+                        Box::pin(async move {
+                            let conn_guard = conn.lock_owned().await;
+                            let config = CentroidsConfig {
+                                mode,
+                                radius: val,
+                                max_count,
+                                threshold,
+                            };
+                            tokio::task::spawn_blocking(move || {
+                                PvcamFeatures::set_centroids_config(&conn_guard, &config)
+                                    .map_err(|e| DaqError::Instrument(e.to_string()))
+                            })
+                            .await
+                            .map_err(|e| DaqError::Instrument(e.to_string()))?
+                        })
+                    });
+                }
+
+                {
+                    let conn = connection.clone();
+                    let mode_param = mode.clone();
+                    let radius_param = radius.clone();
+                    let threshold_param = threshold.clone();
+                    max_count.connect_to_hardware_write(move |val| {
+                        let conn = conn.clone();
+                        let mode = CentroidsMode::from_str(&mode_param.get());
+                        let radius = radius_param.get();
+                        let threshold = threshold_param.get();
+                        Box::pin(async move {
+                            let conn_guard = conn.lock_owned().await;
+                            let config = CentroidsConfig {
+                                mode,
+                                radius,
+                                max_count: val,
+                                threshold,
+                            };
+                            tokio::task::spawn_blocking(move || {
+                                PvcamFeatures::set_centroids_config(&conn_guard, &config)
+                                    .map_err(|e| DaqError::Instrument(e.to_string()))
+                            })
+                            .await
+                            .map_err(|e| DaqError::Instrument(e.to_string()))?
+                        })
+                    });
+                }
+
+                threshold.connect_to_hardware_write({
+                    let conn = connection.clone();
+                    move |val| {
+                        let conn = conn.clone();
+                        Box::pin(async move {
+                            let conn_guard = conn.lock_owned().await;
+                            tokio::task::spawn_blocking(move || {
+                                PvcamFeatures::set_centroids_threshold(&conn_guard, val)
+                                    .map_err(|e| DaqError::Instrument(e.to_string()))
+                            })
+                            .await
+                            .map_err(|e| DaqError::Instrument(e.to_string()))?
+                        })
+                    }
+                });
+
+                centroids_mode_param = Some(mode);
+                centroids_radius_param = Some(radius);
+                centroids_max_count_param = Some(max_count);
+                centroids_threshold_param = Some(threshold);
+            }
+
+            if let Ok(scan_mode) = PvcamFeatures::get_scan_mode(&conn_guard) {
+                let mut param = Parameter::new("trigger.scan_mode", scan_mode.as_str().to_string())
+                    .with_description("Programmable scan mode")
+                    .with_choices_introspectable(
+                        ScanMode::all_choices()
+                            .iter()
+                            .map(|choice| (*choice).to_string())
+                            .collect(),
+                    )
+                    .with_group("Trigger");
+                param.connect_to_hardware_write({
+                    let conn = connection.clone();
+                    move |val| {
+                        let conn = conn.clone();
+                        Box::pin(async move {
+                            let conn_guard = conn.lock_owned().await;
+                            let mode = ScanMode::from_str(&val).ok_or_else(|| {
+                                DaqError::Instrument(format!("Invalid scan mode '{val}'"))
+                            })?;
+                            tokio::task::spawn_blocking(move || {
+                                PvcamFeatures::set_scan_mode(&conn_guard, mode)
+                                    .map_err(|e| DaqError::Instrument(e.to_string()))
+                            })
+                            .await
+                            .map_err(|e| DaqError::Instrument(e.to_string()))?
+                        })
+                    }
+                });
+                scan_mode_param = Some(param);
+            }
+
+            if let Ok(scan_direction) = PvcamFeatures::get_scan_direction(&conn_guard) {
+                let mut param = Parameter::new(
+                    "trigger.scan_direction",
+                    scan_direction.as_str().to_string(),
+                )
+                .with_description("Programmable scan direction")
+                .with_choices_introspectable(
+                    ScanDirection::all_choices()
+                        .iter()
+                        .map(|choice| (*choice).to_string())
+                        .collect(),
+                )
+                .with_group("Trigger");
+                param.connect_to_hardware_write({
+                    let conn = connection.clone();
+                    move |val| {
+                        let conn = conn.clone();
+                        Box::pin(async move {
+                            let conn_guard = conn.lock_owned().await;
+                            let direction = ScanDirection::from_str(&val).ok_or_else(|| {
+                                DaqError::Instrument(format!("Invalid scan direction '{val}'"))
+                            })?;
+                            tokio::task::spawn_blocking(move || {
+                                PvcamFeatures::set_scan_direction(&conn_guard, direction)
+                                    .map_err(|e| DaqError::Instrument(e.to_string()))
+                            })
+                            .await
+                            .map_err(|e| DaqError::Instrument(e.to_string()))?
+                        })
+                    }
+                });
+                scan_direction_param = Some(param);
+            }
+
+            if let Ok(scan_line_delay) = PvcamFeatures::get_scan_line_delay(&conn_guard) {
+                let mut param = Parameter::new("trigger.scan_line_delay", scan_line_delay)
+                    .with_description("Programmable scan line delay in line clocks")
+                    .with_group("Trigger");
+                param.connect_to_hardware_write({
+                    let conn = connection.clone();
+                    move |val| {
+                        let conn = conn.clone();
+                        Box::pin(async move {
+                            let conn_guard = conn.lock_owned().await;
+                            tokio::task::spawn_blocking(move || {
+                                PvcamFeatures::set_scan_line_delay(&conn_guard, val)
+                                    .map_err(|e| DaqError::Instrument(e.to_string()))
+                            })
+                            .await
+                            .map_err(|e| DaqError::Instrument(e.to_string()))?
+                        })
+                    }
+                });
+                scan_line_delay_param = Some(param);
+            }
+
+            if let Ok(scan_width) = PvcamFeatures::get_scan_width(&conn_guard) {
+                let mut param = Parameter::new("trigger.scan_width", scan_width)
+                    .with_description("Programmable rolling-shutter scan width in sensor rows")
+                    .with_group("Trigger");
+                param.connect_to_hardware_write({
+                    let conn = connection.clone();
+                    move |val| {
+                        let conn = conn.clone();
+                        Box::pin(async move {
+                            let conn_guard = conn.lock_owned().await;
+                            tokio::task::spawn_blocking(move || {
+                                PvcamFeatures::set_scan_width(&conn_guard, val)
+                                    .map_err(|e| DaqError::Instrument(e.to_string()))
+                            })
+                            .await
+                            .map_err(|e| DaqError::Instrument(e.to_string()))?
+                        })
+                    }
+                });
+                scan_width_param = Some(param);
+            }
+
+            if let Ok(scan_line_time_ns) = PvcamFeatures::get_scan_line_time_ns(&conn_guard) {
+                scan_line_time_param = Some(
+                    Parameter::new("diagnostics.scan_line_time_ns", scan_line_time_ns)
+                        .with_description("Derived programmable scan line time in nanoseconds")
+                        .read_only()
+                        .with_group("Diagnostics"),
+                );
             }
         }
 
@@ -879,6 +1419,89 @@ impl PvcamDriver {
             }
         }
 
+        let mut pp_bool_params = Vec::new();
+        let mut pp_u32_params = Vec::new();
+
+        {
+            let conn_guard = connection.lock().await;
+            if let Ok(features) = PvcamFeatures::enumerate_pp_features(&conn_guard) {
+                for feature in features {
+                    for pp_param in feature.params {
+                        if (is_prime_enhance_name(&feature.name)
+                            || is_prime_locate_name(&feature.name))
+                            && is_pp_bool_param(&pp_param.name)
+                        {
+                            continue;
+                        }
+
+                        let param_name = pp_param_name(&feature.name, &pp_param.name);
+                        let description = format!(
+                            "{} / {} post-processing parameter",
+                            feature.name, pp_param.name
+                        );
+
+                        if is_pp_bool_param(&pp_param.name) {
+                            let mut param = Parameter::new(param_name, pp_param.value != 0)
+                                .with_description(description)
+                                .with_dtype("bool")
+                                .with_group("Post-Processing");
+                            let feature_index = feature.index;
+                            let param_index = pp_param.index;
+                            param.connect_to_hardware_write({
+                                let conn = connection.clone();
+                                move |val| {
+                                    let conn = conn.clone();
+                                    Box::pin(async move {
+                                        let conn_guard = conn.lock_owned().await;
+                                        tokio::task::spawn_blocking(move || {
+                                            PvcamFeatures::set_pp_param(
+                                                &conn_guard,
+                                                feature_index,
+                                                param_index,
+                                                u32::from(val),
+                                            )
+                                            .map_err(|e| DaqError::Instrument(e.to_string()))
+                                        })
+                                        .await
+                                        .map_err(|e| DaqError::Instrument(e.to_string()))?
+                                    })
+                                }
+                            });
+                            pp_bool_params.push(param);
+                        } else {
+                            let mut param = Parameter::new(param_name, pp_param.value)
+                                .with_description(description)
+                                .with_range(pp_param.min, pp_param.max)
+                                .with_group("Post-Processing");
+                            let feature_index = feature.index;
+                            let param_index = pp_param.index;
+                            param.connect_to_hardware_write({
+                                let conn = connection.clone();
+                                move |val| {
+                                    let conn = conn.clone();
+                                    Box::pin(async move {
+                                        let conn_guard = conn.lock_owned().await;
+                                        tokio::task::spawn_blocking(move || {
+                                            PvcamFeatures::set_pp_param(
+                                                &conn_guard,
+                                                feature_index,
+                                                param_index,
+                                                val,
+                                            )
+                                            .map_err(|e| DaqError::Instrument(e.to_string()))
+                                        })
+                                        .await
+                                        .map_err(|e| DaqError::Instrument(e.to_string()))?
+                                    })
+                                }
+                            });
+                            pp_u32_params.push(param);
+                        }
+                    }
+                }
+            }
+        }
+
         // Metadata Info Group
         let serial_number = Parameter::new("info.serial_number", info.serial_number)
             .with_description("Camera Serial Number")
@@ -905,7 +1528,9 @@ impl PvcamDriver {
         params.register(trigger_mode.clone());
         params.register(clear_mode.clone());
         params.register(expose_out_mode.clone());
-        params.register(edge_trigger.clone());
+        if edge_trigger_available {
+            params.register(edge_trigger.clone());
+        }
         params.register(buffer_mode.clone());
         params.register(roi.clone());
         params.register(binning.clone());
@@ -933,7 +1558,6 @@ impl PvcamDriver {
         params.register(smart_stream_enabled.clone());
         params.register(smart_stream_mode.clone());
         params.register(smart_stream_exposures.clone());
-        params.register(multi_roi_config.clone());
         params.register(metadata_enabled.clone());
         params.register(host_rotate.clone());
         params.register(host_flip.clone());
@@ -944,17 +1568,78 @@ impl PvcamDriver {
         params.register(io_state.clone());
         params.register(frame_transfer_mode.clone());
         params.register(io_script_cmd.clone());
+        if let Some(param) = &clear_cycles_param {
+            params.register(param.clone());
+        }
+        if let Some(param) = &exposure_resolution_param {
+            params.register(param.clone());
+        }
+        if let Some(param) = &exposure_resolution_index_param {
+            params.register(param.clone());
+        }
+        if let Some(param) = &binning_serial_choices_param {
+            params.register(param.clone());
+        }
+        if let Some(param) = &binning_parallel_choices_param {
+            params.register(param.clone());
+        }
+        if let Some(param) = &centroids_enabled_param {
+            params.register(param.clone());
+        }
+        if let Some(param) = &centroids_mode_param {
+            params.register(param.clone());
+        }
+        if let Some(param) = &centroids_radius_param {
+            params.register(param.clone());
+        }
+        if let Some(param) = &centroids_max_count_param {
+            params.register(param.clone());
+        }
+        if let Some(param) = &centroids_threshold_param {
+            params.register(param.clone());
+        }
+        if let Some(param) = &scan_mode_param {
+            params.register(param.clone());
+        }
+        if let Some(param) = &scan_direction_param {
+            params.register(param.clone());
+        }
+        if let Some(param) = &scan_line_delay_param {
+            params.register(param.clone());
+        }
+        if let Some(param) = &scan_width_param {
+            params.register(param.clone());
+        }
+        if let Some(param) = &scan_line_time_param {
+            params.register(param.clone());
+        }
         // I/O Diagnostics (bd-oqo7.6)
         params.register(io_bitdepth.clone());
         params.register(io_type.clone());
-        params.register(logic_output.clone());
-        params.register(logic_output_invert.clone());
-        params.register(controller_alive.clone());
-        params.register(ccs_status.clone());
-        params.register(exp_min_time.clone());
+        if logic_output_available {
+            params.register(logic_output.clone());
+        }
+        if logic_output_invert_available {
+            params.register(logic_output_invert.clone());
+        }
+        if controller_alive_available {
+            params.register(controller_alive.clone());
+        }
+        if ccs_status_available {
+            params.register(ccs_status.clone());
+        }
+        if exp_min_time_available {
+            params.register(exp_min_time.clone());
+        }
         // Post-Processing (bd-oqo7.3, bd-oqo7.10)
         params.register(prime_enhance_enabled.clone());
         params.register(prime_locate_enabled.clone());
+        for param in &pp_bool_params {
+            params.register(param.clone());
+        }
+        for param in &pp_u32_params {
+            params.register(param.clone());
+        }
         params.register(serial_number.clone());
         params.register(firmware_version.clone());
         params.register(model_name.clone());
@@ -1850,11 +2535,7 @@ impl PvcamDriver {
             move |val| {
                 let conn = conn.clone();
                 Box::pin(async move {
-                    let mode = match val.as_str() {
-                        "Frame Transfer" => 1,     // PMODE_FT
-                        "Frame Transfer MPP" => 3, // PMODE_FT_MPP
-                        _ => 0,                    // PMODE_NORMAL
-                    };
+                    let mode = pmode_from_name(&val);
                     let conn_guard = conn.lock_owned().await;
                     tokio::task::spawn_blocking(move || {
                         PvcamFeatures::set_pmode(&conn_guard, mode)
@@ -2229,6 +2910,58 @@ impl PvcamDriver {
                 tracing::warn!("Failed to query exposure modes: {}", e);
             }
         }
+
+        let clear_snapshot = {
+            let conn_guard = self.connection.lock().await;
+            let modes = PvcamFeatures::list_clear_modes(&conn_guard);
+            let current = PvcamFeatures::get_clear_mode(&conn_guard);
+            (modes, current)
+        };
+
+        match clear_snapshot.0 {
+            Ok(modes) => {
+                let names: Vec<String> = modes
+                    .iter()
+                    .map(|(raw, _)| ClearMode::from_pvcam(*raw).as_str().to_string())
+                    .collect();
+                self.clear_mode.inner().update_choices(names);
+            }
+            Err(e) => {
+                tracing::warn!("Failed to query clear modes: {}", e);
+            }
+        }
+        if let Ok(current) = clear_snapshot.1 {
+            let _ = self
+                .clear_mode
+                .set_from_hardware(current.as_str().to_string())
+                .await;
+        }
+
+        let expose_out_snapshot = {
+            let conn_guard = self.connection.lock().await;
+            let modes = PvcamFeatures::list_expose_out_modes(&conn_guard);
+            let current = PvcamFeatures::get_expose_out_mode(&conn_guard);
+            (modes, current)
+        };
+
+        match expose_out_snapshot.0 {
+            Ok(modes) => {
+                let names: Vec<String> = modes
+                    .iter()
+                    .map(|(raw, _)| ExposeOutMode::from_pvcam(*raw).as_str().to_string())
+                    .collect();
+                self.expose_out_mode.inner().update_choices(names);
+            }
+            Err(e) => {
+                tracing::warn!("Failed to query expose-out modes: {}", e);
+            }
+        }
+        if let Ok(current) = expose_out_snapshot.1 {
+            let _ = self
+                .expose_out_mode
+                .set_from_hardware(current.as_str().to_string())
+                .await;
+        }
     }
 
     pub async fn acquire_frame(&self) -> Result<Frame> {
@@ -2241,7 +2974,6 @@ impl PvcamDriver {
                 self.exposure_ms.get(),
                 self.host_summing_enabled.clone(),
                 self.host_summing_count.clone(),
-                self.host_rotate.clone(), // bd-ldjy.3
             )
             .await
     }
@@ -2461,7 +3193,6 @@ impl Triggerable for PvcamDriver {
             let exposure_ms = self.exposure_ms.get();
             let host_summing_enabled = self.host_summing_enabled.clone();
             let host_summing_count = self.host_summing_count.clone();
-            let host_rotate = self.host_rotate.clone(); // bd-ldjy.3
 
             tokio::spawn(async move {
                 let conn = connection.lock().await;
@@ -2473,7 +3204,6 @@ impl Triggerable for PvcamDriver {
                         exposure_ms,
                         host_summing_enabled,
                         host_summing_count,
-                        host_rotate, // bd-ldjy.3
                     )
                     .await
                 {
@@ -2503,7 +3233,7 @@ impl FrameProducer for PvcamDriver {
                 self.host_summing_count.clone(),
                 self.smart_stream_enabled.clone(),
                 self.smart_stream_exposures.clone(),
-                self.host_rotate.clone(), // bd-ldjy.3: for dimension swap on 90/270
+                self.prime_locate_enabled.clone(),
             )
             .await
     }
@@ -2712,5 +3442,28 @@ mod tests {
                 "upload_smart_stream".to_string(),
             ]
         );
+    }
+
+    #[test]
+    fn slugify_feature_name_normalizes_pvcam_strings() {
+        assert_eq!(
+            slugify_feature_name("DESPECKLE BRIGHT LOW"),
+            "despeckle_bright_low"
+        );
+        assert_eq!(slugify_feature_name("NO OF ITERATIONS"), "no_of_iterations");
+        assert_eq!(slugify_feature_name("Prime-Enhance"), "prime_enhance");
+    }
+
+    #[test]
+    fn pmode_helpers_cover_all_known_modes() {
+        assert_eq!(pmode_name(0), "Normal");
+        assert_eq!(pmode_name(1), "Frame Transfer");
+        assert_eq!(pmode_name(2), "MPP");
+        assert_eq!(pmode_name(3), "Frame Transfer MPP");
+
+        assert_eq!(pmode_from_name("Normal"), 0);
+        assert_eq!(pmode_from_name("Frame Transfer"), 1);
+        assert_eq!(pmode_from_name("MPP"), 2);
+        assert_eq!(pmode_from_name("Frame Transfer MPP"), 3);
     }
 }

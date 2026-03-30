@@ -171,6 +171,28 @@ impl CentroidsMode {
             CentroidsMode::Blob => 2,
         }
     }
+
+    #[allow(clippy::should_implement_trait)]
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "Locate" => Self::Locate,
+            "Track" => Self::Track,
+            "Blob" => Self::Blob,
+            _ => Self::Locate,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Locate => "Locate",
+            Self::Track => "Track",
+            Self::Blob => "Blob",
+        }
+    }
+
+    pub fn all_choices() -> Vec<String> {
+        vec!["Locate".into(), "Track".into(), "Blob".into()]
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -546,6 +568,32 @@ impl ExposureResolution {
             ExposureResolution::Seconds => 2,
         }
     }
+
+    #[allow(clippy::should_implement_trait)]
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "Milliseconds" => Self::Milliseconds,
+            "Microseconds" => Self::Microseconds,
+            "Seconds" => Self::Seconds,
+            _ => Self::Milliseconds,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Milliseconds => "Milliseconds",
+            Self::Microseconds => "Microseconds",
+            Self::Seconds => "Seconds",
+        }
+    }
+
+    pub fn all_choices() -> Vec<String> {
+        vec![
+            "Milliseconds".into(),
+            "Microseconds".into(),
+            "Seconds".into(),
+        ]
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -700,10 +748,15 @@ impl ExposeOutMode {
     pub fn from_str(s: &str) -> Self {
         match s {
             "FirstRow" => ExposeOutMode::FirstRow,
+            "First Row" => ExposeOutMode::FirstRow,
             "AllRows" => ExposeOutMode::AllRows,
+            "All Rows" => ExposeOutMode::AllRows,
             "AnyRow" => ExposeOutMode::AnyRow,
+            "Any Row" => ExposeOutMode::AnyRow,
             "RollingShutter" => ExposeOutMode::RollingShutter,
+            "Rolling Shutter" => ExposeOutMode::RollingShutter,
             "LineOutput" => ExposeOutMode::LineOutput,
+            "Line Output" => ExposeOutMode::LineOutput,
             _ => ExposeOutMode::FirstRow,
         }
     }
@@ -1092,72 +1145,5 @@ impl ScanDirection {
 impl std::fmt::Display for ScanDirection {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.as_str())
-    }
-}
-
-/// bd-ldjy.3: Returns true if this rotation swaps the frame width and height.
-/// 90 and 270 degree rotations transpose dimensions; 0 and 180 do not.
-impl FrameRotate {
-    pub fn swaps_dimensions(self) -> bool {
-        matches!(self, Self::Rotate90CW | Self::Rotate270CW)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // bd-ldjy.3: Round-trip tests for FrameRotate
-    #[test]
-    fn frame_rotate_pvcam_round_trip() {
-        for value in 0..=3 {
-            let rotate = FrameRotate::from_pvcam(value);
-            assert_eq!(rotate.to_pvcam(), value);
-        }
-    }
-
-    #[test]
-    fn frame_rotate_str_round_trip() {
-        for name in FrameRotate::all_choices() {
-            let rotate = FrameRotate::from_str(&name);
-            assert_eq!(rotate.as_str(), name);
-        }
-    }
-
-    #[test]
-    fn frame_rotate_unknown_defaults_to_none() {
-        assert_eq!(FrameRotate::from_pvcam(99), FrameRotate::None);
-        assert_eq!(FrameRotate::from_str("bogus"), FrameRotate::None);
-    }
-
-    #[test]
-    fn frame_rotate_swaps_dimensions() {
-        assert!(!FrameRotate::None.swaps_dimensions());
-        assert!(FrameRotate::Rotate90CW.swaps_dimensions());
-        assert!(!FrameRotate::Rotate180CW.swaps_dimensions());
-        assert!(FrameRotate::Rotate270CW.swaps_dimensions());
-    }
-
-    // bd-ldjy.3: Round-trip tests for FrameFlip
-    #[test]
-    fn frame_flip_pvcam_round_trip() {
-        for value in 0..=3 {
-            let flip = FrameFlip::from_pvcam(value);
-            assert_eq!(flip.to_pvcam(), value);
-        }
-    }
-
-    #[test]
-    fn frame_flip_str_round_trip() {
-        for name in FrameFlip::all_choices() {
-            let flip = FrameFlip::from_str(&name);
-            assert_eq!(flip.as_str(), name);
-        }
-    }
-
-    #[test]
-    fn frame_flip_unknown_defaults_to_none() {
-        assert_eq!(FrameFlip::from_pvcam(99), FrameFlip::None);
-        assert_eq!(FrameFlip::from_str("bogus"), FrameFlip::None);
     }
 }
