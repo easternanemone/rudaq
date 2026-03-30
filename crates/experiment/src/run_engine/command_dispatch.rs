@@ -29,12 +29,13 @@ impl CommandDispatcher<'_> {
     pub(crate) async fn execute_move(&self, device_id: &str, position: f64) -> anyhow::Result<()> {
         debug!(device = %device_id, position = %position, "Moving");
 
-        let device = self.registry.get_movable(device_id);
-        if let Some(device) = device {
-            device.move_abs(position).await?;
-        } else {
-            warn!(device = %device_id, "Device not found or not movable, skipping move");
-        }
+        let Some(device) = self.registry.get_movable(device_id) else {
+            anyhow::bail!(
+                "Device '{}' not found or does not support Movable capability",
+                device_id
+            );
+        };
+        device.move_abs(position).await?;
 
         Ok(())
     }
@@ -43,26 +44,27 @@ impl CommandDispatcher<'_> {
     pub(crate) async fn execute_read(&self, device_id: &str) -> anyhow::Result<f64> {
         debug!(device = %device_id, "Reading");
 
-        let device = self.registry.get_readable(device_id);
-        if let Some(device) = device {
-            let value = device.read().await?;
-            Ok(value)
-        } else {
-            warn!(device = %device_id, "Device not found or not readable, returning 0.0");
-            Ok(0.0)
-        }
+        let Some(device) = self.registry.get_readable(device_id) else {
+            anyhow::bail!(
+                "Device '{}' not found or does not support Readable capability",
+                device_id
+            );
+        };
+        let value = device.read().await?;
+        Ok(value)
     }
 
     /// Execute a trigger command.
     pub(crate) async fn execute_trigger(&self, device_id: &str) -> anyhow::Result<()> {
         debug!(device = %device_id, "Triggering");
 
-        let device = self.registry.get_triggerable(device_id);
-        if let Some(device) = device {
-            device.trigger().await?;
-        } else {
-            debug!(device = %device_id, "Device not triggerable, skipping");
-        }
+        let Some(device) = self.registry.get_triggerable(device_id) else {
+            anyhow::bail!(
+                "Device '{}' not found or does not support Triggerable capability",
+                device_id
+            );
+        };
+        device.trigger().await?;
 
         Ok(())
     }
