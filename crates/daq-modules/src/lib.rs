@@ -1101,13 +1101,18 @@ mod tests {
         let device_registry = mock_device_registry().await;
         let mut registry = ModuleRegistry::new(device_registry);
 
+        // Use VirtualConfocalSlit because it has a real unstage() that
+        // transitions state back to Created.
         let module_id = registry
-            .create_module("power_monitor", "Test Monitor")
+            .create_module("virtual_confocal_slit", "Test VCS")
             .expect("create module");
 
         registry
-            .assign_device(&module_id, "power_meter", "mock_power_meter")
-            .expect("assign device");
+            .assign_device(&module_id, "camera", "mock_camera")
+            .expect("assign camera");
+        registry
+            .assign_device(&module_id, "scanner", "mock_stage")
+            .expect("assign scanner");
 
         registry
             .start_module(&module_id)
@@ -1119,8 +1124,8 @@ mod tests {
             .await
             .expect("stop module");
 
-        // After stop + auto-unstage, the module should NOT be in Stopped
-        // state — the unstage transitions it back to Created.
+        // VirtualConfocalSlit.unstage() sets state back to Created,
+        // confirming auto-unstage ran.
         let instance = registry.get_module(&module_id).expect("module exists");
         assert_eq!(instance.state(), ModuleState::Created);
     }
