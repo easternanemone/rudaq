@@ -1,24 +1,25 @@
 //! LIBS Hardware Bindings for Rhai Scripts
 //!
 //! Provides Rhai-compatible handles for LIBS (Laser-Induced Breakdown Spectroscopy)
-//! hardware: Andor iStar gated camera, Andor Shamrock spectrograph, Dover SmartStage,
+//! hardware: gated camera (ICCD), spectrograph, motion stage with Trigger-On-Position,
 //! and the radiance calibration engine.
 //!
 //! # Architecture
 //!
-//! Uses the same async→sync bridge pattern as the core hardware bindings:
-//! - `GatedCameraHandle` wraps `Arc<AndorCamera>` directly (not a trait object) because
-//!   DDG/MCP methods are camera-specific, not yet in a common trait.
-//! - `SpectrographHandle` wraps `Arc<AndorSpectrograph>` for grating/wavelength/slit control.
+//! All handles use capability trait objects from `common::capabilities`:
+//! - `GatedCameraHandle` wraps `Arc<dyn GatedCamera>` + `Arc<dyn Triggerable>` for
+//!   DDG timing, MCP gain, gate mode, trigger mode, arm, and stop_stream.
+//! - `SpectrographHandle` wraps `Arc<dyn SpectrometerControl>` for
+//!   grating/wavelength/slit control and wavelength-pixel calibration.
 //! - `DoverAxisHandle` wraps `Arc<dyn TriggerOnPosition>` for movement and TOP, plus a
-//!   stored closure for `set_velocity` (not yet in any common trait).
+//!   stored closure for `set_velocity` (not in any common trait).
 //! - `CalibratorHandle` wraps `Arc<RadianceCalibrator>` for offline spectral correction.
 //!
 //! # Script Example
 //! ```rhai
-//! let cam   = create_andor_camera();
-//! let spec  = create_andor_spectrograph();
-//! let stage = create_dover_axis("X");
+//! let cam   = create_gated_camera();
+//! let spec  = create_spectrograph();
+//! let stage = create_top_stage("X");
 //!
 //! cam.set_gate_mode("DDG");
 //! cam.set_ddg_timing(1300000, 10000000);  // delay_ps, width_ps
@@ -42,12 +43,10 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use driver_andor_sdk3::{AndorCamera, AndorSpectrograph};
-use driver_dover_motion::mock::DoverMockDriver;
 use rhai::{Array, Dynamic, Engine, EvalAltResult};
 
 use crate::run_blocking;
-use common::capabilities::TriggerOnPosition;
+use common::capabilities::{GatedCamera, SpectrometerControl, TriggerOnPosition, Triggerable};
 use common::processing::radiance_calibration::{RadianceCalibrator, Spectrum};
 
 // Boxed async closure type used for capability bundling
@@ -58,14 +57,14 @@ type VelocityFn = Arc<dyn Fn(f64) -> BoxFuture<()> + Send + Sync>;
 // Handle Types
 // =============================================================================
 
-/// Handle to an Andor iStar gated ICCD camera for Rhai scripts.
+/// Handle to a gated ICCD camera for Rhai scripts.
 ///
-/// Wraps `Arc<AndorCamera>` directly to expose LIBS-specific controls:
+/// Wraps trait objects for LIBS-specific controls:
 /// DDG timing, MCP gain, gate mode, and trigger mode.
 ///
 /// # Script Example
 /// ```rhai
-/// let cam = create_andor_camera();
+/// let cam = create_gated_camera();
 /// cam.set_gate_mode("DDG");
 /// cam.set_ddg_timing(1300000, 10000000);
 /// cam.set_mcp_gain(3600);
@@ -73,17 +72,18 @@ type VelocityFn = Arc<dyn Fn(f64) -> BoxFuture<()> + Send + Sync>;
 /// ```
 #[derive(Clone)]
 pub struct GatedCameraHandle {
-    pub driver: Arc<AndorCamera>,
+    pub driver: Arc<dyn GatedCamera>,
+    pub triggerable: Arc<dyn Triggerable>,
 }
 
-/// Handle to an Andor Shamrock spectrograph for Rhai scripts.
+/// Handle to a spectrograph for Rhai scripts.
 ///
 /// Provides grating selection, wavelength tuning, slit control, and
 /// wavelength-pixel calibration retrieval.
 ///
 /// # Script Example
 /// ```rhai
-/// let spec = create_andor_spectrograph();
+/// let spec = create_spectrograph();
 /// spec.set_grating(1);
 /// spec.set_wavelength(310.0);
 /// spec.set_slit_width(2, 150.0);
@@ -91,17 +91,17 @@ pub struct GatedCameraHandle {
 /// ```
 #[derive(Clone)]
 pub struct SpectrographHandle {
-    pub driver: Arc<AndorSpectrograph>,
+    pub driver: Arc<dyn SpectrometerControl>,
 }
 
-/// Handle to a Dover SmartStage axis with Trigger-On-Position support.
+/// Handle to a motion stage with Trigger-On-Position support.
 ///
 /// Wraps `Arc<dyn TriggerOnPosition>` for movement and TOP methods.
-/// `set_velocity` is bundled as a closure since it is not yet a common trait method.
+/// `set_velocity` is bundled as a closure since it is not a common trait method.
 ///
 /// # Script Example
 /// ```rhai
-/// let stage_x = create_dover_axis("X");
+/// let stage_x = create_top_stage("X");
 /// stage_x.set_velocity(5.0);
 /// stage_x.move_abs(0.0);
 /// stage_x.enable_top(0.0, 20.0, 0.1, false, 1000);
@@ -109,7 +109,7 @@ pub struct SpectrographHandle {
 #[derive(Clone)]
 pub struct DoverAxisHandle {
     pub axis: Arc<dyn TriggerOnPosition>,
-    /// Velocity setter — stored as a closure because `set_velocity` is not in
+    /// Velocity setter -- stored as a closure because `set_velocity` is not in
     /// `Movable` or `TriggerOnPosition` and varies between mock/real drivers.
     set_velocity_fn: VelocityFn,
 }
@@ -117,20 +117,21 @@ pub struct DoverAxisHandle {
 /// Coordinates spectrograph grating changes with camera stop/re-arm.
 ///
 /// Grating rotation causes the camera to lose its acquisition window, so the
-/// correct sequence is: **stop_stream → set_grating → set_wavelength → arm**.
+/// correct sequence is: **stop_stream -> set_grating -> set_wavelength -> arm**.
 /// `ScanController` encapsulates this sequence as a single `set_config` call,
 /// preventing accidental acquisitions during grating motion.
 ///
 /// # Script Example
 /// ```rhai
 /// let sc = create_scan_controller(camera, spectrograph);
-/// sc.set_config(1, 310.0);   // grating 1, 310 nm — stops, tunes, re-arms
-/// sc.set_config(2, 450.0);   // grating 2, 450 nm — same coordinated sequence
+/// sc.set_config(1, 310.0);   // grating 1, 310 nm -- stops, tunes, re-arms
+/// sc.set_config(2, 450.0);   // grating 2, 450 nm -- same coordinated sequence
 /// ```
 #[derive(Clone)]
 pub struct ScanController {
-    camera: Arc<AndorCamera>,
-    spectrograph: Arc<AndorSpectrograph>,
+    camera: Arc<dyn GatedCamera>,
+    triggerable: Arc<dyn Triggerable>,
+    spectrograph: Arc<dyn SpectrometerControl>,
 }
 
 /// Handle to a [`RadianceCalibrator`] for Rhai scripts.
@@ -156,12 +157,12 @@ pub struct CalibratorHandle {
 /// Register all LIBS hardware bindings with the Rhai engine.
 ///
 /// Registers types and methods for:
-/// - `GatedCamera` — Andor iStar DDG/MCP control
-/// - `Spectrograph` — Andor Shamrock grating/wavelength/slit control
-/// - `DoverAxis` — Dover stage movement and Trigger-On-Position
-/// - `RadianceCalibrator` — offline spectral correction engine
-/// - Factory functions: `create_andor_camera`, `create_andor_spectrograph`,
-///   `create_dover_axis`, `create_radiance_calibrator`
+/// - `GatedCamera` -- ICCD DDG/MCP control
+/// - `Spectrograph` -- grating/wavelength/slit control
+/// - `DoverAxis` -- stage movement and Trigger-On-Position
+/// - `RadianceCalibrator` -- offline spectral correction engine
+/// - Factory functions: `create_gated_camera`, `create_spectrograph`,
+///   `create_top_stage`, `create_radiance_calibrator`
 pub fn register_libs_hardware(engine: &mut Engine) {
     engine.register_type_with_name::<GatedCameraHandle>("GatedCamera");
     engine.register_type_with_name::<SpectrographHandle>("Spectrograph");
@@ -170,10 +171,10 @@ pub fn register_libs_hardware(engine: &mut Engine) {
     engine.register_type_with_name::<ScanController>("ScanController");
 
     // =========================================================================
-    // GatedCameraHandle — Andor iStar methods
+    // GatedCameraHandle -- gated camera methods via trait objects
     // =========================================================================
 
-    // cam.set_gate_mode("DDG") — select gating mode ("DDG", "CW", etc.)
+    // cam.set_gate_mode("DDG") -- select gating mode ("DDG", "CW", etc.)
     engine.register_fn(
         "set_gate_mode",
         |cam: &mut GatedCameraHandle, mode: String| -> Result<Dynamic, Box<EvalAltResult>> {
@@ -186,7 +187,7 @@ pub fn register_libs_hardware(engine: &mut Engine) {
         },
     );
 
-    // cam.set_trigger_mode("External") — select acquisition trigger source
+    // cam.set_trigger_mode("External") -- select acquisition trigger source
     engine.register_fn(
         "set_trigger_mode",
         |cam: &mut GatedCameraHandle, mode: String| -> Result<Dynamic, Box<EvalAltResult>> {
@@ -198,7 +199,7 @@ pub fn register_libs_hardware(engine: &mut Engine) {
         },
     );
 
-    // cam.set_ddg_timing(delay_ps, width_ps) — configure DDG delay/gate width in picoseconds
+    // cam.set_ddg_timing(delay_ps, width_ps) -- configure DDG delay/gate width in picoseconds
     engine.register_fn(
         "set_ddg_timing",
         |cam: &mut GatedCameraHandle,
@@ -213,21 +214,20 @@ pub fn register_libs_hardware(engine: &mut Engine) {
                 crate::rhai_error_str("set_ddg_timing: width_ps must be non-negative")
             })?;
             run_blocking("set_ddg_timing", async move {
-                driver.set_ddg_output_delay(d).await?;
-                driver.set_ddg_output_width(w).await
+                driver.set_ddg_timing(d, w).await
             })?;
             Ok(Dynamic::UNIT)
         },
     );
 
-    // cam.set_mcp_gain(3600) — set MCP intensifier gain (0–4095 typical)
+    // cam.set_mcp_gain(3600) -- set MCP intensifier gain (0-4095 typical)
     engine.register_fn(
         "set_mcp_gain",
         |cam: &mut GatedCameraHandle, gain: i64| -> Result<Dynamic, Box<EvalAltResult>> {
             let driver = cam.driver.clone();
             if !(0..=4095).contains(&gain) {
                 return Err(crate::rhai_error_str(
-                    "set_mcp_gain: gain must be in range 0–4095",
+                    "set_mcp_gain: gain must be in range 0-4095",
                 ));
             }
             #[allow(clippy::cast_sign_loss)]
@@ -239,19 +239,17 @@ pub fn register_libs_hardware(engine: &mut Engine) {
         },
     );
 
-    // cam.arm() — arm camera for acquisition (via Triggerable trait)
+    // cam.arm() -- arm camera for acquisition (via Triggerable trait)
     engine.register_fn(
         "arm",
         |cam: &mut GatedCameraHandle| -> Result<Dynamic, Box<EvalAltResult>> {
-            let driver = cam.driver.clone();
-            run_blocking("arm", async move {
-                common::capabilities::Triggerable::arm(driver.as_ref()).await
-            })?;
+            let triggerable = cam.triggerable.clone();
+            run_blocking("arm", async move { triggerable.arm().await })?;
             Ok(Dynamic::UNIT)
         },
     );
 
-    // cam.stop_stream() — stop acquisition / disarm camera
+    // cam.stop_stream() -- stop acquisition / disarm camera
     engine.register_fn(
         "stop_stream",
         |cam: &mut GatedCameraHandle| -> Result<Dynamic, Box<EvalAltResult>> {
@@ -263,7 +261,7 @@ pub fn register_libs_hardware(engine: &mut Engine) {
         },
     );
 
-    // cam.temperature() -> f64 — read sensor temperature in °C
+    // cam.temperature() -> f64 -- read sensor temperature in C
     engine.register_fn(
         "temperature",
         |cam: &mut GatedCameraHandle| -> Result<f64, Box<EvalAltResult>> {
@@ -272,21 +270,21 @@ pub fn register_libs_hardware(engine: &mut Engine) {
         },
     );
 
-    // cam.supports_ddg() -> bool — check if DDG is available
+    // cam.supports_ddg() -> bool -- check if DDG is available
     engine.register_fn("supports_ddg", |cam: &mut GatedCameraHandle| -> bool {
         cam.driver.supports_ddg()
     });
 
-    // cam.supports_mcp_gain() -> bool — check if MCP gain control is available
+    // cam.supports_mcp_gain() -> bool -- check if MCP gain control is available
     engine.register_fn("supports_mcp_gain", |cam: &mut GatedCameraHandle| -> bool {
         cam.driver.supports_mcp_gain()
     });
 
     // =========================================================================
-    // SpectrographHandle — Andor Shamrock methods
+    // SpectrographHandle -- spectrograph methods via SpectrometerControl trait
     // =========================================================================
 
-    // spec.set_grating(index) — select diffraction grating by index (1-based)
+    // spec.set_grating(index) -- select diffraction grating by index (1-based)
     engine.register_fn(
         "set_grating",
         |spec: &mut SpectrographHandle, grating: i64| -> Result<Dynamic, Box<EvalAltResult>> {
@@ -300,7 +298,7 @@ pub fn register_libs_hardware(engine: &mut Engine) {
         },
     );
 
-    // spec.get_grating() -> i64 — read current grating index
+    // spec.get_grating() -> i64 -- read current grating index
     engine.register_fn(
         "get_grating",
         |spec: &mut SpectrographHandle| -> Result<i64, Box<EvalAltResult>> {
@@ -310,11 +308,10 @@ pub fn register_libs_hardware(engine: &mut Engine) {
         },
     );
 
-    // spec.set_wavelength(nm) — tune center wavelength via WavelengthTunable trait
+    // spec.set_wavelength(nm) -- tune center wavelength
     engine.register_fn(
         "set_wavelength",
         |spec: &mut SpectrographHandle, nm: f64| -> Result<Dynamic, Box<EvalAltResult>> {
-            use common::capabilities::WavelengthTunable;
             let driver = spec.driver.clone();
             run_blocking(
                 "set_wavelength",
@@ -324,11 +321,10 @@ pub fn register_libs_hardware(engine: &mut Engine) {
         },
     );
 
-    // spec.get_wavelength() -> f64 — read current center wavelength in nm
+    // spec.get_wavelength() -> f64 -- read current center wavelength in nm
     engine.register_fn(
         "get_wavelength",
         |spec: &mut SpectrographHandle| -> Result<f64, Box<EvalAltResult>> {
-            use common::capabilities::WavelengthTunable;
             let driver = spec.driver.clone();
             run_blocking(
                 "get_wavelength",
@@ -337,7 +333,7 @@ pub fn register_libs_hardware(engine: &mut Engine) {
         },
     );
 
-    // spec.set_slit_width(port, width_um) — set entrance/exit slit width in micrometers
+    // spec.set_slit_width(port, width_um) -- set entrance/exit slit width in micrometers
     engine.register_fn(
         "set_slit_width",
         |spec: &mut SpectrographHandle,
@@ -355,31 +351,29 @@ pub fn register_libs_hardware(engine: &mut Engine) {
         },
     );
 
-    // spec.get_calibration(pixels) -> Array — wavelength array for detector pixel count
+    // spec.get_calibration(pixels) -> Array -- wavelength array for detector pixel count
     // Returns an Array of f64 values (one per pixel) suitable for plotting
     engine.register_fn(
         "get_calibration",
         |spec: &mut SpectrographHandle, pixels: i64| -> Result<Array, Box<EvalAltResult>> {
             let driver = spec.driver.clone();
-            let n = u32::try_from(pixels).map_err(|_| {
+            let n = usize::try_from(pixels).map_err(|_| {
                 crate::rhai_error_str("get_calibration: pixels must be a positive integer")
             })?;
-            let calibration = run_blocking("get_calibration", async move {
-                driver.get_wavelength_calibration(n).await
-            })?;
-            Ok(calibration
-                .wavelengths_nm
-                .into_iter()
-                .map(Dynamic::from)
-                .collect())
+            let calibration =
+                run_blocking(
+                    "get_calibration",
+                    async move { driver.get_calibration(n).await },
+                )?;
+            Ok(calibration.into_iter().map(Dynamic::from).collect())
         },
     );
 
     // =========================================================================
-    // DoverAxisHandle — Dover SmartStage motion + Trigger-On-Position
+    // DoverAxisHandle -- motion stage + Trigger-On-Position
     // =========================================================================
 
-    // stage.move_abs(pos) — move to absolute position (mm)
+    // stage.move_abs(pos) -- move to absolute position (mm)
     engine.register_fn(
         "move_abs",
         |axis: &mut DoverAxisHandle, pos: f64| -> Result<Dynamic, Box<EvalAltResult>> {
@@ -389,7 +383,7 @@ pub fn register_libs_hardware(engine: &mut Engine) {
         },
     );
 
-    // stage.move_rel(dist) — move relative distance (mm)
+    // stage.move_rel(dist) -- move relative distance (mm)
     engine.register_fn(
         "move_rel",
         |axis: &mut DoverAxisHandle, dist: f64| -> Result<Dynamic, Box<EvalAltResult>> {
@@ -399,7 +393,7 @@ pub fn register_libs_hardware(engine: &mut Engine) {
         },
     );
 
-    // stage.position() -> f64 — read current axis position (mm)
+    // stage.position() -> f64 -- read current axis position (mm)
     engine.register_fn(
         "position",
         |axis: &mut DoverAxisHandle| -> Result<f64, Box<EvalAltResult>> {
@@ -408,7 +402,7 @@ pub fn register_libs_hardware(engine: &mut Engine) {
         },
     );
 
-    // stage.wait_settled() — block until motion completes
+    // stage.wait_settled() -- block until motion completes
     engine.register_fn(
         "wait_settled",
         |axis: &mut DoverAxisHandle| -> Result<Dynamic, Box<EvalAltResult>> {
@@ -418,7 +412,7 @@ pub fn register_libs_hardware(engine: &mut Engine) {
         },
     );
 
-    // stage.set_velocity(v) — set motion velocity (mm/s)
+    // stage.set_velocity(v) -- set motion velocity (mm/s)
     engine.register_fn(
         "set_velocity",
         |axis: &mut DoverAxisHandle, v: f64| -> Result<Dynamic, Box<EvalAltResult>> {
@@ -429,7 +423,7 @@ pub fn register_libs_hardware(engine: &mut Engine) {
     );
 
     // stage.enable_top(start, end, increment, bidirectional, pulse_width_ns)
-    // — arm Trigger-On-Position for continuous scanning
+    // -- arm Trigger-On-Position for continuous scanning
     engine.register_fn(
         "enable_top",
         |axis: &mut DoverAxisHandle,
@@ -451,7 +445,7 @@ pub fn register_libs_hardware(engine: &mut Engine) {
         },
     );
 
-    // stage.disable_top() — disarm Trigger-On-Position
+    // stage.disable_top() -- disarm Trigger-On-Position
     engine.register_fn(
         "disable_top",
         |axis: &mut DoverAxisHandle| -> Result<Dynamic, Box<EvalAltResult>> {
@@ -461,7 +455,7 @@ pub fn register_libs_hardware(engine: &mut Engine) {
         },
     );
 
-    // stage.top_enabled() -> bool — query TOP state
+    // stage.top_enabled() -> bool -- query TOP state
     engine.register_fn(
         "top_enabled",
         |axis: &mut DoverAxisHandle| -> Result<bool, Box<EvalAltResult>> {
@@ -471,7 +465,7 @@ pub fn register_libs_hardware(engine: &mut Engine) {
     );
 
     // =========================================================================
-    // CalibratorHandle — RadianceCalibrator methods
+    // CalibratorHandle -- RadianceCalibrator methods
     // =========================================================================
 
     // cal.calibrate(wavelengths, values, grating, normalize) -> Array
@@ -490,7 +484,7 @@ pub fn register_libs_hardware(engine: &mut Engine) {
             let spectrum = Spectrum::new(wl, vals)
                 .map_err(|e| crate::rhai_error("calibrate: invalid spectrum", e))?;
             let grating_u8 = u8::try_from(grating).map_err(|_| {
-                crate::rhai_error_str("calibrate: grating index must be in range 0–255")
+                crate::rhai_error_str("calibrate: grating index must be in range 0-255")
             })?;
             let result = cal
                 .calibrator
@@ -500,7 +494,7 @@ pub fn register_libs_hardware(engine: &mut Engine) {
         },
     );
 
-    // cal.lamp_wavelengths() -> Array — wavelength axis of the lamp spectrum
+    // cal.lamp_wavelengths() -> Array -- wavelength axis of the lamp spectrum
     engine.register_fn("lamp_wavelengths", |cal: &mut CalibratorHandle| -> Array {
         cal.calibrator
             .lamp_spectrum()
@@ -511,7 +505,7 @@ pub fn register_libs_hardware(engine: &mut Engine) {
             .collect()
     });
 
-    // cal.has_grating(index) -> bool — check if grating calibration is loaded
+    // cal.has_grating(index) -> bool -- check if grating calibration is loaded
     engine.register_fn(
         "has_grating",
         |cal: &mut CalibratorHandle, grating: i64| -> bool {
@@ -523,40 +517,68 @@ pub fn register_libs_hardware(engine: &mut Engine) {
     );
 
     // =========================================================================
-    // Factory Functions — construct mock handles for development/testing
+    // Factory Functions -- construct mock handles for development/testing
     // =========================================================================
 
-    // create_andor_camera() -> GatedCamera — mock Andor iStar
+    // create_gated_camera() -> GatedCamera -- mock gated ICCD camera
+    // Also registers legacy name create_andor_camera for backwards compatibility
+    engine.register_fn(
+        "create_gated_camera",
+        || -> Result<GatedCameraHandle, Box<EvalAltResult>> {
+            let mock = Arc::new(driver_mock::MockGatedCamera::new());
+            Ok(GatedCameraHandle {
+                driver: mock.clone() as Arc<dyn GatedCamera>,
+                triggerable: mock as Arc<dyn Triggerable>,
+            })
+        },
+    );
     engine.register_fn(
         "create_andor_camera",
         || -> Result<GatedCameraHandle, Box<EvalAltResult>> {
-            let driver = run_blocking("create_andor_camera", async move {
-                AndorCamera::new_mock().await
-            })?;
+            let mock = Arc::new(driver_mock::MockGatedCamera::new());
             Ok(GatedCameraHandle {
-                driver: Arc::new(driver),
+                driver: mock.clone() as Arc<dyn GatedCamera>,
+                triggerable: mock as Arc<dyn Triggerable>,
             })
         },
     );
 
-    // create_andor_spectrograph() -> Spectrograph — mock Andor Shamrock
+    // create_spectrograph() -> Spectrograph -- mock spectrograph
+    // Also registers legacy name create_andor_spectrograph for backwards compatibility
+    engine.register_fn(
+        "create_spectrograph",
+        || -> Result<SpectrographHandle, Box<EvalAltResult>> {
+            Ok(SpectrographHandle {
+                driver: Arc::new(driver_mock::MockSpectrograph::new()),
+            })
+        },
+    );
     engine.register_fn(
         "create_andor_spectrograph",
         || -> Result<SpectrographHandle, Box<EvalAltResult>> {
-            let driver = run_blocking("create_andor_spectrograph", async move {
-                AndorSpectrograph::new_mock().await
-            })?;
             Ok(SpectrographHandle {
-                driver: Arc::new(driver),
+                driver: Arc::new(driver_mock::MockSpectrograph::new()),
             })
         },
     );
 
-    // create_dover_axis(axis_name) -> DoverAxis — mock Dover SmartStage axis
+    // create_top_stage(axis_name) -> DoverAxis -- mock motion stage with TOP
+    // Also registers legacy name create_dover_axis for backwards compatibility
+    engine.register_fn("create_top_stage", |axis_name: String| -> DoverAxisHandle {
+        let mock = Arc::new(driver_mock::MockTopStage::new(&axis_name));
+        let mock_vel = mock.clone();
+        DoverAxisHandle {
+            axis: mock,
+            set_velocity_fn: Arc::new(move |v: f64| {
+                let drv = mock_vel.clone();
+                Box::pin(async move { drv.set_velocity(v).await })
+            }),
+        }
+    });
     engine.register_fn(
         "create_dover_axis",
         |axis_name: String| -> DoverAxisHandle {
-            let mock = Arc::new(DoverMockDriver::new(&axis_name));
+            let mock = Arc::new(driver_mock::MockTopStage::new(&axis_name));
             let mock_vel = mock.clone();
             DoverAxisHandle {
                 axis: mock,
@@ -569,10 +591,10 @@ pub fn register_libs_hardware(engine: &mut Engine) {
     );
 
     // =========================================================================
-    // ScanController — coordinated spectrograph/camera tuning
+    // ScanController -- coordinated spectrograph/camera tuning
     // =========================================================================
 
-    // sc.set_config(grating, wavelength_nm) — stop camera, tune spectrograph, re-arm
+    // sc.set_config(grating, wavelength_nm) -- stop camera, tune spectrograph, re-arm
     // This is the safe sequence for changing spectral range during a scan.
     engine.register_fn(
         "set_config",
@@ -580,30 +602,29 @@ pub fn register_libs_hardware(engine: &mut Engine) {
          grating: i64,
          wavelength_nm: f64|
          -> Result<Dynamic, Box<EvalAltResult>> {
-            use common::capabilities::{FrameProducer, Triggerable, WavelengthTunable};
             let camera = sc.camera.clone();
+            let triggerable = sc.triggerable.clone();
             let spec = sc.spectrograph.clone();
             #[allow(clippy::cast_possible_truncation)]
             // SAFETY: grating index is a small integer
             let grating_i32 = grating as i32;
             run_blocking("set_config", async move {
                 // 1. Stop camera acquisition during grating rotation
-                FrameProducer::stop_stream(camera.as_ref()).await?;
+                common::capabilities::FrameProducer::stop_stream(camera.as_ref()).await?;
                 // 2. Rotate grating and tune wavelength
                 spec.set_grating(grating_i32).await?;
                 spec.set_wavelength(wavelength_nm).await?;
-                // 3. Re-arm camera — ready to acquire at new spectral position
-                Triggerable::arm(camera.as_ref()).await
+                // 3. Re-arm camera -- ready to acquire at new spectral position
+                triggerable.arm().await
             })?;
             Ok(Dynamic::UNIT)
         },
     );
 
-    // sc.set_wavelength(nm) — tune wavelength only (no grating change, skip stop/re-arm)
+    // sc.set_wavelength(nm) -- tune wavelength only (no grating change, skip stop/re-arm)
     engine.register_fn(
         "set_wavelength",
         |sc: &mut ScanController, nm: f64| -> Result<Dynamic, Box<EvalAltResult>> {
-            use common::capabilities::WavelengthTunable;
             let spec = sc.spectrograph.clone();
             run_blocking(
                 "set_wavelength",
@@ -613,14 +634,15 @@ pub fn register_libs_hardware(engine: &mut Engine) {
         },
     );
 
-    // sc.camera() -> GatedCamera — access the managed camera handle
+    // sc.camera() -> GatedCamera -- access the managed camera handle
     engine.register_fn("camera", |sc: &mut ScanController| -> GatedCameraHandle {
         GatedCameraHandle {
             driver: sc.camera.clone(),
+            triggerable: sc.triggerable.clone(),
         }
     });
 
-    // sc.spectrograph() -> Spectrograph — access the managed spectrograph handle
+    // sc.spectrograph() -> Spectrograph -- access the managed spectrograph handle
     engine.register_fn(
         "spectrograph",
         |sc: &mut ScanController| -> SpectrographHandle {
@@ -636,6 +658,7 @@ pub fn register_libs_hardware(engine: &mut Engine) {
         |cam: GatedCameraHandle, spec: SpectrographHandle| -> ScanController {
             ScanController {
                 camera: cam.driver,
+                triggerable: cam.triggerable,
                 spectrograph: spec.driver,
             }
         },
@@ -709,7 +732,7 @@ mod tests {
         let engine = make_engine();
         let result = engine.eval::<Dynamic>(
             r#"
-            let cam = create_andor_camera();
+            let cam = create_gated_camera();
             cam.supports_ddg()
         "#,
         );
@@ -721,11 +744,27 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    async fn test_gated_camera_legacy_factory() {
+        let engine = make_engine();
+        let result = engine.eval::<Dynamic>(
+            r#"
+            let cam = create_andor_camera();
+            cam.supports_ddg()
+        "#,
+        );
+        assert!(
+            result.is_ok(),
+            "legacy create_andor_camera factory failed: {:?}",
+            result
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_spectrograph_handle_creation() {
         let engine = make_engine();
         let result = engine.eval::<i64>(
             r#"
-            let spec = create_andor_spectrograph();
+            let spec = create_spectrograph();
             spec.get_grating()
         "#,
         );
@@ -741,13 +780,13 @@ mod tests {
         let engine = make_engine();
         let result = engine.eval::<f64>(
             r#"
-            let stage = create_dover_axis("X");
+            let stage = create_top_stage("X");
             stage.move_abs(5.0);
             stage.position()
         "#,
         );
-        assert!(result.is_ok(), "dover axis move failed: {:?}", result);
-        assert!((result.unwrap() - 5.0).abs() < 0.001);
+        assert!(result.is_ok(), "stage move failed: {:?}", result);
+        assert!((result.expect("test verified Ok above") - 5.0).abs() < 0.001);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -755,13 +794,16 @@ mod tests {
         let engine = make_engine();
         let result = engine.eval::<bool>(
             r#"
-            let stage = create_dover_axis("X");
+            let stage = create_top_stage("X");
             stage.enable_top(0.0, 10.0, 0.1, false, 1000);
             stage.top_enabled()
         "#,
         );
         assert!(result.is_ok(), "TOP enable failed: {:?}", result);
-        assert!(result.unwrap(), "TOP should be enabled after enable_top");
+        assert!(
+            result.expect("test verified Ok above"),
+            "TOP should be enabled after enable_top"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -769,7 +811,7 @@ mod tests {
         let engine = make_engine();
         let result = engine.eval::<Dynamic>(
             r#"
-            let stage = create_dover_axis("X");
+            let stage = create_top_stage("X");
             stage.set_velocity(5.0);
             stage.move_abs(2.0);
         "#,
@@ -777,16 +819,32 @@ mod tests {
         assert!(result.is_ok(), "set_velocity + move failed: {:?}", result);
     }
 
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_dover_axis_legacy_factory() {
+        let engine = make_engine();
+        let result = engine.eval::<Dynamic>(
+            r#"
+            let stage = create_dover_axis("X");
+            stage.move_abs(1.0);
+        "#,
+        );
+        assert!(
+            result.is_ok(),
+            "legacy create_dover_axis factory failed: {:?}",
+            result
+        );
+    }
+
     #[test]
     fn test_calibrator_handle_in_memory() {
         use common::processing::radiance_calibration::Spectrum;
         use std::collections::HashMap;
 
-        // Build an in-memory calibrator (flat lamp = flat cal → unity correction)
+        // Build an in-memory calibrator (flat lamp = flat cal -> unity correction)
         let n = 50usize;
         let wl: Vec<f64> = (0..n).map(|i| 300.0 + i as f64).collect();
-        let lamp = Spectrum::new(wl.clone(), vec![1000.0; n]).unwrap();
-        let cal = Spectrum::new(wl, vec![1000.0; n]).unwrap();
+        let lamp = Spectrum::new(wl.clone(), vec![1000.0; n]).expect("valid spectrum");
+        let cal = Spectrum::new(wl, vec![1000.0; n]).expect("valid spectrum");
         let mut cals = HashMap::new();
         cals.insert(1u8, cal);
         let handle = CalibratorHandle {
@@ -803,8 +861,8 @@ mod tests {
 
         // Write temp calibration files
         let write_cal = |content: &str| {
-            let mut f = tempfile::NamedTempFile::new().unwrap();
-            write!(f, "{content}").unwrap();
+            let mut f = tempfile::NamedTempFile::new().expect("create tempfile");
+            write!(f, "{content}").expect("write tempfile");
             f
         };
         let lamp_content = "300.0\t1000.0\n400.0\t1000.0\n500.0\t1000.0\n";
@@ -814,9 +872,9 @@ mod tests {
         let g1_f = write_cal(cal_content);
         let g2_f = write_cal(cal_content);
 
-        let lamp_path = lamp_f.path().to_str().unwrap().replace('\\', "/");
-        let g1_path = g1_f.path().to_str().unwrap().replace('\\', "/");
-        let g2_path = g2_f.path().to_str().unwrap().replace('\\', "/");
+        let lamp_path = lamp_f.path().to_str().expect("path").replace('\\', "/");
+        let g1_path = g1_f.path().to_str().expect("path").replace('\\', "/");
+        let g2_path = g2_f.path().to_str().expect("path").replace('\\', "/");
 
         let script = format!(
             r#"
@@ -832,7 +890,7 @@ mod tests {
 
         let result: Result<Array, _> = engine.eval(&script);
         assert!(result.is_ok(), "calibrate Rhai call failed: {:?}", result);
-        let arr = result.unwrap();
+        let arr = result.expect("test verified Ok above");
         for v in arr {
             let val = v.cast::<f64>();
             assert!(
@@ -856,8 +914,8 @@ mod tests {
         crate::set_script_calibration_context(context_id.clone());
 
         let write_cal = |content: &str| {
-            let mut f = tempfile::NamedTempFile::new().unwrap();
-            write!(f, "{content}").unwrap();
+            let mut f = tempfile::NamedTempFile::new().expect("create tempfile");
+            write!(f, "{content}").expect("write tempfile");
             f
         };
         let lamp_f = write_cal("# device_type: spectroscopy\n300.0\t1000.0\n400.0\t1000.0\n");
@@ -899,18 +957,5 @@ mod tests {
 
         crate::clear_script_calibrations(&context_id);
         crate::clear_script_calibration_context();
-    }
-}
-
-// Extension helper used in test_calibrator_handle_in_memory
-#[cfg(test)]
-trait HasGrating {
-    fn has_grating(&self, grating: u8) -> bool;
-}
-
-#[cfg(test)]
-impl HasGrating for RadianceCalibrator {
-    fn has_grating(&self, grating: u8) -> bool {
-        self.grating_calibration(grating).is_some()
     }
 }

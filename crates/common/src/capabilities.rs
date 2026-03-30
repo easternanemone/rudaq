@@ -1185,15 +1185,24 @@ pub enum TemperatureStatus {
 /// Always verify gate timing and ambient light conditions before enabling MCP.
 #[async_trait]
 pub trait GatedCamera: FrameProducer {
-    /// Set gate mode
+    /// Set gate mode from a vendor-specific string (e.g. "DDG", "CW On", "FireOnly").
     ///
-    /// # Arguments
-    /// * `mode` - Gate mode (CwOn, Ddg, FireAndForget)
+    /// Gate mode names vary across vendors, so the trait accepts a free-form
+    /// string and leaves parsing/validation to each implementor.
     ///
     /// # Returns
     /// - Ok(()) if mode set successfully
     /// - Err if mode not supported or hardware error
-    async fn set_gate_mode(&self, mode: GateMode) -> Result<()>;
+    async fn set_gate_mode(&self, mode: &str) -> Result<()>;
+
+    /// Set trigger mode from a vendor-specific string (e.g. "Internal", "External").
+    ///
+    /// # Returns
+    /// - Ok(()) if mode set successfully
+    /// - Err if mode not supported or hardware error
+    async fn set_trigger_mode(&self, mode: &str) -> Result<()> {
+        anyhow::bail!("set_trigger_mode not supported (mode={mode})")
+    }
 
     /// Set digital delay generator timing
     ///
@@ -1213,7 +1222,7 @@ pub trait GatedCamera: FrameProducer {
     /// Set MCP (micro-channel plate) gain
     ///
     /// # Arguments
-    /// * `gain` - Gain value (device-specific range, typically 0-1000)
+    /// * `gain` - Gain value (device-specific range, typically 0-4095)
     ///
     /// # Safety
     /// High gain with bright light can damage the intensifier.
@@ -1222,7 +1231,7 @@ pub trait GatedCamera: FrameProducer {
     /// # Returns
     /// - Ok(()) if gain set successfully
     /// - Err if gain out of range or hardware error
-    async fn set_mcp_gain(&self, gain: u16) -> Result<()>;
+    async fn set_mcp_gain(&self, gain: u32) -> Result<()>;
 
     /// Enable/disable IntelliGate automatic gain mode
     ///
@@ -1244,6 +1253,25 @@ pub trait GatedCamera: FrameProducer {
     /// - Ok(status) indicating cooling state
     /// - Err if temperature cannot be read or not supported
     async fn get_temperature_status(&self) -> Result<TemperatureStatus>;
+
+    /// Get sensor temperature in degrees Celsius
+    ///
+    /// # Returns
+    /// - Ok(temperature) in Celsius
+    /// - Err if temperature cannot be read
+    async fn get_temperature(&self) -> Result<f64> {
+        anyhow::bail!("get_temperature not supported")
+    }
+
+    /// Whether this camera supports DDG (digital delay generator) output
+    fn supports_ddg(&self) -> bool {
+        false
+    }
+
+    /// Whether this camera supports MCP gain control
+    fn supports_mcp_gain(&self) -> bool {
+        false
+    }
 }
 
 /// Capability: Spectrometer Control
@@ -1270,14 +1298,14 @@ pub trait SpectrometerControl: Send + Sync {
     /// # Returns
     /// - Ok(()) if grating set successfully
     /// - Err if grating number invalid or hardware error
-    async fn set_grating(&self, grating_num: u8) -> Result<()>;
+    async fn set_grating(&self, grating_num: i32) -> Result<()>;
 
     /// Get active grating
     ///
     /// # Returns
     /// - Ok(grating_num) - Current grating number
     /// - Err if grating cannot be read
-    async fn get_grating(&self) -> Result<u8>;
+    async fn get_grating(&self) -> Result<i32>;
 
     /// Set center wavelength
     ///
@@ -1304,12 +1332,12 @@ pub trait SpectrometerControl: Send + Sync {
     ///
     /// # Arguments
     /// * `slit_id` - Slit identifier (1=entrance, 2=exit, device-specific)
-    /// * `width_um` - Slit width in micrometers
+    /// * `width_um` - Slit width in micrometers (sub-micrometer precision allowed)
     ///
     /// # Returns
     /// - Ok(()) if slit width set successfully
     /// - Err if slit_id invalid or width out of range
-    async fn set_slit_width(&self, slit_id: u8, width_um: u16) -> Result<()>;
+    async fn set_slit_width(&self, slit_id: i32, width_um: f64) -> Result<()>;
 
     /// Get wavelength calibration for detector
     ///

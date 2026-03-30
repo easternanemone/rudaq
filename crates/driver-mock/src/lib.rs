@@ -45,11 +45,14 @@ pub mod common;
 mod mock_camera;
 mod mock_counter;
 mod mock_daq_output;
+mod mock_gated_camera;
 mod mock_introspection;
 mod mock_laser;
 mod mock_power_meter;
 mod mock_rotator;
+mod mock_spectrograph;
 mod mock_stage;
+mod mock_top_stage;
 mod pattern;
 pub mod scenario;
 
@@ -58,6 +61,11 @@ pub use common::{ErrorConfig, ErrorScenario, MockMode, MockRng, TimingConfig};
 
 // Re-export mock introspection
 pub use mock_introspection::MockDeviceIntrospection;
+
+// Re-export LIBS scripting mocks
+pub use mock_gated_camera::MockGatedCamera;
+pub use mock_spectrograph::MockSpectrograph;
+pub use mock_top_stage::MockTopStage;
 
 // Re-export driver types
 pub use mock_camera::{
