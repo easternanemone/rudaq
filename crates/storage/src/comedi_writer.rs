@@ -803,12 +803,18 @@ impl ComediStreamWriter {
     #[allow(clippy::cast_precision_loss)] // samples_written as f64: acceptable for rate metric
     pub fn stats(&self) -> StreamStats {
         let samples_written = self.samples_written.load(Ordering::Relaxed);
-        let elapsed_secs = self.created_at.elapsed().as_secs_f64();
-        let write_rate = if elapsed_secs > 0.0 {
-            samples_written as f64 / elapsed_secs
-        } else {
-            0.0
-        };
+        let write_rate = self
+            .first_write_at
+            .get()
+            .map(|t| {
+                let elapsed_secs = t.elapsed().as_secs_f64();
+                if elapsed_secs > 0.0 {
+                    samples_written as f64 / elapsed_secs
+                } else {
+                    0.0
+                }
+            })
+            .unwrap_or(0.0);
         StreamStats {
             samples_written,
             bytes_written: self.bytes_written.load(Ordering::Relaxed),
