@@ -450,42 +450,29 @@ impl PlanRunnerPanel {
 
                     let plan_type_str = match self.selected_plan_type {
                         PlanType::Count => {
-                            parameters
-                                .insert("num_points".to_string(), self.num_points.clone());
+                            parameters.insert("num_points".to_string(), self.num_points.clone());
                             device_mapping
                                 .insert("detector".to_string(), self.detector_name.clone());
                             "count".to_string()
                         }
                         PlanType::LineScan => {
-                            parameters
-                                .insert("start_position".to_string(), self.start_pos.clone());
-                            parameters
-                                .insert("stop_position".to_string(), self.end_pos.clone());
-                            parameters
-                                .insert("num_points".to_string(), self.num_points.clone());
-                            device_mapping
-                                .insert("motor".to_string(), self.motor_name.clone());
+                            parameters.insert("start_position".to_string(), self.start_pos.clone());
+                            parameters.insert("stop_position".to_string(), self.end_pos.clone());
+                            parameters.insert("num_points".to_string(), self.num_points.clone());
+                            device_mapping.insert("motor".to_string(), self.motor_name.clone());
                             device_mapping
                                 .insert("detector".to_string(), self.detector_name.clone());
                             "line_scan".to_string()
                         }
                         PlanType::GridScan => {
-                            parameters
-                                .insert("x_start".to_string(), self.grid_x_start.clone());
-                            parameters
-                                .insert("x_end".to_string(), self.grid_x_end.clone());
-                            parameters
-                                .insert("x_points".to_string(), self.grid_x_points.clone());
-                            parameters
-                                .insert("y_start".to_string(), self.grid_y_start.clone());
-                            parameters
-                                .insert("y_end".to_string(), self.grid_y_end.clone());
-                            parameters
-                                .insert("y_points".to_string(), self.grid_y_points.clone());
-                            device_mapping
-                                .insert("x_motor".to_string(), self.grid_x_motor.clone());
-                            device_mapping
-                                .insert("y_motor".to_string(), self.grid_y_motor.clone());
+                            parameters.insert("x_start".to_string(), self.grid_x_start.clone());
+                            parameters.insert("x_end".to_string(), self.grid_x_end.clone());
+                            parameters.insert("x_points".to_string(), self.grid_x_points.clone());
+                            parameters.insert("y_start".to_string(), self.grid_y_start.clone());
+                            parameters.insert("y_end".to_string(), self.grid_y_end.clone());
+                            parameters.insert("y_points".to_string(), self.grid_y_points.clone());
+                            device_mapping.insert("x_motor".to_string(), self.grid_x_motor.clone());
+                            device_mapping.insert("y_motor".to_string(), self.grid_y_motor.clone());
                             device_mapping
                                 .insert("detector".to_string(), self.grid_detector.clone());
                             "grid_scan".to_string()
@@ -774,11 +761,7 @@ impl PlanRunnerPanel {
                         errors.push("X start and end must be different".to_string());
                     }
                 }
-                if self
-                    .grid_x_points
-                    .parse::<usize>()
-                    .map_or(true, |n| n == 0)
-                {
+                if self.grid_x_points.parse::<usize>().map_or(true, |n| n == 0) {
                     errors.push("X points must be a positive integer".to_string());
                 }
 
@@ -807,11 +790,7 @@ impl PlanRunnerPanel {
                         errors.push("Y start and end must be different".to_string());
                     }
                 }
-                if self
-                    .grid_y_points
-                    .parse::<usize>()
-                    .map_or(true, |n| n == 0)
-                {
+                if self.grid_y_points.parse::<usize>().map_or(true, |n| n == 0) {
                     errors.push("Y points must be a positive integer".to_string());
                 }
 
