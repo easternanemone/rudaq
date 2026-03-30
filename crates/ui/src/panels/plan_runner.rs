@@ -456,8 +456,8 @@ impl PlanRunnerPanel {
                             "count".to_string()
                         }
                         PlanType::LineScan => {
-                            parameters.insert("start_position".to_string(), self.start_pos.clone());
-                            parameters.insert("stop_position".to_string(), self.end_pos.clone());
+                            parameters.insert("start".to_string(), self.start_pos.clone());
+                            parameters.insert("end".to_string(), self.end_pos.clone());
                             parameters.insert("num_points".to_string(), self.num_points.clone());
                             device_mapping.insert("motor".to_string(), self.motor_name.clone());
                             device_mapping
