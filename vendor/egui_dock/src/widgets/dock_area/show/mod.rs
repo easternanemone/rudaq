@@ -309,9 +309,11 @@ impl<Tab> DockArea<'_, Tab> {
                 tab_viewer.allowed_in_windows(&mut leaf.tabs[tab.0])
             }
             // External drags originate outside the dock (e.g. device panel drops from the
-            // instrument list). There is no existing tab to query, so we conservatively allow
-            // the drop into floating windows.
-            TreeComponent::External => true,
+            // instrument list). There is no existing tab to query, and floating windows
+            // would produce confusing UX for external items. Disable window destinations
+            // so the overlay only offers split and append — matching native tab semantics
+            // for items that should dock into the existing layout (bd-lsg2).
+            TreeComponent::External => false,
             _ => todo!("collections of tabs, like nodes or surfaces, can't be dragged! (yet)"),
         };
 
