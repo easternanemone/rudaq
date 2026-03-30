@@ -262,7 +262,7 @@ mod tests {
         // test load on macOS, so a fixed sleep is inherently flaky.
         let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
         loop {
-            if log_path.exists() && std::fs::metadata(&log_path).map_or(false, |m| m.len() > 0) {
+            if log_path.exists() && std::fs::metadata(&log_path).is_ok_and(|m| m.len() > 0) {
                 break;
             }
             assert!(
