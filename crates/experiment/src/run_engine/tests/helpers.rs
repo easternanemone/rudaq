@@ -196,7 +196,7 @@ impl FrameProducer for MockGatedCamera {
 
 #[async_trait]
 impl GatedCamera for MockGatedCamera {
-    async fn set_gate_mode(&self, _mode: GateMode) -> anyhow::Result<()> {
+    async fn set_gate_mode(&self, _mode: &str) -> anyhow::Result<()> {
         Ok(())
     }
 
@@ -204,7 +204,7 @@ impl GatedCamera for MockGatedCamera {
         Ok(())
     }
 
-    async fn set_mcp_gain(&self, _gain: u16) -> anyhow::Result<()> {
+    async fn set_mcp_gain(&self, _gain: u32) -> anyhow::Result<()> {
         Ok(())
     }
 
