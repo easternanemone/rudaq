@@ -4,7 +4,9 @@
 //! image viewer panel and its submodules.
 
 use crate::time::Instant;
+use eframe::egui;
 use std::collections::HashMap;
+use std::fmt::Write as _;
 use std::sync::mpsc;
 use std::sync::Arc;
 
@@ -273,6 +275,132 @@ impl PixelStatistics {
             self.p95,
             self.p99,
         )
+    }
+}
+
+/// Active on-image measurement tool.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(super) enum MeasurementTool {
+    #[default]
+    None,
+    Line,
+    Angle,
+}
+
+impl MeasurementTool {
+    pub(super) fn label(self) -> &'static str {
+        match self {
+            Self::None => "None",
+            Self::Line => "Line",
+            Self::Angle => "Angle",
+        }
+    }
+}
+
+/// Measurement point stored in image-pixel coordinates.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct MeasurementPoint {
+    pub(super) x: f32,
+    pub(super) y: f32,
+}
+
+impl MeasurementPoint {
+    pub(super) fn from_screen_pos(
+        pos: egui::Pos2,
+        image_rect: egui::Rect,
+        image_offset: egui::Vec2,
+        zoom: f32,
+        width: u32,
+        height: u32,
+    ) -> Option<Self> {
+        let relative = pos - image_rect.min - image_offset;
+        let pixel_x = relative.x / zoom;
+        let pixel_y = relative.y / zoom;
+        #[allow(clippy::cast_precision_loss)] // image dimensions are always < 2^23
+        let (w, h) = (width as f32, height as f32);
+        if pixel_x >= 0.0 && pixel_x <= w && pixel_y >= 0.0 && pixel_y <= h {
+            Some(Self {
+                x: pixel_x,
+                y: pixel_y,
+            })
+        } else {
+            None
+        }
+    }
+
+    pub(super) fn to_screen_pos(
+        self,
+        image_rect: egui::Rect,
+        image_offset: egui::Vec2,
+        zoom: f32,
+    ) -> egui::Pos2 {
+        image_rect.min + image_offset + egui::vec2(self.x * zoom, self.y * zoom)
+    }
+}
+
+/// Persistent line measurement overlay.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct LineMeasurement {
+    pub(super) start: MeasurementPoint,
+    pub(super) end: MeasurementPoint,
+}
+
+impl LineMeasurement {
+    pub(super) fn pixel_length(&self) -> f32 {
+        let dx = self.end.x - self.start.x;
+        let dy = self.end.y - self.start.y;
+        (dx * dx + dy * dy).sqrt()
+    }
+
+    pub(super) fn physical_length(
+        &self,
+        pixel_scale_x: Option<f64>,
+        pixel_scale_y: Option<f64>,
+    ) -> Option<f64> {
+        let scale_x = pixel_scale_x.or(pixel_scale_y)?;
+        let scale_y = pixel_scale_y.or(pixel_scale_x)?;
+        let dx = f64::from(self.end.x - self.start.x) * scale_x;
+        let dy = f64::from(self.end.y - self.start.y) * scale_y;
+        Some((dx * dx + dy * dy).sqrt())
+    }
+
+    pub(super) fn label(
+        &self,
+        pixel_scale_x: Option<f64>,
+        pixel_scale_y: Option<f64>,
+        unit: &str,
+    ) -> String {
+        let mut label = format!("{:.1} px", self.pixel_length());
+        if let Some(physical) = self.physical_length(pixel_scale_x, pixel_scale_y) {
+            let _ = write!(label, " | {:.2} {unit}", physical);
+        }
+        label
+    }
+}
+
+/// Persistent three-point angle measurement overlay.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct AngleMeasurement {
+    pub(super) arm_a: MeasurementPoint,
+    pub(super) vertex: MeasurementPoint,
+    pub(super) arm_b: MeasurementPoint,
+}
+
+impl AngleMeasurement {
+    pub(super) fn degrees(&self) -> f32 {
+        let a = egui::vec2(self.arm_a.x - self.vertex.x, self.arm_a.y - self.vertex.y);
+        let b = egui::vec2(self.arm_b.x - self.vertex.x, self.arm_b.y - self.vertex.y);
+        let a_len = a.length();
+        let b_len = b.length();
+        if a_len <= f32::EPSILON || b_len <= f32::EPSILON {
+            return 0.0;
+        }
+        let cos_theta = (a.dot(b) / (a_len * b_len)).clamp(-1.0, 1.0);
+        cos_theta.acos().to_degrees()
+    }
+
+    pub(super) fn label(&self) -> String {
+        format!("{:.1}°", self.degrees())
     }
 }
 

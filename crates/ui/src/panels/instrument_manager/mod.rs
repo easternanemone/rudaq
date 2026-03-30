@@ -205,6 +205,7 @@ enum ContextAction {
     TestConnection,
     ViewParameters,
     Configure,
+    OpenInDock,
 }
 
 /// Control panel actions (collected during UI render, executed after)
@@ -709,6 +710,17 @@ impl InstrumentManagerPanel {
         // Handle pending context menu actions
         if let Some((device_id, device_name, action)) = self.pending_action.take() {
             match action {
+                ContextAction::OpenInDock => {
+                    if let Some(device_info) = self.get_device_info(&device_id) {
+                        self.status = Some(format!("Opening {} in dock...", device_name));
+                        self.pending_open_device_panel = Some(device_info);
+                    } else {
+                        self.error = Some(format!(
+                            "Could not open {} in dock: device is no longer available",
+                            device_name
+                        ));
+                    }
+                }
                 ContextAction::TestConnection => {
                     self.status = Some(format!("Testing connection to {}...", device_name));
                     self.test_connection(client.as_deref_mut(), runtime, device_id, device_name);
@@ -957,6 +969,14 @@ impl InstrumentManagerPanel {
                         device_id.clone(),
                         device_name.clone(),
                         ContextAction::Configure,
+                    ));
+                    ui.close();
+                }
+                if ui.button("🗂 Open Docked Panel").clicked() {
+                    self.pending_action = Some((
+                        device_id.clone(),
+                        device_name.clone(),
+                        ContextAction::OpenInDock,
                     ));
                     ui.close();
                 }
@@ -1702,19 +1722,10 @@ impl InstrumentManagerPanel {
             return;
         };
 
-        // Dock-open fallback action for keyboard / non-precise input
-        ui.horizontal(|ui| {
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui
-                    .button("Open in Dock")
-                    .on_hover_text("Open this device controls as a docked tab")
-                    .clicked()
-                {
-                    self.pending_open_device_panel = Some(device.clone());
-                }
-            });
-        });
-
+        ui.small(
+            "Drag the device handle in the list into the dock area to open this device as a \
+docked tab. Right-click the device row for the fallback dock action.",
+        );
         ui.separator();
 
         // --- Priority 0: gRPC-driven panel from device metadata ---
