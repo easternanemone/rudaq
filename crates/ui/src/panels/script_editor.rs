@@ -55,6 +55,8 @@ pub struct ScriptEditorPanel {
     execution_id: Option<String>,
     /// Whether execution is believed to be running
     running: bool,
+    /// Last time we polled execution status
+    last_poll: Instant,
 }
 
 impl ScriptEditorPanel {
