@@ -366,7 +366,8 @@ pub struct ComediStreamWriter {
     chunks_written: AtomicU64,
     write_errors: AtomicU64,
     initialized: RwLock<bool>,
-    created_at: Instant,
+    /// Timestamp of first `write_samples` call (set once on first write).
+    first_write_at: OnceCell<Instant>,
 }
 
 impl ComediStreamWriter {
