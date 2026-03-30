@@ -797,12 +797,19 @@ impl ComediStreamWriter {
 
     /// Get current statistics
     pub fn stats(&self) -> StreamStats {
+        let samples_written = self.samples_written.load(Ordering::Relaxed);
+        let elapsed_secs = self.created_at.elapsed().as_secs_f64();
+        let write_rate = if elapsed_secs > 0.0 {
+            samples_written as f64 / elapsed_secs
+        } else {
+            0.0
+        };
         StreamStats {
-            samples_written: self.samples_written.load(Ordering::Relaxed),
+            samples_written,
             bytes_written: self.bytes_written.load(Ordering::Relaxed),
             chunks_written: self.chunks_written.load(Ordering::Relaxed),
             write_errors: self.write_errors.load(Ordering::Relaxed),
-            write_rate: 0.0, // TODO(bd-wev5): calculate write_rate from elapsed time and bytes_written
+            write_rate,
         }
     }
 
