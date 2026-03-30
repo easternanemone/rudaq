@@ -2107,7 +2107,7 @@ impl PvcamFeatures {
                 // SAFETY: h is valid; setting PP index to enumerate features.
                 unsafe {
                     // SAFETY: h is valid; setting PP index to enumerate features.
-                    if pl_set_param(h, PARAM_PP_INDEX, &idx as *const _ as *mut _) == 0 {
+                    if pl_set_param(h, PARAM_PP_INDEX, &(idx as i16) as *const i16 as *mut _) == 0 {
                         continue;
                     }
                 }
@@ -2174,7 +2174,12 @@ impl PvcamFeatures {
             // SAFETY: h is valid; selecting PP feature.
             unsafe {
                 // SAFETY: h is valid; selecting PP feature.
-                if pl_set_param(h, PARAM_PP_INDEX, &feat_idx as *const _ as *mut _) == 0 {
+                if pl_set_param(
+                    h,
+                    PARAM_PP_INDEX,
+                    &(feat_idx as i16) as *const i16 as *mut _,
+                ) == 0
+                {
                     return Err(anyhow!(
                         "Failed to select PP feature: {}",
                         get_pvcam_error()
@@ -2192,7 +2197,11 @@ impl PvcamFeatures {
                 // SAFETY: h is valid; selecting PP parameter.
                 unsafe {
                     // SAFETY: h is valid; selecting PP parameter.
-                    if pl_set_param(h, PARAM_PP_PARAM_INDEX, &param_idx as *const _ as *mut _) == 0
+                    if pl_set_param(
+                        h,
+                        PARAM_PP_PARAM_INDEX,
+                        &(param_idx as i16) as *const i16 as *mut _,
+                    ) == 0
                     {
                         continue;
                     }
@@ -2258,7 +2267,12 @@ impl PvcamFeatures {
             // SAFETY: h is valid; selecting PP feature.
             unsafe {
                 // SAFETY: h is valid; selecting PP feature.
-                if pl_set_param(h, PARAM_PP_INDEX, &feat_idx as *const _ as *mut _) == 0 {
+                if pl_set_param(
+                    h,
+                    PARAM_PP_INDEX,
+                    &(feat_idx as i16) as *const i16 as *mut _,
+                ) == 0
+                {
                     return Err(anyhow!(
                         "Failed to select PP feature: {}",
                         get_pvcam_error()
@@ -2271,7 +2285,12 @@ impl PvcamFeatures {
             // SAFETY: h is valid; selecting PP parameter.
             unsafe {
                 // SAFETY: h is valid; selecting PP parameter.
-                if pl_set_param(h, PARAM_PP_PARAM_INDEX, &param_idx as *const _ as *mut _) == 0 {
+                if pl_set_param(
+                    h,
+                    PARAM_PP_PARAM_INDEX,
+                    &(param_idx as i16) as *const i16 as *mut _,
+                ) == 0
+                {
                     return Err(anyhow!(
                         "Failed to select PP parameter: {}",
                         get_pvcam_error()
@@ -2314,7 +2333,12 @@ impl PvcamFeatures {
             // SAFETY: h is valid; selecting PP feature.
             unsafe {
                 // SAFETY: h is valid; selecting PP feature.
-                if pl_set_param(h, PARAM_PP_INDEX, &feat_idx as *const _ as *mut _) == 0 {
+                if pl_set_param(
+                    h,
+                    PARAM_PP_INDEX,
+                    &(feat_idx as i16) as *const i16 as *mut _,
+                ) == 0
+                {
                     return Err(anyhow!(
                         "Failed to select PP feature: {}",
                         get_pvcam_error()
@@ -2327,7 +2351,12 @@ impl PvcamFeatures {
             // SAFETY: h is valid; selecting PP parameter.
             unsafe {
                 // SAFETY: h is valid; selecting PP parameter.
-                if pl_set_param(h, PARAM_PP_PARAM_INDEX, &param_idx as *const _ as *mut _) == 0 {
+                if pl_set_param(
+                    h,
+                    PARAM_PP_PARAM_INDEX,
+                    &(param_idx as i16) as *const i16 as *mut _,
+                ) == 0
+                {
                     return Err(anyhow!(
                         "Failed to select PP parameter: {}",
                         get_pvcam_error()
@@ -3575,10 +3604,11 @@ impl PvcamFeatures {
             tracing::info!(count, "Enumerating PP features");
 
             for feat_idx in 0..count {
-                // Select this feature
-                // SAFETY: h valid; feat_idx pointer valid for call duration.
+                // PARAM_PP_INDEX is TYPE_INT16 — must pass int16*, not u32*
+                let feat_idx_i16 = feat_idx as i16;
+                // SAFETY: h valid; feat_idx_i16 pointer valid for call duration.
                 unsafe {
-                    if pl_set_param(h, PARAM_PP_INDEX, &feat_idx as *const _ as *mut _) == 0 {
+                    if pl_set_param(h, PARAM_PP_INDEX, &feat_idx_i16 as *const _ as *mut _) == 0 {
                         tracing::warn!(feat_idx, "Failed to select PP feature index");
                         continue;
                     }
@@ -3760,7 +3790,12 @@ impl PvcamFeatures {
             let feat_idx = feat.index;
             // SAFETY: h valid; feat_idx pointer valid.
             unsafe {
-                if pl_set_param(h, PARAM_PP_INDEX, &feat_idx as *const _ as *mut _) == 0 {
+                if pl_set_param(
+                    h,
+                    PARAM_PP_INDEX,
+                    &(feat_idx as i16) as *const i16 as *mut _,
+                ) == 0
+                {
                     return Err(anyhow!(
                         "Failed to select PP feature: {}",
                         get_pvcam_error()
@@ -3862,7 +3897,12 @@ impl PvcamFeatures {
             let feat_idx = feat.index;
             // SAFETY: h valid; feat_idx pointer valid.
             unsafe {
-                if pl_set_param(h, PARAM_PP_INDEX, &feat_idx as *const _ as *mut _) == 0 {
+                if pl_set_param(
+                    h,
+                    PARAM_PP_INDEX,
+                    &(feat_idx as i16) as *const i16 as *mut _,
+                ) == 0
+                {
                     return Err(anyhow!(
                         "Failed to select PP feature: {}",
                         get_pvcam_error()
