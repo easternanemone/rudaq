@@ -728,32 +728,47 @@ impl ModuleRegistry {
             ))
         })?;
 
-        // Check if role exists in required or optional roles
-        let role_exists = type_info
+        // Find the matching role definition (required or optional)
+        let matched_role = type_info
             .required_roles
             .iter()
             .chain(type_info.optional_roles.iter())
-            .any(|role| role.role_id == role_id);
+            .find(|role| role.role_id == role_id);
 
-        if !role_exists {
-            // Build helpful error message listing valid roles
-            let mut valid_roles = Vec::new();
-            for role in &type_info.required_roles {
-                valid_roles.push(format!("{} (required)", role.role_id));
+        let role = match matched_role {
+            Some(r) => r,
+            None => {
+                // Build helpful error message listing valid roles
+                let mut valid_roles = Vec::new();
+                for role in &type_info.required_roles {
+                    valid_roles.push(format!("{} (required)", role.role_id));
+                }
+                for role in &type_info.optional_roles {
+                    valid_roles.push(format!("{} (optional)", role.role_id));
+                }
+
+                let valid_roles_str = if valid_roles.is_empty() {
+                    "none".to_string()
+                } else {
+                    valid_roles.join(", ")
+                };
+
+                return Err(DaqError::Configuration(format!(
+                    "Invalid role '{}' for module type '{}'. Valid roles: {}",
+                    role_id, type_id, valid_roles_str
+                ))
+                .into());
             }
-            for role in &type_info.optional_roles {
-                valid_roles.push(format!("{} (optional)", role.role_id));
-            }
+        };
 
-            let valid_roles_str = if valid_roles.is_empty() {
-                "none".to_string()
-            } else {
-                valid_roles.join(", ")
-            };
-
+        // Validate that the device has the capability required by this role
+        let required_cap = &role.required_capability;
+        if !required_cap.is_empty()
+            && !device_has_capability(&self.device_registry, device_id, required_cap)
+        {
             return Err(DaqError::Configuration(format!(
-                "Invalid role '{}' for module type '{}'. Valid roles: {}",
-                role_id, type_id, valid_roles_str
+                "Device '{}' does not have the '{}' capability required by role '{}'",
+                device_id, required_cap, role_id
             ))
             .into());
         }
