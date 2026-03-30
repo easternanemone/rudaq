@@ -151,7 +151,7 @@ impl Settable for MockCounter {
                 Ok(())
             }
             "reset" | "reset_all" => {
-                self.value.set(0).await;
+                self.value.set(0).await?;
                 Ok(())
             }
             _ => anyhow::bail!("Unknown parameter: {name}"),
