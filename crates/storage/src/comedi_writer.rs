@@ -549,7 +549,7 @@ impl ComediStreamWriter {
     /// Write interleaved samples (channel0_sample0, channel1_sample0, channel0_sample1, ...)
     pub async fn write_samples(&self, samples: &[f64]) -> Result<()> {
         // Record first-write timestamp for accurate write_rate calculation
-        let _ = self.first_write_at.set(Instant::now());
+        self.first_write_at.get_or_init(|| Instant::now());
 
         // Auto-initialize if needed
         if !*self.initialized.read().await {
