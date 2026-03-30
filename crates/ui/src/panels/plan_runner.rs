@@ -680,6 +680,157 @@ impl PlanRunnerPanel {
                     let _ = tx.send(action_result).await;
                 });
             }
+            PendingAction::PollStatus => {
+                runtime.spawn(async move {
+                    let result = client.get_engine_status().await;
+                    if let Ok(status) = result {
+                        let state_str = match status.state {
+                            1 => "Idle",
+                            2 => "Running",
+                            3 => "Paused",
+                            4 => "Aborting",
+                            5 => "Halted",
+                            _ => "Unknown",
+                        }
+                        .to_string();
+                        let _ = tx
+                            .send(ActionResult::EngineStatus {
+                                state: state_str,
+                                queued_plans: status.queued_plans,
+                                current_run_uid: status.current_run_uid,
+                                current_plan_type: status.current_plan_type,
+                                current_event: status.current_event_number,
+                                total_events: status.total_events_expected,
+                            })
+                            .await;
+                    }
+                    // Silently ignore poll errors to avoid spamming the UI
+                });
+            }
         }
+    }
+
+    /// Validate plan parameters and return a list of error messages.
+    /// Returns an empty vec if all parameters are valid.
+    fn validate_plan_parameters(&self) -> Vec<String> {
+        let mut errors = Vec::new();
+
+        match self.selected_plan_type {
+            PlanType::Count => {
+                if self.num_points.parse::<usize>().map_or(true, |n| n == 0) {
+                    errors.push("Number of points must be a positive integer".to_string());
+                }
+                if self.detector_name.trim().is_empty() {
+                    errors.push("Detector name cannot be empty".to_string());
+                }
+            }
+            PlanType::LineScan => {
+                if self.motor_name.trim().is_empty() {
+                    errors.push("Motor name cannot be empty".to_string());
+                }
+                let start_ok = self.start_pos.parse::<f64>().ok().filter(|v| v.is_finite());
+                let end_ok = self.end_pos.parse::<f64>().ok().filter(|v| v.is_finite());
+                if start_ok.is_none() {
+                    errors.push("Start position must be a valid number".to_string());
+                }
+                if end_ok.is_none() {
+                    errors.push("End position must be a valid number".to_string());
+                }
+                if let (Some(s), Some(e)) = (start_ok, end_ok) {
+                    if (s - e).abs() < f64::EPSILON {
+                        errors.push("Start and end positions must be different".to_string());
+                    }
+                }
+                if self.num_points.parse::<usize>().map_or(true, |n| n == 0) {
+                    errors.push("Number of points must be a positive integer".to_string());
+                }
+                if self.detector_name.trim().is_empty() {
+                    errors.push("Detector name cannot be empty".to_string());
+                }
+            }
+            PlanType::GridScan => {
+                // X axis validation
+                if self.grid_x_motor.trim().is_empty() {
+                    errors.push("X motor name cannot be empty".to_string());
+                }
+                let x_start = self
+                    .grid_x_start
+                    .parse::<f64>()
+                    .ok()
+                    .filter(|v| v.is_finite());
+                let x_end = self
+                    .grid_x_end
+                    .parse::<f64>()
+                    .ok()
+                    .filter(|v| v.is_finite());
+                if x_start.is_none() {
+                    errors.push("X start must be a valid number".to_string());
+                }
+                if x_end.is_none() {
+                    errors.push("X end must be a valid number".to_string());
+                }
+                if let (Some(s), Some(e)) = (x_start, x_end) {
+                    if (s - e).abs() < f64::EPSILON {
+                        errors.push("X start and end must be different".to_string());
+                    }
+                }
+                if self
+                    .grid_x_points
+                    .parse::<usize>()
+                    .map_or(true, |n| n == 0)
+                {
+                    errors.push("X points must be a positive integer".to_string());
+                }
+
+                // Y axis validation
+                if self.grid_y_motor.trim().is_empty() {
+                    errors.push("Y motor name cannot be empty".to_string());
+                }
+                let y_start = self
+                    .grid_y_start
+                    .parse::<f64>()
+                    .ok()
+                    .filter(|v| v.is_finite());
+                let y_end = self
+                    .grid_y_end
+                    .parse::<f64>()
+                    .ok()
+                    .filter(|v| v.is_finite());
+                if y_start.is_none() {
+                    errors.push("Y start must be a valid number".to_string());
+                }
+                if y_end.is_none() {
+                    errors.push("Y end must be a valid number".to_string());
+                }
+                if let (Some(s), Some(e)) = (y_start, y_end) {
+                    if (s - e).abs() < f64::EPSILON {
+                        errors.push("Y start and end must be different".to_string());
+                    }
+                }
+                if self
+                    .grid_y_points
+                    .parse::<usize>()
+                    .map_or(true, |n| n == 0)
+                {
+                    errors.push("Y points must be a positive integer".to_string());
+                }
+
+                // Cross-axis validation
+                let x_motor_trimmed = self.grid_x_motor.trim();
+                let y_motor_trimmed = self.grid_y_motor.trim();
+                if !x_motor_trimmed.is_empty()
+                    && !y_motor_trimmed.is_empty()
+                    && x_motor_trimmed == y_motor_trimmed
+                {
+                    errors.push("X and Y motors must be different".to_string());
+                }
+
+                if self.grid_detector.trim().is_empty() {
+                    errors.push("Detector name cannot be empty".to_string());
+                }
+            }
+        }
+
+        errors
     }
 }
