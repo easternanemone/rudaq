@@ -196,10 +196,10 @@ impl ScriptPluginLoader {
                 let module = ScriptModule::from_source(source, path.to_path_buf()).await?;
 
                 Ok(ScriptModuleInfo {
-                    type_id: module.type_id().to_string(),
-                    display_name: module.type_id().to_string(), // TODO(bd-wev5): extract display_name from ScriptModule type_info metadata
-                    description: String::new(),
-                    version: "1.0.0".to_string(),
+                    type_id: module.type_info.type_id.clone(),
+                    display_name: module.type_info.display_name.clone(),
+                    description: module.type_info.description.clone(),
+                    version: module.type_info.version.clone(),
                     script_path: path.to_path_buf(),
                     language,
                 })
