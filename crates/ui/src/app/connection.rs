@@ -313,7 +313,10 @@ impl DaqApp {
         // Update browser tab title to show connected daemon
         #[cfg(target_arch = "wasm32")]
         if let Some(doc) = web_sys::window().and_then(|w| w.document()) {
-            doc.set_title(&format!("DAQ Panel — Connected ({})", self.current_daemon_url()));
+            doc.set_title(&format!(
+                "DAQ Panel — Connected ({})",
+                self.current_daemon_url()
+            ));
         }
 
         // Start device reconciliation to validate persisted panels
