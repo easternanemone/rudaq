@@ -2241,6 +2241,7 @@ impl PvcamDriver {
                 self.exposure_ms.get(),
                 self.host_summing_enabled.clone(),
                 self.host_summing_count.clone(),
+                self.host_rotate.clone(), // bd-ldjy.3
             )
             .await
     }
@@ -2460,6 +2461,7 @@ impl Triggerable for PvcamDriver {
             let exposure_ms = self.exposure_ms.get();
             let host_summing_enabled = self.host_summing_enabled.clone();
             let host_summing_count = self.host_summing_count.clone();
+            let host_rotate = self.host_rotate.clone(); // bd-ldjy.3
 
             tokio::spawn(async move {
                 let conn = connection.lock().await;
@@ -2471,6 +2473,7 @@ impl Triggerable for PvcamDriver {
                         exposure_ms,
                         host_summing_enabled,
                         host_summing_count,
+                        host_rotate, // bd-ldjy.3
                     )
                     .await
                 {
@@ -2500,6 +2503,7 @@ impl FrameProducer for PvcamDriver {
                 self.host_summing_count.clone(),
                 self.smart_stream_enabled.clone(),
                 self.smart_stream_exposures.clone(),
+                self.host_rotate.clone(), // bd-ldjy.3: for dimension swap on 90/270
             )
             .await
     }

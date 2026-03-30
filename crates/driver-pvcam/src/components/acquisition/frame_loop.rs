@@ -127,7 +127,14 @@ impl PvcamAcquisition {
                 }
 
                 if status == READOUT_COMPLETE {
-                    // Extract frames from buffer
+                    // Extract frames from buffer.
+                    // bd-ldjy.3: PARAM_HOST_FRAME_ROTATE and PARAM_HOST_FRAME_FLIP are
+                    // SDK host-side post-processing features. The PVCAM SDK applies
+                    // rotation/flip to pixel data during readout (pl_exp_setup_seq sets
+                    // up the transform; data in the buffer is already transformed).
+                    // No manual pixel manipulation is needed here. The caller
+                    // (start_stream_sequence_impl) swaps width/height for 90/270 rotation
+                    // so Frame dimensions match the rotated output.
                     for frame_idx in 0..SEQUENCE_BATCH_SIZE {
                         let offset = frame_idx as usize * frame_bytes;
                         if offset + frame_bytes > buffer.len() {
@@ -798,6 +805,13 @@ impl PvcamAcquisition {
             // Step 2: Copy pixel data AFTER unlock
             // In CIRC_NO_OVERWRITE mode, the frame_ptr data is still valid because
             // the SDK won't reuse this buffer slot until all 20 slots are filled.
+            //
+            // bd-ldjy.3: PARAM_HOST_FRAME_ROTATE and PARAM_HOST_FRAME_FLIP are SDK
+            // host-side post-processing features. The PVCAM SDK applies rotation/flip
+            // to pixel data during pl_exp_get_oldest_frame readout — the data pointed
+            // to by frame_ptr is already transformed. No manual pixel manipulation is
+            // needed here. The caller (start_stream) swaps width/height for 90/270
+            // rotation so Frame dimensions match the rotated output.
             let copy_bytes = frame_bytes.min(expected_frame_bytes);
 
             // Allocation tracking instrumentation (bd-0dax.1.1)

@@ -8,6 +8,8 @@ use super::PvcamAcquisition;
 use super::PvcamConnection;
 #[cfg(feature = "pvcam_sdk")]
 use super::{get_pvcam_error, PvcamFeatures};
+#[cfg(feature = "pvcam_sdk")]
+use crate::components::features::FrameRotate;
 use anyhow::{anyhow, bail, Result};
 use common::core::Roi;
 use common::data::Frame;
@@ -50,6 +52,7 @@ impl PvcamAcquisition {
         host_summing_count: Parameter<u32>,        // bd-oqo7.7
         smart_stream_enabled: Parameter<bool>,     // bd-oqo7.1
         smart_stream_exposures: Parameter<String>, // bd-oqo7.1
+        host_rotate: Parameter<String>,            // bd-ldjy.3: for dimension swap on 90/270
     ) -> Result<()> {
         tracing::info!(
             "start_stream: roi=({},{} {}x{}), binning=({},{}), exposure={:.1}ms, mode={}",
@@ -70,6 +73,7 @@ impl PvcamAcquisition {
         let _ = &host_summing_count;
         let _ = &smart_stream_enabled;
         let _ = &smart_stream_exposures;
+        let _ = &host_rotate;
         if self.streaming.get() {
             tracing::warn!("start_stream: already streaming");
             bail!("Already streaming");
@@ -304,6 +308,7 @@ impl PvcamAcquisition {
                         host_summing_enabled,
                         host_summing_count,
                         smart_stream_count, // bd-oqo7.1
+                        &host_rotate,       // bd-ldjy.3: for dimension swap
                     )
                     .await;
             }
@@ -550,9 +555,28 @@ impl PvcamAcquisition {
                 }
             }
 
-            // Calculate dimensions for frame construction
-            let binned_width = roi.width / x_bin as u32;
-            let binned_height = roi.height / y_bin as u32;
+            // Calculate dimensions for frame construction.
+            // bd-ldjy.3: PVCAM PARAM_HOST_FRAME_ROTATE/FLIP are host-side post-processing
+            // features. The SDK applies rotation/flip to pixel data during
+            // pl_exp_get_oldest_frame readout. For 90/270 degree rotation on non-square
+            // sensors, the output dimensions are swapped. We must match Frame dimensions
+            // to the SDK's rotated output.
+            let raw_binned_width = roi.width / x_bin as u32;
+            let raw_binned_height = roi.height / y_bin as u32;
+            let rotate = FrameRotate::from_str(&host_rotate.get());
+            let (binned_width, binned_height) = if rotate.swaps_dimensions() {
+                tracing::info!(
+                    "Host rotation {:?} active: swapping frame dimensions {}x{} -> {}x{}",
+                    rotate,
+                    raw_binned_width,
+                    raw_binned_height,
+                    raw_binned_height,
+                    raw_binned_width
+                );
+                (raw_binned_height, raw_binned_width)
+            } else {
+                (raw_binned_width, raw_binned_height)
+            };
             let expected_frame_pixels = (binned_width * binned_height) as usize;
             let expected_frame_bytes = expected_frame_pixels * std::mem::size_of::<u16>();
 
@@ -1024,6 +1048,7 @@ impl PvcamAcquisition {
         exposure_ms: f64,
         host_summing_enabled: Parameter<bool>, // bd-oqo7.7
         host_summing_count: Parameter<u32>,    // bd-oqo7.7
+        host_rotate: Parameter<String>,        // bd-ldjy.3
     ) -> Result<Frame> {
         let mut rx = self.frame_tx.subscribe();
         // Single-frame acquisition doesn't use SMART streaming; pass disabled defaults.
@@ -1039,6 +1064,7 @@ impl PvcamAcquisition {
             host_summing_count,
             smart_disabled,
             smart_empty,
+            host_rotate,
         )
         .await?;
 
@@ -1302,10 +1328,18 @@ impl PvcamAcquisition {
         host_summing_enabled: Parameter<bool>, // bd-oqo7.7
         host_summing_count: Parameter<u32>,    // bd-oqo7.7
         smart_stream_count: usize,             // bd-oqo7.1
+        host_rotate: &Parameter<String>,       // bd-ldjy.3: for dimension swap
     ) -> Result<()> {
         let (x_bin, y_bin) = binning;
-        let binned_width = roi.width / x_bin as u32;
-        let binned_height = roi.height / y_bin as u32;
+        // bd-ldjy.3: Swap dimensions when SDK applies 90/270 rotation (same as continuous path)
+        let raw_w = roi.width / x_bin as u32;
+        let raw_h = roi.height / y_bin as u32;
+        let rotate = FrameRotate::from_str(&host_rotate.get());
+        let (binned_width, binned_height) = if rotate.swaps_dimensions() {
+            (raw_h, raw_w)
+        } else {
+            (raw_w, raw_h)
+        };
 
         tracing::info!(
             "Starting sequence mode streaming: {}x{} frames, {}ms exposure, batch size {}",
