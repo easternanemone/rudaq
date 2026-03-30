@@ -842,7 +842,10 @@ impl ModuleRegistry {
     }
 
     /// Stop a module
+    ///
+    /// After stopping, the module is auto-unstaged to release resources.
     pub async fn stop_module(&mut self, module_id: &str) -> Result<(u64, u64)> {
+        let registry = Arc::clone(&self.device_registry);
         let instance = self
             .instances
             .get_mut(module_id)
@@ -853,8 +856,13 @@ impl ModuleRegistry {
         let uptime = instance
             .start_time_ns
             .map_or(0, |start| current_time_ns().saturating_sub(start));
+        let events = instance.events_emitted;
 
-        Ok((uptime, instance.events_emitted))
+        // Auto-unstage to release resources
+        info!(module_id, "Auto-unstaging module after stop");
+        instance.unstage(registry).await?;
+
+        Ok((uptime, events))
     }
 
     /// Get the device registry
