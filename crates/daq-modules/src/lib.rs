@@ -990,4 +990,138 @@ mod tests {
         registry.delete_module(&module_id, false).await.unwrap();
         assert!(registry.get_module(&module_id).is_none());
     }
+
+    /// Helper: build a `DeviceRegistry` with mock devices for lifecycle tests.
+    async fn mock_device_registry() -> Arc<DeviceRegistry> {
+        use driver_mock::{MockCameraFactory, MockPowerMeterFactory, MockStageFactory};
+
+        let registry = DeviceRegistry::new();
+        registry.register_factory(Box::new(MockStageFactory));
+        registry.register_factory(Box::new(MockCameraFactory));
+        registry.register_factory(Box::new(MockPowerMeterFactory));
+
+        registry
+            .register_from_toml(
+                "mock_stage",
+                "Mock Stage",
+                "mock_stage",
+                toml::toml! { initial_position = 0.0 }.into(),
+            )
+            .await
+            .expect("register mock_stage");
+
+        registry
+            .register_from_toml(
+                "mock_power_meter",
+                "Mock Power Meter",
+                "mock_power_meter",
+                toml::toml! { base_power = 1e-6 }.into(),
+            )
+            .await
+            .expect("register mock_power_meter");
+
+        registry
+            .register_from_toml(
+                "mock_camera",
+                "Mock Camera",
+                "mock_camera",
+                toml::toml! { width = 640 height = 480 }.into(),
+            )
+            .await
+            .expect("register mock_camera");
+
+        Arc::new(registry)
+    }
+
+    #[tokio::test]
+    async fn test_assign_device_rejects_wrong_capability() {
+        let device_registry = mock_device_registry().await;
+        let mut registry = ModuleRegistry::new(device_registry);
+
+        // PowerMonitor requires "readable" for its "power_meter" role.
+        // mock_stage is Movable, NOT Readable — assignment must fail.
+        let module_id = registry
+            .create_module("power_monitor", "Test Monitor")
+            .expect("create module");
+
+        let err = registry
+            .assign_device(&module_id, "power_meter", "mock_stage")
+            .expect_err("should reject stage assigned to readable role");
+
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("readable"),
+            "error should mention the missing capability: {msg}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_assign_device_accepts_correct_capability() {
+        let device_registry = mock_device_registry().await;
+        let mut registry = ModuleRegistry::new(device_registry);
+
+        // mock_power_meter has Readable — should succeed for power_meter role
+        let module_id = registry
+            .create_module("power_monitor", "Test Monitor")
+            .expect("create module");
+
+        registry
+            .assign_device(&module_id, "power_meter", "mock_power_meter")
+            .expect("should accept readable device for readable role");
+    }
+
+    #[tokio::test]
+    async fn test_start_module_auto_stages() {
+        let device_registry = mock_device_registry().await;
+        let mut registry = ModuleRegistry::new(device_registry);
+
+        let module_id = registry
+            .create_module("power_monitor", "Test Monitor")
+            .expect("create module");
+
+        registry
+            .assign_device(&module_id, "power_meter", "mock_power_meter")
+            .expect("assign device");
+
+        // Module is in Created state — start should auto-stage first
+        let instance = registry.get_module(&module_id).expect("module exists");
+        assert_eq!(instance.state(), ModuleState::Created);
+
+        registry
+            .start_module(&module_id)
+            .await
+            .expect("start with auto-stage");
+
+        let instance = registry.get_module(&module_id).expect("module exists");
+        assert_eq!(instance.state(), ModuleState::Running);
+    }
+
+    #[tokio::test]
+    async fn test_stop_module_auto_unstages() {
+        let device_registry = mock_device_registry().await;
+        let mut registry = ModuleRegistry::new(device_registry);
+
+        let module_id = registry
+            .create_module("power_monitor", "Test Monitor")
+            .expect("create module");
+
+        registry
+            .assign_device(&module_id, "power_meter", "mock_power_meter")
+            .expect("assign device");
+
+        registry
+            .start_module(&module_id)
+            .await
+            .expect("start module");
+
+        registry
+            .stop_module(&module_id)
+            .await
+            .expect("stop module");
+
+        // After stop + auto-unstage, the module should NOT be in Stopped
+        // state — the unstage transitions it back to Created.
+        let instance = registry.get_module(&module_id).expect("module exists");
+        assert_eq!(instance.state(), ModuleState::Created);
+    }
 }
