@@ -368,8 +368,10 @@ impl RunHistoryPanel {
                         ui.end_row();
                     });
 
-                // TODO(bd-wev5): display run metadata when AcquisitionSummary includes metadata field
-                // This will be populated from HDF5 attributes in future enhancement
+                // AcquisitionSummary (storage.proto) intentionally omits metadata for
+                // lightweight listing. Use GetAcquisitionInfo RPC to fetch the full
+                // AcquisitionInfo (which includes a metadata map) when the user drills
+                // into a specific run.
 
                 ui.separator();
                 ui.heading("Annotations");

@@ -840,11 +840,10 @@ mod tests {
         use std::collections::HashMap;
 
         // Build an in-memory calibrator (flat lamp = flat cal -> unity correction)
-        let n = 50usize;
-        #[allow(clippy::cast_precision_loss)] // test indices are small
-        let wl: Vec<f64> = (0..n).map(|i| 300.0 + i as f64).collect();
-        let lamp = Spectrum::new(wl.clone(), vec![1000.0; n]).expect("valid spectrum");
-        let cal = Spectrum::new(wl, vec![1000.0; n]).expect("valid spectrum");
+        let n = 50u32;
+        let wl: Vec<f64> = (0..n).map(|i| 300.0 + f64::from(i)).collect();
+        let lamp = Spectrum::new(wl.clone(), vec![1000.0; n as usize]).expect("valid spectrum");
+        let cal = Spectrum::new(wl, vec![1000.0; n as usize]).expect("valid spectrum");
         let mut cals = HashMap::new();
         cals.insert(1u8, cal);
         let handle = CalibratorHandle {
