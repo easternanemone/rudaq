@@ -105,8 +105,7 @@ impl ScriptEditorPanel {
                                 self.error = None;
                                 self.status = Some(msg);
                             } else {
-                                self.error =
-                                    Some(format!("Stop did not succeed: {msg}"));
+                                self.error = Some(format!("Stop did not succeed: {msg}"));
                             }
                         }
                         ActionResult::StopCompleted(Err(e)) => {
