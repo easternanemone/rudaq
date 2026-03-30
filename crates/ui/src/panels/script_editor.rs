@@ -374,6 +374,34 @@ impl ScriptEditorPanel {
         });
     }
 
+    /// Poll daemon for the current execution state.
+    fn poll_execution_status(&mut self, client: &DaqClient, runtime: &Runtime) {
+        let Some(execution_id) = self.execution_id.clone() else {
+            return;
+        };
+
+        let mut client = client.clone();
+        let tx = self.action_tx.clone();
+
+        runtime.spawn(async move {
+            let result = client
+                .list_executions()
+                .await
+                .map_err(|e| e.to_string())
+                .and_then(|execs| {
+                    execs
+                        .into_iter()
+                        .find(|s| s.execution_id == execution_id)
+                        .map(|s| s.state)
+                        .ok_or_else(|| "execution not found".to_string())
+                });
+
+            let _ = tx.send(ActionResult::StatusPoll(result)).await;
+        });
+
+        self.last_poll = Instant::now();
+    }
+
     fn save(&mut self) {
         if let Some(path) = &self.file_path {
             match std::fs::write(path, &self.code) {
