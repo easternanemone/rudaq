@@ -94,7 +94,7 @@ impl MockCounter {
 
         let value = Parameter::new("value", 0u32)
             .with_description("Counter value")
-            .with_dtype("uint");
+            .with_dtype("int");
 
         let config = Parameter::new(
             "config",
