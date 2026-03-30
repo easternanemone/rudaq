@@ -842,6 +842,7 @@ mod tests {
 
         // Build an in-memory calibrator (flat lamp = flat cal -> unity correction)
         let n = 50usize;
+        #[allow(clippy::cast_precision_loss)] // test indices are small
         let wl: Vec<f64> = (0..n).map(|i| 300.0 + i as f64).collect();
         let lamp = Spectrum::new(wl.clone(), vec![1000.0; n]).expect("valid spectrum");
         let cal = Spectrum::new(wl, vec![1000.0; n]).expect("valid spectrum");
