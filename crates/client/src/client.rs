@@ -248,9 +248,7 @@ impl DaqClient {
 
         #[cfg(not(feature = "tls"))]
         if address.is_tls() {
-            anyhow::bail!(
-                "TLS address requested but client was built without the `tls` feature"
-            );
+            anyhow::bail!("TLS address requested but client was built without the `tls` feature");
         }
 
         let channel = endpoint.connect().await?;
