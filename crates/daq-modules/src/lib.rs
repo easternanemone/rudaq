@@ -27,6 +27,7 @@
 pub mod document;
 pub mod power_monitor;
 pub mod run_engine;
+pub mod virtual_confocal_slit;
 
 #[cfg(feature = "scripting")]
 pub mod plugins;
@@ -36,7 +37,7 @@ use common::error::{DaqError, DriverError, DriverErrorKind};
 use common::modules::{
     ModuleDataPoint, ModuleEvent, ModuleEventSeverity, ModuleState, ModuleTypeInfo,
 };
-use hardware::capabilities::Readable;
+use hardware::capabilities::{ExposureControl, FrameProducer, Movable, Parameterized, Readable};
 use hardware::registry::DeviceRegistry;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -49,6 +50,7 @@ pub use common::observable::{Observable, ObservableMetadata, ParameterSet};
 pub use document::{DataKey, Document, StopReason};
 pub use power_monitor::PowerMonitor;
 pub use run_engine::{RunConfig, RunEngine, RunReport};
+pub use virtual_confocal_slit::VirtualConfocalSlit;
 
 // =============================================================================
 // Module Trait
@@ -194,6 +196,30 @@ impl ModuleContext {
     pub fn get_readable(&self, role_id: &str) -> Option<Arc<dyn Readable>> {
         let device_id = self.assignments.get(role_id)?;
         self.registry.get_readable(device_id)
+    }
+
+    /// Get a Movable device assigned to a role
+    pub fn get_movable(&self, role_id: &str) -> Option<Arc<dyn Movable>> {
+        let device_id = self.assignments.get(role_id)?;
+        self.registry.get_movable(device_id)
+    }
+
+    /// Get a FrameProducer device assigned to a role
+    pub fn get_frame_producer(&self, role_id: &str) -> Option<Arc<dyn FrameProducer>> {
+        let device_id = self.assignments.get(role_id)?;
+        self.registry.get_frame_producer(device_id)
+    }
+
+    /// Get an ExposureControl device assigned to a role
+    pub fn get_exposure_control(&self, role_id: &str) -> Option<Arc<dyn ExposureControl>> {
+        let device_id = self.assignments.get(role_id)?;
+        self.registry.get_exposure_control(device_id)
+    }
+
+    /// Get a Parameterized device assigned to a role
+    pub fn get_parameterized(&self, role_id: &str) -> Option<Arc<dyn Parameterized>> {
+        let device_id = self.assignments.get(role_id)?;
+        self.registry.get_parameterized(device_id)
     }
 
     /// Emit an event
@@ -521,6 +547,7 @@ impl ModuleRegistry {
     /// Register built-in module types
     fn register_builtin_modules(&mut self) {
         self.register_type::<PowerMonitor>();
+        self.register_type::<VirtualConfocalSlit>();
     }
 
     /// Register a module type

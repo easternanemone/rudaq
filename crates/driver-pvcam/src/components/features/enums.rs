@@ -927,3 +927,119 @@ pub struct LocalizationEvent {
     /// Integrated intensity of the localized spot (ADU).
     pub intensity: f32,
 }
+
+// =============================================================================
+// Scan Mode (Programmable Scan Mode)
+// =============================================================================
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScanMode {
+    Auto,
+    ProgrammableLineDelay,
+    ProgrammableScanWidth,
+}
+
+impl ScanMode {
+    pub fn from_pvcam(val: i32) -> Option<Self> {
+        match val {
+            0 => Some(Self::Auto),
+            1 => Some(Self::ProgrammableLineDelay),
+            2 => Some(Self::ProgrammableScanWidth),
+            _ => None,
+        }
+    }
+
+    pub fn to_pvcam(self) -> i32 {
+        match self {
+            Self::Auto => 0,
+            Self::ProgrammableLineDelay => 1,
+            Self::ProgrammableScanWidth => 2,
+        }
+    }
+
+    #[allow(clippy::should_implement_trait)]
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "auto" => Some(Self::Auto),
+            "line_delay" | "programmable_line_delay" => Some(Self::ProgrammableLineDelay),
+            "scan_width" | "programmable_scan_width" => Some(Self::ProgrammableScanWidth),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Auto => "Auto",
+            Self::ProgrammableLineDelay => "ProgrammableLineDelay",
+            Self::ProgrammableScanWidth => "ProgrammableScanWidth",
+        }
+    }
+
+    pub fn all_choices() -> &'static [&'static str] {
+        &["Auto", "ProgrammableLineDelay", "ProgrammableScanWidth"]
+    }
+}
+
+impl std::fmt::Display for ScanMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+// =============================================================================
+// Scan Direction (Programmable Scan Mode)
+// =============================================================================
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScanDirection {
+    Down,
+    Up,
+    DownUpAlternate,
+}
+
+impl ScanDirection {
+    pub fn from_pvcam(val: i32) -> Option<Self> {
+        match val {
+            0 => Some(Self::Down),
+            1 => Some(Self::Up),
+            2 => Some(Self::DownUpAlternate),
+            _ => None,
+        }
+    }
+
+    pub fn to_pvcam(self) -> i32 {
+        match self {
+            Self::Down => 0,
+            Self::Up => 1,
+            Self::DownUpAlternate => 2,
+        }
+    }
+
+    #[allow(clippy::should_implement_trait)]
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "down" => Some(Self::Down),
+            "up" => Some(Self::Up),
+            "down_up" | "down_up_alternate" | "alternate" => Some(Self::DownUpAlternate),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Down => "Down",
+            Self::Up => "Up",
+            Self::DownUpAlternate => "DownUpAlternate",
+        }
+    }
+
+    pub fn all_choices() -> &'static [&'static str] {
+        &["Down", "Up", "DownUpAlternate"]
+    }
+}
+
+impl std::fmt::Display for ScanDirection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
