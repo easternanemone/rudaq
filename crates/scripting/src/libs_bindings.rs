@@ -230,7 +230,7 @@ pub fn register_libs_hardware(engine: &mut Engine) {
                     "set_mcp_gain: gain must be in range 0-4095",
                 ));
             }
-            #[allow(clippy::cast_sign_loss)]
+            #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
             let gain_u32 = gain as u32;
             run_blocking("set_mcp_gain", async move {
                 driver.set_mcp_gain(gain_u32).await
