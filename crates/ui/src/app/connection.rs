@@ -351,7 +351,7 @@ impl DaqApp {
             return;
         }
 
-        // Clear stale state from any previous connection (fixes beefcake-48ad)
+        // Clear stale state from any previous connection (fixes beefcake-48ad / bd-0zu5)
         self.wasm_disconnect();
 
         self.wasm_connection.connecting = true;
@@ -364,9 +364,13 @@ impl DaqApp {
         self.wasm_connection.status = "Connected".to_string();
         self.was_connected = true;
 
-        // Trigger device list refresh
         self.logging_panel
             .info("Connection", &format!("Connected to {}", url));
+
+        // Reset all panels and trigger device reconciliation so stale data from a
+        // previous daemon is discarded (bd-0zu5: reconnect without page reload).
+        self.on_connection_established();
+
         ctx.request_repaint();
     }
 
