@@ -146,8 +146,7 @@ impl Settable for MockCounter {
                 let v = value
                     .as_u64()
                     .ok_or_else(|| anyhow::anyhow!("count must be an unsigned integer"))?;
-                let v =
-                    u32::try_from(v).map_err(|_| anyhow::anyhow!("value out of u32 range"))?;
+                let v = u32::try_from(v).map_err(|_| anyhow::anyhow!("value out of u32 range"))?;
                 self.value.set(v).await?;
                 Ok(())
             }
@@ -173,7 +172,7 @@ impl Settable for MockCounter {
 #[async_trait]
 impl CounterConfigurable for MockCounter {
     async fn configure_counter(&self, config: CounterConfig) -> Result<()> {
-        self.config.set(config).await?;
+        self.config.set_from_hardware(config).await?;
         Ok(())
     }
 
