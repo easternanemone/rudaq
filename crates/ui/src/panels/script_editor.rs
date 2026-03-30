@@ -149,6 +149,16 @@ impl ScriptEditorPanel {
     ) {
         self.poll_async_results(ui.ctx());
 
+        // Poll execution status while running (every 2 seconds)
+        if self.running
+            && self.last_poll.elapsed() > EXECUTION_POLL_INTERVAL
+            && self.execution_id.is_some()
+        {
+            if let (Some(client), Some(runtime)) = (client.as_deref(), runtime) {
+                self.poll_execution_status(client, runtime);
+            }
+        }
+
         // Collect button actions (defer gRPC calls until after UI rendering)
         let mut pending_run = false;
         let mut pending_stop = false;
