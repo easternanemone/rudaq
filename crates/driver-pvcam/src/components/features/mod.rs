@@ -35,6 +35,34 @@ use std::ffi::CStr;
 
 pub struct PvcamFeatures;
 
+/// Normalize a PP feature name for matching: lowercase and strip spaces/underscores.
+///
+/// The PVCAM SDK may report feature names as "PrimeEnhance", "PRIME ENHANCE",
+/// "Prime_Enhance", etc. depending on firmware version and camera model.
+/// This normalizes to a canonical form for reliable comparison (bd-ldjy.1).
+pub fn normalize_pp_name(name: &str) -> String {
+    name.to_lowercase().replace([' ', '_', '-'], "")
+}
+
+/// Check if a PP feature name matches a target name, case-insensitive and
+/// tolerant of spaces, underscores, and hyphens (bd-ldjy.1).
+///
+/// # Examples
+/// All of these match "primeenhance":
+/// - "PrimeEnhance"
+/// - "PRIME ENHANCE"
+/// - "Prime_Enhance"
+/// - "prime-enhance"
+pub fn pp_name_matches(feature_name: &str, target: &str) -> bool {
+    normalize_pp_name(feature_name) == normalize_pp_name(target)
+}
+
+/// Check if a PP feature name contains a target substring, case-insensitive and
+/// tolerant of spaces, underscores, and hyphens (bd-ldjy.1).
+pub fn pp_name_contains(feature_name: &str, target: &str) -> bool {
+    normalize_pp_name(feature_name).contains(&normalize_pp_name(target))
+}
+
 impl PvcamFeatures {
     // =========================================================================
     // Parameter Availability Check (SDK Pattern - bd-ng5p)
@@ -3276,6 +3304,8 @@ impl PvcamFeatures {
     // =========================================================================
 
     /// Enumerate all available post-processing features on the camera.
+    ///
+    /// Logs each discovered feature at INFO level for diagnostics (bd-ldjy.1).
     pub fn enumerate_pp_features(_conn: &PvcamConnection) -> Result<Vec<PPFeature>> {
         #[cfg(feature = "pvcam_sdk")]
         if let Some(h) = _conn.handle() {
@@ -3292,16 +3322,19 @@ impl PvcamFeatures {
                     &mut count as *mut _ as *mut _,
                 ) == 0
                 {
-                    // PP not supported — return empty
+                    tracing::info!("PARAM_PP_INDEX not supported — no PP features available");
                     return Ok(Vec::new());
                 }
             }
+
+            tracing::info!(count, "Enumerating PP features");
 
             for feat_idx in 0..count {
                 // Select this feature
                 // SAFETY: h valid; feat_idx pointer valid for call duration.
                 unsafe {
                     if pl_set_param(h, PARAM_PP_INDEX, &feat_idx as *const _ as *mut _) == 0 {
+                        tracing::warn!(feat_idx, "Failed to select PP feature index");
                         continue;
                     }
                 }
@@ -3317,6 +3350,7 @@ impl PvcamFeatures {
                         name_buf.as_mut_ptr() as *mut _,
                     ) == 0
                     {
+                        tracing::warn!(feat_idx, "Failed to read PP feature name");
                         continue;
                     }
                 }
@@ -3421,6 +3455,14 @@ impl PvcamFeatures {
                     }
                 }
 
+                tracing::info!(
+                    feat_idx,
+                    feat_id,
+                    name = %name,
+                    param_count = params.len(),
+                    "PP feature discovered"
+                );
+
                 features.push(PPFeature {
                     name,
                     index: feat_idx as u16,
@@ -3429,20 +3471,28 @@ impl PvcamFeatures {
                 });
             }
 
+            tracing::info!(
+                total = features.len(),
+                names = %features.iter().map(|f| f.name.as_str()).collect::<Vec<_>>().join(", "),
+                "PP feature enumeration complete"
+            );
+
             return Ok(features);
         }
         Ok(Vec::new())
     }
 
     /// Check if PrimeEnhance is available on this camera.
+    ///
+    /// Uses case-insensitive, space/underscore-tolerant matching (bd-ldjy.1)
+    /// to handle firmware naming variations ("PrimeEnhance", "PRIME ENHANCE", etc.).
     pub fn is_prime_enhance_available(_conn: &PvcamConnection) -> bool {
         #[cfg(feature = "pvcam_sdk")]
         if _conn.handle().is_some() {
             if let Ok(features) = Self::enumerate_pp_features(_conn) {
-                return features.iter().any(|f| {
-                    let upper = f.name.to_uppercase();
-                    upper.contains("PRIMEENHANCE") || upper.contains("PRIME_ENHANCE")
-                });
+                return features
+                    .iter()
+                    .any(|f| pp_name_matches(&f.name, "PrimeEnhance"));
             }
         }
         false
@@ -3453,10 +3503,9 @@ impl PvcamFeatures {
         #[cfg(feature = "pvcam_sdk")]
         if _conn.handle().is_some() {
             let features = Self::enumerate_pp_features(_conn)?;
-            let pe_feat = features.iter().find(|f| {
-                let upper = f.name.to_uppercase();
-                upper.contains("PRIMEENHANCE") || upper.contains("PRIME_ENHANCE")
-            });
+            let pe_feat = features
+                .iter()
+                .find(|f| pp_name_matches(&f.name, "PrimeEnhance"));
 
             if let Some(feat) = pe_feat {
                 // Check enable param (usually first param or one containing "Enable")
@@ -3480,10 +3529,9 @@ impl PvcamFeatures {
         #[cfg(feature = "pvcam_sdk")]
         if let Some(h) = _conn.handle() {
             let features = Self::enumerate_pp_features(_conn)?;
-            let pe_feat = features.iter().find(|f| {
-                let upper = f.name.to_uppercase();
-                upper.contains("PRIMEENHANCE") || upper.contains("PRIME_ENHANCE")
-            });
+            let pe_feat = features
+                .iter()
+                .find(|f| pp_name_matches(&f.name, "PrimeEnhance"));
 
             let feat = pe_feat
                 .ok_or_else(|| anyhow!("PrimeEnhance feature not available on this camera"))?;
@@ -3541,14 +3589,16 @@ impl PvcamFeatures {
     // =========================================================================
 
     /// Check if PrimeLocate is available on this camera.
+    ///
+    /// Uses case-insensitive, space/underscore-tolerant matching (bd-ldjy.1)
+    /// to handle firmware naming variations ("PrimeLocate", "PRIME LOCATE", etc.).
     pub fn is_prime_locate_available(_conn: &PvcamConnection) -> bool {
         #[cfg(feature = "pvcam_sdk")]
         if _conn.handle().is_some() {
             if let Ok(features) = Self::enumerate_pp_features(_conn) {
-                return features.iter().any(|f| {
-                    let upper = f.name.to_uppercase();
-                    upper.contains("PRIMELOCATE") || upper.contains("PRIME_LOCATE")
-                });
+                return features
+                    .iter()
+                    .any(|f| pp_name_matches(&f.name, "PrimeLocate"));
             }
         }
         false
@@ -3559,10 +3609,9 @@ impl PvcamFeatures {
         #[cfg(feature = "pvcam_sdk")]
         if _conn.handle().is_some() {
             let features = Self::enumerate_pp_features(_conn)?;
-            let pl_feat = features.iter().find(|f| {
-                let upper = f.name.to_uppercase();
-                upper.contains("PRIMELOCATE") || upper.contains("PRIME_LOCATE")
-            });
+            let pl_feat = features
+                .iter()
+                .find(|f| pp_name_matches(&f.name, "PrimeLocate"));
 
             if let Some(feat) = pl_feat {
                 if let Some(ep) = feat
@@ -3589,10 +3638,9 @@ impl PvcamFeatures {
         #[cfg(feature = "pvcam_sdk")]
         if let Some(h) = _conn.handle() {
             let features = Self::enumerate_pp_features(_conn)?;
-            let pl_feat = features.iter().find(|f| {
-                let upper = f.name.to_uppercase();
-                upper.contains("PRIMELOCATE") || upper.contains("PRIME_LOCATE")
-            });
+            let pl_feat = features
+                .iter()
+                .find(|f| pp_name_matches(&f.name, "PrimeLocate"));
 
             let feat = pl_feat
                 .ok_or_else(|| anyhow!("PrimeLocate feature not available on this camera"))?;
