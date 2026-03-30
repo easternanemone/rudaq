@@ -101,12 +101,17 @@ impl<Tab> DockArea<'_, Tab> {
         if external_drag_active {
             if let Some(pointer_pos) = ui.ctx().pointer_hover_pos() {
                 state.drag_start.get_or_insert(pointer_pos);
+                // Use a reasonable default size for the synthetic drag rect so that
+                // overlay feedback (split preview, window preview) renders correctly.
+                // Native tab drags use the source leaf's rect; for external drags we
+                // approximate with a small panel-sized rect.
+                let default_drag_size = Vec2::new(200.0, 150.0);
                 ui.memory_mut(|mem| {
                     mem.data.insert_temp(
                         self.id.with("drag_data"),
                         Some(super::drag_and_drop::DragData {
                             src: TreeComponent::External,
-                            rect: Rect::from_center_size(pointer_pos, Vec2::ZERO),
+                            rect: Rect::from_center_size(pointer_pos, default_drag_size),
                         }),
                     );
                 });
