@@ -972,8 +972,14 @@ impl PvcamAcquisition {
                                     );
                                 }
                             }
-                            // TODO(bd-wev5): Pass roi_data to downstream consumers
-                            // when multi-ROI Frame output format is defined.
+                            // Multi-ROI passthrough is blocked on a Frame format
+                            // extension: the current Frame struct carries a single
+                            // contiguous pixel buffer (width x height) and has no
+                            // field for per-ROI sub-regions. When Frame gains a
+                            // `roi_regions: Vec<RoiRegion>` field (or similar),
+                            // wire `roi_data` through here. Until then, the
+                            // single-ROI primary pixel copy above is sufficient
+                            // for all current consumers.
                         }
                         Err(e) => {
                             tracing::warn!("Failed to extract multi-ROI data: {} (bd-0o6b)", e);
