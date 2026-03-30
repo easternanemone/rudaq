@@ -731,10 +731,10 @@ mod tests {
     async fn test_gated_camera_handle_creation() {
         let engine = make_engine();
         let result = engine.eval::<Dynamic>(
-            r#"
+            r"
             let cam = create_gated_camera();
             cam.supports_ddg()
-        "#,
+        ",
         );
         assert!(
             result.is_ok(),
@@ -747,10 +747,10 @@ mod tests {
     async fn test_gated_camera_legacy_factory() {
         let engine = make_engine();
         let result = engine.eval::<Dynamic>(
-            r#"
+            r"
             let cam = create_andor_camera();
             cam.supports_ddg()
-        "#,
+        ",
         );
         assert!(
             result.is_ok(),
@@ -763,10 +763,10 @@ mod tests {
     async fn test_spectrograph_handle_creation() {
         let engine = make_engine();
         let result = engine.eval::<i64>(
-            r#"
+            r"
             let spec = create_spectrograph();
             spec.get_grating()
-        "#,
+        ",
         );
         assert!(
             result.is_ok(),
