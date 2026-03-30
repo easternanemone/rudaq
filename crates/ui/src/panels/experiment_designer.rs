@@ -2064,20 +2064,48 @@ impl ExperimentDesignerPanel {
     /// Confirm adaptive action and resume execution.
     ///
     /// Sends `ResumeEngine` to the daemon so the `RunEngine` proceeds with the
-    /// adaptive action that triggered the pause.
-    fn confirm_adaptive_action(&mut self, client: Option<&DaqClient>, runtime: Option<&Runtime>) {
+    /// adaptive action that triggered the pause.  Returns `true` when the RPC
+    /// was successfully dispatched.
+    fn confirm_adaptive_action(
+        &mut self,
+        client: Option<&DaqClient>,
+        runtime: Option<&Runtime>,
+    ) -> bool {
+        if client.is_none() {
+            self.last_error = Some("Cannot confirm: not connected to daemon".to_string());
+            return false;
+        }
+        if runtime.is_none() {
+            self.last_error = Some("Cannot confirm: async runtime unavailable".to_string());
+            return false;
+        }
         tracing::info!("Adaptive action approved");
         self.set_status("Adaptive action approved - proceeding");
         self.resume_experiment(client, runtime);
+        true
     }
 
     /// Cancel adaptive action.
     ///
     /// Sends `AbortPlan` to the daemon so the `RunEngine` stops the current
-    /// plan instead of executing the adaptive action.
-    fn cancel_adaptive_action(&mut self, client: Option<&DaqClient>, runtime: Option<&Runtime>) {
+    /// plan instead of executing the adaptive action.  Returns `true` when the
+    /// RPC was successfully dispatched.
+    fn cancel_adaptive_action(
+        &mut self,
+        client: Option<&DaqClient>,
+        runtime: Option<&Runtime>,
+    ) -> bool {
+        if client.is_none() {
+            self.last_error = Some("Cannot cancel: not connected to daemon".to_string());
+            return false;
+        }
+        if runtime.is_none() {
+            self.last_error = Some("Cannot cancel: async runtime unavailable".to_string());
+            return false;
+        }
         tracing::info!("Adaptive action cancelled");
         self.set_status("Adaptive action cancelled");
         self.abort_experiment(client, runtime);
+        true
     }
 }
