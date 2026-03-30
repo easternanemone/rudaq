@@ -105,7 +105,8 @@ impl MockCounter {
                 clock_source: None,
             },
         )
-        .with_description("Counter configuration");
+        .with_description("Counter configuration")
+        .read_only();
 
         params.register(value.clone());
         params.register(config.clone());
