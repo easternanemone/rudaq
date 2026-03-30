@@ -434,52 +434,72 @@ impl PlanRunnerPanel {
 
             ui.add_space(8.0);
 
-            if ui.button("Queue Plan").clicked() {
-                let mut parameters = std::collections::HashMap::new();
-                let mut device_mapping = std::collections::HashMap::new();
+            // Validate parameters before showing the Queue button
+            self.validation_errors = self.validate_plan_parameters();
 
-                let plan_type_str = match self.selected_plan_type {
-                    PlanType::Count => {
-                        parameters.insert("num_points".to_string(), self.num_points.clone());
-                        device_mapping.insert("detector".to_string(), self.detector_name.clone());
-                        "count".to_string()
-                    }
-                    PlanType::LineScan => {
-                        parameters.insert("start_position".to_string(), self.start_pos.clone());
-                        parameters.insert("stop_position".to_string(), self.end_pos.clone());
-                        parameters.insert("num_points".to_string(), self.num_points.clone());
-                        device_mapping.insert("motor".to_string(), self.motor_name.clone());
-                        device_mapping.insert("detector".to_string(), self.detector_name.clone());
-                        "line_scan".to_string()
-                    }
-                    PlanType::GridScan => {
-                        parameters
-                            .insert("x_start".to_string(), self.grid_x_start.clone());
-                        parameters.insert("x_end".to_string(), self.grid_x_end.clone());
-                        parameters
-                            .insert("x_points".to_string(), self.grid_x_points.clone());
-                        parameters
-                            .insert("y_start".to_string(), self.grid_y_start.clone());
-                        parameters.insert("y_end".to_string(), self.grid_y_end.clone());
-                        parameters
-                            .insert("y_points".to_string(), self.grid_y_points.clone());
-                        device_mapping
-                            .insert("x_motor".to_string(), self.grid_x_motor.clone());
-                        device_mapping
-                            .insert("y_motor".to_string(), self.grid_y_motor.clone());
-                        device_mapping
-                            .insert("detector".to_string(), self.grid_detector.clone());
-                        "grid_scan".to_string()
-                    }
-                };
-
-                self.pending_action = Some(PendingAction::QueuePlan {
-                    plan_type: plan_type_str,
-                    parameters,
-                    device_mapping,
-                    metadata: std::collections::HashMap::new(),
-                });
+            // Show validation errors
+            for err in &self.validation_errors {
+                ui.colored_label(egui::Color32::from_rgb(255, 140, 0), err);
             }
+
+            let can_queue = self.validation_errors.is_empty();
+            ui.add_enabled_ui(can_queue, |ui| {
+                if ui.button("Queue Plan").clicked() {
+                    let mut parameters = std::collections::HashMap::new();
+                    let mut device_mapping = std::collections::HashMap::new();
+
+                    let plan_type_str = match self.selected_plan_type {
+                        PlanType::Count => {
+                            parameters
+                                .insert("num_points".to_string(), self.num_points.clone());
+                            device_mapping
+                                .insert("detector".to_string(), self.detector_name.clone());
+                            "count".to_string()
+                        }
+                        PlanType::LineScan => {
+                            parameters
+                                .insert("start_position".to_string(), self.start_pos.clone());
+                            parameters
+                                .insert("stop_position".to_string(), self.end_pos.clone());
+                            parameters
+                                .insert("num_points".to_string(), self.num_points.clone());
+                            device_mapping
+                                .insert("motor".to_string(), self.motor_name.clone());
+                            device_mapping
+                                .insert("detector".to_string(), self.detector_name.clone());
+                            "line_scan".to_string()
+                        }
+                        PlanType::GridScan => {
+                            parameters
+                                .insert("x_start".to_string(), self.grid_x_start.clone());
+                            parameters
+                                .insert("x_end".to_string(), self.grid_x_end.clone());
+                            parameters
+                                .insert("x_points".to_string(), self.grid_x_points.clone());
+                            parameters
+                                .insert("y_start".to_string(), self.grid_y_start.clone());
+                            parameters
+                                .insert("y_end".to_string(), self.grid_y_end.clone());
+                            parameters
+                                .insert("y_points".to_string(), self.grid_y_points.clone());
+                            device_mapping
+                                .insert("x_motor".to_string(), self.grid_x_motor.clone());
+                            device_mapping
+                                .insert("y_motor".to_string(), self.grid_y_motor.clone());
+                            device_mapping
+                                .insert("detector".to_string(), self.grid_detector.clone());
+                            "grid_scan".to_string()
+                        }
+                    };
+
+                    self.pending_action = Some(PendingAction::QueuePlan {
+                        plan_type: plan_type_str,
+                        parameters,
+                        device_mapping,
+                        metadata: std::collections::HashMap::new(),
+                    });
+                }
+            });
         });
 
         ui.add_space(12.0);
