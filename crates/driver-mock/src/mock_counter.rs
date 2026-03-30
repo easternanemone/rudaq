@@ -147,7 +147,7 @@ impl Settable for MockCounter {
                     .as_u64()
                     .ok_or_else(|| anyhow::anyhow!("count must be an unsigned integer"))?
                     as u32;
-                self.value.set(v).await;
+                self.value.set(v).await?;
                 Ok(())
             }
             "reset" | "reset_all" => {
