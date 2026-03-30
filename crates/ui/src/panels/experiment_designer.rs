@@ -2074,12 +2074,7 @@ impl ExperimentDesignerPanel {
         client: Option<&DaqClient>,
         runtime: Option<&Runtime>,
     ) -> bool {
-        if client.is_none() {
-            self.last_error = Some("Cannot confirm: not connected to daemon".to_string());
-            return false;
-        }
-        if runtime.is_none() {
-            self.last_error = Some("Cannot confirm: async runtime unavailable".to_string());
+        if self.require_connected(client, runtime, "confirm").is_none() {
             return false;
         }
         tracing::info!("Adaptive action approved");
@@ -2098,17 +2093,32 @@ impl ExperimentDesignerPanel {
         client: Option<&DaqClient>,
         runtime: Option<&Runtime>,
     ) -> bool {
-        if client.is_none() {
-            self.last_error = Some("Cannot cancel: not connected to daemon".to_string());
-            return false;
-        }
-        if runtime.is_none() {
-            self.last_error = Some("Cannot cancel: async runtime unavailable".to_string());
+        if self.require_connected(client, runtime, "cancel").is_none() {
             return false;
         }
         tracing::info!("Adaptive action cancelled");
         self.set_status("Adaptive action cancelled");
         self.abort_experiment(client, runtime);
         true
+    }
+
+    /// Check that both client and runtime are available. Sets `last_error` and
+    /// returns `None` if either is missing. `action` is used in the error
+    /// message (e.g. "confirm", "cancel").
+    fn require_connected<'a>(
+        &mut self,
+        client: Option<&'a DaqClient>,
+        runtime: Option<&'a Runtime>,
+        action: &str,
+    ) -> Option<(&'a DaqClient, &'a Runtime)> {
+        let Some(c) = client else {
+            self.last_error = Some(format!("Cannot {action}: not connected to daemon"));
+            return None;
+        };
+        let Some(r) = runtime else {
+            self.last_error = Some(format!("Cannot {action}: async runtime unavailable"));
+            return None;
+        };
+        Some((c, r))
     }
 }
