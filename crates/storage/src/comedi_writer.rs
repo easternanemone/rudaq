@@ -341,6 +341,7 @@ impl ComediStreamWriterBuilder {
             chunks_written: AtomicU64::new(0),
             write_errors: AtomicU64::new(0),
             initialized: RwLock::new(false),
+            created_at: Instant::now(),
         })
     }
 }
