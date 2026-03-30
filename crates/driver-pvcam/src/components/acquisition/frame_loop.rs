@@ -1216,7 +1216,7 @@ impl PvcamAcquisition {
                     }
                     if use_prime_locate {
                         m.insert("prime_locate_enabled".into(), "true".into());
-                        let events = PvcamFeatures::parse_localization_events(&pixel_data);
+                        let events = PvcamFeatures::parse_localization_events(&frame.data);
                         m.insert("localization_event_count".into(), events.len().to_string());
                         if !events.is_empty() {
                             if let Ok(json) = serde_json::to_string(&events) {
