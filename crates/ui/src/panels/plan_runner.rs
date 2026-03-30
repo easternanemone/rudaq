@@ -839,7 +839,7 @@ fn validate_axis(
             errors.push(format!("{label}points must be a positive integer"));
         }
         Ok(n) if n > max_points => {
-            errors.push(format!("{label}points must be <= {max_points:>}"));
+            errors.push(format!("{label}points must be <= {max_points}"));
         }
         _ => {}
     }
