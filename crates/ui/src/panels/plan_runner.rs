@@ -739,8 +739,14 @@ impl PlanRunnerPanel {
                         errors.push("Start and end positions must be different".to_string());
                     }
                 }
-                if self.num_points.parse::<usize>().map_or(true, |n| n == 0) {
-                    errors.push("Number of points must be a positive integer".to_string());
+                match self.num_points.parse::<usize>() {
+                    Ok(0) | Err(_) => {
+                        errors.push("Number of points must be a positive integer".to_string());
+                    }
+                    Ok(n) if n > 10_000_000 => {
+                        errors.push("Number of points must be <= 10,000,000".to_string());
+                    }
+                    _ => {}
                 }
                 if self.detector_name.trim().is_empty() {
                     errors.push("Detector name cannot be empty".to_string());
