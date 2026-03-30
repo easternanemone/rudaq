@@ -365,6 +365,7 @@ pub struct ComediStreamWriter {
     chunks_written: AtomicU64,
     write_errors: AtomicU64,
     initialized: RwLock<bool>,
+    created_at: Instant,
 }
 
 impl ComediStreamWriter {
