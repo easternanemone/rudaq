@@ -389,5 +389,9 @@ impl DaqApp {
         if let Some(ref mut dock) = self.dock_state {
             dock.retain_tabs(|tab| !matches!(tab, Panel::DeviceControl { .. }));
         }
+        // Update browser tab title to show disconnected state
+        if let Some(doc) = web_sys::window().and_then(|w| w.document()) {
+            doc.set_title("DAQ Panel — Disconnected");
+        }
     }
 }
