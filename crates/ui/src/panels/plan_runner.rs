@@ -395,10 +395,40 @@ impl PlanRunnerPanel {
                     });
                 }
                 PlanType::GridScan => {
-                    // TODO(bd-wev5): implement 2D grid scan parameter form
-                    ui.label(
-                        egui::RichText::new("Grid scan parameter form not yet available.").weak(),
-                    );
+                    ui.label(egui::RichText::new("X Axis (fast)").strong());
+                    ui.horizontal(|ui| {
+                        ui.label("Motor:");
+                        ui.text_edit_singleline(&mut self.grid_x_motor);
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Start:");
+                        ui.text_edit_singleline(&mut self.grid_x_start);
+                        ui.label("End:");
+                        ui.text_edit_singleline(&mut self.grid_x_end);
+                        ui.label("Points:");
+                        ui.text_edit_singleline(&mut self.grid_x_points);
+                    });
+
+                    ui.add_space(4.0);
+                    ui.label(egui::RichText::new("Y Axis (slow)").strong());
+                    ui.horizontal(|ui| {
+                        ui.label("Motor:");
+                        ui.text_edit_singleline(&mut self.grid_y_motor);
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Start:");
+                        ui.text_edit_singleline(&mut self.grid_y_start);
+                        ui.label("End:");
+                        ui.text_edit_singleline(&mut self.grid_y_end);
+                        ui.label("Points:");
+                        ui.text_edit_singleline(&mut self.grid_y_points);
+                    });
+
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        ui.label("Detector:");
+                        ui.text_edit_singleline(&mut self.grid_detector);
+                    });
                 }
             }
 
