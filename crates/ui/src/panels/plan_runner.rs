@@ -225,6 +225,29 @@ impl PlanRunnerPanel {
                                 self.error = error;
                             }
                         }
+                        ActionResult::EngineStatus {
+                            state,
+                            queued_plans,
+                            current_run_uid,
+                            current_plan_type,
+                            current_event,
+                            total_events,
+                        } => {
+                            self.engine_state = state;
+                            self.queue_length = queued_plans as usize;
+                            if let Some(uid) = current_run_uid {
+                                self.current_run_uid = uid;
+                            } else {
+                                self.current_run_uid.clear();
+                            }
+                            if let Some(pt) = current_plan_type {
+                                self.current_plan_type = pt;
+                            } else {
+                                self.current_plan_type.clear();
+                            }
+                            self.current_event = current_event;
+                            self.total_events = total_events;
+                        }
                     }
                     updated = true;
                 }
