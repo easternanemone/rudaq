@@ -352,14 +352,11 @@ impl PlanRunnerPanel {
                     PlanType::LineScan,
                     "Line Scan",
                 );
-                ui.add_enabled_ui(false, |ui| {
-                    ui.selectable_value(
-                        &mut self.selected_plan_type,
-                        PlanType::GridScan,
-                        "Grid Scan",
-                    )
-                    .on_disabled_hover_text("Grid scan parameter form not yet implemented");
-                });
+                ui.selectable_value(
+                    &mut self.selected_plan_type,
+                    PlanType::GridScan,
+                    "Grid Scan",
+                );
             });
 
             ui.add_space(8.0);
