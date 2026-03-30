@@ -391,11 +391,9 @@ pub trait FrameObserver: Send + Sync {
     }
 }
 
-/// Type alias for pooled frame data from the object pool.
-///
-/// This represents a frame buffer loaned from a pre-allocated pool,
-/// enabling zero-allocation frame handling for high-FPS scenarios.
-pub type LoanedFrame = pool::Loaned<pool::FrameData>;
+/// Pooled frame data from the object pool — defined in [`pool::LoanedFrame`],
+/// re-exported here for convenience.
+pub use pool::LoanedFrame;
 
 /// Capability: Frame/Image Production
 ///
