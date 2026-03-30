@@ -287,7 +287,13 @@ impl PlanRunnerPanel {
 
             ui.horizontal(|ui| {
                 ui.label("State:");
-                ui.label(&self.engine_state);
+                let state_color = match self.engine_state.as_str() {
+                    "Running" => egui::Color32::GREEN,
+                    "Paused" => egui::Color32::YELLOW,
+                    "Aborting" | "Halted" => egui::Color32::RED,
+                    _ => ui.visuals().text_color(),
+                };
+                ui.colored_label(state_color, &self.engine_state);
             });
 
             ui.horizontal(|ui| {
@@ -299,6 +305,33 @@ impl PlanRunnerPanel {
                 ui.horizontal(|ui| {
                     ui.label("Current Run:");
                     ui.monospace(&self.current_run_uid);
+                });
+            }
+
+            if !self.current_plan_type.is_empty() {
+                ui.horizontal(|ui| {
+                    ui.label("Plan Type:");
+                    ui.label(&self.current_plan_type);
+                });
+            }
+
+            if let (Some(current), Some(total)) = (self.current_event, self.total_events) {
+                ui.horizontal(|ui| {
+                    ui.label("Progress:");
+                    let progress = if total > 0 {
+                        #[allow(clippy::cast_precision_loss)]
+                        // SAFETY: precision loss acceptable for progress bar display
+                        {
+                            current as f32 / total as f32
+                        }
+                    } else {
+                        0.0
+                    };
+                    ui.add(
+                        egui::ProgressBar::new(progress)
+                            .text(format!("{}/{}", current, total))
+                            .animate(self.engine_state == "Running"),
+                    );
                 });
             }
         });
