@@ -1677,7 +1677,7 @@ pub enum CounterEdge {
 }
 
 /// Configuration for a DAQ counter/timer channel.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CounterConfig {
     /// Counter operating mode.
     pub mode: CounterMode,
