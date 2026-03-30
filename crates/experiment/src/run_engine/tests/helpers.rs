@@ -7,7 +7,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 
 use common::capabilities::{
-    DeviceCategory, FrameProducer, GateMode, GatedCamera, Parameterized, SpectrometerControl,
+    DeviceCategory, FrameProducer, GatedCamera, Parameterized, SpectrometerControl,
     TemperatureStatus,
 };
 use common::driver::{Capability as DeviceCapability, DeviceComponents, DriverFactory};
