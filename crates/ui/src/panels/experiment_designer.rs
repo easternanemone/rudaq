@@ -446,22 +446,25 @@ impl ExperimentDesignerPanel {
 
             match response {
                 AdaptiveAlertResponse::Approved => {
-                    // Resume execution with approved action
-                    self.confirm_adaptive_action();
-                    self.adaptive_alert = None;
-                    self.adaptive_alert_auto_proceed_at = None;
+                    // Resume execution with approved action; keep modal open on failure
+                    if self.confirm_adaptive_action(client_clone.as_ref(), runtime) {
+                        self.adaptive_alert = None;
+                        self.adaptive_alert_auto_proceed_at = None;
+                    }
                 }
                 AdaptiveAlertResponse::Cancelled => {
-                    // Cancel adaptive action and abort or continue
-                    self.cancel_adaptive_action();
-                    self.adaptive_alert = None;
-                    self.adaptive_alert_auto_proceed_at = None;
+                    // Cancel adaptive action and abort the plan; keep modal open on failure
+                    if self.cancel_adaptive_action(client_clone.as_ref(), runtime) {
+                        self.adaptive_alert = None;
+                        self.adaptive_alert_auto_proceed_at = None;
+                    }
                 }
                 AdaptiveAlertResponse::Pending => {
                     // Check auto-proceed timeout for non-approval alerts
                     if let Some(auto_time) = self.adaptive_alert_auto_proceed_at {
-                        if crate::time::Instant::now() >= auto_time {
-                            self.confirm_adaptive_action();
+                        if crate::time::Instant::now() >= auto_time
+                            && self.confirm_adaptive_action(client_clone.as_ref(), runtime)
+                        {
                             self.adaptive_alert = None;
                             self.adaptive_alert_auto_proceed_at = None;
                         }
@@ -2062,17 +2065,50 @@ impl ExperimentDesignerPanel {
     }
 
     /// Confirm adaptive action and resume execution.
-    fn confirm_adaptive_action(&mut self) {
-        // TODO(bd-wev5): send gRPC signal to RunEngine to proceed with adaptive action
+    ///
+    /// Sends `ResumeEngine` to the daemon so the `RunEngine` proceeds with the
+    /// adaptive action that triggered the pause.  Returns `true` when the RPC
+    /// was successfully dispatched.
+    fn confirm_adaptive_action(
+        &mut self,
+        client: Option<&DaqClient>,
+        runtime: Option<&Runtime>,
+    ) -> bool {
+        if client.is_none() {
+            self.last_error = Some("Cannot confirm: not connected to daemon".to_string());
+            return false;
+        }
+        if runtime.is_none() {
+            self.last_error = Some("Cannot confirm: async runtime unavailable".to_string());
+            return false;
+        }
         tracing::info!("Adaptive action approved");
         self.set_status("Adaptive action approved - proceeding");
+        self.resume_experiment(client, runtime);
+        true
     }
 
     /// Cancel adaptive action.
-    fn cancel_adaptive_action(&mut self) {
-        // TODO(bd-wev5): send gRPC signal to RunEngine to skip adaptive action
-        // May need to abort scan or continue without action
+    ///
+    /// Sends `AbortPlan` to the daemon so the `RunEngine` stops the current
+    /// plan instead of executing the adaptive action.  Returns `true` when the
+    /// RPC was successfully dispatched.
+    fn cancel_adaptive_action(
+        &mut self,
+        client: Option<&DaqClient>,
+        runtime: Option<&Runtime>,
+    ) -> bool {
+        if client.is_none() {
+            self.last_error = Some("Cannot cancel: not connected to daemon".to_string());
+            return false;
+        }
+        if runtime.is_none() {
+            self.last_error = Some("Cannot cancel: async runtime unavailable".to_string());
+            return false;
+        }
         tracing::info!("Adaptive action cancelled");
         self.set_status("Adaptive action cancelled");
+        self.abort_experiment(client, runtime);
+        true
     }
 }
