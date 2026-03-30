@@ -75,6 +75,7 @@ impl ScriptEditorPanel {
             action_in_flight: 0,
             execution_id: None,
             running: false,
+            last_poll: Instant::now(),
         }
     }
 
