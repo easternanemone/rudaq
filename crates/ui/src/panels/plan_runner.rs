@@ -669,29 +669,40 @@ impl PlanRunnerPanel {
             }
             PendingAction::PollStatus => {
                 runtime.spawn(async move {
-                    let result = client.get_engine_status().await;
-                    if let Ok(status) = result {
-                        let state_str = match status.state {
-                            1 => "Idle",
-                            2 => "Running",
-                            3 => "Paused",
-                            4 => "Aborting",
-                            5 => "Halted",
-                            _ => "Unknown",
-                        }
-                        .to_string();
-                        let _ = tx
-                            .send(ActionResult::EngineStatus {
+                    let action_result = match client.get_engine_status().await {
+                        Ok(status) => {
+                            let state_str = match status.state {
+                                1 => "Idle",
+                                2 => "Running",
+                                3 => "Paused",
+                                4 => "Aborting",
+                                5 => "Halted",
+                                _ => "Unknown",
+                            }
+                            .to_string();
+                            ActionResult::EngineStatus {
                                 state: state_str,
                                 queued_plans: status.queued_plans,
                                 current_run_uid: status.current_run_uid,
                                 current_plan_type: status.current_plan_type,
                                 current_event: status.current_event_number,
                                 total_events: status.total_events_expected,
-                            })
-                            .await;
-                    }
-                    // Silently ignore poll errors to avoid spamming the UI
+                            }
+                        }
+                        Err(_) => {
+                            // Return current-state placeholder so action_in_flight
+                            // is always decremented (avoids counter leak).
+                            ActionResult::EngineStatus {
+                                state: "Unknown".to_string(),
+                                queued_plans: 0,
+                                current_run_uid: None,
+                                current_plan_type: None,
+                                current_event: None,
+                                total_events: None,
+                            }
+                        }
+                    };
+                    let _ = tx.send(action_result).await;
                 });
             }
         }
