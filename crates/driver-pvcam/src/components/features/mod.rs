@@ -3533,17 +3533,40 @@ impl PvcamFeatures {
         if let Some(h) = _conn.handle() {
             let mut features = Vec::new();
 
+            // First check ATTR_AVAIL explicitly
+            let mut avail: rs_bool = 0;
+            unsafe {
+                let avail_result = pl_get_param(
+                    h,
+                    PARAM_PP_INDEX,
+                    ATTR_AVAIL as i16,
+                    &mut avail as *mut _ as *mut _,
+                );
+                tracing::info!(
+                    "PARAM_PP_INDEX ATTR_AVAIL: result={}, avail={}, hcam={}",
+                    avail_result,
+                    avail,
+                    h
+                );
+            }
+
             // Get number of PP features
             let mut count: u32 = 0;
             // SAFETY: h is valid; count is writable u32 on stack.
             unsafe {
-                if pl_get_param(
+                let count_result = pl_get_param(
                     h,
                     PARAM_PP_INDEX,
                     ATTR_COUNT,
                     &mut count as *mut _ as *mut _,
-                ) == 0
-                {
+                );
+                tracing::info!(
+                    "PARAM_PP_INDEX ATTR_COUNT: result={}, count={}, err={}",
+                    count_result,
+                    count,
+                    get_pvcam_error()
+                );
+                if count_result == 0 {
                     tracing::info!("PARAM_PP_INDEX not supported — no PP features available");
                     return Ok(Vec::new());
                 }
