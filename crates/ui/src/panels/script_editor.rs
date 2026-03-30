@@ -19,23 +19,10 @@ const MAX_SCRIPT_SIZE: usize = 1024 * 1024;
 /// Results from async gRPC actions.
 #[derive(Debug)]
 enum ActionResult {
-    /// Upload completed — returns script_id on success.
-    Uploaded(Result<String, String>),
-    /// Start completed — returns execution_id on success.
-    Started(Result<String, String>),
+    /// Upload+start completed — returns execution_id on success.
+    RunCompleted(Result<String, String>),
     /// Stop completed.
-    Stopped(Result<String, String>),
-}
-
-/// Execution state tracked for the most recent run.
-#[derive(Debug, Default)]
-struct ExecutionState {
-    /// Script ID returned after upload (needed to start).
-    script_id: Option<String>,
-    /// Execution ID returned after start (needed to stop).
-    execution_id: Option<String>,
-    /// Whether execution is believed to be running.
-    running: bool,
+    StopCompleted(Result<String, String>),
 }
 
 /// Panel for editing Rhai scripts directly (ejected from visual mode).
@@ -58,8 +45,10 @@ pub struct ScriptEditorPanel {
     action_rx: mpsc::Receiver<ActionResult>,
     /// Number of in-flight async actions
     action_in_flight: usize,
-    /// Most recent execution state
-    execution: ExecutionState,
+    /// Execution ID of the most recent run (needed for stop)
+    execution_id: Option<String>,
+    /// Whether execution is believed to be running
+    running: bool,
 }
 
 impl ScriptEditorPanel {
@@ -68,15 +57,16 @@ impl ScriptEditorPanel {
         let (action_tx, action_rx) = mpsc::channel(16);
         Self {
             code,
-            file_path: None, // New script, not saved yet
+            file_path: None,
             theme: ColorTheme::GRUVBOX_DARK,
-            dirty: true, // Start as dirty since it's unsaved
+            dirty: true,
             status: source_graph.map(|p| format!("Ejected from {}", p.display())),
             error: None,
             action_tx,
             action_rx,
             action_in_flight: 0,
-            execution: ExecutionState::default(),
+            execution_id: None,
+            running: false,
         }
     }
 
@@ -88,36 +78,23 @@ impl ScriptEditorPanel {
                 Ok(result) => {
                     self.action_in_flight = self.action_in_flight.saturating_sub(1);
                     match result {
-                        ActionResult::Uploaded(Ok(script_id)) => {
-                            self.execution.script_id = Some(script_id);
+                        ActionResult::RunCompleted(Ok(execution_id)) => {
+                            let short_id = &execution_id[..8.min(execution_id.len())];
+                            self.status = Some(format!("Running (execution {short_id}...)"));
+                            self.execution_id = Some(execution_id);
+                            self.running = true;
                             self.error = None;
-                            // Status is set transiently; the auto-start path
-                            // overwrites it immediately, so keep it brief.
-                            self.status = Some("Uploaded, starting...".to_string());
                         }
-                        ActionResult::Uploaded(Err(e)) => {
-                            self.error = Some(format!("Upload failed: {e}"));
-                            self.execution = ExecutionState::default();
+                        ActionResult::RunCompleted(Err(e)) => {
+                            self.error = Some(e);
+                            self.running = false;
                         }
-                        ActionResult::Started(Ok(execution_id)) => {
-                            self.execution.execution_id = Some(execution_id.clone());
-                            self.execution.running = true;
-                            self.error = None;
-                            let short_id =
-                                &execution_id[..8.min(execution_id.len())];
-                            self.status =
-                                Some(format!("Running (execution {short_id}...)"));
-                        }
-                        ActionResult::Started(Err(e)) => {
-                            self.error = Some(format!("Start failed: {e}"));
-                            self.execution.running = false;
-                        }
-                        ActionResult::Stopped(Ok(msg)) => {
-                            self.execution.running = false;
+                        ActionResult::StopCompleted(Ok(msg)) => {
+                            self.running = false;
                             self.error = None;
                             self.status = Some(msg);
                         }
-                        ActionResult::Stopped(Err(e)) => {
+                        ActionResult::StopCompleted(Err(e)) => {
                             self.error = Some(format!("Stop failed: {e}"));
                         }
                     }
@@ -141,19 +118,10 @@ impl ScriptEditorPanel {
     ) {
         self.poll_async_results(ui.ctx());
 
-        // Auto-start after upload completes
-        let mut pending_start = false;
-        if self.execution.script_id.is_some()
-            && self.execution.execution_id.is_none()
-            && !self.execution.running
-            && self.action_in_flight == 0
-        {
-            pending_start = true;
-        }
-
         // Collect button actions (defer gRPC calls until after UI rendering)
         let mut pending_run = false;
         let mut pending_stop = false;
+        let has_client = client.is_some();
 
         // Toolbar
         ui.horizontal(|ui| {
@@ -172,10 +140,9 @@ impl ScriptEditorPanel {
             ui.separator();
 
             // Run / Stop buttons
-            let has_client = client.is_some();
             let busy = self.action_in_flight > 0;
 
-            if self.execution.running {
+            if self.running {
                 // Show Stop button while running
                 let can_stop = has_client && !busy;
                 if ui
@@ -235,7 +202,7 @@ impl ScriptEditorPanel {
         }
         if let Some(status) = &self.status {
             ui.horizontal(|ui| {
-                let color = if self.execution.running {
+                let color = if self.running {
                     egui::Color32::YELLOW
                 } else {
                     egui::Color32::GREEN
@@ -245,9 +212,7 @@ impl ScriptEditorPanel {
         }
 
         // Offline notice (below toolbar so buttons are visible but disabled)
-        if offline_notice(ui, client.is_none(), OfflineContext::Scripts) {
-            // Still show the editor even when offline — user can edit and save locally
-        }
+        offline_notice(ui, !has_client, OfflineContext::Scripts);
 
         ui.separator();
 
@@ -266,33 +231,20 @@ impl ScriptEditorPanel {
             self.dirty = true;
         }
 
-        // Dispatch pending actions (after UI rendering to satisfy borrow checker)
-        if pending_run {
-            if let (Some(client), Some(runtime)) = (client, runtime) {
+        // Dispatch pending actions after UI rendering
+        if let (Some(client), Some(runtime)) = (client, runtime) {
+            if pending_run {
                 self.run_script(client, runtime);
+            } else if pending_stop {
+                self.stop_script(client, runtime);
             }
-        } else if pending_start {
-            // We need client+runtime for auto-start, but client was potentially
-            // moved by pending_run. This branch only fires when pending_run is false.
-            // Re-check client availability via the original Option.
-            //
-            // Since pending_run is false, `client` was not consumed above.
-            // However, the borrow checker sees the move in the if-let above.
-            // Work around by using a separate flag and handling below.
-            //
-            // Actually, pending_run and pending_start are mutually exclusive:
-            // pending_start requires script_id.is_some() (set by upload callback)
-            // while pending_run clears execution state. So we're safe.
-        } else if pending_stop {
-            // Same issue — but pending_stop and pending_run are mutually exclusive
-            // because the UI only shows one of Run/Stop at a time.
         }
     }
 
-    /// Upload the current code and then auto-start execution.
+    /// Upload the current code and then start execution in one async task.
     fn run_script(&mut self, client: &mut DaqClient, runtime: &Runtime) {
-        // Reset execution state for a fresh run
-        self.execution = ExecutionState::default();
+        self.execution_id = None;
+        self.running = false;
         self.error = None;
 
         let code = self.code.clone();
@@ -317,14 +269,13 @@ impl ScriptEditorPanel {
 
         self.status = Some("Uploading script...".to_string());
 
-        // Upload, then auto-start in the callback chain
         let mut client = client.clone();
         let tx = self.action_tx.clone();
         self.action_in_flight = self.action_in_flight.saturating_add(1);
 
         runtime.spawn(async move {
             // Step 1: Upload
-            let upload_result = client
+            let script_id = match client
                 .upload_script(&name, &code, HashMap::new())
                 .await
                 .map_err(|e| e.to_string())
@@ -334,35 +285,32 @@ impl ScriptEditorPanel {
                     } else {
                         Err(resp.error_message)
                     }
-                });
-
-            let script_id = match upload_result {
+                }) {
                 Ok(id) => id,
                 Err(e) => {
-                    let _ = tx.send(ActionResult::Uploaded(Err(e))).await;
+                    let _ = tx
+                        .send(ActionResult::RunCompleted(Err(format!(
+                            "Upload failed: {e}"
+                        ))))
+                        .await;
                     return;
                 }
             };
 
-            // Notify upload succeeded
-            let _ = tx
-                .send(ActionResult::Uploaded(Ok(script_id.clone())))
-                .await;
-
-            // Step 2: Start immediately
-            let start_result = client
+            // Step 2: Start execution
+            let result = client
                 .start_script(&script_id, HashMap::new())
                 .await
                 .map(|resp| resp.execution_id)
-                .map_err(|e| e.to_string());
+                .map_err(|e| format!("Start failed: {e}"));
 
-            let _ = tx.send(ActionResult::Started(start_result)).await;
+            let _ = tx.send(ActionResult::RunCompleted(result)).await;
         });
     }
 
     /// Stop the currently running execution.
     fn stop_script(&mut self, client: &mut DaqClient, runtime: &Runtime) {
-        let Some(execution_id) = self.execution.execution_id.clone() else {
+        let Some(execution_id) = self.execution_id.clone() else {
             self.error = Some("No execution to stop".to_string());
             return;
         };
@@ -381,7 +329,7 @@ impl ScriptEditorPanel {
                 .map(|resp| resp.message)
                 .map_err(|e| e.to_string());
 
-            let _ = tx.send(ActionResult::Stopped(result)).await;
+            let _ = tx.send(ActionResult::StopCompleted(result)).await;
         });
     }
 
