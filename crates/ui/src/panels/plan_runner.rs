@@ -8,6 +8,7 @@
 use crate::runtime::Runtime;
 use client::DaqClient;
 use eframe::egui;
+use protocol::daq::EngineState;
 use tokio::sync::mpsc;
 
 /// Result of an async action
