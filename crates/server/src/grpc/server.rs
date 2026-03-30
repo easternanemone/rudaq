@@ -311,15 +311,18 @@ impl DaqServer {
 
                     match encode_measurement_frame(&measurement) {
                         Ok(frame) => {
-                            if let Err(e) = rb.write(&frame) {
+                            let rb = rb.clone();
+                            // Offload blocking mmap write to avoid stalling Tokio
+                            // workers under contention (bd-tvp6).
+                            if let Err(e) = tokio::task::spawn_blocking(move || rb.write(&frame))
+                                .await
+                                .expect("ring buffer write task panicked")
+                            {
                                 tracing::error!(error = %e, "Failed to write measurement to ring buffer");
                             }
                         }
                         Err(e) => tracing::error!(error = %e, "Failed to encode measurement frame"),
                     }
-
-                    // Yield to allow other tasks to run
-                    tokio::task::yield_now().await;
                 }
             });
         }
