@@ -350,6 +350,11 @@ impl PlanRunnerPanel {
             // Plan type selector
             ui.horizontal(|ui| {
                 ui.label("Plan Type:");
+                let prev = match self.selected_plan_type {
+                    PlanType::Count => 0,
+                    PlanType::LineScan => 1,
+                    PlanType::GridScan => 2,
+                };
                 ui.selectable_value(&mut self.selected_plan_type, PlanType::Count, "Count");
                 ui.selectable_value(
                     &mut self.selected_plan_type,
@@ -361,85 +366,104 @@ impl PlanRunnerPanel {
                     PlanType::GridScan,
                     "Grid Scan",
                 );
+                let now = match self.selected_plan_type {
+                    PlanType::Count => 0,
+                    PlanType::LineScan => 1,
+                    PlanType::GridScan => 2,
+                };
+                if prev != now {
+                    self.validation_dirty = true;
+                }
             });
 
             ui.add_space(8.0);
+
+            // Helper: render a text field and mark validation dirty on change
+            fn text_field(ui: &mut egui::Ui, value: &mut String, dirty: &mut bool) {
+                let r = ui.text_edit_singleline(value);
+                if r.changed() {
+                    *dirty = true;
+                }
+            }
 
             // Parameters based on plan type
             match self.selected_plan_type {
                 PlanType::Count => {
                     ui.horizontal(|ui| {
                         ui.label("Number of Points:");
-                        ui.text_edit_singleline(&mut self.num_points);
+                        text_field(ui, &mut self.num_points, &mut self.validation_dirty);
                     });
 
                     ui.horizontal(|ui| {
                         ui.label("Detector:");
-                        ui.text_edit_singleline(&mut self.detector_name);
+                        text_field(ui, &mut self.detector_name, &mut self.validation_dirty);
                     });
                 }
                 PlanType::LineScan => {
                     ui.horizontal(|ui| {
                         ui.label("Motor:");
-                        ui.text_edit_singleline(&mut self.motor_name);
+                        text_field(ui, &mut self.motor_name, &mut self.validation_dirty);
                     });
 
                     ui.horizontal(|ui| {
                         ui.label("Start:");
-                        ui.text_edit_singleline(&mut self.start_pos);
+                        text_field(ui, &mut self.start_pos, &mut self.validation_dirty);
                         ui.label("End:");
-                        ui.text_edit_singleline(&mut self.end_pos);
+                        text_field(ui, &mut self.end_pos, &mut self.validation_dirty);
                         ui.label("Points:");
-                        ui.text_edit_singleline(&mut self.num_points);
+                        text_field(ui, &mut self.num_points, &mut self.validation_dirty);
                     });
 
                     ui.horizontal(|ui| {
                         ui.label("Detector:");
-                        ui.text_edit_singleline(&mut self.detector_name);
+                        text_field(ui, &mut self.detector_name, &mut self.validation_dirty);
                     });
                 }
                 PlanType::GridScan => {
                     ui.label(egui::RichText::new("X Axis (fast)").strong());
                     ui.horizontal(|ui| {
                         ui.label("Motor:");
-                        ui.text_edit_singleline(&mut self.grid_x_motor);
+                        text_field(ui, &mut self.grid_x_motor, &mut self.validation_dirty);
                     });
                     ui.horizontal(|ui| {
                         ui.label("Start:");
-                        ui.text_edit_singleline(&mut self.grid_x_start);
+                        text_field(ui, &mut self.grid_x_start, &mut self.validation_dirty);
                         ui.label("End:");
-                        ui.text_edit_singleline(&mut self.grid_x_end);
+                        text_field(ui, &mut self.grid_x_end, &mut self.validation_dirty);
                         ui.label("Points:");
-                        ui.text_edit_singleline(&mut self.grid_x_points);
+                        text_field(ui, &mut self.grid_x_points, &mut self.validation_dirty);
                     });
 
                     ui.add_space(4.0);
                     ui.label(egui::RichText::new("Y Axis (slow)").strong());
                     ui.horizontal(|ui| {
                         ui.label("Motor:");
-                        ui.text_edit_singleline(&mut self.grid_y_motor);
+                        text_field(ui, &mut self.grid_y_motor, &mut self.validation_dirty);
                     });
                     ui.horizontal(|ui| {
                         ui.label("Start:");
-                        ui.text_edit_singleline(&mut self.grid_y_start);
+                        text_field(ui, &mut self.grid_y_start, &mut self.validation_dirty);
                         ui.label("End:");
-                        ui.text_edit_singleline(&mut self.grid_y_end);
+                        text_field(ui, &mut self.grid_y_end, &mut self.validation_dirty);
                         ui.label("Points:");
-                        ui.text_edit_singleline(&mut self.grid_y_points);
+                        text_field(ui, &mut self.grid_y_points, &mut self.validation_dirty);
                     });
 
                     ui.add_space(4.0);
                     ui.horizontal(|ui| {
                         ui.label("Detector:");
-                        ui.text_edit_singleline(&mut self.grid_detector);
+                        text_field(ui, &mut self.grid_detector, &mut self.validation_dirty);
                     });
                 }
             }
 
             ui.add_space(8.0);
 
-            // Validate parameters before showing the Queue button
-            self.validation_errors = self.validate_plan_parameters();
+            // Validate parameters only when inputs have changed
+            if self.validation_dirty {
+                self.validation_errors = self.validate_plan_parameters();
+                self.validation_dirty = false;
+            }
 
             // Show validation errors
             for err in &self.validation_errors {
