@@ -97,6 +97,7 @@ impl ScriptEditorPanel {
                         ActionResult::RunCompleted(Err(e)) => {
                             self.error = Some(e);
                             self.running = false;
+                            self.status = None;
                         }
                         ActionResult::StopCompleted(Ok(msg)) => {
                             self.running = false;
