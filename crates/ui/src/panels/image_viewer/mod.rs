@@ -275,6 +275,18 @@ pub struct ImageViewerPanel {
     // -- Scale Bar Overlay (bd-0tcg) --
     /// Show scale bar overlay on the image
     pub(super) show_scale_bar: bool,
+    /// Active interactive measurement tool
+    pub(in crate::panels::image_viewer) measurement_tool: MeasurementTool,
+    /// Persistent line measurements in image-pixel coordinates
+    pub(in crate::panels::image_viewer) line_measurements: Vec<LineMeasurement>,
+    /// Persistent angle measurements in image-pixel coordinates
+    pub(in crate::panels::image_viewer) angle_measurements: Vec<AngleMeasurement>,
+    /// In-progress drag origin for line measurements
+    pub(in crate::panels::image_viewer) line_measurement_start: Option<MeasurementPoint>,
+    /// In-progress drag endpoint for line measurements
+    pub(in crate::panels::image_viewer) line_measurement_current: Option<MeasurementPoint>,
+    /// In-progress click sequence for angle measurements
+    pub(in crate::panels::image_viewer) angle_measurement_points: Vec<MeasurementPoint>,
     /// Last frame timestamp in nanoseconds (for overlay display)
     pub(super) last_frame_timestamp_ns: u64,
 
@@ -450,6 +462,12 @@ impl Default for ImageViewerPanel {
 
             // Scale bar overlay (bd-0tcg)
             show_scale_bar: false,
+            measurement_tool: MeasurementTool::None,
+            line_measurements: Vec::new(),
+            angle_measurements: Vec::new(),
+            line_measurement_start: None,
+            line_measurement_current: None,
+            angle_measurement_points: Vec::new(),
             last_frame_timestamp_ns: 0,
 
             echelle_profile_cache: EchelleProfileCache::default(),
@@ -489,6 +507,16 @@ impl ImageViewerPanel {
     /// Create a new image viewer panel
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub(super) fn clear_measurement_interaction_state(&mut self) {
+        self.line_measurement_start = None;
+        self.line_measurement_current = None;
+        self.angle_measurement_points.clear();
+    }
+
+    pub(super) fn has_measurements(&self) -> bool {
+        !self.line_measurements.is_empty() || !self.angle_measurements.is_empty()
     }
 
     /// Set the echelle calibration profile path used for extraction preview features.
