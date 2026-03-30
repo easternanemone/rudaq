@@ -530,8 +530,17 @@ impl PlanRunnerPanel {
 
         ui.add_space(12.0);
 
-        // TODO(bd-wev5): poll get_engine_status for live status updates
-        // TODO(bd-wev5): validate plan parameters before queueing
+        // Poll engine status every 2 seconds when connected
+        if client.is_some() {
+            let should_poll = match self.last_status_poll {
+                Some(last) => last.elapsed() > std::time::Duration::from_secs(2),
+                None => true,
+            };
+            if should_poll && self.pending_action.is_none() {
+                self.pending_action = Some(PendingAction::PollStatus);
+                self.last_status_poll = Some(std::time::Instant::now());
+            }
+        }
 
         // Execute pending action
         if let Some(action) = self.pending_action.take() {
