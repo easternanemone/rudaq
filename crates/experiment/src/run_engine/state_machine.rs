@@ -62,7 +62,9 @@ impl FrameObserver for ExperimentFrameObserver {
         // bd-p6r4: Collect driver-specific extra metadata plus core FrameView fields
         // that aren't captured as typed fields on FrameCapture.
         let metadata = {
-            let mut md = frame.extra.clone();
+            // Pre-allocate: extra entries + up to 5 core fields (timestamp, exposure, binning x/y, temp)
+            let mut md = HashMap::with_capacity(frame.extra.len() + 5);
+            md.extend(frame.extra.iter().map(|(k, v)| (k.clone(), v.clone())));
             md.insert("timestamp_ns".into(), frame.timestamp_ns.to_string());
             if let Some(exp) = frame.exposure_ms {
                 md.insert("exposure_ms".into(), exp.to_string());
