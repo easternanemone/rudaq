@@ -220,7 +220,7 @@ impl ExperimentDesignerPanel {
             ui.separator();
 
             // Show editor (safe borrow after button logic)
-            editor.ui(ui);
+            editor.ui(ui, client, runtime);
 
             // Handle return to graph mode
             if return_to_graph {
