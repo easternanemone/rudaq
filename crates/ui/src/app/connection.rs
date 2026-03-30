@@ -342,7 +342,7 @@ impl DaqApp {
         }
         #[cfg(target_arch = "wasm32")]
         {
-            self.wasm_connection.url_input.clone()
+            self.wasm_connection.url_input.trim().to_string()
         }
     }
 
