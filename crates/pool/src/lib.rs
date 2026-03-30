@@ -106,6 +106,11 @@ pub use foreign_view::ForeignView;
 // Re-export frame data type for use by drivers
 pub use frame_data::FrameData;
 
+/// Type alias for pooled frame data used by the `FrameProducer` trait.
+///
+/// Re-exported by `common::capabilities` for convenience.
+pub type LoanedFrame = Loaned<FrameData>;
+
 use crossbeam_queue::SegQueue;
 use parking_lot::RwLock;
 use std::cell::UnsafeCell;

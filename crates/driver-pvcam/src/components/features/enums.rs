@@ -171,6 +171,28 @@ impl CentroidsMode {
             CentroidsMode::Blob => 2,
         }
     }
+
+    #[allow(clippy::should_implement_trait)]
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "Locate" => Self::Locate,
+            "Track" => Self::Track,
+            "Blob" => Self::Blob,
+            _ => Self::Locate,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Locate => "Locate",
+            Self::Track => "Track",
+            Self::Blob => "Blob",
+        }
+    }
+
+    pub fn all_choices() -> Vec<String> {
+        vec!["Locate".into(), "Track".into(), "Blob".into()]
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -546,6 +568,32 @@ impl ExposureResolution {
             ExposureResolution::Seconds => 2,
         }
     }
+
+    #[allow(clippy::should_implement_trait)]
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "Milliseconds" => Self::Milliseconds,
+            "Microseconds" => Self::Microseconds,
+            "Seconds" => Self::Seconds,
+            _ => Self::Milliseconds,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Milliseconds => "Milliseconds",
+            Self::Microseconds => "Microseconds",
+            Self::Seconds => "Seconds",
+        }
+    }
+
+    pub fn all_choices() -> Vec<String> {
+        vec![
+            "Milliseconds".into(),
+            "Microseconds".into(),
+            "Seconds".into(),
+        ]
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -700,10 +748,15 @@ impl ExposeOutMode {
     pub fn from_str(s: &str) -> Self {
         match s {
             "FirstRow" => ExposeOutMode::FirstRow,
+            "First Row" => ExposeOutMode::FirstRow,
             "AllRows" => ExposeOutMode::AllRows,
+            "All Rows" => ExposeOutMode::AllRows,
             "AnyRow" => ExposeOutMode::AnyRow,
+            "Any Row" => ExposeOutMode::AnyRow,
             "RollingShutter" => ExposeOutMode::RollingShutter,
+            "Rolling Shutter" => ExposeOutMode::RollingShutter,
             "LineOutput" => ExposeOutMode::LineOutput,
+            "Line Output" => ExposeOutMode::LineOutput,
             _ => ExposeOutMode::FirstRow,
         }
     }

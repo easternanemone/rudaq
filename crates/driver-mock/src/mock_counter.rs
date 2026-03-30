@@ -3,14 +3,15 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use common::capabilities::{
-    CounterConfig, CounterConfigurable, CounterEdge, CounterMode, Readable, Settable,
+    CounterConfig, CounterConfigurable, CounterEdge, CounterMode, Parameterized, Readable, Settable,
 };
 use common::driver::{Capability, DeviceComponents, DeviceMetadata, DriverFactory};
+use common::observable::ParameterSet;
+use common::parameter::Parameter;
 use futures::future::BoxFuture;
 use serde::Deserialize;
 use serde_json::Value;
 use std::sync::Arc;
-use tokio::sync::RwLock;
 
 // =============================================================================
 // MockCounterFactory - DriverFactory implementation
@@ -31,6 +32,7 @@ static MOCK_COUNTER_CAPABILITIES: &[Capability] = &[
     Capability::Readable,
     Capability::Settable,
     Capability::CounterConfigurable,
+    Capability::Parameterized,
 ];
 
 impl DriverFactory for MockCounterFactory {
@@ -58,7 +60,8 @@ impl DriverFactory for MockCounterFactory {
             Ok(DeviceComponents {
                 readable: Some(counter.clone()),
                 settable: Some(counter.clone()),
-                counter_configurable: Some(counter),
+                counter_configurable: Some(counter.clone()),
+                parameterized: Some(counter),
                 metadata: DeviceMetadata {
                     panel_kind: Some(common::panel_kind::COMEDI.to_string()),
                     ..Default::default()
@@ -75,31 +78,44 @@ impl DriverFactory for MockCounterFactory {
 
 /// A simulated counter/timer device.
 ///
-/// Stores a count value and counter configuration in memory.
-/// Useful for testing counter-related workflows without hardware.
-// TODO(bd-wev5): Migrate `value` and `config` from raw `RwLock<T>` to
-// `Parameter<T>` for reactive state management, hardware-callback
-// consistency, and subscriber notifications. This is a non-trivial
-// refactor because `Parameter<T>` requires `BoxFuture` callbacks and
-// the current mock has no async side-effects to drive.
+/// Stores a count value and counter configuration as `Parameter<T>` for
+/// reactive state management and subscriber notifications.
 pub struct MockCounter {
     channel: u32,
-    value: RwLock<u32>,
-    config: RwLock<CounterConfig>,
+    value: Parameter<u32>,
+    config: Parameter<CounterConfig>,
+    params: ParameterSet,
 }
 
 impl MockCounter {
     /// Create a new mock counter for the given channel.
     pub fn new(channel: u32) -> Self {
-        Self {
-            channel,
-            value: RwLock::new(0),
-            config: RwLock::new(CounterConfig {
+        let mut params = ParameterSet::new();
+
+        let value = Parameter::new("value", 0u32)
+            .with_description("Counter value")
+            .with_dtype("int");
+
+        let config = Parameter::new(
+            "config",
+            CounterConfig {
                 mode: CounterMode::EventCounting,
                 edge: CounterEdge::Rising,
                 gate_source: None,
                 clock_source: None,
-            }),
+            },
+        )
+        .with_description("Counter configuration")
+        .read_only();
+
+        params.register(value.clone());
+        params.register(config.clone());
+
+        Self {
+            channel,
+            value,
+            config,
+            params,
         }
     }
 
@@ -109,10 +125,16 @@ impl MockCounter {
     }
 }
 
+impl Parameterized for MockCounter {
+    fn parameters(&self) -> &ParameterSet {
+        &self.params
+    }
+}
+
 #[async_trait]
 impl Readable for MockCounter {
     async fn read(&self) -> Result<f64> {
-        Ok(f64::from(*self.value.read().await))
+        Ok(f64::from(self.value.get()))
     }
 }
 
@@ -121,16 +143,15 @@ impl Settable for MockCounter {
     async fn set_value(&self, name: &str, value: Value) -> Result<()> {
         match name {
             "value" | "count" => {
-                #[allow(clippy::cast_possible_truncation)]
                 let v = value
                     .as_u64()
-                    .ok_or_else(|| anyhow::anyhow!("count must be an unsigned integer"))?
-                    as u32;
-                *self.value.write().await = v;
+                    .ok_or_else(|| anyhow::anyhow!("count must be an unsigned integer"))?;
+                let v = u32::try_from(v).map_err(|_| anyhow::anyhow!("value out of u32 range"))?;
+                self.value.set(v).await?;
                 Ok(())
             }
             "reset" | "reset_all" => {
-                *self.value.write().await = 0;
+                self.value.set(0).await?;
                 Ok(())
             }
             _ => anyhow::bail!("Unknown parameter: {name}"),
@@ -139,7 +160,7 @@ impl Settable for MockCounter {
 
     async fn get_value(&self, name: &str) -> Result<Value> {
         match name {
-            "value" | "count" => Ok(Value::from(*self.value.read().await)),
+            "value" | "count" => Ok(Value::from(self.value.get())),
             "maxdata" => Ok(Value::from(u64::from(u32::MAX))),
             "bit_width" => Ok(Value::from(32)),
             "n_channels" => Ok(Value::from(1)),
@@ -151,12 +172,12 @@ impl Settable for MockCounter {
 #[async_trait]
 impl CounterConfigurable for MockCounter {
     async fn configure_counter(&self, config: CounterConfig) -> Result<()> {
-        *self.config.write().await = config;
+        self.config.set_from_hardware(config).await?;
         Ok(())
     }
 
     async fn get_counter_config(&self) -> Result<CounterConfig> {
-        Ok(self.config.read().await.clone())
+        Ok(self.config.get())
     }
 }
 
@@ -242,5 +263,16 @@ mod tests {
         assert!(caps.contains(&Capability::Readable));
         assert!(caps.contains(&Capability::Settable));
         assert!(caps.contains(&Capability::CounterConfigurable));
+        assert!(caps.contains(&Capability::Parameterized));
+    }
+
+    #[tokio::test]
+    async fn test_mock_counter_parameterized() {
+        let counter = MockCounter::new(0);
+
+        // Parameters should be accessible via Parameterized trait
+        let params = counter.parameters();
+        assert!(params.get("value").is_some());
+        assert!(params.get("config").is_some());
     }
 }

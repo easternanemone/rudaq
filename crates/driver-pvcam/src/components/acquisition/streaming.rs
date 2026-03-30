@@ -50,6 +50,7 @@ impl PvcamAcquisition {
         host_summing_count: Parameter<u32>,        // bd-oqo7.7
         smart_stream_enabled: Parameter<bool>,     // bd-oqo7.1
         smart_stream_exposures: Parameter<String>, // bd-oqo7.1
+        prime_locate_enabled: Parameter<bool>,     // bd-ldjy.4
     ) -> Result<()> {
         tracing::info!(
             "start_stream: roi=({},{} {}x{}), binning=({},{}), exposure={:.1}ms, mode={}",
@@ -70,6 +71,7 @@ impl PvcamAcquisition {
         let _ = &host_summing_count;
         let _ = &smart_stream_enabled;
         let _ = &smart_stream_exposures;
+        let _ = &prime_locate_enabled;
         if self.streaming.get() {
             tracing::warn!("start_stream: already streaming");
             bail!("Already streaming");
@@ -127,6 +129,7 @@ impl PvcamAcquisition {
             // SMART Streaming lets the FPGA cycle through pre-programmed exposures,
             // eliminating host communication latency between exposure changes.
             let use_smart_stream = smart_stream_enabled.get();
+            let use_prime_locate = prime_locate_enabled.get();
             let smart_exposures: Vec<u32> = if use_smart_stream {
                 let json_str = smart_stream_exposures.get();
                 match serde_json::from_str(&json_str) {
@@ -319,8 +322,12 @@ impl PvcamAcquisition {
             // after unlock, causing a data race on frame_ptr. Until the frame loop
             // is restructured to copy-then-unlock, CIRC_OVERWRITE is unsafe.
             //
-            // TODO(bd-wev5): Restructure frame loop to copy data before unlock,
-            // then re-enable CIRC_OVERWRITE for better throughput.
+            // The current unlock-before-copy pattern is safe ONLY in CIRC_NO_OVERWRITE
+            // mode: the SDK won't reuse a buffer slot until all 20 slots are filled,
+            // so frame_ptr remains valid for the copy that follows. Restructuring
+            // to copy-then-unlock would allow re-enabling CIRC_OVERWRITE for ~10-15%
+            // higher throughput, but risks subtle regressions in the frame pipeline.
+            // Deferring until profiling shows CIRC_NO_OVERWRITE is the bottleneck.
             let mut circ_overwrite = false;
             if matches!(buffer_mode.as_str(), "Overwrite") {
                 tracing::warn!(
@@ -943,6 +950,7 @@ impl PvcamAcquisition {
                     host_summing_enabled, // bd-oqo7.7
                     host_summing_count, // bd-oqo7.7
                     smart_stream_count, // bd-oqo7.1: SMART Streaming exposure cycle length
+                    use_prime_locate,   // bd-ldjy.4: PrimeLocate event-buffer metadata bridge
                 );
             });
 
@@ -1029,6 +1037,13 @@ impl PvcamAcquisition {
         // Single-frame acquisition doesn't use SMART streaming; pass disabled defaults.
         let smart_disabled = Parameter::new("_single_frame_smart_disabled", false);
         let smart_empty = Parameter::new("_single_frame_smart_exposures", "[]".to_string());
+        #[cfg(feature = "pvcam_sdk")]
+        let prime_locate_enabled = Parameter::new(
+            "_single_frame_prime_locate",
+            PvcamFeatures::get_prime_locate_enabled(conn).unwrap_or(false),
+        );
+        #[cfg(not(feature = "pvcam_sdk"))]
+        let prime_locate_enabled = Parameter::new("_single_frame_prime_locate", false);
         self.start_stream(
             conn,
             roi,
@@ -1039,6 +1054,7 @@ impl PvcamAcquisition {
             host_summing_count,
             smart_disabled,
             smart_empty,
+            prime_locate_enabled,
         )
         .await?;
 

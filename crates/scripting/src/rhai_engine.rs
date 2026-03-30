@@ -250,8 +250,7 @@ impl RhaiEngine {
         // Register hardware bindings
         crate::bindings::register_hardware(&mut engine);
 
-        // Register LIBS hardware bindings (Andor iStar, Shamrock, Dover stage)
-        #[cfg(feature = "libs_scripting")]
+        // Register LIBS hardware bindings (gated camera, spectrograph, TOP stage)
         crate::libs_bindings::register_libs_hardware(&mut engine);
 
         // Register plan bindings
@@ -375,8 +374,7 @@ impl RhaiEngine {
         // Register hardware bindings
         crate::bindings::register_hardware(&mut engine);
 
-        // Register LIBS hardware bindings (Andor iStar, Shamrock, Dover stage)
-        #[cfg(feature = "libs_scripting")]
+        // Register LIBS hardware bindings (gated camera, spectrograph, TOP stage)
         crate::libs_bindings::register_libs_hardware(&mut engine);
 
         // Register plan bindings (bd-w14j.1)

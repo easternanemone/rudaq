@@ -19,7 +19,6 @@
 pub mod bindings;
 pub mod comedi_bindings;
 pub mod coordinator_bindings;
-#[cfg(feature = "libs_scripting")]
 pub mod libs_bindings;
 pub mod path_security;
 pub mod plan_bindings;
@@ -42,7 +41,6 @@ pub use comedi_bindings::{
     register_comedi_hardware, AnalogInput, AnalogInputHandle, AnalogOutput, AnalogOutputHandle,
     Counter, CounterHandle, DigitalIO, DigitalIOHandle,
 };
-#[cfg(feature = "libs_scripting")]
 pub use libs_bindings::{
     register_libs_hardware, CalibratorHandle, DoverAxisHandle, GatedCameraHandle, ScanController,
     SpectrographHandle,

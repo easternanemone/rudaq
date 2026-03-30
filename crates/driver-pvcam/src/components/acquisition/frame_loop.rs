@@ -12,6 +12,8 @@ use super::TapRegistry;
 #[cfg(feature = "pvcam_sdk")]
 use super::{get_pvcam_error, CallbackContext, FrameMetadata};
 #[cfg(feature = "pvcam_sdk")]
+use crate::components::features::PvcamFeatures;
+#[cfg(feature = "pvcam_sdk")]
 use bytes::Bytes;
 #[cfg(feature = "pvcam_sdk")]
 use common::data::Frame;
@@ -322,6 +324,7 @@ impl PvcamAcquisition {
         host_summing_enabled: Parameter<bool>, // bd-oqo7.7
         host_summing_count: Parameter<u32>, // bd-oqo7.7
         smart_stream_count: usize, // bd-oqo7.1: SMART Streaming exposure cycle length
+        use_prime_locate: bool,  // bd-ldjy.4: PrimeLocate emits event records, not pixels
     ) {
         let loop_span = tracing::debug_span!(
             "pvcam_frame_loop",
@@ -336,7 +339,8 @@ impl PvcamAcquisition {
             roi_y,
             bin_x = binning.0,
             bin_y = binning.1,
-            metadata = use_metadata
+            metadata = use_metadata,
+            prime_locate = use_prime_locate
         );
         let _enter = loop_span.enter();
 
@@ -968,8 +972,14 @@ impl PvcamAcquisition {
                                     );
                                 }
                             }
-                            // TODO(bd-wev5): Pass roi_data to downstream consumers
-                            // when multi-ROI Frame output format is defined.
+                            // Multi-ROI passthrough is blocked on a Frame format
+                            // extension: the current Frame struct carries a single
+                            // contiguous pixel buffer (width x height) and has no
+                            // field for per-ROI sub-regions. When Frame gains a
+                            // `roi_regions: Vec<RoiRegion>` field (or similar),
+                            // wire `roi_data` through here. Until then, the
+                            // single-ROI primary pixel copy above is sufficient
+                            // for all current consumers.
                         }
                         Err(e) => {
                             tracing::warn!("Failed to extract multi-ROI data: {} (bd-0o6b)", e);
@@ -1202,6 +1212,16 @@ impl PvcamAcquisition {
                             let readout_ns =
                                 md.timestamp_eof_ns - md.timestamp_bof_ns - md.exposure_time_ns;
                             m.insert("readout_time_ns".into(), readout_ns.to_string());
+                        }
+                    }
+                    if use_prime_locate {
+                        m.insert("prime_locate_enabled".into(), "true".into());
+                        let events = PvcamFeatures::parse_localization_events(&frame.data);
+                        m.insert("localization_event_count".into(), events.len().to_string());
+                        if !events.is_empty() {
+                            if let Ok(json) = serde_json::to_string(&events) {
+                                m.insert("localization_events_json".into(), json);
+                            }
                         }
                     }
                     m

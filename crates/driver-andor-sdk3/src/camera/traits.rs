@@ -705,3 +705,52 @@ impl Commandable for AndorCamera {
         }
     }
 }
+
+#[async_trait]
+impl common::capabilities::GatedCamera for AndorCamera {
+    async fn set_gate_mode(&self, mode: &str) -> Result<()> {
+        self.set_gate_mode(mode).await
+    }
+
+    async fn set_trigger_mode(&self, mode: &str) -> Result<()> {
+        self.set_trigger_mode(mode).await
+    }
+
+    async fn set_ddg_timing(&self, delay_ps: u64, width_ps: u64) -> Result<()> {
+        self.set_ddg_output_delay(delay_ps).await?;
+        self.set_ddg_output_width(width_ps).await
+    }
+
+    async fn set_mcp_gain(&self, gain: u32) -> Result<()> {
+        self.set_mcp_gain(gain).await
+    }
+
+    async fn set_intelligate(&self, _enabled: bool) -> Result<()> {
+        anyhow::bail!("IntelliGate not yet implemented for Andor SDK3 cameras")
+    }
+
+    async fn get_temperature_status(&self) -> Result<common::capabilities::TemperatureStatus> {
+        let status = self.get_cooling_status().await?;
+        Ok(match status {
+            crate::types::CoolingStatus::Stabilised => {
+                common::capabilities::TemperatureStatus::Stabilized
+            }
+            crate::types::CoolingStatus::Stabilising => {
+                common::capabilities::TemperatureStatus::Cooling
+            }
+            _ => common::capabilities::TemperatureStatus::NotStabilized,
+        })
+    }
+
+    async fn get_temperature(&self) -> Result<f64> {
+        self.get_temperature().await
+    }
+
+    fn supports_ddg(&self) -> bool {
+        self.supports_ddg()
+    }
+
+    fn supports_mcp_gain(&self) -> bool {
+        self.supports_mcp_gain()
+    }
+}
