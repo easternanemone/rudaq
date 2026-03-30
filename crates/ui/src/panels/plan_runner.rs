@@ -453,7 +453,22 @@ impl PlanRunnerPanel {
                         "line_scan".to_string()
                     }
                     PlanType::GridScan => {
-                        // TODO(bd-wev5): add grid scan parameters to QueuePlan request
+                        parameters
+                            .insert("x_start".to_string(), self.grid_x_start.clone());
+                        parameters.insert("x_end".to_string(), self.grid_x_end.clone());
+                        parameters
+                            .insert("x_points".to_string(), self.grid_x_points.clone());
+                        parameters
+                            .insert("y_start".to_string(), self.grid_y_start.clone());
+                        parameters.insert("y_end".to_string(), self.grid_y_end.clone());
+                        parameters
+                            .insert("y_points".to_string(), self.grid_y_points.clone());
+                        device_mapping
+                            .insert("x_motor".to_string(), self.grid_x_motor.clone());
+                        device_mapping
+                            .insert("y_motor".to_string(), self.grid_y_motor.clone());
+                        device_mapping
+                            .insert("detector".to_string(), self.grid_detector.clone());
                         "grid_scan".to_string()
                     }
                 };
