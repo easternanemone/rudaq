@@ -24,24 +24,37 @@ use std::sync::{Arc, Mutex};
 use crate::document_sink::DocumentSink;
 
 /// HDF5 Writer for RunEngine Documents
+#[cfg_attr(not(feature = "storage_hdf5"), allow(dead_code))]
 pub struct DocumentWriter {
-    #[allow(dead_code)]
     base_path: PathBuf,
-    /// current active run (run_uid -> HDF5 file/group handle)
-    /// Using a simple implementation for now: one writer instance per run, or single active run
-    #[allow(dead_code)]
+    /// Current active run. The HDF5 file handle is held open for the
+    /// lifetime of the run to avoid repeated `open_rw()` syscall overhead.
+    /// The handle lives inside a `Mutex` — `hdf5::File` is `Send` but not
+    /// `Sync`, which is fine because only one `spawn_blocking` task accesses
+    /// it at a time. If the daemon crashes, the HDF5 library's Drop impl
+    /// will clean up the file descriptor.
     active_run: Arc<Mutex<Option<ActiveRun>>>,
 }
 
+#[cfg(feature = "storage_hdf5")]
+struct ActiveRun {
+    run_uid: String,
+    /// Retained for diagnostics/logging even though file handle is held open.
+    #[allow(dead_code)]
+    file_path: PathBuf,
+    file: hdf5::File,
+    descriptors: HashMap<String, DescriptorInfo>,
+}
+
+#[cfg(not(feature = "storage_hdf5"))]
 #[allow(dead_code)]
 struct ActiveRun {
     run_uid: String,
     file_path: PathBuf,
-    // descriptors: descriptor_uid -> (data_keys)
     descriptors: HashMap<String, DescriptorInfo>,
 }
 
-#[allow(dead_code)]
+#[cfg_attr(not(feature = "storage_hdf5"), allow(dead_code))]
 struct DescriptorInfo {
     stream_name: String,
     data_keys: HashMap<String, common::experiment::document::DataKey>,
@@ -95,6 +108,7 @@ impl DocumentWriter {
                     *guard = Some(ActiveRun {
                         run_uid: start.uid,
                         file_path,
+                        file,
                         descriptors: HashMap::new(),
                     });
                 }
@@ -104,8 +118,7 @@ impl DocumentWriter {
                             return Err(anyhow!("Descriptor run_uid mismatch"));
                         }
 
-                        use hdf5::File;
-                        let file = File::open_rw(&run.file_path)?;
+                        let file = &run.file;
 
                         // Create group for this descriptor
                         // Determine stream name (primary, baseline, etc)
@@ -168,8 +181,7 @@ impl DocumentWriter {
                 Document::Event(event) => {
                     if let Some(run) = guard.as_mut() {
                         if let Some(desc_info) = run.descriptors.get(&event.descriptor_uid) {
-                            use hdf5::File;
-                            let file = File::open_rw(&run.file_path)?;
+                            let file = &run.file;
 
                             // Look up the stream name from the descriptor (bd-jcrz)
                             let stream_name = &desc_info.stream_name;
@@ -269,12 +281,13 @@ impl DocumentWriter {
                 Document::Stop(stop) => {
                     if let Some(run) = guard.as_mut() {
                         if run.run_uid == stop.run_uid {
-                            use hdf5::File;
-                            let file = File::open_rw(&run.file_path)?;
+                            let file = &run.file;
                             let group = file.create_group("stop")?;
                             write_group_attr(&group, "exit_status", &stop.exit_status)?;
 
-                            // Clear active run
+                            // Flush HDF5 buffers before dropping the file handle
+                            run.file.flush()?;
+                            // Clear active run (file handle dropped here)
                             *guard = None;
                         }
                     }
@@ -285,8 +298,7 @@ impl DocumentWriter {
                             return Err(anyhow!("Manifest run_uid mismatch"));
                         }
 
-                        use hdf5::File;
-                        let file = File::open_rw(&run.file_path)?;
+                        let file = &run.file;
                         let group = file.create_group("manifest")?;
 
                         // Top-level scalar attributes
