@@ -33,6 +33,8 @@ use driver_pvcam::{
 };
 // Import feature functions
 use driver_pvcam::components::features::PvcamFeatures;
+// Import PP name matching utilities (bd-ldjy.1)
+use driver_pvcam::{normalize_pp_name, pp_name_contains, pp_name_matches};
 
 // =============================================================================
 // Unit Tests: Type Conversions (Mock Mode)
@@ -606,6 +608,50 @@ mod mock_features {
 
         let result = PvcamFeatures::set_pp_feature_enabled(&conn, 0, true);
         assert!(result.is_ok());
+    }
+
+    // =========================================================================
+    // PP Name Matching (bd-ldjy.1)
+    // =========================================================================
+
+    #[test]
+    fn pp_name_normalize_strips_separators() {
+        assert_eq!(normalize_pp_name("PrimeEnhance"), "primeenhance");
+        assert_eq!(normalize_pp_name("PRIME ENHANCE"), "primeenhance");
+        assert_eq!(normalize_pp_name("Prime_Enhance"), "primeenhance");
+        assert_eq!(normalize_pp_name("prime-enhance"), "primeenhance");
+        assert_eq!(normalize_pp_name("PRIME_ENHANCE"), "primeenhance");
+        assert_eq!(normalize_pp_name("Prime Locate"), "primelocate");
+    }
+
+    #[test]
+    fn pp_name_matches_all_variants() {
+        // PrimeEnhance variants
+        assert!(pp_name_matches("PrimeEnhance", "PrimeEnhance"));
+        assert!(pp_name_matches("PRIME ENHANCE", "PrimeEnhance"));
+        assert!(pp_name_matches("Prime_Enhance", "PrimeEnhance"));
+        assert!(pp_name_matches("prime-enhance", "PrimeEnhance"));
+        assert!(pp_name_matches("PRIME_ENHANCE", "PrimeEnhance"));
+        assert!(pp_name_matches("primeenhance", "PrimeEnhance"));
+
+        // PrimeLocate variants
+        assert!(pp_name_matches("PrimeLocate", "PrimeLocate"));
+        assert!(pp_name_matches("PRIME LOCATE", "PrimeLocate"));
+        assert!(pp_name_matches("Prime_Locate", "PrimeLocate"));
+
+        // Negative cases
+        assert!(!pp_name_matches("PrimeEnhance", "PrimeLocate"));
+        assert!(!pp_name_matches("Despeckle", "PrimeEnhance"));
+        assert!(!pp_name_matches("DENOISING", "PrimeLocate"));
+    }
+
+    #[test]
+    fn pp_name_contains_substring() {
+        assert!(pp_name_contains("PrimeEnhance", "enhance"));
+        assert!(pp_name_contains("PRIME ENHANCE", "enhance"));
+        assert!(pp_name_contains("PrimeLocate", "locate"));
+        assert!(pp_name_contains("PRIME LOCATE", "prime"));
+        assert!(!pp_name_contains("Despeckle", "enhance"));
     }
 
     #[test]

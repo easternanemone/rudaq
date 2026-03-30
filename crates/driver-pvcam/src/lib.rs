@@ -60,7 +60,9 @@ pub use crate::components::features::{
     SmartStreamEntry, SmartStreamMode, SpeedMode,
 };
 // Re-export feature functions for direct access
-pub use crate::components::features::PvcamFeatures;
+pub use crate::components::features::{
+    normalize_pp_name, pp_name_contains, pp_name_matches, PvcamFeatures,
+};
 
 use crate::components::acquisition::PvcamAcquisition;
 use crate::components::connection::PvcamConnection;
@@ -83,7 +85,7 @@ struct PvcamConfig {
 /// Registers as driver_type `"pvcam"` and builds `PvcamDriver` instances.
 pub struct PvcamFactory;
 
-const PVCAM_COMMAND_CATALOG: &[&str] = &["reset_pp", "upload_smart_stream"];
+const PVCAM_COMMAND_CATALOG: &[&str] = &["list_pp_features", "reset_pp", "upload_smart_stream"];
 
 impl DriverFactory for PvcamFactory {
     fn driver_type(&self) -> &'static str {
@@ -2590,6 +2592,38 @@ impl Commandable for PvcamDriver {
         let conn = self.connection.lock().await;
 
         match command {
+            "list_pp_features" => {
+                let features = PvcamFeatures::enumerate_pp_features(&conn)?;
+                let features_json: Vec<serde_json::Value> = features
+                    .iter()
+                    .map(|f| {
+                        let params_json: Vec<serde_json::Value> = f
+                            .params
+                            .iter()
+                            .map(|p| {
+                                serde_json::json!({
+                                    "index": p.index,
+                                    "id": p.id,
+                                    "name": p.name,
+                                    "value": p.value,
+                                    "min": p.min,
+                                    "max": p.max,
+                                })
+                            })
+                            .collect();
+                        serde_json::json!({
+                            "index": f.index,
+                            "id": f.id,
+                            "name": f.name,
+                            "params": params_json,
+                        })
+                    })
+                    .collect();
+                Ok(serde_json::json!({
+                    "features": features_json,
+                    "count": features.len(),
+                }))
+            }
             "reset_pp" => {
                 PvcamFeatures::reset_pp_features(&conn)?;
                 Ok(serde_json::json!({ "success": true }))
@@ -2658,7 +2692,11 @@ mod tests {
 
         assert_eq!(
             commands,
-            vec!["reset_pp".to_string(), "upload_smart_stream".to_string()]
+            vec![
+                "list_pp_features".to_string(),
+                "reset_pp".to_string(),
+                "upload_smart_stream".to_string(),
+            ]
         );
     }
 }
