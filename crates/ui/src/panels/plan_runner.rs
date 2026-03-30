@@ -103,6 +103,8 @@ pub struct PlanRunnerPanel {
     error: Option<String>,
     /// Validation errors for the current plan form
     validation_errors: Vec<String>,
+    /// Whether plan parameters have changed and need re-validation
+    validation_dirty: bool,
 
     /// Pending action
     pending_action: Option<PendingAction>,
