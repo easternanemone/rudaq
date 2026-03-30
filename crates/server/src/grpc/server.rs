@@ -1787,13 +1787,17 @@ pub async fn start_server_with_hardware(
                     log_data_integrity_fault(&source, fault);
                 }
 
-                if let Ok(frame) = encode_measurement_frame(&measurement)
-                    && let Err(e) = rb_clone.write(&frame)
-                {
-                    tracing::error!(error = %e, "Failed to write measurement to ring buffer");
+                if let Ok(frame) = encode_measurement_frame(&measurement) {
+                    let rb = rb_clone.clone();
+                    // Offload blocking mmap write to avoid stalling Tokio
+                    // workers under contention (bd-tvp6).
+                    if let Err(e) = tokio::task::spawn_blocking(move || rb.write(&frame))
+                        .await
+                        .expect("ring buffer write task panicked")
+                    {
+                        tracing::error!(error = %e, "Failed to write measurement to ring buffer");
+                    }
                 }
-                // Yield to allow other tasks to run
-                tokio::task::yield_now().await;
             }
         });
         Some(tx)
