@@ -446,22 +446,25 @@ impl ExperimentDesignerPanel {
 
             match response {
                 AdaptiveAlertResponse::Approved => {
-                    // Resume execution with approved action
-                    self.confirm_adaptive_action(client_clone.as_ref(), runtime);
-                    self.adaptive_alert = None;
-                    self.adaptive_alert_auto_proceed_at = None;
+                    // Resume execution with approved action; keep modal open on failure
+                    if self.confirm_adaptive_action(client_clone.as_ref(), runtime) {
+                        self.adaptive_alert = None;
+                        self.adaptive_alert_auto_proceed_at = None;
+                    }
                 }
                 AdaptiveAlertResponse::Cancelled => {
-                    // Cancel adaptive action and abort the plan
-                    self.cancel_adaptive_action(client_clone.as_ref(), runtime);
-                    self.adaptive_alert = None;
-                    self.adaptive_alert_auto_proceed_at = None;
+                    // Cancel adaptive action and abort the plan; keep modal open on failure
+                    if self.cancel_adaptive_action(client_clone.as_ref(), runtime) {
+                        self.adaptive_alert = None;
+                        self.adaptive_alert_auto_proceed_at = None;
+                    }
                 }
                 AdaptiveAlertResponse::Pending => {
                     // Check auto-proceed timeout for non-approval alerts
                     if let Some(auto_time) = self.adaptive_alert_auto_proceed_at {
-                        if crate::time::Instant::now() >= auto_time {
-                            self.confirm_adaptive_action(client_clone.as_ref(), runtime);
+                        if crate::time::Instant::now() >= auto_time
+                            && self.confirm_adaptive_action(client_clone.as_ref(), runtime)
+                        {
                             self.adaptive_alert = None;
                             self.adaptive_alert_auto_proceed_at = None;
                         }
