@@ -23,12 +23,12 @@ pub(super) struct MockSpectrometer {
 
 #[async_trait]
 impl SpectrometerControl for MockSpectrometer {
-    async fn set_grating(&self, _grating_num: u8) -> anyhow::Result<()> {
+    async fn set_grating(&self, _grating_num: i32) -> anyhow::Result<()> {
         Ok(())
     }
 
-    async fn get_grating(&self) -> anyhow::Result<u8> {
-        Ok(self.grating)
+    async fn get_grating(&self) -> anyhow::Result<i32> {
+        Ok(i32::from(self.grating))
     }
 
     async fn set_wavelength(&self, _nm: f64) -> anyhow::Result<()> {
@@ -39,7 +39,7 @@ impl SpectrometerControl for MockSpectrometer {
         Ok(self.wavelength_nm)
     }
 
-    async fn set_slit_width(&self, _slit_id: u8, _width_um: u16) -> anyhow::Result<()> {
+    async fn set_slit_width(&self, _slit_id: i32, _width_um: f64) -> anyhow::Result<()> {
         Ok(())
     }
 
