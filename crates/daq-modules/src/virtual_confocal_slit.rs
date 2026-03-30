@@ -488,9 +488,19 @@ impl Module for VirtualConfocalSlit {
         self.running.store(false, Ordering::SeqCst);
 
         if let Some(handle) = self.task_handle.take() {
-            tokio::time::timeout(Duration::from_secs(5), handle)
-                .await
-                .ok();
+            match tokio::time::timeout(Duration::from_secs(5), handle).await {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => {
+                    warn!("VirtualConfocalSlit task panicked: {}", e);
+                    self.state = ModuleState::Error;
+                    return Err(anyhow!("Acquisition task panicked: {}", e));
+                }
+                Err(_) => {
+                    warn!("VirtualConfocalSlit task did not stop within 5s");
+                    self.state = ModuleState::Error;
+                    return Err(anyhow!("Acquisition task shutdown timed out"));
+                }
+            }
         }
 
         self.state = ModuleState::Stopped;
