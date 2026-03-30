@@ -447,13 +447,13 @@ impl ExperimentDesignerPanel {
             match response {
                 AdaptiveAlertResponse::Approved => {
                     // Resume execution with approved action
-                    self.confirm_adaptive_action();
+                    self.confirm_adaptive_action(client_clone.as_ref(), runtime);
                     self.adaptive_alert = None;
                     self.adaptive_alert_auto_proceed_at = None;
                 }
                 AdaptiveAlertResponse::Cancelled => {
-                    // Cancel adaptive action and abort or continue
-                    self.cancel_adaptive_action();
+                    // Cancel adaptive action and abort the plan
+                    self.cancel_adaptive_action(client_clone.as_ref(), runtime);
                     self.adaptive_alert = None;
                     self.adaptive_alert_auto_proceed_at = None;
                 }
@@ -461,7 +461,7 @@ impl ExperimentDesignerPanel {
                     // Check auto-proceed timeout for non-approval alerts
                     if let Some(auto_time) = self.adaptive_alert_auto_proceed_at {
                         if crate::time::Instant::now() >= auto_time {
-                            self.confirm_adaptive_action();
+                            self.confirm_adaptive_action(client_clone.as_ref(), runtime);
                             self.adaptive_alert = None;
                             self.adaptive_alert_auto_proceed_at = None;
                         }
