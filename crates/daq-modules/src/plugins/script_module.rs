@@ -160,6 +160,11 @@ impl std::fmt::Debug for ScriptModule {
 }
 
 impl ScriptModule {
+    /// Access the extracted module type info.
+    pub(crate) fn type_info(&self) -> &ModuleTypeInfo {
+        &self.type_info
+    }
+
     /// Load a script module from a file path.
     ///
     /// This reads the script, initializes the engine, and extracts

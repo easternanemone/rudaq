@@ -8,6 +8,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Agents MUST NOT work directly on `main` in the primary checkout.** Always use a worktree or feature branch to avoid destroying concurrent work. Use `isolation: "worktree"` when spawning sub-agents, or `bd worktree create <name>` for manual work. Never squash-merge large changes directly onto main — use feature branches. See AGENTS.md "Worktree Isolation" section for full rules.
 
+## PR Policy
+
+**Multi-crate refactors and large changes MUST go through PRs**, not direct pushes to main:
+- **Requires PR**: >100 lines changed, >3 files, cross-crate changes, changes to foundational crates (`common`, `hardware`, `pool`, `protocol`)
+- **Direct push OK**: Single-crate fixes <100 lines, documentation-only, config changes, test-only changes
+- When in doubt, open a PR. Use `gh pr create` with a clear summary and test plan.
+
 ## Build / Test / Lint
 
 ```bash
@@ -216,7 +223,7 @@ Claude Code can directly interact with real DAQ hardware through the WASM GUI in
 | **maitai** | `maitai@100.117.5.12` | `http://100.117.5.12:50051` | 12 (PVCAM, Comedi, ELL14 x3, MaiTai, ESP300, Newport PM) |
 | **leabs-dev** | `ssh leabs-dev` | `http://100.109.21.118:50051` | 3 (Andor iStar, IPG YLPP-200, Thorlabs PM400) |
 
-WASM GUI: `http://100.117.5.12:8080` (maitai) or `http://100.109.21.118:8080` (leabs-dev, requires `--wasm-gui` deploy flag). Known reconnect bug (beefcake-48ad): must reload page to change daemon URL.
+WASM GUI: `http://100.117.5.12:8080` (maitai) or `http://100.109.21.118:8080` (leabs-dev, requires `--wasm-gui` deploy flag). Known reconnect bug (bd-0zu5): must reload page to change daemon URL.
 
 **WASM GUI build**: `trunk` (external CLI tool, not a Cargo dependency) is required. `deploy-leabs.sh --wasm-gui` installs a pre-built `trunk` binary to `/usr/local/bin` when missing. To build manually: `cd crates/ui && trunk build --release`, then serve `dist/` with `python3 -m http.server 8080`.
 
@@ -273,7 +280,7 @@ pub fn set_page_title(title: &str) {
 - Keep `web-sys` feature list minimal — each feature increases WASM binary size
 
 **Practical applications for rust-daq:**
-- **URL-based daemon selection**: `?daemon=http://100.117.5.12:50051` — fixes reconnect bug (beefcake-48ad) by allowing bookmarkable daemon URLs
+- **URL-based daemon selection**: `?daemon=http://100.117.5.12:50051` — fixes reconnect bug (bd-0zu5) by allowing bookmarkable daemon URLs
 - **Settings persistence**: Save last daemon URL, panel layout, calibration display preferences to `localStorage`
 - **Tab title**: Show "DAQ Panel — Connected (maitai)" or "DAQ Panel — DISCONNECTED" in browser tab
 

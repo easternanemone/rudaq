@@ -1134,6 +1134,48 @@ impl Parameterized for AndorSpectrograph {
     }
 }
 
+#[async_trait]
+impl common::capabilities::SpectrometerControl for AndorSpectrograph {
+    async fn set_grating(&self, grating_num: i32) -> anyhow::Result<()> {
+        AndorSpectrograph::set_grating(self, grating_num).await
+    }
+
+    async fn get_grating(&self) -> anyhow::Result<i32> {
+        AndorSpectrograph::get_grating(self).await
+    }
+
+    async fn set_wavelength(&self, nm: f64) -> anyhow::Result<()> {
+        use common::capabilities::WavelengthTunable;
+        WavelengthTunable::set_wavelength(self, nm).await
+    }
+
+    async fn get_wavelength(&self) -> anyhow::Result<f64> {
+        use common::capabilities::WavelengthTunable;
+        WavelengthTunable::get_wavelength(self).await
+    }
+
+    async fn set_slit_width(&self, slit_id: i32, width_um: f64) -> anyhow::Result<()> {
+        AndorSpectrograph::set_slit_width(self, slit_id, width_um).await
+    }
+
+    async fn get_calibration(&self, num_pixels: usize) -> anyhow::Result<Vec<f64>> {
+        #[allow(clippy::cast_possible_truncation)]
+        let cal = self.get_wavelength_calibration(num_pixels as u32).await?;
+        Ok(cal.wavelengths_nm)
+    }
+
+    async fn is_at_zero_order(&self) -> anyhow::Result<bool> {
+        // Zero-order: wavelength set to 0 nm
+        use common::capabilities::WavelengthTunable;
+        let wl = WavelengthTunable::get_wavelength(self).await?;
+        Ok(wl.abs() < f64::EPSILON)
+    }
+
+    async fn set_shutter(&self, _open: bool) -> anyhow::Result<()> {
+        anyhow::bail!("Shutter control not supported on Shamrock spectrographs")
+    }
+}
+
 impl Drop for AndorSpectrographInner {
     fn drop(&mut self) {
         #[cfg(feature = "spectrograph")]

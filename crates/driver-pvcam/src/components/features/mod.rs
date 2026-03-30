@@ -35,6 +35,52 @@ use std::ffi::CStr;
 
 pub struct PvcamFeatures;
 
+/// Normalize a PP feature name for matching: lowercase and strip spaces/underscores.
+///
+/// The PVCAM SDK may report feature names as "PrimeEnhance", "PRIME ENHANCE",
+/// "Prime_Enhance", etc. depending on firmware version and camera model.
+/// This normalizes to a canonical form for reliable comparison (bd-ldjy.1).
+pub fn normalize_pp_name(name: &str) -> String {
+    name.to_lowercase().replace([' ', '_', '-'], "")
+}
+
+/// Check if a PP feature name matches a target name, case-insensitive and
+/// tolerant of spaces, underscores, and hyphens (bd-ldjy.1).
+///
+/// # Examples
+/// All of these match "primeenhance":
+/// - "PrimeEnhance"
+/// - "PRIME ENHANCE"
+/// - "Prime_Enhance"
+/// - "prime-enhance"
+pub fn pp_name_matches(feature_name: &str, target: &str) -> bool {
+    normalize_pp_name(feature_name) == normalize_pp_name(target)
+}
+
+/// Check if a PP feature name contains a target substring, case-insensitive and
+/// tolerant of spaces, underscores, and hyphens (bd-ldjy.1).
+pub fn pp_name_contains(feature_name: &str, target: &str) -> bool {
+    normalize_pp_name(feature_name).contains(&normalize_pp_name(target))
+}
+
+/// Check if a PP feature name refers to PrimeEnhance (bd-ldjy.1).
+///
+/// The PVCAM SDK registers PrimeEnhance as `PP_FEATURE_DENOISING`, so cameras
+/// may report the feature name as "Denoising" rather than "PrimeEnhance".
+/// This helper checks both canonical names.
+pub fn is_prime_enhance_name(feature_name: &str) -> bool {
+    pp_name_matches(feature_name, "PrimeEnhance") || pp_name_contains(feature_name, "denoising")
+}
+
+/// Check if a PP feature name refers to PrimeLocate (bd-ldjy.1).
+///
+/// The PVCAM SDK registers PrimeLocate as `PP_FEATURE_LOCATE` / particle
+/// tracking, so cameras may report the feature name as "Locate" rather than
+/// "PrimeLocate".  This helper checks both canonical names.
+pub fn is_prime_locate_name(feature_name: &str) -> bool {
+    pp_name_matches(feature_name, "PrimeLocate") || pp_name_contains(feature_name, "locate")
+}
+
 impl PvcamFeatures {
     // =========================================================================
     // Parameter Availability Check (SDK Pattern - bd-ng5p)
@@ -1167,7 +1213,210 @@ impl PvcamFeatures {
             (0, "First Row".to_string()),
             (1, "All Rows".to_string()),
             (2, "Any Row".to_string()),
+            (3, "Rolling Shutter".to_string()),
+            (4, "Line Output".to_string()),
         ])
+    }
+
+    // =========================================================================
+    // Programmable Scan Mode (bd-ldjy.4)
+    // =========================================================================
+
+    /// Get programmable scan mode.
+    pub fn get_scan_mode(_conn: &PvcamConnection) -> Result<ScanMode> {
+        #[cfg(feature = "pvcam_sdk")]
+        if let Some(h) = _conn.handle() {
+            if !Self::is_param_available(h, PARAM_SCAN_MODE) {
+                return Err(anyhow!("PARAM_SCAN_MODE is not available on this camera"));
+            }
+            let mut value: i32 = 0;
+            // SAFETY: h is valid handle; value is writable i32 on stack.
+            unsafe {
+                if pl_get_param(
+                    h,
+                    PARAM_SCAN_MODE,
+                    ATTR_CURRENT,
+                    &mut value as *mut _ as *mut _,
+                ) == 0
+                {
+                    return Err(anyhow!("Failed to get scan mode: {}", get_pvcam_error()));
+                }
+            }
+            return ScanMode::from_pvcam(value)
+                .ok_or_else(|| anyhow!("Unknown scan mode value {}", value));
+        }
+        Ok(ScanMode::Auto)
+    }
+
+    /// Set programmable scan mode.
+    pub fn set_scan_mode(_conn: &PvcamConnection, _mode: ScanMode) -> Result<()> {
+        #[cfg(feature = "pvcam_sdk")]
+        if let Some(h) = _conn.handle() {
+            if !Self::is_param_available(h, PARAM_SCAN_MODE) {
+                return Err(anyhow!("PARAM_SCAN_MODE is not available on this camera"));
+            }
+            let value = _mode.to_pvcam();
+            // SAFETY: h is valid handle; value pointer valid for duration of call.
+            unsafe {
+                if pl_set_param(h, PARAM_SCAN_MODE, &value as *const _ as *mut _) == 0 {
+                    return Err(anyhow!("Failed to set scan mode: {}", get_pvcam_error()));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Get programmable scan direction.
+    pub fn get_scan_direction(_conn: &PvcamConnection) -> Result<ScanDirection> {
+        #[cfg(feature = "pvcam_sdk")]
+        if let Some(h) = _conn.handle() {
+            if !Self::is_param_available(h, PARAM_SCAN_DIRECTION) {
+                return Err(anyhow!(
+                    "PARAM_SCAN_DIRECTION is not available on this camera"
+                ));
+            }
+            let mut value: i32 = 0;
+            // SAFETY: h is valid handle; value is writable i32 on stack.
+            unsafe {
+                if pl_get_param(
+                    h,
+                    PARAM_SCAN_DIRECTION,
+                    ATTR_CURRENT,
+                    &mut value as *mut _ as *mut _,
+                ) == 0
+                {
+                    return Err(anyhow!(
+                        "Failed to get scan direction: {}",
+                        get_pvcam_error()
+                    ));
+                }
+            }
+            return ScanDirection::from_pvcam(value)
+                .ok_or_else(|| anyhow!("Unknown scan direction value {}", value));
+        }
+        Ok(ScanDirection::Down)
+    }
+
+    /// Set programmable scan direction.
+    pub fn set_scan_direction(_conn: &PvcamConnection, _direction: ScanDirection) -> Result<()> {
+        #[cfg(feature = "pvcam_sdk")]
+        if let Some(h) = _conn.handle() {
+            if !Self::is_param_available(h, PARAM_SCAN_DIRECTION) {
+                return Err(anyhow!(
+                    "PARAM_SCAN_DIRECTION is not available on this camera"
+                ));
+            }
+            let value = _direction.to_pvcam();
+            // SAFETY: h is valid handle; value pointer valid for duration of call.
+            unsafe {
+                if pl_set_param(h, PARAM_SCAN_DIRECTION, &value as *const _ as *mut _) == 0 {
+                    return Err(anyhow!(
+                        "Failed to set scan direction: {}",
+                        get_pvcam_error()
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Get programmable scan line delay.
+    pub fn get_scan_line_delay(_conn: &PvcamConnection) -> Result<u16> {
+        #[cfg(feature = "pvcam_sdk")]
+        if let Some(h) = _conn.handle() {
+            if !Self::is_param_available(h, PARAM_SCAN_LINE_DELAY) {
+                return Err(anyhow!(
+                    "PARAM_SCAN_LINE_DELAY is not available on this camera"
+                ));
+            }
+            return Self::get_u16_param_impl(h, PARAM_SCAN_LINE_DELAY)
+                .map_err(|e| anyhow!("Failed to get scan line delay: {}", e));
+        }
+        Ok(0)
+    }
+
+    /// Set programmable scan line delay.
+    pub fn set_scan_line_delay(_conn: &PvcamConnection, _line_delay: u16) -> Result<()> {
+        #[cfg(feature = "pvcam_sdk")]
+        if let Some(h) = _conn.handle() {
+            if !Self::is_param_available(h, PARAM_SCAN_LINE_DELAY) {
+                return Err(anyhow!(
+                    "PARAM_SCAN_LINE_DELAY is not available on this camera"
+                ));
+            }
+            let value: uns16 = _line_delay;
+            // SAFETY: h is valid handle; value pointer valid for duration of call.
+            unsafe {
+                if pl_set_param(h, PARAM_SCAN_LINE_DELAY, &value as *const _ as *mut _) == 0 {
+                    return Err(anyhow!(
+                        "Failed to set scan line delay: {}",
+                        get_pvcam_error()
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Get programmable scan line time in nanoseconds.
+    pub fn get_scan_line_time_ns(_conn: &PvcamConnection) -> Result<i64> {
+        #[cfg(feature = "pvcam_sdk")]
+        if let Some(h) = _conn.handle() {
+            if !Self::is_param_available(h, PARAM_SCAN_LINE_TIME) {
+                return Err(anyhow!(
+                    "PARAM_SCAN_LINE_TIME is not available on this camera"
+                ));
+            }
+            let mut value: i64 = 0;
+            // SAFETY: h is valid handle; value is writable i64 on stack.
+            unsafe {
+                if pl_get_param(
+                    h,
+                    PARAM_SCAN_LINE_TIME,
+                    ATTR_CURRENT,
+                    &mut value as *mut _ as *mut _,
+                ) == 0
+                {
+                    return Err(anyhow!(
+                        "Failed to get scan line time: {}",
+                        get_pvcam_error()
+                    ));
+                }
+            }
+            return Ok(value);
+        }
+        Ok(0)
+    }
+
+    /// Get programmable scan width.
+    pub fn get_scan_width(_conn: &PvcamConnection) -> Result<u16> {
+        #[cfg(feature = "pvcam_sdk")]
+        if let Some(h) = _conn.handle() {
+            if !Self::is_param_available(h, PARAM_SCAN_WIDTH) {
+                return Err(anyhow!("PARAM_SCAN_WIDTH is not available on this camera"));
+            }
+            return Self::get_u16_param_impl(h, PARAM_SCAN_WIDTH)
+                .map_err(|e| anyhow!("Failed to get scan width: {}", e));
+        }
+        Ok(0)
+    }
+
+    /// Set programmable scan width.
+    pub fn set_scan_width(_conn: &PvcamConnection, _width: u16) -> Result<()> {
+        #[cfg(feature = "pvcam_sdk")]
+        if let Some(h) = _conn.handle() {
+            if !Self::is_param_available(h, PARAM_SCAN_WIDTH) {
+                return Err(anyhow!("PARAM_SCAN_WIDTH is not available on this camera"));
+            }
+            let value: uns16 = _width;
+            // SAFETY: h is valid handle; value pointer valid for duration of call.
+            unsafe {
+                if pl_set_param(h, PARAM_SCAN_WIDTH, &value as *const _ as *mut _) == 0 {
+                    return Err(anyhow!("Failed to set scan width: {}", get_pvcam_error()));
+                }
+            }
+        }
+        Ok(())
     }
 
     // =========================================================================
@@ -1858,7 +2107,7 @@ impl PvcamFeatures {
                 // SAFETY: h is valid; setting PP index to enumerate features.
                 unsafe {
                     // SAFETY: h is valid; setting PP index to enumerate features.
-                    if pl_set_param(h, PARAM_PP_INDEX, &idx as *const _ as *mut _) == 0 {
+                    if pl_set_param(h, PARAM_PP_INDEX, &(idx as i16) as *const i16 as *mut _) == 0 {
                         continue;
                     }
                 }
@@ -1925,7 +2174,12 @@ impl PvcamFeatures {
             // SAFETY: h is valid; selecting PP feature.
             unsafe {
                 // SAFETY: h is valid; selecting PP feature.
-                if pl_set_param(h, PARAM_PP_INDEX, &feat_idx as *const _ as *mut _) == 0 {
+                if pl_set_param(
+                    h,
+                    PARAM_PP_INDEX,
+                    &(feat_idx as i16) as *const i16 as *mut _,
+                ) == 0
+                {
                     return Err(anyhow!(
                         "Failed to select PP feature: {}",
                         get_pvcam_error()
@@ -1943,7 +2197,11 @@ impl PvcamFeatures {
                 // SAFETY: h is valid; selecting PP parameter.
                 unsafe {
                     // SAFETY: h is valid; selecting PP parameter.
-                    if pl_set_param(h, PARAM_PP_PARAM_INDEX, &param_idx as *const _ as *mut _) == 0
+                    if pl_set_param(
+                        h,
+                        PARAM_PP_PARAM_INDEX,
+                        &(param_idx as i16) as *const i16 as *mut _,
+                    ) == 0
                     {
                         continue;
                     }
@@ -1952,12 +2210,13 @@ impl PvcamFeatures {
                 // Get parameter info
                 let param = PPParam {
                     index: i as u16,
-                    id: Self::get_u16_param_impl(h, PARAM_PP_PARAM_ID).unwrap_or(0),
+                    id: Self::get_u16_param_impl(h, PARAM_PP_PARAM_ID).unwrap_or(i as u16),
                     name: Self::get_pp_param_name_impl(h)
                         .unwrap_or_else(|_| format!("Param {}", i)),
                     value: Self::get_u32_param_impl(h, PARAM_PP_PARAM).unwrap_or(0),
-                    min: 0,
-                    max: u32::MAX,
+                    min: Self::get_u32_param_attr_impl(h, PARAM_PP_PARAM, ATTR_MIN).unwrap_or(0),
+                    max: Self::get_u32_param_attr_impl(h, PARAM_PP_PARAM, ATTR_MAX)
+                        .unwrap_or(u32::MAX),
                 };
                 params.push(param);
             }
@@ -2008,7 +2267,12 @@ impl PvcamFeatures {
             // SAFETY: h is valid; selecting PP feature.
             unsafe {
                 // SAFETY: h is valid; selecting PP feature.
-                if pl_set_param(h, PARAM_PP_INDEX, &feat_idx as *const _ as *mut _) == 0 {
+                if pl_set_param(
+                    h,
+                    PARAM_PP_INDEX,
+                    &(feat_idx as i16) as *const i16 as *mut _,
+                ) == 0
+                {
                     return Err(anyhow!(
                         "Failed to select PP feature: {}",
                         get_pvcam_error()
@@ -2021,7 +2285,12 @@ impl PvcamFeatures {
             // SAFETY: h is valid; selecting PP parameter.
             unsafe {
                 // SAFETY: h is valid; selecting PP parameter.
-                if pl_set_param(h, PARAM_PP_PARAM_INDEX, &param_idx as *const _ as *mut _) == 0 {
+                if pl_set_param(
+                    h,
+                    PARAM_PP_PARAM_INDEX,
+                    &(param_idx as i16) as *const i16 as *mut _,
+                ) == 0
+                {
                     return Err(anyhow!(
                         "Failed to select PP parameter: {}",
                         get_pvcam_error()
@@ -2064,7 +2333,12 @@ impl PvcamFeatures {
             // SAFETY: h is valid; selecting PP feature.
             unsafe {
                 // SAFETY: h is valid; selecting PP feature.
-                if pl_set_param(h, PARAM_PP_INDEX, &feat_idx as *const _ as *mut _) == 0 {
+                if pl_set_param(
+                    h,
+                    PARAM_PP_INDEX,
+                    &(feat_idx as i16) as *const i16 as *mut _,
+                ) == 0
+                {
                     return Err(anyhow!(
                         "Failed to select PP feature: {}",
                         get_pvcam_error()
@@ -2077,7 +2351,12 @@ impl PvcamFeatures {
             // SAFETY: h is valid; selecting PP parameter.
             unsafe {
                 // SAFETY: h is valid; selecting PP parameter.
-                if pl_set_param(h, PARAM_PP_PARAM_INDEX, &param_idx as *const _ as *mut _) == 0 {
+                if pl_set_param(
+                    h,
+                    PARAM_PP_PARAM_INDEX,
+                    &(param_idx as i16) as *const i16 as *mut _,
+                ) == 0
+                {
                     return Err(anyhow!(
                         "Failed to select PP parameter: {}",
                         get_pvcam_error()
@@ -3276,32 +3555,61 @@ impl PvcamFeatures {
     // =========================================================================
 
     /// Enumerate all available post-processing features on the camera.
+    ///
+    /// Logs each discovered feature at INFO level for diagnostics (bd-ldjy.1).
     pub fn enumerate_pp_features(_conn: &PvcamConnection) -> Result<Vec<PPFeature>> {
         #[cfg(feature = "pvcam_sdk")]
         if let Some(h) = _conn.handle() {
             let mut features = Vec::new();
 
+            // First check ATTR_AVAIL explicitly
+            let mut avail: rs_bool = 0;
+            unsafe {
+                let avail_result = pl_get_param(
+                    h,
+                    PARAM_PP_INDEX,
+                    ATTR_AVAIL as i16,
+                    &mut avail as *mut _ as *mut _,
+                );
+                tracing::info!(
+                    "PARAM_PP_INDEX ATTR_AVAIL: result={}, avail={}, hcam={}",
+                    avail_result,
+                    avail,
+                    h
+                );
+            }
+
             // Get number of PP features
             let mut count: u32 = 0;
             // SAFETY: h is valid; count is writable u32 on stack.
             unsafe {
-                if pl_get_param(
+                let count_result = pl_get_param(
                     h,
                     PARAM_PP_INDEX,
                     ATTR_COUNT,
                     &mut count as *mut _ as *mut _,
-                ) == 0
-                {
-                    // PP not supported — return empty
+                );
+                tracing::info!(
+                    "PARAM_PP_INDEX ATTR_COUNT: result={}, count={}, err={}",
+                    count_result,
+                    count,
+                    get_pvcam_error()
+                );
+                if count_result == 0 {
+                    tracing::info!("PARAM_PP_INDEX not supported — no PP features available");
                     return Ok(Vec::new());
                 }
             }
 
+            tracing::info!(count, "Enumerating PP features");
+
             for feat_idx in 0..count {
-                // Select this feature
-                // SAFETY: h valid; feat_idx pointer valid for call duration.
+                // PARAM_PP_INDEX is TYPE_INT16 — must pass int16*, not u32*
+                let feat_idx_i16 = feat_idx as i16;
+                // SAFETY: h valid; feat_idx_i16 pointer valid for call duration.
                 unsafe {
-                    if pl_set_param(h, PARAM_PP_INDEX, &feat_idx as *const _ as *mut _) == 0 {
+                    if pl_set_param(h, PARAM_PP_INDEX, &feat_idx_i16 as *const _ as *mut _) == 0 {
+                        tracing::warn!(feat_idx, "Failed to select PP feature index");
                         continue;
                     }
                 }
@@ -3317,6 +3625,7 @@ impl PvcamFeatures {
                         name_buf.as_mut_ptr() as *mut _,
                     ) == 0
                     {
+                        tracing::warn!(feat_idx, "Failed to read PP feature name");
                         continue;
                     }
                 }
@@ -3382,37 +3691,18 @@ impl PvcamFeatures {
                             )
                             .to_string();
 
-                            // Read current value
-                            let mut pval: u32 = 0;
-                            // SAFETY: h valid; pval writable u32.
-                            let _ = pl_get_param(
-                                h,
-                                PARAM_PP_PARAM,
-                                ATTR_CURRENT,
-                                &mut pval as *mut _ as *mut _,
-                            );
-
-                            // Read min/max
-                            let mut pmin: u32 = 0;
-                            let mut pmax: u32 = 0;
-                            // SAFETY: h valid; pmin/pmax writable u32.
-                            let _ = pl_get_param(
-                                h,
-                                PARAM_PP_PARAM,
-                                ATTR_MIN,
-                                &mut pmin as *mut _ as *mut _,
-                            );
-                            let _ = pl_get_param(
-                                h,
-                                PARAM_PP_PARAM,
-                                ATTR_MAX,
-                                &mut pmax as *mut _ as *mut _,
-                            );
+                            let pid = Self::get_u16_param_impl(h, PARAM_PP_PARAM_ID)
+                                .unwrap_or(param_idx as u16);
+                            let pval = Self::get_u32_param_impl(h, PARAM_PP_PARAM).unwrap_or(0);
+                            let pmin = Self::get_u32_param_attr_impl(h, PARAM_PP_PARAM, ATTR_MIN)
+                                .unwrap_or(0);
+                            let pmax = Self::get_u32_param_attr_impl(h, PARAM_PP_PARAM, ATTR_MAX)
+                                .unwrap_or(u32::MAX);
 
                             params.push(PPParam {
                                 name: pname,
                                 index: param_idx as u16,
-                                id: param_idx as u16,
+                                id: pid,
                                 value: pval,
                                 min: pmin,
                                 max: pmax,
@@ -3420,6 +3710,14 @@ impl PvcamFeatures {
                         }
                     }
                 }
+
+                tracing::info!(
+                    feat_idx,
+                    feat_id,
+                    name = %name,
+                    param_count = params.len(),
+                    "PP feature discovered"
+                );
 
                 features.push(PPFeature {
                     name,
@@ -3429,20 +3727,26 @@ impl PvcamFeatures {
                 });
             }
 
+            tracing::info!(
+                total = features.len(),
+                names = %features.iter().map(|f| f.name.as_str()).collect::<Vec<_>>().join(", "),
+                "PP feature enumeration complete"
+            );
+
             return Ok(features);
         }
         Ok(Vec::new())
     }
 
     /// Check if PrimeEnhance is available on this camera.
+    ///
+    /// Uses case-insensitive, space/underscore-tolerant matching (bd-ldjy.1)
+    /// to handle firmware naming variations ("PrimeEnhance", "PRIME ENHANCE", etc.).
     pub fn is_prime_enhance_available(_conn: &PvcamConnection) -> bool {
         #[cfg(feature = "pvcam_sdk")]
         if _conn.handle().is_some() {
             if let Ok(features) = Self::enumerate_pp_features(_conn) {
-                return features.iter().any(|f| {
-                    let upper = f.name.to_uppercase();
-                    upper.contains("PRIMEENHANCE") || upper.contains("PRIME_ENHANCE")
-                });
+                return features.iter().any(|f| is_prime_enhance_name(&f.name));
             }
         }
         false
@@ -3453,10 +3757,7 @@ impl PvcamFeatures {
         #[cfg(feature = "pvcam_sdk")]
         if _conn.handle().is_some() {
             let features = Self::enumerate_pp_features(_conn)?;
-            let pe_feat = features.iter().find(|f| {
-                let upper = f.name.to_uppercase();
-                upper.contains("PRIMEENHANCE") || upper.contains("PRIME_ENHANCE")
-            });
+            let pe_feat = features.iter().find(|f| is_prime_enhance_name(&f.name));
 
             if let Some(feat) = pe_feat {
                 // Check enable param (usually first param or one containing "Enable")
@@ -3480,10 +3781,7 @@ impl PvcamFeatures {
         #[cfg(feature = "pvcam_sdk")]
         if let Some(h) = _conn.handle() {
             let features = Self::enumerate_pp_features(_conn)?;
-            let pe_feat = features.iter().find(|f| {
-                let upper = f.name.to_uppercase();
-                upper.contains("PRIMEENHANCE") || upper.contains("PRIME_ENHANCE")
-            });
+            let pe_feat = features.iter().find(|f| is_prime_enhance_name(&f.name));
 
             let feat = pe_feat
                 .ok_or_else(|| anyhow!("PrimeEnhance feature not available on this camera"))?;
@@ -3492,7 +3790,12 @@ impl PvcamFeatures {
             let feat_idx = feat.index;
             // SAFETY: h valid; feat_idx pointer valid.
             unsafe {
-                if pl_set_param(h, PARAM_PP_INDEX, &feat_idx as *const _ as *mut _) == 0 {
+                if pl_set_param(
+                    h,
+                    PARAM_PP_INDEX,
+                    &(feat_idx as i16) as *const i16 as *mut _,
+                ) == 0
+                {
                     return Err(anyhow!(
                         "Failed to select PP feature: {}",
                         get_pvcam_error()
@@ -3541,14 +3844,14 @@ impl PvcamFeatures {
     // =========================================================================
 
     /// Check if PrimeLocate is available on this camera.
+    ///
+    /// Uses case-insensitive, space/underscore-tolerant matching (bd-ldjy.1)
+    /// to handle firmware naming variations ("PrimeLocate", "PRIME LOCATE", etc.).
     pub fn is_prime_locate_available(_conn: &PvcamConnection) -> bool {
         #[cfg(feature = "pvcam_sdk")]
         if _conn.handle().is_some() {
             if let Ok(features) = Self::enumerate_pp_features(_conn) {
-                return features.iter().any(|f| {
-                    let upper = f.name.to_uppercase();
-                    upper.contains("PRIMELOCATE") || upper.contains("PRIME_LOCATE")
-                });
+                return features.iter().any(|f| is_prime_locate_name(&f.name));
             }
         }
         false
@@ -3559,10 +3862,7 @@ impl PvcamFeatures {
         #[cfg(feature = "pvcam_sdk")]
         if _conn.handle().is_some() {
             let features = Self::enumerate_pp_features(_conn)?;
-            let pl_feat = features.iter().find(|f| {
-                let upper = f.name.to_uppercase();
-                upper.contains("PRIMELOCATE") || upper.contains("PRIME_LOCATE")
-            });
+            let pl_feat = features.iter().find(|f| is_prime_locate_name(&f.name));
 
             if let Some(feat) = pl_feat {
                 if let Some(ep) = feat
@@ -3589,10 +3889,7 @@ impl PvcamFeatures {
         #[cfg(feature = "pvcam_sdk")]
         if let Some(h) = _conn.handle() {
             let features = Self::enumerate_pp_features(_conn)?;
-            let pl_feat = features.iter().find(|f| {
-                let upper = f.name.to_uppercase();
-                upper.contains("PRIMELOCATE") || upper.contains("PRIME_LOCATE")
-            });
+            let pl_feat = features.iter().find(|f| is_prime_locate_name(&f.name));
 
             let feat = pl_feat
                 .ok_or_else(|| anyhow!("PrimeLocate feature not available on this camera"))?;
@@ -3600,7 +3897,12 @@ impl PvcamFeatures {
             let feat_idx = feat.index;
             // SAFETY: h valid; feat_idx pointer valid.
             unsafe {
-                if pl_set_param(h, PARAM_PP_INDEX, &feat_idx as *const _ as *mut _) == 0 {
+                if pl_set_param(
+                    h,
+                    PARAM_PP_INDEX,
+                    &(feat_idx as i16) as *const i16 as *mut _,
+                ) == 0
+                {
                     return Err(anyhow!(
                         "Failed to select PP feature: {}",
                         get_pvcam_error()
@@ -4055,6 +4357,23 @@ impl PvcamFeatures {
         Ok(value)
     }
 
+    #[cfg(any(feature = "pvcam_sdk", feature = "pvcam_hardware"))]
+    pub(crate) fn get_u32_param_attr_impl(h: i16, param: u32, attr: i16) -> Result<u32> {
+        let mut value: uns32 = 0;
+        // SAFETY: h is valid; value is writable uns32 on stack.
+        unsafe {
+            if pl_get_param(h, param, attr, &mut value as *mut _ as *mut _) == 0 {
+                return Err(anyhow!(
+                    "Failed to get parameter {} attr {}: {}",
+                    param,
+                    attr,
+                    get_pvcam_error()
+                ));
+            }
+        }
+        Ok(value)
+    }
+
     #[cfg(feature = "pvcam_sdk")]
     fn get_pp_feature_name_impl(h: i16) -> Result<String> {
         let mut buf = [0i8; 256];
@@ -4097,5 +4416,56 @@ impl PvcamFeatures {
             }
             Ok(CStr::from_ptr(buf.as_ptr()).to_string_lossy().into_owned())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn prime_enhance_name_matches_canonical() {
+        assert!(is_prime_enhance_name("PrimeEnhance"));
+        assert!(is_prime_enhance_name("PRIME ENHANCE"));
+        assert!(is_prime_enhance_name("Prime_Enhance"));
+        assert!(is_prime_enhance_name("prime-enhance"));
+    }
+
+    #[test]
+    fn prime_enhance_name_matches_sdk_denoising() {
+        assert!(is_prime_enhance_name("Denoising"));
+        assert!(is_prime_enhance_name("DENOISING"));
+        assert!(is_prime_enhance_name("PP_FEATURE_DENOISING"));
+        assert!(is_prime_enhance_name("denoising"));
+    }
+
+    #[test]
+    fn prime_enhance_name_rejects_unrelated() {
+        assert!(!is_prime_enhance_name("PrimeLocate"));
+        assert!(!is_prime_enhance_name("Despeckle"));
+        assert!(!is_prime_enhance_name("HDR"));
+    }
+
+    #[test]
+    fn prime_locate_name_matches_canonical() {
+        assert!(is_prime_locate_name("PrimeLocate"));
+        assert!(is_prime_locate_name("PRIME LOCATE"));
+        assert!(is_prime_locate_name("Prime_Locate"));
+        assert!(is_prime_locate_name("prime-locate"));
+    }
+
+    #[test]
+    fn prime_locate_name_matches_sdk_locate() {
+        assert!(is_prime_locate_name("Locate"));
+        assert!(is_prime_locate_name("LOCATE"));
+        assert!(is_prime_locate_name("PP_FEATURE_LOCATE"));
+        assert!(is_prime_locate_name("locate"));
+    }
+
+    #[test]
+    fn prime_locate_name_rejects_unrelated() {
+        assert!(!is_prime_locate_name("PrimeEnhance"));
+        assert!(!is_prime_locate_name("Despeckle"));
+        assert!(!is_prime_locate_name("HDR"));
     }
 }

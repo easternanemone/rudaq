@@ -790,15 +790,38 @@ impl DeviceRegistry {
             )));
         }
 
-        // Look up factory
-        let factory = self.factories.get(driver_type).ok_or_else(|| {
-            DaqError::Configuration(format!(
-                "No factory registered for driver_type '{}'. \
-                 Available factories: {:?}",
-                driver_type,
-                self.list_factories()
-            ))
-        })?;
+        // Look up factory — first try an exact match on driver_type. If the user
+        // wrote `type = "universal"` with a `manifest` field, resolve the derived
+        // factory name (`universal_{device_name}`) from the manifest file.
+        let resolved_type: Option<String>;
+        let factory = match self.factories.get(driver_type) {
+            Some(f) => {
+                resolved_type = None;
+                f
+            }
+            None if driver_type == "universal" => {
+                let derived = resolve_universal_factory_name(&config)?;
+                let f = self.factories.get(&derived).ok_or_else(|| {
+                    DaqError::Configuration(format!(
+                        "No factory registered for derived driver_type '{}' \
+                         (from manifest). Available factories: {:?}",
+                        derived,
+                        self.list_factories()
+                    ))
+                })?;
+                resolved_type = Some(derived);
+                f
+            }
+            None => {
+                return Err(DaqError::Configuration(format!(
+                    "No factory registered for driver_type '{}'. \
+                     Available factories: {:?}",
+                    driver_type,
+                    self.list_factories()
+                )));
+            }
+        };
+        let driver_type = resolved_type.as_deref().unwrap_or(driver_type);
 
         // Validate configuration
         factory.validate(&config).map_err(|e| {
@@ -1591,6 +1614,11 @@ impl DeviceRegistry {
             .and_then(|d| d.wavelength_tunable.clone())
     }
 
+    /// Get a device as GatedCamera (if it supports this capability).
+    pub fn get_gated_camera(&self, id: &str) -> Option<Arc<dyn GatedCamera>> {
+        self.devices.get(id).and_then(|d| d.gated_camera.clone())
+    }
+
     /// Get a device as SpectrometerControl (if it supports this capability).
     pub fn get_spectrometer_control(&self, id: &str) -> Option<Arc<dyn SpectrometerControl>> {
         self.devices
@@ -2253,6 +2281,64 @@ pub fn register_mock_factories(registry: &DeviceRegistry) {
 // NOTE: `register_all_factories` has been moved to the `driver-registry` crate.
 // Use `driver_registry::register_all_factories()` for concrete driver registration.
 // `register_mock_factories` remains here since it only needs driver-mock (always compiled).
+
+// =============================================================================
+// Universal manifest resolution
+// =============================================================================
+
+/// Derive the factory name for a `type = "universal"` device by reading its
+/// manifest file.
+///
+/// The manifest TOML must contain `[device] name = "..."`. The factory name
+/// is `universal_{name_lowercased_underscored}`, matching the convention in
+/// `UniversalDriverFactory::new`.
+fn resolve_universal_factory_name(config: &toml::Value) -> Result<String, DaqError> {
+    let manifest_path = config
+        .get("manifest")
+        .and_then(toml::Value::as_str)
+        .ok_or_else(|| {
+            DaqError::Configuration(
+                "driver type 'universal' requires a 'manifest' field pointing \
+                 to the device TOML manifest (e.g., manifest = \"config/devices/my_device.toml\")"
+                    .to_string(),
+            )
+        })?;
+
+    let content = std::fs::read_to_string(manifest_path).map_err(|e| {
+        DaqError::Configuration(format!(
+            "Failed to read universal manifest '{}': {}",
+            manifest_path, e
+        ))
+    })?;
+
+    let table: toml::Value = toml::from_str(&content).map_err(|e| {
+        DaqError::Configuration(format!(
+            "Failed to parse universal manifest '{}': {}",
+            manifest_path, e
+        ))
+    })?;
+
+    let device_name = table
+        .get("device")
+        .and_then(|d| d.get("name"))
+        .and_then(toml::Value::as_str)
+        .ok_or_else(|| {
+            DaqError::Configuration(format!(
+                "Universal manifest '{}' is missing [device].name",
+                manifest_path
+            ))
+        })?;
+
+    let derived = format!("universal_{}", device_name.to_lowercase().replace(' ', "_"));
+
+    tracing::info!(
+        manifest = %manifest_path,
+        derived_factory = %derived,
+        "Resolved type='universal' to derived factory name"
+    );
+
+    Ok(derived)
+}
 
 // =============================================================================
 // Tests
@@ -3315,5 +3401,179 @@ initial_position = 0.0
             .get_device_health("mock_stage")
             .expect("health should exist");
         assert_eq!(health.health, DeviceHealth::Healthy);
+    }
+
+    // =========================================================================
+    // Universal manifest resolution tests
+    // =========================================================================
+
+    #[test]
+    fn resolve_universal_factory_name_from_manifest() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let manifest_path = dir.path().join("test_device.toml");
+        std::fs::write(
+            &manifest_path,
+            r#"
+schema_version = 3
+
+[device]
+name = "Siglent SDG1025"
+protocol = "siglent_sdg"
+capabilities = ["Settable"]
+
+[connection]
+type = "serial"
+baud_rate = 115200
+"#,
+        )
+        .expect("write manifest");
+
+        let manifest_str = manifest_path.to_str().expect("valid utf-8 path");
+        let mut config = toml::map::Map::new();
+        config.insert(
+            "manifest".to_string(),
+            toml::Value::String(manifest_str.to_string()),
+        );
+        config.insert(
+            "port".to_string(),
+            toml::Value::String("/dev/ttyUSB7".to_string()),
+        );
+
+        let derived =
+            resolve_universal_factory_name(&toml::Value::Table(config)).expect("should resolve");
+        assert_eq!(derived, "universal_siglent_sdg1025");
+    }
+
+    #[test]
+    fn resolve_universal_factory_name_missing_manifest_field() {
+        let mut config = toml::map::Map::new();
+        config.insert(
+            "port".to_string(),
+            toml::Value::String("/dev/ttyUSB7".to_string()),
+        );
+
+        let err = resolve_universal_factory_name(&toml::Value::Table(config))
+            .expect_err("should fail without manifest");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("requires a 'manifest' field"),
+            "unexpected error: {msg}"
+        );
+    }
+
+    #[test]
+    fn resolve_universal_factory_name_missing_file() {
+        let mut config = toml::map::Map::new();
+        config.insert(
+            "manifest".to_string(),
+            toml::Value::String("/nonexistent/path/device.toml".to_string()),
+        );
+
+        let err = resolve_universal_factory_name(&toml::Value::Table(config))
+            .expect_err("should fail with missing file");
+        let msg = err.to_string();
+        assert!(msg.contains("Failed to read"), "unexpected error: {msg}");
+    }
+
+    #[test]
+    fn resolve_universal_factory_name_missing_device_name() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let manifest_path = dir.path().join("bad.toml");
+        std::fs::write(
+            &manifest_path,
+            r#"
+schema_version = 3
+
+[connection]
+type = "serial"
+"#,
+        )
+        .expect("write manifest");
+
+        let manifest_str = manifest_path.to_str().expect("valid utf-8 path");
+        let mut config = toml::map::Map::new();
+        config.insert(
+            "manifest".to_string(),
+            toml::Value::String(manifest_str.to_string()),
+        );
+
+        let err = resolve_universal_factory_name(&toml::Value::Table(config))
+            .expect_err("should fail without device.name");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("missing [device].name"),
+            "unexpected error: {msg}"
+        );
+    }
+
+    #[tokio::test]
+    async fn register_from_toml_resolves_universal_type() {
+        // Set up a temporary manifest file
+        let dir = tempfile::tempdir().expect("tempdir");
+        let manifest_path = dir.path().join("test_device.toml");
+        std::fs::write(
+            &manifest_path,
+            r#"
+schema_version = 3
+
+[device]
+name = "Test Device"
+protocol = "test"
+capabilities = ["Movable"]
+
+[connection]
+type = "serial"
+baud_rate = 9600
+"#,
+        )
+        .expect("write manifest");
+
+        // Create a registry and register a factory under the derived name
+        // "universal_test_device" to simulate what load_all_factories would do.
+        let registry = DeviceRegistry::new();
+        register_mock_factories(&registry);
+
+        let noop_lifecycle = std::sync::Arc::new(TestLifecycle {
+            registered: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            unregistered: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        });
+        registry.register_factory(Box::new(LifecycleFactory {
+            driver_type: "universal_test_device",
+            lifecycle: noop_lifecycle,
+        }));
+
+        // Now attempt to register a device with type = "universal" + manifest
+        let manifest_str = manifest_path.to_str().expect("valid utf-8 path");
+        let mut config_table = toml::map::Map::new();
+        config_table.insert(
+            "manifest".to_string(),
+            toml::Value::String(manifest_str.to_string()),
+        );
+        config_table.insert(
+            "port".to_string(),
+            toml::Value::String("/dev/ttyUSB0".to_string()),
+        );
+        config_table.insert("mock".to_string(), toml::Value::Boolean(true));
+
+        let result = registry
+            .register_from_toml(
+                "my_device",
+                "My Device",
+                "universal",
+                toml::Value::Table(config_table),
+            )
+            .await;
+
+        // The factory lookup should succeed (resolving universal -> universal_test_device).
+        // The build uses LifecycleFactory which creates a MockStage, so it should succeed.
+        assert!(
+            result.is_ok(),
+            "register_from_toml should succeed but got: {:?}",
+            result.err()
+        );
+
+        let info = registry.list_devices();
+        let dev = info.iter().find(|d| d.id == "my_device");
+        assert!(dev.is_some(), "device should be registered");
     }
 }
