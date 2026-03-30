@@ -634,6 +634,9 @@ impl ModuleRegistry {
     }
 
     /// Delete a module instance
+    ///
+    /// Automatically stops and unstages the module before removal to
+    /// ensure resources are properly released.
     pub async fn delete_module(&mut self, module_id: &str, force: bool) -> Result<()> {
         if let Some(instance) = self.instances.get(module_id) {
             let state = instance.state();
@@ -649,10 +652,18 @@ impl ModuleRegistry {
             .into());
         }
 
-        // Stop if running
+        let registry = Arc::clone(&self.device_registry);
+
+        // Stop if running, then unstage to release resources
         if let Some(instance) = self.instances.get_mut(module_id) {
             if instance.state() == ModuleState::Running {
                 instance.stop().await?;
+            }
+            // Unstage if the module was staged (Staged or Stopped states)
+            let state = instance.state();
+            if state == ModuleState::Staged || state == ModuleState::Stopped {
+                info!(module_id, "Auto-unstaging module before deletion");
+                instance.unstage(registry).await?;
             }
         }
 
