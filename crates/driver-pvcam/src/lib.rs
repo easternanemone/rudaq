@@ -339,6 +339,12 @@ impl PvcamDriver {
                     tracing::info!("PVCAM SDK initialized, opening camera: {}", name);
                     conn.open(&name)?;
                     tracing::info!("Camera opened successfully, handle: {:?}", conn.handle());
+
+                    // Reset PP features IMMEDIATELY after open, before any other SDK calls.
+                    // Speed table enumeration changes readout config which can invalidate PP state.
+                    // (bd-ldjy.1: PP features only available before speed table build)
+                    PvcamFeatures::reset_pp_features(&conn)?;
+                    tracing::info!("PP features reset after camera open");
                 }
                 #[cfg(not(feature = "pvcam_sdk"))]
                 {
@@ -966,14 +972,9 @@ impl PvcamDriver {
             logic_output_invert = logic_output_invert.read_only();
         }
 
-        // Reset PP features to defaults so PARAM_PP_INDEX becomes available (bd-ldjy.1).
-        // The PVCAM SDK requires pl_pp_reset before PP features can be enumerated.
-        {
-            let conn_guard = connection.lock().await;
-            if let Err(e) = PvcamFeatures::reset_pp_features(&conn_guard) {
-                tracing::warn!("Failed to reset PP features: {e} — PP features may be unavailable");
-            }
-        }
+        // Note: pl_pp_reset is called immediately after pl_cam_open in new_async(),
+        // BEFORE the speed table build. Moving it here (after speed table) is too late —
+        // speed table enumeration changes readout config which invalidates PP state.
 
         let mut clear_cycles_param = None;
         let mut exposure_resolution_param = None;
