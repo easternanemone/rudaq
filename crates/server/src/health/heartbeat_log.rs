@@ -257,8 +257,9 @@ mod tests {
             run_heartbeat_log(registry, run_engine, config, cancel_clone).await;
         });
 
-        // Let a few entries be written
-        tokio::time::sleep(Duration::from_millis(180)).await;
+        // Let a few entries be written (generous timeout to avoid flakes
+        // on slow CI runners where sysinfo refresh can take >50ms).
+        tokio::time::sleep(Duration::from_millis(500)).await;
         cancel.cancel();
         task.await.expect("heartbeat task should not panic");
 
