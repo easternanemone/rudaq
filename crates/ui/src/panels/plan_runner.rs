@@ -754,102 +754,39 @@ impl PlanRunnerPanel {
                 if self.motor_name.trim().is_empty() {
                     errors.push("Motor name cannot be empty".to_string());
                 }
-                let start_ok = self.start_pos.parse::<f64>().ok().filter(|v| v.is_finite());
-                let end_ok = self.end_pos.parse::<f64>().ok().filter(|v| v.is_finite());
-                if start_ok.is_none() {
-                    errors.push("Start position must be a valid number".to_string());
-                }
-                if end_ok.is_none() {
-                    errors.push("End position must be a valid number".to_string());
-                }
-                if let (Some(s), Some(e)) = (start_ok, end_ok) {
-                    if (s - e).abs() < f64::EPSILON {
-                        errors.push("Start and end positions must be different".to_string());
-                    }
-                }
-                match self.num_points.parse::<usize>() {
-                    Ok(0) | Err(_) => {
-                        errors.push("Number of points must be a positive integer".to_string());
-                    }
-                    Ok(n) if n > 10_000_000 => {
-                        errors.push("Number of points must be <= 10,000,000".to_string());
-                    }
-                    _ => {}
-                }
+                errors.extend(validate_axis(
+                    "",
+                    &self.start_pos,
+                    &self.end_pos,
+                    &self.num_points,
+                    10_000_000,
+                ));
                 if self.detector_name.trim().is_empty() {
                     errors.push("Detector name cannot be empty".to_string());
                 }
             }
             PlanType::GridScan => {
-                // X axis validation
                 if self.grid_x_motor.trim().is_empty() {
                     errors.push("X motor name cannot be empty".to_string());
                 }
-                let x_start = self
-                    .grid_x_start
-                    .parse::<f64>()
-                    .ok()
-                    .filter(|v| v.is_finite());
-                let x_end = self
-                    .grid_x_end
-                    .parse::<f64>()
-                    .ok()
-                    .filter(|v| v.is_finite());
-                if x_start.is_none() {
-                    errors.push("X start must be a valid number".to_string());
-                }
-                if x_end.is_none() {
-                    errors.push("X end must be a valid number".to_string());
-                }
-                if let (Some(s), Some(e)) = (x_start, x_end) {
-                    if (s - e).abs() < f64::EPSILON {
-                        errors.push("X start and end must be different".to_string());
-                    }
-                }
-                match self.grid_x_points.parse::<usize>() {
-                    Ok(0) | Err(_) => {
-                        errors.push("X points must be a positive integer".to_string());
-                    }
-                    Ok(n) if n > 100_000 => {
-                        errors.push("X points must be <= 100,000".to_string());
-                    }
-                    _ => {}
-                }
+                errors.extend(validate_axis(
+                    "X ",
+                    &self.grid_x_start,
+                    &self.grid_x_end,
+                    &self.grid_x_points,
+                    100_000,
+                ));
 
-                // Y axis validation
                 if self.grid_y_motor.trim().is_empty() {
                     errors.push("Y motor name cannot be empty".to_string());
                 }
-                let y_start = self
-                    .grid_y_start
-                    .parse::<f64>()
-                    .ok()
-                    .filter(|v| v.is_finite());
-                let y_end = self
-                    .grid_y_end
-                    .parse::<f64>()
-                    .ok()
-                    .filter(|v| v.is_finite());
-                if y_start.is_none() {
-                    errors.push("Y start must be a valid number".to_string());
-                }
-                if y_end.is_none() {
-                    errors.push("Y end must be a valid number".to_string());
-                }
-                if let (Some(s), Some(e)) = (y_start, y_end) {
-                    if (s - e).abs() < f64::EPSILON {
-                        errors.push("Y start and end must be different".to_string());
-                    }
-                }
-                match self.grid_y_points.parse::<usize>() {
-                    Ok(0) | Err(_) => {
-                        errors.push("Y points must be a positive integer".to_string());
-                    }
-                    Ok(n) if n > 100_000 => {
-                        errors.push("Y points must be <= 100,000".to_string());
-                    }
-                    _ => {}
-                }
+                errors.extend(validate_axis(
+                    "Y ",
+                    &self.grid_y_start,
+                    &self.grid_y_end,
+                    &self.grid_y_points,
+                    100_000,
+                ));
 
                 // Cross-axis validation
                 let x_motor_trimmed = self.grid_x_motor.trim();
@@ -869,4 +806,43 @@ impl PlanRunnerPanel {
 
         errors
     }
+}
+
+/// Validate a scan axis: parse start/end as f64, check finite, check different,
+/// and verify point count is a positive integer within `max_points`.
+/// `label` is a prefix like `"X "` or `""` for error messages.
+fn validate_axis(
+    label: &str,
+    start: &str,
+    end: &str,
+    points: &str,
+    max_points: usize,
+) -> Vec<String> {
+    let mut errors = Vec::new();
+
+    let start_ok = start.parse::<f64>().ok().filter(|v| v.is_finite());
+    let end_ok = end.parse::<f64>().ok().filter(|v| v.is_finite());
+
+    if start_ok.is_none() {
+        errors.push(format!("{label}start must be a valid number"));
+    }
+    if end_ok.is_none() {
+        errors.push(format!("{label}end must be a valid number"));
+    }
+    if let (Some(s), Some(e)) = (start_ok, end_ok) {
+        if (s - e).abs() < f64::EPSILON {
+            errors.push(format!("{label}start and end must be different"));
+        }
+    }
+    match points.parse::<usize>() {
+        Ok(0) | Err(_) => {
+            errors.push(format!("{label}points must be a positive integer"));
+        }
+        Ok(n) if n > max_points => {
+            errors.push(format!("{label}points must be <= {max_points:>}"));
+        }
+        _ => {}
+    }
+
+    errors
 }
