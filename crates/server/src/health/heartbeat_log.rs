@@ -246,7 +246,7 @@ mod tests {
 
         let config = HeartbeatLogConfig {
             path: log_path.clone(),
-            interval: Duration::from_millis(50),
+            interval: Duration::from_millis(200),
             storage_path: dir.path().to_path_buf(),
         };
 
@@ -258,8 +258,8 @@ mod tests {
         });
 
         // Let a few entries be written (generous timeout to avoid flakes
-        // on slow CI runners where sysinfo refresh can take >50ms).
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        // on slow CI runners where sysinfo refresh can take >100ms per tick).
+        tokio::time::sleep(Duration::from_secs(2)).await;
         cancel.cancel();
         task.await.expect("heartbeat task should not panic");
 
