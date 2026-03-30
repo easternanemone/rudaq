@@ -323,15 +323,16 @@ impl PvcamDriver {
 
         // Run initialization in blocking task
 
-        let connection = tokio::task::spawn_blocking({
+        let (connection, early_pp_features) = tokio::task::spawn_blocking({
             #[cfg(feature = "pvcam_sdk")]
             let name = camera_name.clone();
-            move || -> Result<Arc<Mutex<PvcamConnection>>> {
+            move || -> Result<(Arc<Mutex<PvcamConnection>>, Vec<PPFeature>)> {
                 #[cfg(feature = "pvcam_sdk")]
                 let mut conn = PvcamConnection::new();
                 #[cfg(not(feature = "pvcam_sdk"))]
                 let conn = PvcamConnection::new();
 
+                let pp_features;
                 #[cfg(feature = "pvcam_sdk")]
                 {
                     tracing::info!("Initializing PVCAM SDK...");
@@ -340,25 +341,40 @@ impl PvcamDriver {
                     conn.open(&name)?;
                     tracing::info!("Camera opened successfully, handle: {:?}", conn.handle());
 
-                    // Reset PP features IMMEDIATELY after open, before any other SDK calls.
-                    // Speed table enumeration changes readout config which can invalidate PP state.
-                    // (bd-ldjy.1: PP features only available before speed table build)
-                    PvcamFeatures::reset_pp_features(&conn)?;
-                    tracing::info!("PP features reset after camera open");
+                    // Reset and enumerate PP features IMMEDIATELY after open, before any
+                    // other SDK calls. Speed table enumeration changes readout config which
+                    // invalidates PP feature availability (PARAM_PP_INDEX becomes unsupported).
+                    // (bd-ldjy.1: confirmed via C probe that PP features work before speed table)
+                    if let Err(e) = PvcamFeatures::reset_pp_features(&conn) {
+                        tracing::warn!("Failed to reset PP features: {e}");
+                    }
+                    pp_features = PvcamFeatures::enumerate_pp_features(&conn).unwrap_or_default();
+                    tracing::info!(
+                        "PP features discovered: {} (before speed table build)",
+                        pp_features.len()
+                    );
+                    for f in &pp_features {
+                        tracing::info!("  PP[{}]: '{}' (id={})", f.index, f.name, f.id);
+                    }
                 }
                 #[cfg(not(feature = "pvcam_sdk"))]
                 {
+                    pp_features = Vec::new();
                     tracing::warn!("pvcam_sdk feature NOT enabled - using mock mode");
                 }
-                Ok(Arc::new(Mutex::new(conn)))
+                Ok((Arc::new(Mutex::new(conn)), pp_features))
             }
         })
         .await??;
 
-        Self::create(camera_name, connection).await
+        Self::create(camera_name, connection, early_pp_features).await
     }
 
-    async fn create(camera_name: String, connection: Arc<Mutex<PvcamConnection>>) -> Result<Self> {
+    async fn create(
+        camera_name: String,
+        connection: Arc<Mutex<PvcamConnection>>,
+        early_pp_features: Vec<PPFeature>,
+    ) -> Result<Self> {
         // Query sensor size
         let (width, height) = {
             #[allow(unused_mut)]
@@ -1365,11 +1381,15 @@ impl PvcamDriver {
         }
 
         // Post-Processing / PrimeEnhance (bd-oqo7.3)
-        let prime_enhance_available;
+        // Use early_pp_features (enumerated before speed table build) instead of
+        // is_prime_enhance_available() which re-enumerates and fails after speed table.
+        let prime_enhance_available = early_pp_features
+            .iter()
+            .any(|f| is_prime_enhance_name(&f.name));
         let mut prime_enhance_enabled;
         {
             let conn_guard = connection.lock().await;
-            prime_enhance_available = PvcamFeatures::is_prime_enhance_available(&conn_guard);
+            let _ = &conn_guard; // suppress unused warning in mock path
             let pe_state = if prime_enhance_available {
                 PvcamFeatures::get_prime_enhance_enabled(&conn_guard).unwrap_or(false)
             } else {
@@ -1393,11 +1413,13 @@ impl PvcamDriver {
         }
 
         // Post-Processing / PrimeLocate (bd-oqo7.10)
-        let prime_locate_available;
+        // Use early_pp_features (same reasoning as PrimeEnhance above)
+        let prime_locate_available = early_pp_features
+            .iter()
+            .any(|f| is_prime_locate_name(&f.name));
         let mut prime_locate_enabled;
         {
             let conn_guard = connection.lock().await;
-            prime_locate_available = PvcamFeatures::is_prime_locate_available(&conn_guard);
             let pl_state = if prime_locate_available {
                 PvcamFeatures::get_prime_locate_enabled(&conn_guard).unwrap_or(false)
             } else {
