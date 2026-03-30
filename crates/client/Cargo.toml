@@ -26,7 +26,7 @@ serde = { workspace = true, features = ["derive"] }
 
 # --- Native-only dependencies ---
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-tonic = { workspace = true, default-features = false, features = ["transport", "prost", "codegen"] }
+tonic = { workspace = true, default-features = false, features = ["transport", "tls", "prost", "codegen"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "sync", "macros", "time"] }
 
 # --- WASM-only dependencies ---
