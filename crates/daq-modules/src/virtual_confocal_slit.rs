@@ -99,7 +99,7 @@ pub struct VirtualConfocalSlit {
     running: Arc<AtomicBool>,
     paused: Arc<AtomicBool>,
     frames_acquired: Arc<AtomicU64>,
-    psm_active: Arc<AtomicBool>,
+    psm_active: bool,
     task_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
@@ -114,7 +114,7 @@ impl std::fmt::Debug for VirtualConfocalSlit {
                 "frames_acquired",
                 &self.frames_acquired.load(Ordering::Relaxed),
             )
-            .field("psm_active", &self.psm_active.load(Ordering::Relaxed))
+            .field("psm_active", &self.psm_active)
             .field("task_handle", &self.task_handle.is_some())
             .finish()
     }
@@ -128,7 +128,7 @@ impl Default for VirtualConfocalSlit {
             running: Arc::new(AtomicBool::new(false)),
             paused: Arc::new(AtomicBool::new(false)),
             frames_acquired: Arc::new(AtomicU64::new(0)),
-            psm_active: Arc::new(AtomicBool::new(false)),
+            psm_active: false,
             task_handle: None,
         }
     }
@@ -399,7 +399,7 @@ impl Module for VirtualConfocalSlit {
             false
         };
 
-        self.psm_active.store(psm_available, Ordering::SeqCst);
+        self.psm_active = psm_available;
 
         if psm_available {
             info!(
@@ -420,7 +420,7 @@ impl Module for VirtualConfocalSlit {
 
     async fn unstage(&mut self, _ctx: &ModuleContext) -> Result<()> {
         // TODO(bd-pg6a): When PSM is active, reset camera scan_mode to Auto
-        self.psm_active.store(false, Ordering::SeqCst);
+        self.psm_active = false;
         self.state = ModuleState::Created;
         info!("VirtualConfocalSlit unstaged");
         Ok(())
@@ -432,10 +432,8 @@ impl Module for VirtualConfocalSlit {
         }
 
         // Re-acquire capabilities for the background task
-        let frame_producer = ctx
-            .get_frame_producer("camera")
-            .ok_or_else(|| anyhow!("Camera not available at start time"))?;
-
+        // Note: frame_producer will be used here once PSM firmware enables
+        // hardware-triggered acquisition (bd-pg6a Phase 3)
         let scanner = ctx
             .get_movable("scanner")
             .ok_or_else(|| anyhow!("Scanner not available at start time"))?;
@@ -446,23 +444,15 @@ impl Module for VirtualConfocalSlit {
         self.state = ModuleState::Running;
 
         let config = self.config.clone();
-        let running = Arc::clone(&self.running);
-        let paused = Arc::clone(&self.paused);
-        let frames_acquired = Arc::clone(&self.frames_acquired);
-        let psm_active = self.psm_active.load(Ordering::SeqCst);
+        let task_state = AcquisitionState {
+            running: Arc::clone(&self.running),
+            paused: Arc::clone(&self.paused),
+            frames_acquired: Arc::clone(&self.frames_acquired),
+        };
+        let psm_active = self.psm_active;
 
         let handle = tokio::spawn(async move {
-            vcs_acquisition_task(
-                ctx,
-                config,
-                running,
-                paused,
-                frames_acquired,
-                psm_active,
-                frame_producer,
-                scanner,
-            )
-            .await;
+            vcs_acquisition_task(ctx, config, task_state, psm_active, scanner).await;
         });
 
         self.task_handle = Some(handle);
@@ -520,20 +510,23 @@ impl Module for VirtualConfocalSlit {
 // Background Acquisition Task
 // =============================================================================
 
+/// Bundled state flags for the background acquisition task.
+struct AcquisitionState {
+    running: Arc<AtomicBool>,
+    paused: Arc<AtomicBool>,
+    frames_acquired: Arc<AtomicU64>,
+}
+
 /// Main acquisition task that runs in the background.
 ///
 /// Coordinates camera frame acquisition with galvo scanner positioning.
 /// In PSM mode, the camera hardware handles the virtual slit; in fallback
 /// mode, the exposure time approximates the slit effect.
-#[allow(clippy::too_many_arguments)]
 async fn vcs_acquisition_task(
     mut ctx: ModuleContext,
     config: VirtualConfocalSlitConfig,
-    running: Arc<AtomicBool>,
-    paused: Arc<AtomicBool>,
-    frames_acquired: Arc<AtomicU64>,
+    state: AcquisitionState,
     psm_active: bool,
-    _frame_producer: Arc<dyn hardware::capabilities::FrameProducer>,
     scanner: Arc<dyn hardware::capabilities::Movable>,
 ) {
     // Emit mode event
@@ -589,51 +582,55 @@ async fn vcs_acquisition_task(
         }
     );
 
-    while running.load(Ordering::SeqCst) {
+    // Preallocate HashMap to avoid per-frame allocation
+    let mut frame_values: HashMap<String, f64> = HashMap::with_capacity(2);
+    let frame_number_key = "frame_number".to_string();
+    let galvo_pos_key = "galvo_position_v".to_string();
+
+    // Sawtooth period: one full sensor sweep in continuous mode
+    const ROWS_PER_SCAN: u64 = 2048;
+
+    while state.running.load(Ordering::SeqCst) {
         ticker.tick().await;
 
         if ctx.is_shutdown_requested() {
             break;
         }
 
-        if paused.load(Ordering::SeqCst) {
+        if state.paused.load(Ordering::SeqCst) {
             continue;
         }
 
-        let count = frames_acquired.fetch_add(1, Ordering::SeqCst) + 1;
+        let count = state.frames_acquired.fetch_add(1, Ordering::SeqCst) + 1;
 
-        // Calculate galvo position for this frame
-        // Sawtooth: linearly sweep across the scan range
+        // Sawtooth galvo position: in continuous mode, wraps every ROWS_PER_SCAN
+        // frames (one full sensor sweep). In finite mode, maps to [0, 1].
         #[allow(clippy::cast_precision_loss)]
         let progress = if target_count == u64::MAX {
-            // Continuous mode: cycle every 1000 frames
-            (count % 1000) as f64 / 1000.0
+            (count % ROWS_PER_SCAN) as f64 / ROWS_PER_SCAN as f64
         } else {
             count as f64 / target_count as f64
         };
         let galvo_pos = config.galvo_offset_v - config.galvo_amplitude_v / 2.0
             + progress * config.galvo_amplitude_v;
 
-        // Position the galvo
         if let Err(e) = scanner.move_abs(galvo_pos).await {
             warn!("Galvo positioning error at frame {}: {}", count, e);
         }
 
-        // Emit frame metadata
-        // In the full implementation, this would include actual frame data
-        // from the FrameProducer. For now, emit positioning metadata.
-        let mut values = HashMap::new();
+        // Reuse preallocated HashMap
+        frame_values.clear();
         #[allow(clippy::cast_precision_loss)]
         {
-            values.insert("frame_number".to_string(), count as f64);
-            values.insert("galvo_position_v".to_string(), galvo_pos);
+            frame_values.insert(frame_number_key.clone(), count as f64);
+            frame_values.insert(galvo_pos_key.clone(), galvo_pos);
         }
-        ctx.emit_data("frame_acquired", values).await;
+        ctx.emit_data("frame_acquired", frame_values.clone()).await;
 
-        // Emit scan metrics periodically (every 100 frames)
+        // Emit scan metrics periodically
         if count.is_multiple_of(100) {
             let elapsed = start_time.elapsed().as_secs_f64();
-            let mut metrics = HashMap::new();
+            let mut metrics = HashMap::with_capacity(4);
             #[allow(clippy::cast_precision_loss)]
             {
                 metrics.insert("frames_acquired".to_string(), count as f64);
@@ -644,7 +641,6 @@ async fn vcs_acquisition_task(
             ctx.emit_data("scan_metrics", metrics).await;
         }
 
-        // Check if finite acquisition is complete
         if count >= target_count {
             ctx.emit_event(
                 "acquisition_complete",
@@ -663,7 +659,7 @@ async fn vcs_acquisition_task(
 
     info!(
         "VCS acquisition task ended: {} frames in {:.1}s",
-        frames_acquired.load(Ordering::Relaxed),
+        state.frames_acquired.load(Ordering::Relaxed),
         start_time.elapsed().as_secs_f64()
     );
 }
