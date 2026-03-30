@@ -61,7 +61,8 @@ pub use crate::components::features::{
 };
 // Re-export feature functions for direct access
 pub use crate::components::features::{
-    normalize_pp_name, pp_name_contains, pp_name_matches, PvcamFeatures,
+    is_prime_enhance_name, is_prime_locate_name, normalize_pp_name, pp_name_contains,
+    pp_name_matches, PvcamFeatures,
 };
 
 use crate::components::acquisition::PvcamAcquisition;
@@ -810,6 +811,15 @@ impl PvcamDriver {
             }
             if let Ok(min_t) = PvcamFeatures::get_exp_min_time(&conn_guard) {
                 let _ = exp_min_time.set_from_hardware(min_t).await;
+            }
+        }
+
+        // Reset PP features to defaults so PARAM_PP_INDEX becomes available (bd-ldjy.1).
+        // The PVCAM SDK requires pl_pp_reset before PP features can be enumerated.
+        {
+            let conn_guard = connection.lock().await;
+            if let Err(e) = PvcamFeatures::reset_pp_features(&conn_guard) {
+                tracing::warn!("Failed to reset PP features: {e} — PP features may be unavailable");
             }
         }
 

@@ -63,6 +63,24 @@ pub fn pp_name_contains(feature_name: &str, target: &str) -> bool {
     normalize_pp_name(feature_name).contains(&normalize_pp_name(target))
 }
 
+/// Check if a PP feature name refers to PrimeEnhance (bd-ldjy.1).
+///
+/// The PVCAM SDK registers PrimeEnhance as `PP_FEATURE_DENOISING`, so cameras
+/// may report the feature name as "Denoising" rather than "PrimeEnhance".
+/// This helper checks both canonical names.
+pub fn is_prime_enhance_name(feature_name: &str) -> bool {
+    pp_name_matches(feature_name, "PrimeEnhance") || pp_name_contains(feature_name, "denoising")
+}
+
+/// Check if a PP feature name refers to PrimeLocate (bd-ldjy.1).
+///
+/// The PVCAM SDK registers PrimeLocate as `PP_FEATURE_LOCATE` / particle
+/// tracking, so cameras may report the feature name as "Locate" rather than
+/// "PrimeLocate".  This helper checks both canonical names.
+pub fn is_prime_locate_name(feature_name: &str) -> bool {
+    pp_name_matches(feature_name, "PrimeLocate") || pp_name_contains(feature_name, "locate")
+}
+
 impl PvcamFeatures {
     // =========================================================================
     // Parameter Availability Check (SDK Pattern - bd-ng5p)
@@ -3490,9 +3508,7 @@ impl PvcamFeatures {
         #[cfg(feature = "pvcam_sdk")]
         if _conn.handle().is_some() {
             if let Ok(features) = Self::enumerate_pp_features(_conn) {
-                return features
-                    .iter()
-                    .any(|f| pp_name_matches(&f.name, "PrimeEnhance"));
+                return features.iter().any(|f| is_prime_enhance_name(&f.name));
             }
         }
         false
@@ -3503,9 +3519,7 @@ impl PvcamFeatures {
         #[cfg(feature = "pvcam_sdk")]
         if _conn.handle().is_some() {
             let features = Self::enumerate_pp_features(_conn)?;
-            let pe_feat = features
-                .iter()
-                .find(|f| pp_name_matches(&f.name, "PrimeEnhance"));
+            let pe_feat = features.iter().find(|f| is_prime_enhance_name(&f.name));
 
             if let Some(feat) = pe_feat {
                 // Check enable param (usually first param or one containing "Enable")
@@ -3529,9 +3543,7 @@ impl PvcamFeatures {
         #[cfg(feature = "pvcam_sdk")]
         if let Some(h) = _conn.handle() {
             let features = Self::enumerate_pp_features(_conn)?;
-            let pe_feat = features
-                .iter()
-                .find(|f| pp_name_matches(&f.name, "PrimeEnhance"));
+            let pe_feat = features.iter().find(|f| is_prime_enhance_name(&f.name));
 
             let feat = pe_feat
                 .ok_or_else(|| anyhow!("PrimeEnhance feature not available on this camera"))?;
@@ -3596,9 +3608,7 @@ impl PvcamFeatures {
         #[cfg(feature = "pvcam_sdk")]
         if _conn.handle().is_some() {
             if let Ok(features) = Self::enumerate_pp_features(_conn) {
-                return features
-                    .iter()
-                    .any(|f| pp_name_matches(&f.name, "PrimeLocate"));
+                return features.iter().any(|f| is_prime_locate_name(&f.name));
             }
         }
         false
@@ -3609,9 +3619,7 @@ impl PvcamFeatures {
         #[cfg(feature = "pvcam_sdk")]
         if _conn.handle().is_some() {
             let features = Self::enumerate_pp_features(_conn)?;
-            let pl_feat = features
-                .iter()
-                .find(|f| pp_name_matches(&f.name, "PrimeLocate"));
+            let pl_feat = features.iter().find(|f| is_prime_locate_name(&f.name));
 
             if let Some(feat) = pl_feat {
                 if let Some(ep) = feat
@@ -3638,9 +3646,7 @@ impl PvcamFeatures {
         #[cfg(feature = "pvcam_sdk")]
         if let Some(h) = _conn.handle() {
             let features = Self::enumerate_pp_features(_conn)?;
-            let pl_feat = features
-                .iter()
-                .find(|f| pp_name_matches(&f.name, "PrimeLocate"));
+            let pl_feat = features.iter().find(|f| is_prime_locate_name(&f.name));
 
             let feat = pl_feat
                 .ok_or_else(|| anyhow!("PrimeLocate feature not available on this camera"))?;
@@ -4145,5 +4151,56 @@ impl PvcamFeatures {
             }
             Ok(CStr::from_ptr(buf.as_ptr()).to_string_lossy().into_owned())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn prime_enhance_name_matches_canonical() {
+        assert!(is_prime_enhance_name("PrimeEnhance"));
+        assert!(is_prime_enhance_name("PRIME ENHANCE"));
+        assert!(is_prime_enhance_name("Prime_Enhance"));
+        assert!(is_prime_enhance_name("prime-enhance"));
+    }
+
+    #[test]
+    fn prime_enhance_name_matches_sdk_denoising() {
+        assert!(is_prime_enhance_name("Denoising"));
+        assert!(is_prime_enhance_name("DENOISING"));
+        assert!(is_prime_enhance_name("PP_FEATURE_DENOISING"));
+        assert!(is_prime_enhance_name("denoising"));
+    }
+
+    #[test]
+    fn prime_enhance_name_rejects_unrelated() {
+        assert!(!is_prime_enhance_name("PrimeLocate"));
+        assert!(!is_prime_enhance_name("Despeckle"));
+        assert!(!is_prime_enhance_name("HDR"));
+    }
+
+    #[test]
+    fn prime_locate_name_matches_canonical() {
+        assert!(is_prime_locate_name("PrimeLocate"));
+        assert!(is_prime_locate_name("PRIME LOCATE"));
+        assert!(is_prime_locate_name("Prime_Locate"));
+        assert!(is_prime_locate_name("prime-locate"));
+    }
+
+    #[test]
+    fn prime_locate_name_matches_sdk_locate() {
+        assert!(is_prime_locate_name("Locate"));
+        assert!(is_prime_locate_name("LOCATE"));
+        assert!(is_prime_locate_name("PP_FEATURE_LOCATE"));
+        assert!(is_prime_locate_name("locate"));
+    }
+
+    #[test]
+    fn prime_locate_name_rejects_unrelated() {
+        assert!(!is_prime_locate_name("PrimeEnhance"));
+        assert!(!is_prime_locate_name("Despeckle"));
+        assert!(!is_prime_locate_name("HDR"));
     }
 }
