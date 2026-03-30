@@ -3618,14 +3618,19 @@ impl PvcamFeatures {
                 let mut name_buf = [0u8; 64];
                 // SAFETY: h valid; name_buf large enough for PP feature names.
                 unsafe {
-                    if pl_get_param(
+                    let name_result = pl_get_param(
                         h,
                         PARAM_PP_FEAT_NAME,
                         ATTR_CURRENT,
                         name_buf.as_mut_ptr() as *mut _,
-                    ) == 0
-                    {
-                        tracing::warn!(feat_idx, "Failed to read PP feature name");
+                    );
+                    if name_result == 0 {
+                        tracing::warn!(
+                            feat_idx,
+                            err_code = pl_error_code(),
+                            err_msg = %get_pvcam_error(),
+                            "Failed to read PP feature name"
+                        );
                         continue;
                     }
                 }
@@ -3637,8 +3642,8 @@ impl PvcamFeatures {
                 )
                 .to_string();
 
-                // Read feature ID
-                let mut feat_id: u32 = 0;
+                // Read feature ID (TYPE_UNS16)
+                let mut feat_id: u16 = 0;
                 // SAFETY: h valid; feat_id writable u32 on stack.
                 unsafe {
                     let _ = pl_get_param(
