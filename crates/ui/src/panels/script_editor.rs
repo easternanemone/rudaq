@@ -25,8 +25,10 @@ const EXECUTION_POLL_INTERVAL: Duration = Duration::from_secs(2);
 enum ActionResult {
     /// Upload+start completed — returns execution_id on success.
     RunCompleted(Result<String, String>),
-    /// Stop completed.
-    StopCompleted(Result<String, String>),
+    /// Stop completed — Ok(stopped, message).
+    StopCompleted(Result<(bool, String), String>),
+    /// Execution status poll result — state string from `ScriptStatus`.
+    StatusPoll(Result<String, String>),
 }
 
 /// Panel for editing Rhai scripts directly (ejected from visual mode).
