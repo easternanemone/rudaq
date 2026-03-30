@@ -171,6 +171,9 @@ pub struct MockCameraState {
     pub shutter_mode: i32,
     pub shutter_open_delay_us: u32,
     pub shutter_close_delay_us: u32,
+    pub edge_trigger: i32,
+    pub pre_trigger_delay_us: u32,
+    pub post_trigger_delay_us: u32,
     pub smart_stream_enabled: bool,
     pub smart_stream_mode: i32,
     pub readout_port_index: u16,
@@ -192,6 +195,9 @@ impl Default for MockCameraState {
             shutter_mode: 0,    // Normal
             shutter_open_delay_us: 10,
             shutter_close_delay_us: 10,
+            edge_trigger: 0, // First
+            pre_trigger_delay_us: 0,
+            post_trigger_delay_us: 0,
             smart_stream_enabled: false,
             smart_stream_mode: 0, // Exposures
             readout_port_index: 0,

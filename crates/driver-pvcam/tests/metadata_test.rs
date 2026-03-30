@@ -129,12 +129,12 @@ async fn verify_parameter_persistence() {
 
     // 5. Expose Out Mode
     params
-        .get("acquisition.expose_out_mode")
+        .get("trigger.expose_out_mode")
         .unwrap()
         .set_json(json!("RollingShutter"))
         .unwrap();
     let val = params
-        .get("acquisition.expose_out_mode")
+        .get("trigger.expose_out_mode")
         .unwrap()
         .get_json()
         .unwrap();

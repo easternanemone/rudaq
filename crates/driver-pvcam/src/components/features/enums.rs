@@ -729,6 +729,57 @@ impl ExposeOutMode {
     }
 }
 
+// ─── Edge Trigger (bd-oqo7.5) ──────────────────────────────────────────────
+
+/// Edge trigger mode — selects which trigger edge initiates acquisition.
+///
+/// Maps to `PARAM_EDGE_TRIGGER` SDK values. Used for external laser
+/// synchronization in LIBS experiments.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EdgeTrigger {
+    /// Trigger on the first edge only
+    First,
+    /// Trigger on all edges
+    All,
+}
+
+impl EdgeTrigger {
+    pub fn from_pvcam(value: i32) -> Self {
+        match value {
+            0 => EdgeTrigger::First,
+            1 => EdgeTrigger::All,
+            _ => EdgeTrigger::First,
+        }
+    }
+
+    pub fn to_pvcam(self) -> i32 {
+        match self {
+            EdgeTrigger::First => 0,
+            EdgeTrigger::All => 1,
+        }
+    }
+
+    #[allow(clippy::should_implement_trait)]
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "First" => EdgeTrigger::First,
+            "All" => EdgeTrigger::All,
+            _ => EdgeTrigger::First,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            EdgeTrigger::First => "First",
+            EdgeTrigger::All => "All",
+        }
+    }
+
+    pub fn all_choices() -> Vec<String> {
+        vec!["First".into(), "All".into()]
+    }
+}
+
 // ─── I/O & Diagnostics enums (bd-oqo7.6) ──────────────────────────────────
 
 /// I/O port type — identifies the kind of I/O port at the current address.

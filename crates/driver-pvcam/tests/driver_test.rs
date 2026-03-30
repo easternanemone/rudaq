@@ -107,6 +107,48 @@ mod mock_driver {
     }
 
     #[tokio::test]
+    async fn driver_trigger_parameters() {
+        let driver = PvcamDriver::new_async("MockCamera".to_string())
+            .await
+            .unwrap();
+        let params = driver.parameters();
+        let names = params.names();
+
+        // Trigger group parameters (bd-oqo7.5)
+        assert!(
+            names.contains(&"trigger.expose_out_mode"),
+            "Should have trigger.expose_out_mode parameter"
+        );
+        assert!(
+            names.contains(&"trigger.edge_trigger"),
+            "Should have trigger.edge_trigger parameter"
+        );
+        assert!(
+            names.contains(&"trigger.pre_delay_us"),
+            "Should have trigger.pre_delay_us parameter"
+        );
+        assert!(
+            names.contains(&"trigger.post_delay_us"),
+            "Should have trigger.post_delay_us parameter"
+        );
+
+        // Verify defaults
+        let edge_trigger = params.get("trigger.edge_trigger").unwrap();
+        assert_eq!(
+            edge_trigger.get_json().unwrap(),
+            serde_json::json!("First"),
+            "Edge trigger default should be 'First'"
+        );
+
+        let expose_out = params.get("trigger.expose_out_mode").unwrap();
+        assert_eq!(
+            expose_out.get_json().unwrap(),
+            serde_json::json!("FirstRow"),
+            "Expose out mode default should be 'FirstRow'"
+        );
+    }
+
+    #[tokio::test]
     #[allow(deprecated)] // subscribe_frames() still works but register_primary_output() is preferred
     async fn driver_streaming_mock() {
         let driver = PvcamDriver::new_async("MockCamera".to_string())

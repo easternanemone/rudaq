@@ -54,10 +54,10 @@ use tokio::sync::Mutex;
 
 // Re-export public types from features component
 pub use crate::components::features::{
-    CameraInfo, CentroidsConfig, CentroidsMode, ClearMode, ExposeOutMode, ExposureMode,
-    ExposureResolution, FanSpeed, FrameFlip, FrameRotate, GainMode, IoType, LocalizationEvent,
-    LogicOutput, PPFeature, PPParam, ReadoutPort, ShutterMode, ShutterStatus, SmartStreamEntry,
-    SmartStreamMode, SpeedMode,
+    CameraInfo, CentroidsConfig, CentroidsMode, ClearMode, EdgeTrigger, ExposeOutMode,
+    ExposureMode, ExposureResolution, FanSpeed, FrameFlip, FrameRotate, GainMode, IoType,
+    LocalizationEvent, LogicOutput, PPFeature, PPParam, ReadoutPort, ShutterMode, ShutterStatus,
+    SmartStreamEntry, SmartStreamMode, SpeedMode,
 };
 // Re-export feature functions for direct access
 pub use crate::components::features::PvcamFeatures;
@@ -176,6 +176,7 @@ pub struct PvcamDriver {
     trigger_mode: Parameter<String>,
     clear_mode: Parameter<String>,
     expose_out_mode: Parameter<String>,
+    edge_trigger: Parameter<String>,
     buffer_mode: Parameter<String>,
     roi: Parameter<Roi>,
     binning: Parameter<(u16, u16)>,
@@ -470,12 +471,20 @@ impl PvcamDriver {
         .with_group("Acquisition");
 
         let expose_out_mode = Parameter::new(
-            "acquisition.expose_out_mode",
+            "trigger.expose_out_mode",
             ExposeOutMode::FirstRow.as_str().to_string(),
         )
         .with_description("Expose out signal mode")
         .with_choices_introspectable(ExposeOutMode::all_choices())
-        .with_group("Acquisition");
+        .with_group("Trigger");
+
+        let edge_trigger = Parameter::new(
+            "trigger.edge_trigger",
+            EdgeTrigger::First.as_str().to_string(),
+        )
+        .with_description("Edge trigger mode for external synchronization")
+        .with_choices_introspectable(EdgeTrigger::all_choices())
+        .with_group("Trigger");
 
         let buffer_mode = Parameter::new("acquisition.buffer_mode", "Overwrite".to_string())
             .with_description("Acquisition buffer mode: Overwrite (circular, newest wins), No Overwrite (circular FIFO), or Sequence (batch-based, non-circular)")
@@ -604,19 +613,17 @@ impl PvcamDriver {
             }
 
             uint32 pre_trigger_delay_us {
-                name: "acquisition.pre_trigger_delay_us",
+                name: "trigger.pre_delay_us",
                 default: 0u32,
                 description: "Pre-trigger delay",
                 unit: "us",
-                read_only: true,
             }
 
             uint32 post_trigger_delay_us {
-                name: "acquisition.post_trigger_delay_us",
+                name: "trigger.post_delay_us",
                 default: 0u32,
                 description: "Post-trigger delay",
                 unit: "us",
-                read_only: true,
             }
 
             float frame_time_us {
@@ -886,6 +893,7 @@ impl PvcamDriver {
         params.register(trigger_mode.clone());
         params.register(clear_mode.clone());
         params.register(expose_out_mode.clone());
+        params.register(edge_trigger.clone());
         params.register(buffer_mode.clone());
         params.register(roi.clone());
         params.register(binning.clone());
@@ -903,8 +911,8 @@ impl PvcamDriver {
         params.register(post_mask.clone());
         params.register(pre_scan.clone());
         params.register(post_scan.clone());
-        // readout_time_us, pixel_time_ns, clearing_time_us, pre_trigger_delay_us,
-        // post_trigger_delay_us, frame_time_us — registered by pvcam_parameters! above
+        // readout_time_us, pixel_time_ns, clearing_time_us, pre_trigger_delay_us (trigger.pre_delay_us),
+        // post_trigger_delay_us (trigger.post_delay_us), frame_time_us — registered by pvcam_parameters! above
 
         params.register(shutter_mode.clone());
         params.register(shutter_status.clone());
@@ -953,6 +961,7 @@ impl PvcamDriver {
             trigger_mode,
             clear_mode,
             expose_out_mode,
+            edge_trigger,
             buffer_mode,
             roi,
             binning,
@@ -1036,6 +1045,9 @@ impl PvcamDriver {
         let frame_time_param = driver.frame_time_us.clone();
         let exposure_param = driver.exposure_ms.clone();
 
+        // Trigger drift polling params (bd-oqo7.5)
+        let edge_trigger_param = driver.edge_trigger.clone();
+
         // I/O Diagnostics drift polling params (bd-oqo7.6)
         let controller_alive_param = driver.controller_alive.clone();
         let ccs_status_param = driver.ccs_status.clone();
@@ -1117,6 +1129,13 @@ impl PvcamDriver {
 
                 if let Ok(val) = PvcamFeatures::get_post_trigger_delay_us(&conn_guard) {
                     let _ = post_trigger_param.set_from_hardware(val).await;
+                }
+
+                // Edge trigger (bd-oqo7.5)
+                if let Ok(mode) = PvcamFeatures::get_edge_trigger(&conn_guard) {
+                    let _ = edge_trigger_param
+                        .set_from_hardware(mode.as_str().to_string())
+                        .await;
                 }
 
                 // Pixel time is driven by cached speed table listeners; no periodic polling needed here.
@@ -1314,6 +1333,58 @@ impl PvcamDriver {
                     let conn_guard = conn.lock_owned().await;
                     tokio::task::spawn_blocking(move || {
                         PvcamFeatures::set_expose_out_mode(&conn_guard, mode)
+                            .map_err(|e| DaqError::Instrument(e.to_string()))
+                    })
+                    .await
+                    .map_err(|e| DaqError::Instrument(e.to_string()))?
+                })
+            }
+        });
+
+        // Edge Trigger (bd-oqo7.5)
+        self.edge_trigger.connect_to_hardware_write({
+            let conn = conn.clone();
+            move |val| {
+                let conn = conn.clone();
+                Box::pin(async move {
+                    let mode = EdgeTrigger::from_str(&val);
+                    let conn_guard = conn.lock_owned().await;
+                    tokio::task::spawn_blocking(move || {
+                        PvcamFeatures::set_edge_trigger(&conn_guard, mode)
+                            .map_err(|e| DaqError::Instrument(e.to_string()))
+                    })
+                    .await
+                    .map_err(|e| DaqError::Instrument(e.to_string()))?
+                })
+            }
+        });
+
+        // Pre-Trigger Delay (bd-oqo7.5)
+        self.pre_trigger_delay_us.connect_to_hardware_write({
+            let conn = conn.clone();
+            move |val| {
+                let conn = conn.clone();
+                Box::pin(async move {
+                    let conn_guard = conn.lock_owned().await;
+                    tokio::task::spawn_blocking(move || {
+                        PvcamFeatures::set_pre_trigger_delay_us(&conn_guard, val)
+                            .map_err(|e| DaqError::Instrument(e.to_string()))
+                    })
+                    .await
+                    .map_err(|e| DaqError::Instrument(e.to_string()))?
+                })
+            }
+        });
+
+        // Post-Trigger Delay (bd-oqo7.5)
+        self.post_trigger_delay_us.connect_to_hardware_write({
+            let conn = conn.clone();
+            move |val| {
+                let conn = conn.clone();
+                Box::pin(async move {
+                    let conn_guard = conn.lock_owned().await;
+                    tokio::task::spawn_blocking(move || {
+                        PvcamFeatures::set_post_trigger_delay_us(&conn_guard, val)
                             .map_err(|e| DaqError::Instrument(e.to_string()))
                     })
                     .await

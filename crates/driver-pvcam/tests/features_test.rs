@@ -27,9 +27,9 @@
 
 // Import all public types from the library root
 use driver_pvcam::{
-    CameraInfo, CentroidsConfig, CentroidsMode, ClearMode, ExposeOutMode, ExposureMode, FanSpeed,
-    GainMode, PPFeature, PPParam, ReadoutPort, ShutterMode, ShutterStatus, SmartStreamEntry,
-    SmartStreamMode, SpeedMode,
+    CameraInfo, CentroidsConfig, CentroidsMode, ClearMode, EdgeTrigger, ExposeOutMode,
+    ExposureMode, FanSpeed, GainMode, PPFeature, PPParam, ReadoutPort, ShutterMode, ShutterStatus,
+    SmartStreamEntry, SmartStreamMode, SpeedMode,
 };
 // Import feature functions
 use driver_pvcam::components::features::PvcamFeatures;
@@ -169,6 +169,45 @@ mod type_conversions {
                 }
             }
         }
+    }
+
+    #[test]
+    fn edge_trigger_variants() {
+        let modes = [EdgeTrigger::First, EdgeTrigger::All];
+
+        for (i, mode) in modes.iter().enumerate() {
+            for (j, other) in modes.iter().enumerate() {
+                if i == j {
+                    assert_eq!(mode, other);
+                } else {
+                    assert_ne!(mode, other);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn edge_trigger_round_trip() {
+        for value in 0..=1 {
+            let mode = EdgeTrigger::from_pvcam(value);
+            assert_eq!(mode.to_pvcam(), value);
+        }
+    }
+
+    #[test]
+    fn edge_trigger_str_round_trip() {
+        for name in &["First", "All"] {
+            let mode = EdgeTrigger::from_str(name);
+            assert_eq!(mode.as_str(), *name);
+        }
+    }
+
+    #[test]
+    fn edge_trigger_all_choices() {
+        let choices = EdgeTrigger::all_choices();
+        assert_eq!(choices.len(), 2);
+        assert_eq!(choices[0], "First");
+        assert_eq!(choices[1], "All");
     }
 
     #[test]
@@ -745,6 +784,56 @@ mod mock_features {
             modes.iter().any(|(v, _)| *v == 0),
             "First Row mode (value 0) should be in the list"
         );
+    }
+
+    // =========================================================================
+    // Edge Trigger & Trigger Delay Tests (bd-oqo7.5)
+    // =========================================================================
+
+    #[test]
+    fn edge_trigger_mock() {
+        let conn = mock_connection();
+
+        let mode = PvcamFeatures::get_edge_trigger(&conn).unwrap();
+        assert_eq!(mode, EdgeTrigger::First, "Default should be First");
+
+        let result = PvcamFeatures::set_edge_trigger(&conn, EdgeTrigger::All);
+        assert!(result.is_ok(), "Setting edge trigger should succeed");
+
+        let mode = PvcamFeatures::get_edge_trigger(&conn).unwrap();
+        assert_eq!(
+            mode,
+            EdgeTrigger::All,
+            "Edge trigger should be All after set"
+        );
+    }
+
+    #[test]
+    fn pre_trigger_delay_set_get_mock() {
+        let conn = mock_connection();
+
+        let delay = PvcamFeatures::get_pre_trigger_delay_us(&conn).unwrap();
+        assert_eq!(delay, 0, "Default pre-trigger delay should be 0");
+
+        let result = PvcamFeatures::set_pre_trigger_delay_us(&conn, 500);
+        assert!(result.is_ok(), "Setting pre-trigger delay should succeed");
+
+        let delay = PvcamFeatures::get_pre_trigger_delay_us(&conn).unwrap();
+        assert_eq!(delay, 500, "Pre-trigger delay should be 500 after set");
+    }
+
+    #[test]
+    fn post_trigger_delay_set_get_mock() {
+        let conn = mock_connection();
+
+        let delay = PvcamFeatures::get_post_trigger_delay_us(&conn).unwrap();
+        assert_eq!(delay, 0, "Default post-trigger delay should be 0");
+
+        let result = PvcamFeatures::set_post_trigger_delay_us(&conn, 1000);
+        assert!(result.is_ok(), "Setting post-trigger delay should succeed");
+
+        let delay = PvcamFeatures::get_post_trigger_delay_us(&conn).unwrap();
+        assert_eq!(delay, 1000, "Post-trigger delay should be 1000 after set");
     }
 }
 

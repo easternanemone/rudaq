@@ -122,6 +122,11 @@ pub const PARAM_CCS_STATUS: u32 = 0x0100_0019; // int16, class0, ord=25
 #[cfg(feature = "pvcam-sdk")]
 pub const PARAM_EXP_MIN_TIME: u32 = 0x0402_0209; // flt64, class2, ord=521
 
+// Trigger parameter IDs (bd-oqo7.5).
+// PARAM_EDGE_TRIGGER: enum, class2, ord=55
+#[cfg(feature = "pvcam-sdk")]
+pub const PARAM_EDGE_TRIGGER: u32 = 0x0902_0037;
+
 // Post-Processing feature parameter IDs (bd-oqo7.3).
 // Complex macros in master.h: CLASS3 << 16 | TYPE << 24 | ordinal
 #[cfg(feature = "pvcam-sdk")]

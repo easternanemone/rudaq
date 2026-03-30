@@ -1171,6 +1171,130 @@ impl PvcamFeatures {
     }
 
     // =========================================================================
+    // Edge Trigger (bd-oqo7.5)
+    // =========================================================================
+
+    /// Get edge trigger mode (bd-oqo7.5)
+    ///
+    /// Returns the current edge trigger selection (First or All).
+    /// Used for external laser synchronization in LIBS experiments.
+    pub fn get_edge_trigger(_conn: &PvcamConnection) -> Result<EdgeTrigger> {
+        #[cfg(feature = "pvcam_sdk")]
+        if let Some(h) = _conn.handle() {
+            if !Self::is_param_available(h, PARAM_EDGE_TRIGGER) {
+                return Err(anyhow!(
+                    "PARAM_EDGE_TRIGGER is not available on this camera"
+                ));
+            }
+            let mut value: i32 = 0;
+            // SAFETY: h is valid handle; value is writable i32 on stack.
+            unsafe {
+                if pl_get_param(
+                    h,
+                    PARAM_EDGE_TRIGGER,
+                    ATTR_CURRENT,
+                    &mut value as *mut _ as *mut _,
+                ) == 0
+                {
+                    return Err(anyhow!("Failed to get edge trigger: {}", get_pvcam_error()));
+                }
+            }
+            return Ok(EdgeTrigger::from_pvcam(value));
+        }
+        #[cfg(not(feature = "pvcam_sdk"))]
+        {
+            let state = _conn.mock_state.lock().unwrap();
+            Ok(EdgeTrigger::from_pvcam(state.edge_trigger))
+        }
+
+        #[cfg(feature = "pvcam_sdk")]
+        Ok(EdgeTrigger::First)
+    }
+
+    /// Set edge trigger mode (bd-oqo7.5)
+    ///
+    /// Selects rising/falling edge for external trigger synchronization.
+    pub fn set_edge_trigger(_conn: &PvcamConnection, _mode: EdgeTrigger) -> Result<()> {
+        #[cfg(feature = "pvcam_sdk")]
+        if let Some(h) = _conn.handle() {
+            if !Self::is_param_available(h, PARAM_EDGE_TRIGGER) {
+                return Err(anyhow!(
+                    "PARAM_EDGE_TRIGGER is not available on this camera"
+                ));
+            }
+            let value = _mode.to_pvcam();
+            // SAFETY: h is valid handle; value pointer valid for duration of call.
+            unsafe {
+                if pl_set_param(h, PARAM_EDGE_TRIGGER, &value as *const _ as *mut _) == 0 {
+                    return Err(anyhow!("Failed to set edge trigger: {}", get_pvcam_error()));
+                }
+            }
+        }
+        #[cfg(not(feature = "pvcam_sdk"))]
+        {
+            let mut state = _conn.mock_state.lock().unwrap();
+            state.edge_trigger = _mode.to_pvcam();
+        }
+        Ok(())
+    }
+
+    // =========================================================================
+    // Pre/Post Trigger Delay Setters (bd-oqo7.5)
+    // =========================================================================
+
+    /// Set pre-trigger delay in microseconds (bd-oqo7.5)
+    ///
+    /// Configures the delay between trigger signal and start of exposure.
+    /// The SDK stores the value in nanoseconds; this function converts from microseconds.
+    pub fn set_pre_trigger_delay_us(_conn: &PvcamConnection, _delay_us: u32) -> Result<()> {
+        #[cfg(feature = "pvcam_sdk")]
+        if let Some(h) = _conn.handle() {
+            let value_ns: i64 = i64::from(_delay_us) * 1000;
+            // SAFETY: h is valid handle; value pointer valid for duration of call.
+            unsafe {
+                if pl_set_param(h, PARAM_PRE_TRIGGER_DELAY, &value_ns as *const _ as *mut _) == 0 {
+                    return Err(anyhow!(
+                        "Failed to set pre-trigger delay: {}",
+                        get_pvcam_error()
+                    ));
+                }
+            }
+        }
+        #[cfg(not(feature = "pvcam_sdk"))]
+        {
+            let mut state = _conn.mock_state.lock().unwrap();
+            state.pre_trigger_delay_us = _delay_us;
+        }
+        Ok(())
+    }
+
+    /// Set post-trigger delay in microseconds (bd-oqo7.5)
+    ///
+    /// Configures the delay after exposure ends before the next trigger is accepted.
+    /// The SDK stores the value in nanoseconds; this function converts from microseconds.
+    pub fn set_post_trigger_delay_us(_conn: &PvcamConnection, _delay_us: u32) -> Result<()> {
+        #[cfg(feature = "pvcam_sdk")]
+        if let Some(h) = _conn.handle() {
+            let value_ns: i64 = i64::from(_delay_us) * 1000;
+            // SAFETY: h is valid handle; value pointer valid for duration of call.
+            unsafe {
+                if pl_set_param(h, PARAM_POST_TRIGGER_DELAY, &value_ns as *const _ as *mut _) == 0 {
+                    return Err(anyhow!(
+                        "Failed to set post-trigger delay: {}",
+                        get_pvcam_error()
+                    ));
+                }
+            }
+        }
+        #[cfg(not(feature = "pvcam_sdk"))]
+        {
+            let mut state = _conn.mock_state.lock().unwrap();
+            state.post_trigger_delay_us = _delay_us;
+        }
+        Ok(())
+    }
+
+    // =========================================================================
     // Exposure Resolution (bd-i2k7.1)
     // =========================================================================
 
@@ -1499,6 +1623,12 @@ impl PvcamFeatures {
             // PARAM_PRE_TRIGGER_DELAY is in nanoseconds (i64)
             return Ok((value / 1000) as u32);
         }
+        #[cfg(not(feature = "pvcam_sdk"))]
+        {
+            let state = _conn.mock_state.lock().unwrap();
+            return Ok(state.pre_trigger_delay_us);
+        }
+        #[allow(unreachable_code)]
         Ok(0)
     }
 
@@ -1526,6 +1656,12 @@ impl PvcamFeatures {
             // PARAM_POST_TRIGGER_DELAY is in nanoseconds (i64)
             return Ok((value / 1000) as u32);
         }
+        #[cfg(not(feature = "pvcam_sdk"))]
+        {
+            let state = _conn.mock_state.lock().unwrap();
+            return Ok(state.post_trigger_delay_us);
+        }
+        #[allow(unreachable_code)]
         Ok(0)
     }
 
