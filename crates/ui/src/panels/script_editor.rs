@@ -99,13 +99,34 @@ impl ScriptEditorPanel {
                             self.running = false;
                             self.status = None;
                         }
-                        ActionResult::StopCompleted(Ok(msg)) => {
-                            self.running = false;
-                            self.error = None;
-                            self.status = Some(msg);
+                        ActionResult::StopCompleted(Ok((stopped, msg))) => {
+                            if stopped {
+                                self.running = false;
+                                self.error = None;
+                                self.status = Some(msg);
+                            } else {
+                                self.error =
+                                    Some(format!("Stop did not succeed: {msg}"));
+                            }
                         }
                         ActionResult::StopCompleted(Err(e)) => {
                             self.error = Some(format!("Stop failed: {e}"));
+                        }
+                        ActionResult::StatusPoll(Ok(state)) => {
+                            // If execution is no longer RUNNING, clear the running flag
+                            if state != "RUNNING" {
+                                self.running = false;
+                                let label = match state.as_str() {
+                                    "COMPLETED" => "Script completed",
+                                    "ERROR" => "Script finished with error",
+                                    "STOPPED" => "Script stopped",
+                                    _ => "Script finished",
+                                };
+                                self.status = Some(label.to_string());
+                            }
+                        }
+                        ActionResult::StatusPoll(Err(_)) => {
+                            // Ignore transient poll errors
                         }
                     }
                     updated = true;
