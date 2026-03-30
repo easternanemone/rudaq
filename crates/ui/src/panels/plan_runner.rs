@@ -155,6 +155,7 @@ impl Default for PlanRunnerPanel {
             status: None,
             error: None,
             validation_errors: Vec::new(),
+            validation_dirty: true,
             pending_action: None,
             action_tx,
             action_rx,
