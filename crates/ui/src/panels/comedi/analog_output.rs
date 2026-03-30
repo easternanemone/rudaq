@@ -363,11 +363,17 @@ impl AnalogOutputPanel {
                 });
 
                 ui.horizontal(|ui| {
-                    // TODO(bd-wev5): implement waveform generation via NiDaqService
+                    // Blocked: NiDaqService proto only has SetAnalogOutput (static voltage).
+                    // Waveform generation requires a new streaming RPC (e.g., StartWaveform)
+                    // that continuously feeds samples to the Comedi buffered AO subsystem.
                     ui.add_enabled(false, egui::Button::new("Start Waveform"))
-                        .on_disabled_hover_text("Waveform generation not yet implemented");
+                        .on_disabled_hover_text(
+                            "Blocked on server-side StartWaveform RPC (not yet in ni_daq.proto)",
+                        );
                     ui.add_enabled(false, egui::Button::new("Stop"))
-                        .on_disabled_hover_text("Waveform generation not yet implemented");
+                        .on_disabled_hover_text(
+                            "Blocked on server-side StartWaveform RPC (not yet in ni_daq.proto)",
+                        );
                 });
             }
         });
