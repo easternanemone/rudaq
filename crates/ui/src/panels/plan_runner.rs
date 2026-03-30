@@ -813,8 +813,14 @@ impl PlanRunnerPanel {
                         errors.push("Y start and end must be different".to_string());
                     }
                 }
-                if self.grid_y_points.parse::<usize>().map_or(true, |n| n == 0) {
-                    errors.push("Y points must be a positive integer".to_string());
+                match self.grid_y_points.parse::<usize>() {
+                    Ok(0) | Err(_) => {
+                        errors.push("Y points must be a positive integer".to_string());
+                    }
+                    Ok(n) if n > 100_000 => {
+                        errors.push("Y points must be <= 100,000".to_string());
+                    }
+                    _ => {}
                 }
 
                 // Cross-axis validation
