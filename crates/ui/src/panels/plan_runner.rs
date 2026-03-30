@@ -755,7 +755,7 @@ impl PlanRunnerPanel {
                     errors.push("Motor name cannot be empty".to_string());
                 }
                 errors.extend(validate_axis(
-                    "",
+                    "Scan ",
                     &self.start_pos,
                     &self.end_pos,
                     &self.num_points,
