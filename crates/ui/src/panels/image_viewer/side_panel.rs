@@ -1,8 +1,10 @@
 //! Side panel — camera settings, ROI stats, histogram, pixel stats, echelle preview.
 
 use super::*;
+use std::fmt::Write as _;
 
 impl ImageViewerPanel {
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn render_stats_side_panel(
         &mut self,
         ui: &mut egui::Ui,
@@ -11,6 +13,7 @@ impl ImageViewerPanel {
         has_histogram_panel: bool,
         has_echelle_panel: bool,
         has_pixel_stats: bool,
+        has_measurements_panel: bool,
     ) {
         ui.set_max_width(ui.available_width());
 
@@ -212,6 +215,95 @@ impl ImageViewerPanel {
                     ui.add_space(layout::SECTION_SPACING);
                 }
 
+                if has_measurements_panel {
+                    layout::card_frame(ui).show(ui, |ui| {
+                        egui::CollapsingHeader::new("Measurements")
+                            .default_open(true)
+                            .show(ui, |ui| {
+                                ui.label(format!(
+                                    "Active tool: {}",
+                                    self.measurement_tool.label()
+                                ));
+
+                                if self.measurement_tool == MeasurementTool::Angle
+                                    && !self.angle_measurement_points.is_empty()
+                                {
+                                    ui.weak(format!(
+                                        "Angle points placed: {}/3",
+                                        self.angle_measurement_points.len()
+                                    ));
+                                }
+
+                                if !self.has_measurements() {
+                                    ui.add_space(4.0);
+                                    ui.label(
+                                        "No saved measurements yet. Use the Line or Angle tool on the image.",
+                                    );
+                                } else {
+                                    if !self.line_measurements.is_empty() {
+                                        ui.add_space(4.0);
+                                        ui.strong("Lines");
+                                        for (idx, measurement) in
+                                            self.line_measurements.iter().enumerate()
+                                        {
+                                            ui.label(format!(
+                                                "{}. {}",
+                                                idx + 1,
+                                                measurement.label(
+                                                    self.pixel_scale_x,
+                                                    self.pixel_scale_y,
+                                                    &self.scale_unit,
+                                                )
+                                            ));
+                                        }
+                                    }
+
+                                    if !self.angle_measurements.is_empty() {
+                                        ui.add_space(4.0);
+                                        ui.strong("Angles");
+                                        for (idx, measurement) in
+                                            self.angle_measurements.iter().enumerate()
+                                        {
+                                            ui.label(format!(
+                                                "{}. {}",
+                                                idx + 1,
+                                                measurement.label()
+                                            ));
+                                        }
+                                    }
+                                }
+
+                                ui.add_space(6.0);
+                                ui.horizontal(|ui| {
+                                    if ui
+                                        .add_enabled(
+                                            self.has_measurements(),
+                                            egui::Button::new("Copy to Clipboard"),
+                                        )
+                                        .on_hover_text("Copy measurement summaries as text")
+                                        .clicked()
+                                    {
+                                        ui.ctx().copy_text(self.measurements_to_clipboard_text());
+                                    }
+
+                                    if ui
+                                        .add_enabled(
+                                            self.has_measurements(),
+                                            egui::Button::new("Clear"),
+                                        )
+                                        .on_hover_text("Clear all saved measurements")
+                                        .clicked()
+                                    {
+                                        self.line_measurements.clear();
+                                        self.angle_measurements.clear();
+                                        self.clear_measurement_interaction_state();
+                                    }
+                                });
+                            });
+                    });
+                    ui.add_space(layout::SECTION_SPACING);
+                }
+
                 if has_pixel_stats {
                     layout::card_frame(ui).show(ui, |ui| {
                         egui::CollapsingHeader::new("Pixel Statistics")
@@ -374,5 +466,36 @@ impl ImageViewerPanel {
                     });
                 }
             });
+    }
+
+    fn measurements_to_clipboard_text(&self) -> String {
+        let mut out = String::from("Image Measurements\n==================\n");
+
+        if self.line_measurements.is_empty() && self.angle_measurements.is_empty() {
+            out.push_str("No saved measurements.\n");
+            return out;
+        }
+
+        if !self.line_measurements.is_empty() {
+            out.push_str("Line Measurements\n-----------------\n");
+            for (idx, measurement) in self.line_measurements.iter().enumerate() {
+                let _ = writeln!(
+                    out,
+                    "{}. {}",
+                    idx + 1,
+                    measurement.label(self.pixel_scale_x, self.pixel_scale_y, &self.scale_unit)
+                );
+            }
+            out.push('\n');
+        }
+
+        if !self.angle_measurements.is_empty() {
+            out.push_str("Angle Measurements\n------------------\n");
+            for (idx, measurement) in self.angle_measurements.iter().enumerate() {
+                let _ = writeln!(out, "{}. {}", idx + 1, measurement.label());
+            }
+        }
+
+        out
     }
 }
