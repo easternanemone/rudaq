@@ -60,6 +60,7 @@ enum PendingAction {
     AbortPlan {
         run_uid: Option<String>,
     },
+    PollStatus,
 }
 
 /// Plan Runner panel state
