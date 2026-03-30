@@ -800,12 +800,22 @@ impl ModuleRegistry {
     }
 
     /// Start a module
+    ///
+    /// If the module has not been staged yet (state is `Created` or
+    /// `Configured`), it is auto-staged before starting.
     pub async fn start_module(&mut self, module_id: &str) -> Result<u64> {
         let registry = Arc::clone(&self.device_registry);
         let instance = self
             .instances
             .get_mut(module_id)
             .ok_or_else(|| module_not_found(module_id))?;
+
+        // Auto-stage if the module hasn't been staged yet
+        let state = instance.state();
+        if state == ModuleState::Created || state == ModuleState::Configured {
+            info!(module_id, "Auto-staging module before start");
+            instance.stage(Arc::clone(&registry)).await?;
+        }
 
         instance.start(registry).await?;
         Ok(instance.start_time_ns.unwrap_or(0))
