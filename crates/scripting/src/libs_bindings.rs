@@ -730,10 +730,10 @@ mod tests {
     async fn test_gated_camera_handle_creation() {
         let engine = make_engine();
         let result = engine.eval::<Dynamic>(
-            r#"
+            r"
             let cam = create_gated_camera();
             cam.supports_ddg()
-        "#,
+        ",
         );
         assert!(
             result.is_ok(),
@@ -746,10 +746,10 @@ mod tests {
     async fn test_gated_camera_legacy_factory() {
         let engine = make_engine();
         let result = engine.eval::<Dynamic>(
-            r#"
+            r"
             let cam = create_andor_camera();
             cam.supports_ddg()
-        "#,
+        ",
         );
         assert!(
             result.is_ok(),
@@ -762,10 +762,10 @@ mod tests {
     async fn test_spectrograph_handle_creation() {
         let engine = make_engine();
         let result = engine.eval::<i64>(
-            r#"
+            r"
             let spec = create_spectrograph();
             spec.get_grating()
-        "#,
+        ",
         );
         assert!(
             result.is_ok(),
@@ -841,6 +841,7 @@ mod tests {
 
         // Build an in-memory calibrator (flat lamp = flat cal -> unity correction)
         let n = 50usize;
+        #[allow(clippy::cast_precision_loss)] // test indices are small
         let wl: Vec<f64> = (0..n).map(|i| 300.0 + i as f64).collect();
         let lamp = Spectrum::new(wl.clone(), vec![1000.0; n]).expect("valid spectrum");
         let cal = Spectrum::new(wl, vec![1000.0; n]).expect("valid spectrum");
@@ -850,8 +851,8 @@ mod tests {
             calibrator: Arc::new(RadianceCalibrator::new(lamp, cals)),
         };
 
-        assert!(handle.calibrator.has_grating(1));
-        assert!(!handle.calibrator.has_grating(2));
+        assert!(handle.calibrator.grating_calibration(1).is_some());
+        assert!(handle.calibrator.grating_calibration(2).is_none());
     }
 
     #[test]
