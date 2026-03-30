@@ -2065,11 +2065,7 @@ impl ExperimentDesignerPanel {
     ///
     /// Sends `ResumeEngine` to the daemon so the `RunEngine` proceeds with the
     /// adaptive action that triggered the pause.
-    fn confirm_adaptive_action(
-        &mut self,
-        client: Option<&DaqClient>,
-        runtime: Option<&Runtime>,
-    ) {
+    fn confirm_adaptive_action(&mut self, client: Option<&DaqClient>, runtime: Option<&Runtime>) {
         tracing::info!("Adaptive action approved");
         self.set_status("Adaptive action approved - proceeding");
         self.resume_experiment(client, runtime);
@@ -2079,11 +2075,7 @@ impl ExperimentDesignerPanel {
     ///
     /// Sends `AbortPlan` to the daemon so the `RunEngine` stops the current
     /// plan instead of executing the adaptive action.
-    fn cancel_adaptive_action(
-        &mut self,
-        client: Option<&DaqClient>,
-        runtime: Option<&Runtime>,
-    ) {
+    fn cancel_adaptive_action(&mut self, client: Option<&DaqClient>, runtime: Option<&Runtime>) {
         tracing::info!("Adaptive action cancelled");
         self.set_status("Adaptive action cancelled");
         self.abort_experiment(client, runtime);
