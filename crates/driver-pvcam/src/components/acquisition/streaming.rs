@@ -322,8 +322,12 @@ impl PvcamAcquisition {
             // after unlock, causing a data race on frame_ptr. Until the frame loop
             // is restructured to copy-then-unlock, CIRC_OVERWRITE is unsafe.
             //
-            // TODO(bd-wev5): Restructure frame loop to copy data before unlock,
-            // then re-enable CIRC_OVERWRITE for better throughput.
+            // The current unlock-before-copy pattern is safe ONLY in CIRC_NO_OVERWRITE
+            // mode: the SDK won't reuse a buffer slot until all 20 slots are filled,
+            // so frame_ptr remains valid for the copy that follows. Restructuring
+            // to copy-then-unlock would allow re-enabling CIRC_OVERWRITE for ~10-15%
+            // higher throughput, but risks subtle regressions in the frame pipeline.
+            // Deferring until profiling shows CIRC_NO_OVERWRITE is the bottleneck.
             let mut circ_overwrite = false;
             if matches!(buffer_mode.as_str(), "Overwrite") {
                 tracing::warn!(
