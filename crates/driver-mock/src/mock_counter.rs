@@ -172,7 +172,7 @@ impl Settable for MockCounter {
 #[async_trait]
 impl CounterConfigurable for MockCounter {
     async fn configure_counter(&self, config: CounterConfig) -> Result<()> {
-        self.config.set(config).await;
+        self.config.set(config).await?;
         Ok(())
     }
 
