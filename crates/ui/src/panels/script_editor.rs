@@ -154,8 +154,8 @@ impl ScriptEditorPanel {
             && self.last_poll.elapsed() > EXECUTION_POLL_INTERVAL
             && self.execution_id.is_some()
         {
-            if let (Some(client), Some(rt)) = (client.as_deref(), runtime) {
-                self.poll_execution_status(client, rt);
+            if let (Some(c), Some(rt)) = (&client, runtime) {
+                self.poll_execution_status(c, rt);
             }
         }
 
