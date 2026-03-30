@@ -746,30 +746,27 @@ impl ModuleRegistry {
             .chain(type_info.optional_roles.iter())
             .find(|role| role.role_id == role_id);
 
-        let role = match matched_role {
-            Some(r) => r,
-            None => {
-                // Build helpful error message listing valid roles
-                let mut valid_roles = Vec::new();
-                for role in &type_info.required_roles {
-                    valid_roles.push(format!("{} (required)", role.role_id));
-                }
-                for role in &type_info.optional_roles {
-                    valid_roles.push(format!("{} (optional)", role.role_id));
-                }
-
-                let valid_roles_str = if valid_roles.is_empty() {
-                    "none".to_string()
-                } else {
-                    valid_roles.join(", ")
-                };
-
-                return Err(DaqError::Configuration(format!(
-                    "Invalid role '{}' for module type '{}'. Valid roles: {}",
-                    role_id, type_id, valid_roles_str
-                ))
-                .into());
+        let Some(role) = matched_role else {
+            // Build helpful error message listing valid roles
+            let mut valid_roles = Vec::new();
+            for role in &type_info.required_roles {
+                valid_roles.push(format!("{} (required)", role.role_id));
             }
+            for role in &type_info.optional_roles {
+                valid_roles.push(format!("{} (optional)", role.role_id));
+            }
+
+            let valid_roles_str = if valid_roles.is_empty() {
+                "none".to_string()
+            } else {
+                valid_roles.join(", ")
+            };
+
+            return Err(DaqError::Configuration(format!(
+                "Invalid role '{}' for module type '{}'. Valid roles: {}",
+                role_id, type_id, valid_roles_str
+            ))
+            .into());
         };
 
         // Validate that the device has the capability required by this role
@@ -1119,10 +1116,7 @@ mod tests {
             .await
             .expect("start module");
 
-        registry
-            .stop_module(&module_id)
-            .await
-            .expect("stop module");
+        registry.stop_module(&module_id).await.expect("stop module");
 
         // VirtualConfocalSlit.unstage() sets state back to Created,
         // confirming auto-unstage ran.
