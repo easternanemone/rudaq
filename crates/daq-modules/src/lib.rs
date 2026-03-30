@@ -45,6 +45,43 @@ use tokio::sync::{broadcast, mpsc};
 use tracing::{info, warn};
 use uuid::Uuid;
 
+// =============================================================================
+// Capability Validation Helper
+// =============================================================================
+
+/// Check whether a device in the registry has the named capability.
+///
+/// Known capability strings are mapped to the corresponding
+/// `DeviceRegistry::get_*` accessor.  Unknown capabilities produce a
+/// warning but are allowed so that new capability strings introduced in
+/// the future don't break older module code.
+fn device_has_capability(registry: &DeviceRegistry, device_id: &str, capability: &str) -> bool {
+    match capability {
+        "readable" => registry.get_readable(device_id).is_some(),
+        "movable" => registry.get_movable(device_id).is_some(),
+        "frame_producer" => registry.get_frame_producer(device_id).is_some(),
+        "triggerable" => registry.get_triggerable(device_id).is_some(),
+        "exposure_control" => registry.get_exposure_control(device_id).is_some(),
+        "parameterized" => registry.get_parameterized(device_id).is_some(),
+        "stageable" => registry.get_stageable(device_id).is_some(),
+        "shutter_control" => registry.get_shutter_control(device_id).is_some(),
+        "emission_control" => registry.get_emission_control(device_id).is_some(),
+        "wavelength_tunable" => registry.get_wavelength_tunable(device_id).is_some(),
+        "spectrometer_control" => registry.get_spectrometer_control(device_id).is_some(),
+        "settable" => registry.get_settable(device_id).is_some(),
+        "commandable" => registry.get_commandable(device_id).is_some(),
+        "reconfigurable" => registry.get_reconfigurable(device_id).is_some(),
+        "spectrum_readable" => registry.get_spectrum_readable(device_id).is_some(),
+        _ => {
+            warn!(
+                capability,
+                device_id, "Unknown capability, allowing assignment"
+            );
+            true // Forward-compatible: allow unknown capabilities
+        }
+    }
+}
+
 // Re-export for convenience
 pub use common::observable::{Observable, ObservableMetadata, ParameterSet};
 pub use document::{DataKey, Document, StopReason};
