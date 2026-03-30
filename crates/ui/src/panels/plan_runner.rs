@@ -700,11 +700,11 @@ impl PlanRunnerPanel {
                     let action_result = match client.get_engine_status().await {
                         Ok(status) => {
                             let state_str = match status.state {
-                                1 => "Idle",
-                                2 => "Running",
-                                3 => "Paused",
-                                4 => "Aborting",
-                                5 => "Halted",
+                                s if s == EngineState::EngineIdle as i32 => "Idle",
+                                s if s == EngineState::EngineRunning as i32 => "Running",
+                                s if s == EngineState::EnginePaused as i32 => "Paused",
+                                s if s == EngineState::EngineAborting as i32 => "Aborting",
+                                s if s == EngineState::EngineHalted as i32 => "Halted",
                                 _ => "Unknown",
                             }
                             .to_string();
