@@ -272,7 +272,7 @@ mod tests {
 
         // Parameters should be accessible via Parameterized trait
         let params = counter.parameters();
-        assert!(params.get_any("value").is_some());
-        assert!(params.get_any("config").is_some());
+        assert!(params.get("value").is_some());
+        assert!(params.get("config").is_some());
     }
 }
