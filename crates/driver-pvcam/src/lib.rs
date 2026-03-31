@@ -813,11 +813,13 @@ impl PvcamDriver {
             .with_choices_introspectable(vec!["Start".into(), "Stop".into(), "Reset".into()])
             .with_group("I/O");
 
-        // Multi-ROI (bd-oqo7.4)
+        // Multi-ROI (bd-oqo7.4) — read-only until Multi-ROI support is implemented
+        // TODO(bd-oqo7.4): make writable once Multi-ROI callback is wired
         let multi_roi_config = Parameter::new("acquisition.multi_roi_config", "[]".to_string())
             .with_description(
                 "Multi-ROI configuration as JSON array of {x,y,w,h} objects. Max 16 ROIs. Empty = single ROI mode.",
             )
+            .read_only()
             .with_group("Acquisition");
 
         // I/O Diagnostics (bd-oqo7.6)
@@ -1012,24 +1014,11 @@ impl PvcamDriver {
             let conn_guard = connection.lock().await;
 
             if let Ok(current_cycles) = PvcamFeatures::get_clear_cycles(&conn_guard) {
-                let mut param = Parameter::new("acquisition.clear_cycles", current_cycles)
+                // TODO(bd-ldjy.4): read-only until clear_cycles write callback is validated
+                let param = Parameter::new("acquisition.clear_cycles", current_cycles)
                     .with_description("Number of sensor clearing cycles before exposure")
+                    .read_only()
                     .with_group("Acquisition");
-                param.connect_to_hardware_write({
-                    let conn = connection.clone();
-                    move |val| {
-                        let conn = conn.clone();
-                        Box::pin(async move {
-                            let conn_guard = conn.lock_owned().await;
-                            tokio::task::spawn_blocking(move || {
-                                PvcamFeatures::set_clear_cycles(&conn_guard, val)
-                                    .map_err(|e| DaqError::Instrument(e.to_string()))
-                            })
-                            .await
-                            .map_err(|e| DaqError::Instrument(e.to_string()))?
-                        })
-                    }
-                });
                 clear_cycles_param = Some(param);
             }
 
@@ -1061,25 +1050,11 @@ impl PvcamDriver {
             }
 
             if let Ok(current_index) = PvcamFeatures::get_exposure_resolution_index(&conn_guard) {
-                let mut param =
-                    Parameter::new("acquisition.exposure_resolution_index", current_index)
-                        .with_description("Raw PVCAM exposure-resolution index")
-                        .with_group("Acquisition");
-                param.connect_to_hardware_write({
-                    let conn = connection.clone();
-                    move |val| {
-                        let conn = conn.clone();
-                        Box::pin(async move {
-                            let conn_guard = conn.lock_owned().await;
-                            tokio::task::spawn_blocking(move || {
-                                PvcamFeatures::set_exposure_resolution_index(&conn_guard, val)
-                                    .map_err(|e| DaqError::Instrument(e.to_string()))
-                            })
-                            .await
-                            .map_err(|e| DaqError::Instrument(e.to_string()))?
-                        })
-                    }
-                });
+                // Informational — read-only (use exposure_resolution to change resolution)
+                let param = Parameter::new("acquisition.exposure_resolution_index", current_index)
+                    .with_description("Raw PVCAM exposure-resolution index (informational)")
+                    .read_only()
+                    .with_group("Acquisition");
                 exposure_resolution_index_param = Some(param);
             }
 
@@ -1146,13 +1121,18 @@ impl PvcamDriver {
                 .with_description("Centroids processing mode")
                 .with_choices_introspectable(CentroidsMode::all_choices())
                 .with_group("Post-Processing");
-                let mut radius = Parameter::new("processing.centroids_radius", config.radius)
-                    .with_description("Centroids search radius")
+                // PrimeLocate not available on this camera (Teledyne confirmed) — read-only
+                let radius = Parameter::new("processing.centroids_radius", config.radius)
+                    .with_description("Centroids search radius (PrimeLocate not available)")
+                    .read_only()
                     .with_group("Post-Processing");
-                let mut max_count =
-                    Parameter::new("processing.centroids_max_count", config.max_count)
-                        .with_description("Maximum number of centroids per frame")
-                        .with_group("Post-Processing");
+                // PrimeLocate not available on this camera (Teledyne confirmed) — read-only
+                let max_count = Parameter::new("processing.centroids_max_count", config.max_count)
+                    .with_description(
+                        "Maximum number of centroids per frame (PrimeLocate not available)",
+                    )
+                    .read_only()
+                    .with_group("Post-Processing");
                 let mut threshold = threshold;
 
                 {
@@ -1183,61 +1163,7 @@ impl PvcamDriver {
                     });
                 }
 
-                {
-                    let conn = connection.clone();
-                    let mode_param = mode.clone();
-                    let max_count_param = max_count.clone();
-                    let threshold_param = threshold.clone();
-                    radius.connect_to_hardware_write(move |val| {
-                        let conn = conn.clone();
-                        let mode = CentroidsMode::from_str(&mode_param.get());
-                        let max_count = max_count_param.get();
-                        let threshold = threshold_param.get();
-                        Box::pin(async move {
-                            let conn_guard = conn.lock_owned().await;
-                            let config = CentroidsConfig {
-                                mode,
-                                radius: val,
-                                max_count,
-                                threshold,
-                            };
-                            tokio::task::spawn_blocking(move || {
-                                PvcamFeatures::set_centroids_config(&conn_guard, &config)
-                                    .map_err(|e| DaqError::Instrument(e.to_string()))
-                            })
-                            .await
-                            .map_err(|e| DaqError::Instrument(e.to_string()))?
-                        })
-                    });
-                }
-
-                {
-                    let conn = connection.clone();
-                    let mode_param = mode.clone();
-                    let radius_param = radius.clone();
-                    let threshold_param = threshold.clone();
-                    max_count.connect_to_hardware_write(move |val| {
-                        let conn = conn.clone();
-                        let mode = CentroidsMode::from_str(&mode_param.get());
-                        let radius = radius_param.get();
-                        let threshold = threshold_param.get();
-                        Box::pin(async move {
-                            let conn_guard = conn.lock_owned().await;
-                            let config = CentroidsConfig {
-                                mode,
-                                radius,
-                                max_count: val,
-                                threshold,
-                            };
-                            tokio::task::spawn_blocking(move || {
-                                PvcamFeatures::set_centroids_config(&conn_guard, &config)
-                                    .map_err(|e| DaqError::Instrument(e.to_string()))
-                            })
-                            .await
-                            .map_err(|e| DaqError::Instrument(e.to_string()))?
-                        })
-                    });
-                }
+                // radius and max_count are read-only (PrimeLocate N/A) — no hardware write callbacks
 
                 threshold.connect_to_hardware_write({
                     let conn = connection.clone();
@@ -1262,33 +1188,17 @@ impl PvcamDriver {
             }
 
             if let Ok(scan_mode) = PvcamFeatures::get_scan_mode(&conn_guard) {
-                let mut param = Parameter::new("trigger.scan_mode", scan_mode.as_str().to_string())
-                    .with_description("Programmable scan mode")
+                // Programmable Scan Mode not available on this camera (Teledyne confirmed) — read-only
+                let param = Parameter::new("trigger.scan_mode", scan_mode.as_str().to_string())
+                    .with_description("Programmable scan mode (not available on this camera)")
                     .with_choices_introspectable(
                         ScanMode::all_choices()
                             .iter()
                             .map(|choice| (*choice).to_string())
                             .collect(),
                     )
+                    .read_only()
                     .with_group("Trigger");
-                param.connect_to_hardware_write({
-                    let conn = connection.clone();
-                    move |val| {
-                        let conn = conn.clone();
-                        Box::pin(async move {
-                            let conn_guard = conn.lock_owned().await;
-                            let mode = ScanMode::from_str(&val).ok_or_else(|| {
-                                DaqError::Instrument(format!("Invalid scan mode '{val}'"))
-                            })?;
-                            tokio::task::spawn_blocking(move || {
-                                PvcamFeatures::set_scan_mode(&conn_guard, mode)
-                                    .map_err(|e| DaqError::Instrument(e.to_string()))
-                            })
-                            .await
-                            .map_err(|e| DaqError::Instrument(e.to_string()))?
-                        })
-                    }
-                });
                 scan_mode_param = Some(param);
             }
 
@@ -1327,46 +1237,22 @@ impl PvcamDriver {
             }
 
             if let Ok(scan_line_delay) = PvcamFeatures::get_scan_line_delay(&conn_guard) {
-                let mut param = Parameter::new("trigger.scan_line_delay", scan_line_delay)
-                    .with_description("Programmable scan line delay in line clocks")
+                // Programmable Scan Mode not available on this camera (Teledyne confirmed) — read-only
+                let param = Parameter::new("trigger.scan_line_delay", scan_line_delay)
+                    .with_description("Programmable scan line delay in line clocks (not available)")
+                    .read_only()
                     .with_group("Trigger");
-                param.connect_to_hardware_write({
-                    let conn = connection.clone();
-                    move |val| {
-                        let conn = conn.clone();
-                        Box::pin(async move {
-                            let conn_guard = conn.lock_owned().await;
-                            tokio::task::spawn_blocking(move || {
-                                PvcamFeatures::set_scan_line_delay(&conn_guard, val)
-                                    .map_err(|e| DaqError::Instrument(e.to_string()))
-                            })
-                            .await
-                            .map_err(|e| DaqError::Instrument(e.to_string()))?
-                        })
-                    }
-                });
                 scan_line_delay_param = Some(param);
             }
 
             if let Ok(scan_width) = PvcamFeatures::get_scan_width(&conn_guard) {
-                let mut param = Parameter::new("trigger.scan_width", scan_width)
-                    .with_description("Programmable rolling-shutter scan width in sensor rows")
+                // Programmable Scan Mode not available on this camera (Teledyne confirmed) — read-only
+                let param = Parameter::new("trigger.scan_width", scan_width)
+                    .with_description(
+                        "Programmable rolling-shutter scan width in sensor rows (not available)",
+                    )
+                    .read_only()
                     .with_group("Trigger");
-                param.connect_to_hardware_write({
-                    let conn = connection.clone();
-                    move |val| {
-                        let conn = conn.clone();
-                        Box::pin(async move {
-                            let conn_guard = conn.lock_owned().await;
-                            tokio::task::spawn_blocking(move || {
-                                PvcamFeatures::set_scan_width(&conn_guard, val)
-                                    .map_err(|e| DaqError::Instrument(e.to_string()))
-                            })
-                            .await
-                            .map_err(|e| DaqError::Instrument(e.to_string()))?
-                        })
-                    }
-                });
                 scan_width_param = Some(param);
             }
 
