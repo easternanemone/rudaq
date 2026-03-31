@@ -14,8 +14,7 @@ use rfd::FileDialog;
 use std::collections::HashMap;
 use tokio::sync::mpsc;
 
-/// Maximum script size for upload (matches `common::limits::MAX_SCRIPT_SIZE`).
-const MAX_SCRIPT_SIZE: usize = 1024 * 1024;
+use common::limits::MAX_SCRIPT_SIZE;
 
 /// How often to poll execution status while running.
 const EXECUTION_POLL_INTERVAL: Duration = Duration::from_secs(2);

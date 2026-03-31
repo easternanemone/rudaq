@@ -8,6 +8,7 @@
 use crate::runtime::Runtime;
 use client::DaqClient;
 use eframe::egui;
+use protocol::daq::EngineState;
 use tokio::sync::mpsc;
 
 /// Result of an async action
@@ -102,6 +103,8 @@ pub struct PlanRunnerPanel {
     error: Option<String>,
     /// Validation errors for the current plan form
     validation_errors: Vec<String>,
+    /// Whether plan parameters have changed and need re-validation
+    validation_dirty: bool,
 
     /// Pending action
     pending_action: Option<PendingAction>,
@@ -152,6 +155,7 @@ impl Default for PlanRunnerPanel {
             status: None,
             error: None,
             validation_errors: Vec::new(),
+            validation_dirty: true,
             pending_action: None,
             action_tx,
             action_rx,
@@ -346,6 +350,11 @@ impl PlanRunnerPanel {
             // Plan type selector
             ui.horizontal(|ui| {
                 ui.label("Plan Type:");
+                let prev = match self.selected_plan_type {
+                    PlanType::Count => 0,
+                    PlanType::LineScan => 1,
+                    PlanType::GridScan => 2,
+                };
                 ui.selectable_value(&mut self.selected_plan_type, PlanType::Count, "Count");
                 ui.selectable_value(
                     &mut self.selected_plan_type,
@@ -357,85 +366,104 @@ impl PlanRunnerPanel {
                     PlanType::GridScan,
                     "Grid Scan",
                 );
+                let now = match self.selected_plan_type {
+                    PlanType::Count => 0,
+                    PlanType::LineScan => 1,
+                    PlanType::GridScan => 2,
+                };
+                if prev != now {
+                    self.validation_dirty = true;
+                }
             });
 
             ui.add_space(8.0);
+
+            // Helper: render a text field and mark validation dirty on change
+            fn text_field(ui: &mut egui::Ui, value: &mut String, dirty: &mut bool) {
+                let r = ui.text_edit_singleline(value);
+                if r.changed() {
+                    *dirty = true;
+                }
+            }
 
             // Parameters based on plan type
             match self.selected_plan_type {
                 PlanType::Count => {
                     ui.horizontal(|ui| {
                         ui.label("Number of Points:");
-                        ui.text_edit_singleline(&mut self.num_points);
+                        text_field(ui, &mut self.num_points, &mut self.validation_dirty);
                     });
 
                     ui.horizontal(|ui| {
                         ui.label("Detector:");
-                        ui.text_edit_singleline(&mut self.detector_name);
+                        text_field(ui, &mut self.detector_name, &mut self.validation_dirty);
                     });
                 }
                 PlanType::LineScan => {
                     ui.horizontal(|ui| {
                         ui.label("Motor:");
-                        ui.text_edit_singleline(&mut self.motor_name);
+                        text_field(ui, &mut self.motor_name, &mut self.validation_dirty);
                     });
 
                     ui.horizontal(|ui| {
                         ui.label("Start:");
-                        ui.text_edit_singleline(&mut self.start_pos);
+                        text_field(ui, &mut self.start_pos, &mut self.validation_dirty);
                         ui.label("End:");
-                        ui.text_edit_singleline(&mut self.end_pos);
+                        text_field(ui, &mut self.end_pos, &mut self.validation_dirty);
                         ui.label("Points:");
-                        ui.text_edit_singleline(&mut self.num_points);
+                        text_field(ui, &mut self.num_points, &mut self.validation_dirty);
                     });
 
                     ui.horizontal(|ui| {
                         ui.label("Detector:");
-                        ui.text_edit_singleline(&mut self.detector_name);
+                        text_field(ui, &mut self.detector_name, &mut self.validation_dirty);
                     });
                 }
                 PlanType::GridScan => {
                     ui.label(egui::RichText::new("X Axis (fast)").strong());
                     ui.horizontal(|ui| {
                         ui.label("Motor:");
-                        ui.text_edit_singleline(&mut self.grid_x_motor);
+                        text_field(ui, &mut self.grid_x_motor, &mut self.validation_dirty);
                     });
                     ui.horizontal(|ui| {
                         ui.label("Start:");
-                        ui.text_edit_singleline(&mut self.grid_x_start);
+                        text_field(ui, &mut self.grid_x_start, &mut self.validation_dirty);
                         ui.label("End:");
-                        ui.text_edit_singleline(&mut self.grid_x_end);
+                        text_field(ui, &mut self.grid_x_end, &mut self.validation_dirty);
                         ui.label("Points:");
-                        ui.text_edit_singleline(&mut self.grid_x_points);
+                        text_field(ui, &mut self.grid_x_points, &mut self.validation_dirty);
                     });
 
                     ui.add_space(4.0);
                     ui.label(egui::RichText::new("Y Axis (slow)").strong());
                     ui.horizontal(|ui| {
                         ui.label("Motor:");
-                        ui.text_edit_singleline(&mut self.grid_y_motor);
+                        text_field(ui, &mut self.grid_y_motor, &mut self.validation_dirty);
                     });
                     ui.horizontal(|ui| {
                         ui.label("Start:");
-                        ui.text_edit_singleline(&mut self.grid_y_start);
+                        text_field(ui, &mut self.grid_y_start, &mut self.validation_dirty);
                         ui.label("End:");
-                        ui.text_edit_singleline(&mut self.grid_y_end);
+                        text_field(ui, &mut self.grid_y_end, &mut self.validation_dirty);
                         ui.label("Points:");
-                        ui.text_edit_singleline(&mut self.grid_y_points);
+                        text_field(ui, &mut self.grid_y_points, &mut self.validation_dirty);
                     });
 
                     ui.add_space(4.0);
                     ui.horizontal(|ui| {
                         ui.label("Detector:");
-                        ui.text_edit_singleline(&mut self.grid_detector);
+                        text_field(ui, &mut self.grid_detector, &mut self.validation_dirty);
                     });
                 }
             }
 
             ui.add_space(8.0);
 
-            // Validate parameters before showing the Queue button
-            self.validation_errors = self.validate_plan_parameters();
+            // Validate parameters only when inputs have changed
+            if self.validation_dirty {
+                self.validation_errors = self.validate_plan_parameters();
+                self.validation_dirty = false;
+            }
 
             // Show validation errors
             for err in &self.validation_errors {
@@ -672,11 +700,11 @@ impl PlanRunnerPanel {
                     let action_result = match client.get_engine_status().await {
                         Ok(status) => {
                             let state_str = match status.state {
-                                1 => "Idle",
-                                2 => "Running",
-                                3 => "Paused",
-                                4 => "Aborting",
-                                5 => "Halted",
+                                s if s == EngineState::EngineIdle as i32 => "Idle",
+                                s if s == EngineState::EngineRunning as i32 => "Running",
+                                s if s == EngineState::EnginePaused as i32 => "Paused",
+                                s if s == EngineState::EngineAborting as i32 => "Aborting",
+                                s if s == EngineState::EngineHalted as i32 => "Halted",
                                 _ => "Unknown",
                             }
                             .to_string();
@@ -726,102 +754,39 @@ impl PlanRunnerPanel {
                 if self.motor_name.trim().is_empty() {
                     errors.push("Motor name cannot be empty".to_string());
                 }
-                let start_ok = self.start_pos.parse::<f64>().ok().filter(|v| v.is_finite());
-                let end_ok = self.end_pos.parse::<f64>().ok().filter(|v| v.is_finite());
-                if start_ok.is_none() {
-                    errors.push("Start position must be a valid number".to_string());
-                }
-                if end_ok.is_none() {
-                    errors.push("End position must be a valid number".to_string());
-                }
-                if let (Some(s), Some(e)) = (start_ok, end_ok) {
-                    if (s - e).abs() < f64::EPSILON {
-                        errors.push("Start and end positions must be different".to_string());
-                    }
-                }
-                match self.num_points.parse::<usize>() {
-                    Ok(0) | Err(_) => {
-                        errors.push("Number of points must be a positive integer".to_string());
-                    }
-                    Ok(n) if n > 10_000_000 => {
-                        errors.push("Number of points must be <= 10,000,000".to_string());
-                    }
-                    _ => {}
-                }
+                errors.extend(validate_axis(
+                    "Scan ",
+                    &self.start_pos,
+                    &self.end_pos,
+                    &self.num_points,
+                    10_000_000,
+                ));
                 if self.detector_name.trim().is_empty() {
                     errors.push("Detector name cannot be empty".to_string());
                 }
             }
             PlanType::GridScan => {
-                // X axis validation
                 if self.grid_x_motor.trim().is_empty() {
                     errors.push("X motor name cannot be empty".to_string());
                 }
-                let x_start = self
-                    .grid_x_start
-                    .parse::<f64>()
-                    .ok()
-                    .filter(|v| v.is_finite());
-                let x_end = self
-                    .grid_x_end
-                    .parse::<f64>()
-                    .ok()
-                    .filter(|v| v.is_finite());
-                if x_start.is_none() {
-                    errors.push("X start must be a valid number".to_string());
-                }
-                if x_end.is_none() {
-                    errors.push("X end must be a valid number".to_string());
-                }
-                if let (Some(s), Some(e)) = (x_start, x_end) {
-                    if (s - e).abs() < f64::EPSILON {
-                        errors.push("X start and end must be different".to_string());
-                    }
-                }
-                match self.grid_x_points.parse::<usize>() {
-                    Ok(0) | Err(_) => {
-                        errors.push("X points must be a positive integer".to_string());
-                    }
-                    Ok(n) if n > 100_000 => {
-                        errors.push("X points must be <= 100,000".to_string());
-                    }
-                    _ => {}
-                }
+                errors.extend(validate_axis(
+                    "X ",
+                    &self.grid_x_start,
+                    &self.grid_x_end,
+                    &self.grid_x_points,
+                    100_000,
+                ));
 
-                // Y axis validation
                 if self.grid_y_motor.trim().is_empty() {
                     errors.push("Y motor name cannot be empty".to_string());
                 }
-                let y_start = self
-                    .grid_y_start
-                    .parse::<f64>()
-                    .ok()
-                    .filter(|v| v.is_finite());
-                let y_end = self
-                    .grid_y_end
-                    .parse::<f64>()
-                    .ok()
-                    .filter(|v| v.is_finite());
-                if y_start.is_none() {
-                    errors.push("Y start must be a valid number".to_string());
-                }
-                if y_end.is_none() {
-                    errors.push("Y end must be a valid number".to_string());
-                }
-                if let (Some(s), Some(e)) = (y_start, y_end) {
-                    if (s - e).abs() < f64::EPSILON {
-                        errors.push("Y start and end must be different".to_string());
-                    }
-                }
-                match self.grid_y_points.parse::<usize>() {
-                    Ok(0) | Err(_) => {
-                        errors.push("Y points must be a positive integer".to_string());
-                    }
-                    Ok(n) if n > 100_000 => {
-                        errors.push("Y points must be <= 100,000".to_string());
-                    }
-                    _ => {}
-                }
+                errors.extend(validate_axis(
+                    "Y ",
+                    &self.grid_y_start,
+                    &self.grid_y_end,
+                    &self.grid_y_points,
+                    100_000,
+                ));
 
                 // Cross-axis validation
                 let x_motor_trimmed = self.grid_x_motor.trim();
@@ -841,4 +806,43 @@ impl PlanRunnerPanel {
 
         errors
     }
+}
+
+/// Validate a scan axis: parse start/end as f64, check finite, check different,
+/// and verify point count is a positive integer within `max_points`.
+/// `label` is a prefix like `"X "` or `""` for error messages.
+fn validate_axis(
+    label: &str,
+    start: &str,
+    end: &str,
+    points: &str,
+    max_points: usize,
+) -> Vec<String> {
+    let mut errors = Vec::new();
+
+    let start_ok = start.parse::<f64>().ok().filter(|v| v.is_finite());
+    let end_ok = end.parse::<f64>().ok().filter(|v| v.is_finite());
+
+    if start_ok.is_none() {
+        errors.push(format!("{label}start must be a valid number"));
+    }
+    if end_ok.is_none() {
+        errors.push(format!("{label}end must be a valid number"));
+    }
+    if let (Some(s), Some(e)) = (start_ok, end_ok) {
+        if (s - e).abs() < f64::EPSILON {
+            errors.push(format!("{label}start and end must be different"));
+        }
+    }
+    match points.parse::<usize>() {
+        Ok(0) | Err(_) => {
+            errors.push(format!("{label}points must be a positive integer"));
+        }
+        Ok(n) if n > max_points => {
+            errors.push(format!("{label}points must be <= {max_points}"));
+        }
+        _ => {}
+    }
+
+    errors
 }
