@@ -62,6 +62,25 @@ pub use buffer::*;
 #[cfg(feature = "pvcam_sdk")]
 pub use callback_context::*;
 
+/// Streaming configuration parameters bundled into a single struct (bd-rh4k).
+///
+/// Replaces the 8+ positional parameters that were passed through
+/// `start_stream()` → `start_stream_sequence_impl()` → frame loops.
+/// `PvcamConnection` and SDK-level handles remain separate since they
+/// are runtime state, not configuration.
+#[derive(Clone)]
+pub struct StreamConfig {
+    pub roi: common::core::Roi,
+    pub binning: (u16, u16),
+    pub exposure_ms: f64,
+    pub buffer_mode: String,
+    pub host_summing_enabled: common::parameter::Parameter<bool>,
+    pub host_summing_count: common::parameter::Parameter<u32>,
+    pub smart_stream_enabled: common::parameter::Parameter<bool>,
+    pub smart_stream_exposures: common::parameter::Parameter<String>,
+    pub prime_locate_enabled: common::parameter::Parameter<bool>,
+}
+
 #[cfg(feature = "pvcam_sdk")]
 use crate::components::connection::get_pvcam_error;
 use crate::components::connection::PvcamConnection;

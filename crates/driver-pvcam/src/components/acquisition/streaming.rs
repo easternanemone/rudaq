@@ -6,6 +6,7 @@ use super::callback_context::SEQUENCE_BATCH_SIZE;
 use super::AcquisitionError;
 use super::PvcamAcquisition;
 use super::PvcamConnection;
+use super::StreamConfig;
 #[cfg(feature = "pvcam_sdk")]
 use super::{get_pvcam_error, PvcamFeatures};
 use anyhow::{anyhow, bail, Result};
@@ -38,35 +39,35 @@ impl PvcamAcquisition {
     ///
     /// Resets frame loss metrics at the start of each acquisition. During streaming,
     /// the poll loop tracks hardware frame numbers to detect and count dropped frames.
-    #[allow(clippy::too_many_arguments)]
-    pub async fn start_stream(
-        &self,
-        conn: &PvcamConnection,
-        roi: Roi,
-        binning: (u16, u16),
-        exposure_ms: f64,
-        buffer_mode: String,
-        host_summing_enabled: Parameter<bool>,     // bd-oqo7.7
-        host_summing_count: Parameter<u32>,        // bd-oqo7.7
-        smart_stream_enabled: Parameter<bool>,     // bd-oqo7.1
-        smart_stream_exposures: Parameter<String>, // bd-oqo7.1
-        prime_locate_enabled: Parameter<bool>,     // bd-ldjy.4
-    ) -> Result<()> {
+    pub async fn start_stream(&self, conn: &PvcamConnection, config: StreamConfig) -> Result<()> {
         tracing::info!(
             "start_stream: roi=({},{} {}x{}), binning=({},{}), exposure={:.1}ms, mode={}",
-            roi.x,
-            roi.y,
-            roi.width,
-            roi.height,
-            binning.0,
-            binning.1,
-            exposure_ms,
-            buffer_mode
+            config.roi.x,
+            config.roi.y,
+            config.roi.width,
+            config.roi.height,
+            config.binning.0,
+            config.binning.1,
+            config.exposure_ms,
+            config.buffer_mode
         );
+
+        // Destructure config for local use
+        let StreamConfig {
+            roi,
+            binning,
+            exposure_ms,
+            buffer_mode,
+            host_summing_enabled,
+            host_summing_count,
+            smart_stream_enabled,
+            smart_stream_exposures,
+            prime_locate_enabled,
+        } = config;
 
         // Avoid unused parameter warnings when hardware feature is disabled.
         let _ = conn;
-        let _ = buffer_mode;
+        let _ = &buffer_mode;
         let _ = &host_summing_enabled;
         let _ = &host_summing_count;
         let _ = &smart_stream_enabled;
@@ -1023,7 +1024,6 @@ impl PvcamAcquisition {
     }
 
     /// Acquire a single frame by starting the stream, grabbing one frame, then stopping.
-    #[allow(clippy::too_many_arguments)]
     pub async fn acquire_single_frame(
         &self,
         conn: &MutexGuard<'_, PvcamConnection>,
@@ -1044,19 +1044,18 @@ impl PvcamAcquisition {
         );
         #[cfg(not(feature = "pvcam_sdk"))]
         let prime_locate_enabled = Parameter::new("_single_frame_prime_locate", false);
-        self.start_stream(
-            conn,
+        let config = StreamConfig {
             roi,
             binning,
             exposure_ms,
-            self.buffer_mode.get(),
+            buffer_mode: self.buffer_mode.get(),
             host_summing_enabled,
             host_summing_count,
-            smart_disabled,
-            smart_empty,
+            smart_stream_enabled: smart_disabled,
+            smart_stream_exposures: smart_empty,
             prime_locate_enabled,
-        )
-        .await?;
+        };
+        self.start_stream(conn, config).await?;
 
         let frame = tokio::time::timeout(Duration::from_secs(5), rx.recv())
             .await

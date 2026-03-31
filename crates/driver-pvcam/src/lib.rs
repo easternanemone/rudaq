@@ -65,7 +65,7 @@ pub use crate::components::features::{
     pp_name_matches, PvcamFeatures,
 };
 
-use crate::components::acquisition::PvcamAcquisition;
+use crate::components::acquisition::{PvcamAcquisition, StreamConfig};
 use crate::components::connection::PvcamConnection;
 use crate::components::speed_table::SpeedTable;
 use crate::components::taps::ObserverAdapter;
@@ -3131,20 +3131,18 @@ impl Triggerable for PvcamDriver {
 impl FrameProducer for PvcamDriver {
     async fn start_stream(&self) -> Result<()> {
         let conn = self.connection.lock().await;
-        self.acquisition
-            .start_stream(
-                &conn,
-                self.roi.get(),
-                self.binning.get(),
-                self.exposure_ms.get(),
-                self.buffer_mode.get(),
-                self.host_summing_enabled.clone(),
-                self.host_summing_count.clone(),
-                self.smart_stream_enabled.clone(),
-                self.smart_stream_exposures.clone(),
-                self.prime_locate_enabled.clone(),
-            )
-            .await
+        let config = StreamConfig {
+            roi: self.roi.get(),
+            binning: self.binning.get(),
+            exposure_ms: self.exposure_ms.get(),
+            buffer_mode: self.buffer_mode.get(),
+            host_summing_enabled: self.host_summing_enabled.clone(),
+            host_summing_count: self.host_summing_count.clone(),
+            smart_stream_enabled: self.smart_stream_enabled.clone(),
+            smart_stream_exposures: self.smart_stream_exposures.clone(),
+            prime_locate_enabled: self.prime_locate_enabled.clone(),
+        };
+        self.acquisition.start_stream(&conn, config).await
     }
 
     async fn stop_stream(&self) -> Result<()> {
