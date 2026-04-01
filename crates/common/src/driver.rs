@@ -68,10 +68,10 @@
 
 use crate::capabilities::{
     Commandable, CounterConfigurable, DeviceCategory, DeviceIntrospection, EmissionControl,
-    ExposureControl, FrameProducer, GatedCamera, Movable, Parameterized, PulseGenerator,
-    RangeIntrospectable, Readable, ReadableWithMetadata, Reconfigurable, SafetyInterlock, Settable,
-    ShutterControl, SpectrometerControl, SpectrumReadable, Stageable, StateRefreshable,
-    TriggerOnPosition, Triggerable, WavelengthTunable,
+    ExposureControl, FrameProducer, GatedCamera, Movable, Parameterized, RangeIntrospectable,
+    Readable, ReadableWithMetadata, Reconfigurable, SafetyInterlock, Settable, ShutterControl,
+    SpectrometerControl, SpectrumReadable, Stageable, StateRefreshable, TriggerOnPosition,
+    Triggerable, WavelengthTunable,
 };
 use crate::data::Frame;
 use crate::pipeline::MeasurementSource;
@@ -163,10 +163,6 @@ pub enum Capability {
     /// Corresponds to [`crate::capabilities::TriggerOnPosition`]
     TriggerOnPosition,
 
-    /// Pulse generator with configurable timing
-    /// Corresponds to [`crate::capabilities::PulseGenerator`]
-    PulseGenerator,
-
     /// Safety interlock monitoring
     /// Corresponds to [`crate::capabilities::SafetyInterlock`]
     SafetyInterlock,
@@ -219,7 +215,6 @@ impl Capability {
             Self::GatedCamera => "Gated Camera",
             Self::SpectrometerControl => "Spectrometer Control",
             Self::TriggerOnPosition => "Trigger On Position",
-            Self::PulseGenerator => "Pulse Generator",
             Self::SafetyInterlock => "Safety Interlock",
             Self::Reconfigurable => "Reconfigurable",
             Self::StateRefreshable => "State Refreshable",
@@ -249,7 +244,6 @@ impl Capability {
             Self::GatedCamera => "gated_camera",
             Self::SpectrometerControl => "spectrometer_control",
             Self::TriggerOnPosition => "trigger_on_position",
-            Self::PulseGenerator => "pulse_generator",
             Self::SafetyInterlock => "safety_interlock",
             Self::Reconfigurable => "reconfigurable",
             Self::StateRefreshable => "state_refreshable",
@@ -346,9 +340,6 @@ pub struct DeviceComponents {
     /// TriggerOnPosition implementation (position-based triggering)
     pub trigger_on_position: Option<Arc<dyn TriggerOnPosition>>,
 
-    /// PulseGenerator implementation (pulse train generation)
-    pub pulse_generator: Option<Arc<dyn PulseGenerator>>,
-
     /// SafetyInterlock implementation (interlock monitoring)
     pub safety_interlock: Option<Arc<dyn SafetyInterlock>>,
 
@@ -434,9 +425,6 @@ impl DeviceComponents {
         }
         if self.trigger_on_position.is_some() {
             caps.push(Capability::TriggerOnPosition);
-        }
-        if self.pulse_generator.is_some() {
-            caps.push(Capability::PulseGenerator);
         }
         if self.safety_interlock.is_some() {
             caps.push(Capability::SafetyInterlock);
@@ -568,12 +556,6 @@ impl DeviceComponents {
     /// Set TriggerOnPosition implementation
     pub fn with_trigger_on_position(mut self, t: Arc<dyn TriggerOnPosition>) -> Self {
         self.trigger_on_position = Some(t);
-        self
-    }
-
-    /// Set PulseGenerator implementation
-    pub fn with_pulse_generator(mut self, p: Arc<dyn PulseGenerator>) -> Self {
-        self.pulse_generator = Some(p);
         self
     }
 

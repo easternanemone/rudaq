@@ -1445,66 +1445,6 @@ pub trait TriggerOnPosition: Movable {
     async fn is_top_enabled(&self) -> Result<bool>;
 }
 
-/// Capability: Pulse Generator
-///
-/// Devices that can generate pulse trains with precise timing.
-/// Used for triggering cameras, lasers, and other instruments.
-///
-/// # Contract
-/// - Pulse train timing is in seconds (not milliseconds)
-/// - `wait_done()` blocks until pulse train completes
-/// - Trigger source determines when pulse train starts
-#[async_trait]
-pub trait PulseGenerator: Send + Sync {
-    /// Configure pulse train parameters
-    ///
-    /// # Arguments
-    /// * `high_time_s` - Duration of high state in seconds
-    /// * `low_time_s` - Duration of low state in seconds
-    /// * `num_pulses` - Number of pulses to generate (0 = continuous)
-    ///
-    /// # Contract
-    /// - Pulse frequency = 1 / (high_time_s + low_time_s)
-    /// - Timing precision depends on hardware (typically 1-10ns)
-    ///
-    /// # Returns
-    /// - Ok(()) if configuration successful
-    /// - Err if timing values invalid or hardware error
-    async fn configure_pulse_train(
-        &self,
-        high_time_s: f64,
-        low_time_s: f64,
-        num_pulses: u32,
-    ) -> Result<()>;
-
-    /// Wait for pulse train to complete
-    ///
-    /// # Contract
-    /// - Blocks until `num_pulses` have been generated
-    /// - Returns immediately if num_pulses=0 (continuous mode)
-    /// - Should have internal timeout to prevent infinite blocking
-    ///
-    /// # Returns
-    /// - Ok(()) when pulse train completes
-    /// - Err on timeout or hardware error
-    async fn wait_done(&self) -> Result<()>;
-
-    /// Set trigger source for pulse train
-    ///
-    /// # Arguments
-    /// * `source` - Trigger source (Software, External, Position)
-    ///
-    /// # Contract
-    /// - Software: pulse train starts on explicit trigger command
-    /// - External: pulse train starts on hardware trigger signal
-    /// - Position: pulse train synchronized with motion (requires TriggerOnPosition)
-    ///
-    /// # Returns
-    /// - Ok(()) if trigger source set successfully
-    /// - Err if source not supported or hardware error
-    async fn set_trigger_source(&self, source: TriggerSource) -> Result<()>;
-}
-
 /// Interlock status for safety systems
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
