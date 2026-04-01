@@ -359,7 +359,7 @@ impl RegisteredDevice {
         let mut metadata = HashMap::new();
         for name in parameterized.parameters().names() {
             if let Some(param) = parameterized.parameters().get(name) {
-                metadata.insert(name.to_string(), ParameterMetadata::from(&param.metadata()));
+                metadata.insert(name.to_string(), param.metadata());
             }
         }
         metadata

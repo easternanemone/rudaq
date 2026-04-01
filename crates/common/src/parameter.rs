@@ -244,7 +244,7 @@ where
     /// Modify metadata through a closure (for advanced constraint population).
     pub fn with_metadata<F>(&self, f: F)
     where
-        F: FnOnce(&mut crate::observable::ObservableMetadata),
+        F: FnOnce(&mut crate::observable::ParameterMetadata),
     {
         self.inner.with_metadata(f);
     }
@@ -576,7 +576,7 @@ where
         block_on_parameter_set(self, typed_value)
     }
 
-    fn metadata(&self) -> crate::observable::ObservableMetadata {
+    fn metadata(&self) -> crate::observable::ParameterMetadata {
         self.inner.metadata()
     }
 

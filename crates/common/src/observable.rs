@@ -143,9 +143,9 @@ pub trait ParameterBase: Send + Sync {
     /// Get the parameter metadata (returns a clone for thread safety).
     ///
     /// Returns by value because metadata is stored in a shared RwLock
-    /// to support dynamic updates. ObservableMetadata is lightweight
+    /// to support dynamic updates. `ParameterMetadata` is lightweight
     /// and Clone is cheap.
-    fn metadata(&self) -> ObservableMetadata;
+    fn metadata(&self) -> ParameterMetadata;
 
     /// Check if there are any active subscribers
     fn has_subscribers(&self) -> bool;
@@ -222,10 +222,18 @@ impl<T: Clone + Send + Sync + 'static> Clone for Observable<T> {
     }
 }
 
-/// Metadata for an observable parameter.
+/// Unified parameter metadata — the single authoritative type for describing
+/// device parameters across the runtime model (bd-20ap).
 ///
 /// Contains both descriptive metadata (name, description, units) and
 /// **introspectable constraint metadata** for GUI rendering (Phase 2: bd-cdh5.2).
+///
+/// # Consolidation (bd-20ap)
+///
+/// This type consolidates what were previously three separate metadata types:
+/// - `ObservableMetadata` (now a type alias for `ParameterMetadata`)
+/// - The old `ParameterMetadata` (same struct, now with `name` field)
+/// - `ManifestParameterMeta` (TOML deserialization type, converts via `From`)
 ///
 /// # Introspectable Fields
 ///
@@ -253,7 +261,7 @@ impl<T: Clone + Send + Sync + 'static> Clone for Observable<T> {
 /// - `max_value` → `ParameterDescriptor.max_value`
 /// - `enum_values` → `ParameterDescriptor.enum_values`
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ObservableMetadata {
+pub struct ParameterMetadata {
     /// Parameter name (unique within module).
     ///
     /// Used as the identifier for gRPC operations and GUI labels.
@@ -314,6 +322,14 @@ pub struct ObservableMetadata {
     #[serde(default)]
     pub step: Option<f64>,
 
+    /// Default value as f64 (for numeric types).
+    ///
+    /// Populated from TOML manifest `[parameters]` sections. Not used by
+    /// runtime `Observable<T>` / `Parameter<T>` (which have typed defaults),
+    /// but carried for DB persistence and UI display.
+    #[serde(default)]
+    pub default_value: Option<f64>,
+
     /// Enum values for choice constraints (introspectable).
     ///
     /// Populated by `with_choices_introspectable()`. When non-empty, the GUI
@@ -336,41 +352,12 @@ pub struct ObservableMetadata {
     pub group_name: Option<String>,
 }
 
-/// Structured parameter metadata for validation and UI hints.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ParameterMetadata {
-    pub description: Option<String>,
-    pub units: Option<String>,
-    pub read_only: bool,
-    #[serde(default)]
-    pub dtype: String,
-    #[serde(default)]
-    pub min_value: Option<f64>,
-    #[serde(default)]
-    pub max_value: Option<f64>,
-    #[serde(default)]
-    pub step: Option<f64>,
-    #[serde(default)]
-    pub enum_values: Vec<String>,
-    #[serde(default)]
-    pub group_name: Option<String>,
-}
-
-impl From<&ObservableMetadata> for ParameterMetadata {
-    fn from(metadata: &ObservableMetadata) -> Self {
-        Self {
-            description: metadata.description.clone(),
-            units: metadata.units.clone(),
-            read_only: metadata.read_only,
-            dtype: metadata.dtype.clone(),
-            min_value: metadata.min_value,
-            max_value: metadata.max_value,
-            step: metadata.step,
-            enum_values: metadata.enum_values.clone(),
-            group_name: metadata.group_name.clone(),
-        }
-    }
-}
+/// Type alias for backward compatibility (bd-20ap).
+///
+/// `ObservableMetadata` was the original metadata type for `Observable<T>`.
+/// It has been consolidated into [`ParameterMetadata`], which is now the
+/// single authoritative metadata type for all parameter/observable metadata.
+pub type ObservableMetadata = ParameterMetadata;
 
 impl<T> Observable<T>
 where
@@ -382,7 +369,7 @@ where
         Self {
             sender,
             shared: Arc::new(RwLock::new(ObservableSharedState {
-                metadata: ObservableMetadata {
+                metadata: ParameterMetadata {
                     name: name.into(),
                     description: None,
                     units: None,
@@ -391,6 +378,7 @@ where
                     min_value: None,
                     max_value: None,
                     step: None,
+                    default_value: None,
                     enum_values: Vec::new(),
                     group_name: None,
                 },
@@ -448,8 +436,8 @@ where
     /// Get the metadata (returns a clone for thread safety).
     ///
     /// Returns by value because metadata is stored in a shared RwLock.
-    /// ObservableMetadata is lightweight and Clone is cheap.
-    pub fn metadata(&self) -> ObservableMetadata {
+    /// `ParameterMetadata` is lightweight and Clone is cheap.
+    pub fn metadata(&self) -> ParameterMetadata {
         self.shared.read().metadata.clone()
     }
 
@@ -458,7 +446,7 @@ where
     /// This is the preferred way to modify metadata after Observable creation.
     pub fn with_metadata<F>(&self, f: F)
     where
-        F: FnOnce(&mut ObservableMetadata),
+        F: FnOnce(&mut ParameterMetadata),
     {
         let mut guard = self.shared.write();
         f(&mut guard.metadata);
@@ -571,7 +559,7 @@ where
         Observable::set_json(self, value)
     }
 
-    fn metadata(&self) -> ObservableMetadata {
+    fn metadata(&self) -> ParameterMetadata {
         Observable::metadata(self)
     }
 

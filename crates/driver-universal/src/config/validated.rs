@@ -53,8 +53,8 @@ pub struct DeviceManifest {
 /// Metadata about a single parameter defined in the TOML manifest.
 ///
 /// Extracted from `[parameters.<name>]` tables for DB/UI consumption.
-/// This is static metadata (not live values), mirroring what
-/// `ObservableMetadata` provides for runtime `Parameter<T>` instances.
+/// This is a TOML deserialization type that converts to the authoritative
+/// [`common::observable::ParameterMetadata`] via the `From` impl (bd-20ap).
 #[derive(Debug, Clone)]
 pub struct ManifestParameterMeta {
     /// Parameter name (e.g., "position_deg").
@@ -73,6 +73,36 @@ pub struct ManifestParameterMeta {
     pub description: Option<String>,
     /// Whether the parameter is read-only.
     pub read_only: bool,
+}
+
+fn parameter_metadata_from_manifest(
+    m: &ManifestParameterMeta,
+) -> common::observable::ParameterMetadata {
+    common::observable::ParameterMetadata {
+        name: m.name.clone(),
+        description: m.description.clone(),
+        units: m.unit.clone(),
+        read_only: m.read_only,
+        dtype: m.dtype.clone(),
+        min_value: m.min_value,
+        max_value: m.max_value,
+        step: None,
+        default_value: m.default_value,
+        enum_values: Vec::new(),
+        group_name: None,
+    }
+}
+
+impl From<ManifestParameterMeta> for common::observable::ParameterMetadata {
+    fn from(m: ManifestParameterMeta) -> Self {
+        parameter_metadata_from_manifest(&m)
+    }
+}
+
+impl From<&ManifestParameterMeta> for common::observable::ParameterMetadata {
+    fn from(m: &ManifestParameterMeta) -> Self {
+        parameter_metadata_from_manifest(m)
+    }
 }
 
 /// Device metadata.

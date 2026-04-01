@@ -1024,9 +1024,7 @@ pub trait Parameterized: Send + Sync {
 
     /// Get metadata for a specific parameter (cached by registry on registration).
     fn get_parameter_metadata(&self, name: &str) -> Option<ParameterMetadata> {
-        self.parameters()
-            .get(name)
-            .map(|param| ParameterMetadata::from(&param.metadata()))
+        self.parameters().get(name).map(|param| param.metadata())
     }
 }
 
