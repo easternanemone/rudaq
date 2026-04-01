@@ -240,6 +240,30 @@ PY
 
 restore_embedded_checkout_if_empty
 
+report_repo_local_backup_reservation() {
+  local repo_backup_dir="$BEADS_DIR/backup"
+  if [[ ! -d "$repo_backup_dir" ]]; then
+    return
+  fi
+
+  local repo_backup_url
+  repo_backup_url="file://$(cd "$repo_backup_dir" && pwd -P)"
+
+  local hidden_backup_url
+  hidden_backup_url="$(
+    cd "$LIVE_CLI_DIR" && dolt backup -v 2>/dev/null | awk '$1 == "backup_export" { print $2 }'
+  )"
+
+  if [[ "$hidden_backup_url" == "$repo_backup_url" ]]; then
+    cat <<EOF
+Note: beads auto-backup already reserves $repo_backup_url as Dolt backup 'backup_export'.
+      Keep using origin for normal sync. If you need an explicit 'bd backup init'
+      destination, choose a different path or cloud URL until gastownhall/beads#2962
+      is fixed upstream.
+EOF
+  fi
+}
+
 ORIGIN_URL="${BEADS_DOLT_ORIGIN:-}"
 if [[ -z "$ORIGIN_URL" ]]; then
   DATA_ROOT="${XDG_DATA_HOME:-$HOME/.local/share}"
@@ -310,6 +334,7 @@ fi
 
 echo "Verifying: bd dolt remote list"
 bd dolt remote list
+report_repo_local_backup_reservation
 
 echo ""
 echo "Next: bd dolt push   (run after issue changes; hooks may call this automatically)"

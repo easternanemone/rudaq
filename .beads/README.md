@@ -52,6 +52,8 @@ If `origin` already exists, the setup script preserves it. To switch remotes:
 
 **Clone-local file remote hardening:** for the default `file://` remote, the setup script also seeds or reseeds `$XDG_DATA_HOME/rust-daq/beads-dolt-origin` from the live embedded checkout when the local backup remote is missing or has no common ancestor. That keeps `bd dolt push` / `bd dolt pull` on a stable native path without relying on the old hosted sync setup.
 
+**Repo-local backup caveat:** beads auto-backup already uses the repo-local `.beads/backup` directory through a hidden Dolt backup named `backup_export`. Until [gastownhall/beads#2962](https://github.com/gastownhall/beads/issues/2962) is fixed upstream, do **not** point `bd backup init` at `.beads/backup`; use a different filesystem path or a cloud/DoltHub URL for any explicit manual backup destination.
+
 ### Worktree canonical DB (rust-daq)
 
 In git worktrees, use the canonical DB wrapper to avoid stale local `.beads` drift:
