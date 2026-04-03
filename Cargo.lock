@@ -2698,6 +2698,7 @@ dependencies = [
  "async-trait",
  "bytes",
  "chrono",
+ "common-traits",
  "criterion",
  "echelle",
  "fitsio",
@@ -2723,6 +2724,26 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "wasm-timer",
+]
+
+[[package]]
+name = "common-traits"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arrow 57.3.0",
+ "async-trait",
+ "bytes",
+ "futures",
+ "hdf5-metno",
+ "parking_lot 0.12.5",
+ "pool",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "toml 0.9.12+spec-1.1.0",
+ "tracing",
 ]
 
 [[package]]

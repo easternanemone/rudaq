@@ -6,6 +6,7 @@ description = "Core types and traits for rust-daq"
 build = "build.rs"
 
 [dependencies]
+common-traits = { path = "../common-traits" }
 bytes = { version = "1.11", features = ["serde"] }
 parking_lot = "0.12"
 serde = { workspace = true, features = ["derive"] }
@@ -57,8 +58,8 @@ name = "libs_benchmarks"
 harness = false
 
 [features]
-storage_arrow = ["dep:arrow"]
-storage_hdf5 = ["dep:hdf5"]
+storage_arrow = ["dep:arrow", "common-traits/storage_arrow"]
+storage_hdf5 = ["dep:hdf5", "common-traits/storage_hdf5"]
 serial = ["dep:serial2-tokio"]  # Serial port support for driver crates
 fits = ["dep:fitsio"]  # FITS file I/O for calibration frame import (requires cfitsio C library)
 
