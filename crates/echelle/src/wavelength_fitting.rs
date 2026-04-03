@@ -1357,13 +1357,13 @@ pub fn fit_order_wavelength(
         let active_pixels: Vec<f64> = pixels
             .iter()
             .zip(&mask)
-            .filter(|(_, &m)| m)
+            .filter(|&(_, &m)| m)
             .map(|(&p, _)| p)
             .collect();
         let active_wls: Vec<f64> = wavelengths
             .iter()
             .zip(&mask)
-            .filter(|(_, &m)| m)
+            .filter(|&(_, &m)| m)
             .map(|(&w, _)| w)
             .collect();
 
@@ -1397,7 +1397,7 @@ pub fn fit_order_wavelength(
         let sum_sq: f64 = residuals
             .iter()
             .zip(&mask)
-            .filter(|(_, &m)| m)
+            .filter(|&(_, &m)| m)
             .map(|(r, _)| r * r)
             .sum();
         #[allow(clippy::cast_precision_loss)] // active_count is always small
