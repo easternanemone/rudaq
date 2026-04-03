@@ -67,11 +67,11 @@ impl AndorCamera {
         #[cfg(feature = "camera")]
         {
             let handle = self.inner.handle;
-            let (min, max) = tokio::task::spawn_blocking(move || {
+            let (min, max) = crate::ffi_timeout::ffi_call(move || {
                 let min = Self::get_float_min(handle, "ExposureTime")?;
                 let max = Self::get_float_max(handle, "ExposureTime")?;
                 Ok::<(f64, f64), anyhow::Error>((min, max))
-            })
+            }, crate::ffi_timeout::FFI_QUERY_TIMEOUT, "get_exposure_range")
             .await??;
             return Ok((min, max));
         }
