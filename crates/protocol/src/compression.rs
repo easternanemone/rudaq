@@ -49,7 +49,16 @@ pub fn compress_frame_into(frame: &mut FrameData, buffer: &mut Vec<u8>) {
     // 4-byte LE size prefix + worst-case compressed output
     let max_compressed = lz4_flex::block::get_maximum_output_size(frame.data.len());
     let required = 4 + max_compressed;
-    buffer.resize(required, 0);
+    buffer.reserve(required.saturating_sub(buffer.len()));
+    // SAFETY: The entire buffer[..required] range is immediately overwritten:
+    // - bytes 0..4 by copy_from_slice (size prefix)
+    // - bytes 4..required by lz4_flex::compress_into (compressed payload)
+    // The buffer is then truncated to the actual compressed length.
+    // No uninitialized memory is ever read.
+    #[allow(clippy::uninit_vec, unsafe_code)]
+    unsafe {
+        buffer.set_len(required);
+    }
 
     // Write uncompressed size as 4-byte LE prefix (same format as compress_prepend_size)
     #[allow(clippy::cast_possible_truncation)]
@@ -110,13 +119,11 @@ pub fn decompress_frame(frame: &mut FrameData) -> Result<(), String> {
 
 /// Decompress frame data into a pre-allocated buffer, avoiding per-frame allocation.
 ///
-/// The buffer is resized to `uncompressed_size` via [`Vec::resize`] (zero-filled) and
-/// reused across frames.  After a two-call warmup the buffer stabilises at
-/// `uncompressed_size` capacity and no further heap allocation occurs, provided
-/// the frame size stays constant.  On the first call the buffer is grown to
-/// `uncompressed_size`; the swap at the end returns it holding the compressed
-/// bytes (smaller), so the second call resizes it again — after which it holds
-/// the previous decompressed bytes at full capacity on every subsequent call.
+/// The buffer's capacity is grown (if needed) to `uncompressed_size` and its
+/// length is set via `unsafe set_len` — the zero-fill is skipped because
+/// `decompress_into` immediately overwrites the entire range.  After a two-call
+/// warmup the buffer stabilises at `uncompressed_size` capacity and no further
+/// heap allocation occurs, provided the frame size stays constant.
 ///
 /// The compressed data must carry the 4-byte LE size prefix written by
 /// [`compress_frame`] / [`compress_frame_into`].
@@ -135,11 +142,16 @@ pub fn decompress_frame_into(frame: &mut FrameData, buffer: &mut Vec<u8>) -> Res
         Ok(CompressionType::CompressionNone) => Ok(()),
         Ok(CompressionType::CompressionLz4) => {
             let expected_size = frame.uncompressed_size as usize;
-            // Resize to the expected decompressed size. The zero-fill is
-            // overwritten immediately by decompress_into, and ensures
-            // the buffer is always fully initialized on both success and
-            // error paths.
-            buffer.resize(expected_size, 0);
+            buffer.reserve(expected_size.saturating_sub(buffer.len()));
+            // SAFETY: The entire buffer[..expected_size] range is immediately
+            // overwritten by lz4_flex::decompress_into, which writes exactly
+            // `expected_size` decompressed bytes on success. On error, the
+            // buffer is not read — the function returns Err before the swap.
+            // No uninitialized memory is ever read.
+            #[allow(clippy::uninit_vec, unsafe_code)]
+            unsafe {
+                buffer.set_len(expected_size);
+            }
 
             // Skip the 4-byte LE size prefix written by compress_prepend_size / compress_frame_into
             if frame.data.len() < 4 {
