@@ -10,6 +10,7 @@
 #[macro_use]
 mod macros;
 
+pub(crate) mod ffi_timeout;
 pub mod components;
 
 #[cfg(feature = "pvcam_sdk")]
