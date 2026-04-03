@@ -88,9 +88,15 @@ pub(crate) fn full_restart_acquisition(
     circ_size_bytes: u32,
     circ_overwrite: bool,
 ) -> Result<uns32, String> {
-    debug_assert!(hcam >= 0, "Invalid camera handle: {}", hcam);
-    debug_assert!(!circ_ptr.is_null(), "Circular buffer pointer is null");
-    debug_assert!(circ_size_bytes > 0, "Circular buffer size must be > 0");
+    if hcam < 0 {
+        return Err(format!("Invalid camera handle: {hcam}"));
+    }
+    if circ_ptr.is_null() {
+        return Err("Circular buffer pointer is null".to_string());
+    }
+    if circ_size_bytes == 0 {
+        return Err("Circular buffer size must be > 0".to_string());
+    }
 
     let (x_bin, y_bin) = binning;
 
