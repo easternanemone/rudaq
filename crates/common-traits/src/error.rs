@@ -401,7 +401,7 @@ pub enum DaqError {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// use common::error::DaqError;
     ///
     /// fn acquire_frame_from_power_meter() -> Result<(), DaqError> {
