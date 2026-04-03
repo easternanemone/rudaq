@@ -1,10 +1,8 @@
 //! A processor that transforms data.
 
-use async_trait::async_trait;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
-#[async_trait]
 pub trait MeasurementProcessor: Send + Sync {
     type Input: Send + 'static;
     type Output: Send + 'static;
