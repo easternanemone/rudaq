@@ -514,9 +514,15 @@ pub fn decode_frame_metadata(
     frame_ptr: *const std::ffi::c_void,
     frame_size: u32,
 ) -> bool {
-    debug_assert!(!md_frame_ptr.is_null(), "md_frame_ptr must not be null");
-    debug_assert!(!frame_ptr.is_null(), "frame_ptr must not be null");
-    debug_assert!(frame_size > 0, "frame_size must be positive");
+    if md_frame_ptr.is_null() || frame_ptr.is_null() || frame_size == 0 {
+        tracing::error!(
+            "decode_frame_metadata: invalid args (md_null={}, frame_null={}, size={})",
+            md_frame_ptr.is_null(),
+            frame_ptr.is_null(),
+            frame_size
+        );
+        return false;
+    }
 
     // SAFETY: All pointers are valid per caller contract, frame_size matches buffer
     let result = unsafe { pl_md_frame_decode(md_frame_ptr, frame_ptr as *mut _, frame_size) };
