@@ -6,7 +6,11 @@
 //! For odd dimensions, the last row/column is cropped (not padded) to preserve
 //! scientific data integrity and ensure bandwidth savings are always achieved.
 
-/// Downsample a frame by averaging 2x2 blocks of pixels.
+/// Downsample a frame by averaging 2x2 blocks into a caller-supplied buffer.
+///
+/// This is the buffer-reuse variant: the output is written into `out`, which is
+/// cleared first so that its *capacity* is retained across calls, eliminating
+/// per-frame heap allocations on the gRPC streaming hot path.
 ///
 /// Reduces frame size by 4x (2x in each dimension).
 /// Input must be 16-bit little-endian pixel data.
@@ -18,32 +22,35 @@
 /// * `data` - Raw pixel data (u16 little-endian)
 /// * `width` - Original frame width in pixels
 /// * `height` - Original frame height in pixels
+/// * `out` - Pre-allocated output buffer (cleared, then filled with downsampled data)
 ///
 /// # Returns
-/// Tuple of (downsampled data, new width, new height)
-///
-/// Returns original data unchanged only if:
-/// - Usable dimensions are less than 2x2 (too small to downsample)
-/// - Data size doesn't match expected size for the original dimensions
-pub fn downsample_2x2(data: &[u8], width: u32, height: u32) -> (Vec<u8>, u32, u32) {
+/// Tuple of (new width, new height). If the frame cannot be downsampled (too small
+/// or size mismatch), `out` receives a copy of the original data and the original
+/// dimensions are returned.
+pub fn downsample_2x2_into(data: &[u8], width: u32, height: u32, out: &mut Vec<u8>) -> (u32, u32) {
+    out.clear();
+
     // Calculate usable dimensions (floor to nearest multiple of 2)
     let usable_width = (width / 2) * 2;
     let usable_height = (height / 2) * 2;
 
-    // If dimensions too small to downsample, return original
+    // If dimensions too small to downsample, copy original
     if usable_width < 2 || usable_height < 2 {
-        return (data.to_vec(), width, height);
+        out.extend_from_slice(data);
+        return (width, height);
     }
 
-    // Validate data size for ORIGINAL dimensions (return original if mismatch)
+    // Validate data size for ORIGINAL dimensions (copy original if mismatch)
     let expected_size = (width as usize) * (height as usize) * 2;
     if data.len() != expected_size {
-        return (data.to_vec(), width, height);
+        out.extend_from_slice(data);
+        return (width, height);
     }
 
     let new_width = usable_width / 2;
     let new_height = usable_height / 2;
-    let mut out = Vec::with_capacity((new_width * new_height * 2) as usize);
+    out.reserve((new_width * new_height * 2) as usize);
 
     // Average 2x2 blocks of u16 pixels (using only usable portion, cropping last row/col if odd)
     for y in (0..usable_height).step_by(2) {
@@ -71,10 +78,39 @@ pub fn downsample_2x2(data: &[u8], width: u32, height: u32) -> (Vec<u8>, u32, u3
         }
     }
 
+    (new_width, new_height)
+}
+
+/// Downsample a frame by averaging 2x2 blocks of pixels.
+///
+/// Reduces frame size by 4x (2x in each dimension).
+/// Input must be 16-bit little-endian pixel data.
+///
+/// For odd dimensions, the last row/column is cropped to ensure downsampling
+/// always occurs. This preserves scientific data integrity (no synthetic padding).
+///
+/// # Arguments
+/// * `data` - Raw pixel data (u16 little-endian)
+/// * `width` - Original frame width in pixels
+/// * `height` - Original frame height in pixels
+///
+/// # Returns
+/// Tuple of (downsampled data, new width, new height)
+///
+/// Returns original data unchanged only if:
+/// - Usable dimensions are less than 2x2 (too small to downsample)
+/// - Data size doesn't match expected size for the original dimensions
+pub fn downsample_2x2(data: &[u8], width: u32, height: u32) -> (Vec<u8>, u32, u32) {
+    let mut out = Vec::new();
+    let (new_width, new_height) = downsample_2x2_into(data, width, height, &mut out);
     (out, new_width, new_height)
 }
 
-/// Downsample a frame by averaging 4x4 blocks of pixels.
+/// Downsample a frame by averaging 4x4 blocks into a caller-supplied buffer.
+///
+/// This is the buffer-reuse variant: the output is written into `out`, which is
+/// cleared first so that its *capacity* is retained across calls, eliminating
+/// per-frame heap allocations on the gRPC streaming hot path.
 ///
 /// Reduces frame size by 16x (4x in each dimension).
 /// Input must be 16-bit little-endian pixel data.
@@ -86,32 +122,35 @@ pub fn downsample_2x2(data: &[u8], width: u32, height: u32) -> (Vec<u8>, u32, u3
 /// * `data` - Raw pixel data (u16 little-endian)
 /// * `width` - Original frame width in pixels
 /// * `height` - Original frame height in pixels
+/// * `out` - Pre-allocated output buffer (cleared, then filled with downsampled data)
 ///
 /// # Returns
-/// Tuple of (downsampled data, new width, new height)
-///
-/// Returns original data unchanged only if:
-/// - Usable dimensions are less than 4x4 (too small to downsample)
-/// - Data size doesn't match expected size for the original dimensions
-pub fn downsample_4x4(data: &[u8], width: u32, height: u32) -> (Vec<u8>, u32, u32) {
+/// Tuple of (new width, new height). If the frame cannot be downsampled (too small
+/// or size mismatch), `out` receives a copy of the original data and the original
+/// dimensions are returned.
+pub fn downsample_4x4_into(data: &[u8], width: u32, height: u32, out: &mut Vec<u8>) -> (u32, u32) {
+    out.clear();
+
     // Calculate usable dimensions (floor to nearest multiple of 4)
     let usable_width = (width / 4) * 4;
     let usable_height = (height / 4) * 4;
 
-    // If dimensions too small to downsample, return original
+    // If dimensions too small to downsample, copy original
     if usable_width < 4 || usable_height < 4 {
-        return (data.to_vec(), width, height);
+        out.extend_from_slice(data);
+        return (width, height);
     }
 
-    // Validate data size for ORIGINAL dimensions (return original if mismatch)
+    // Validate data size for ORIGINAL dimensions (copy original if mismatch)
     let expected_size = (width as usize) * (height as usize) * 2;
     if data.len() != expected_size {
-        return (data.to_vec(), width, height);
+        out.extend_from_slice(data);
+        return (width, height);
     }
 
     let new_width = usable_width / 4;
     let new_height = usable_height / 4;
-    let mut out = Vec::with_capacity((new_width * new_height * 2) as usize);
+    out.reserve((new_width * new_height * 2) as usize);
 
     // Average 4x4 blocks of u16 pixels (using only usable portion, cropping remainder if not divisible by 4)
     for y in (0..usable_height).step_by(4) {
@@ -137,6 +176,31 @@ pub fn downsample_4x4(data: &[u8], width: u32, height: u32) -> (Vec<u8>, u32, u3
         }
     }
 
+    (new_width, new_height)
+}
+
+/// Downsample a frame by averaging 4x4 blocks of pixels.
+///
+/// Reduces frame size by 16x (4x in each dimension).
+/// Input must be 16-bit little-endian pixel data.
+///
+/// For dimensions not divisible by 4, the remainder rows/columns are cropped
+/// to ensure downsampling always occurs. This preserves scientific data integrity.
+///
+/// # Arguments
+/// * `data` - Raw pixel data (u16 little-endian)
+/// * `width` - Original frame width in pixels
+/// * `height` - Original frame height in pixels
+///
+/// # Returns
+/// Tuple of (downsampled data, new width, new height)
+///
+/// Returns original data unchanged only if:
+/// - Usable dimensions are less than 4x4 (too small to downsample)
+/// - Data size doesn't match expected size for the original dimensions
+pub fn downsample_4x4(data: &[u8], width: u32, height: u32) -> (Vec<u8>, u32, u32) {
+    let mut out = Vec::new();
+    let (new_width, new_height) = downsample_4x4_into(data, width, height, &mut out);
     (out, new_width, new_height)
 }
 
@@ -1489,5 +1553,138 @@ mod tests {
                 test_val
             );
         }
+    }
+
+    // =========================================================================
+    // Buffer-reuse (_into) variant tests
+    // =========================================================================
+
+    #[test]
+    fn test_downsample_2x2_into_matches_allocating_variant() {
+        // Verify that _into produces identical output to the allocating variant
+        let mut data = Vec::new();
+        for row in [[100u16, 200, 300, 400], [100, 200, 300, 400]] {
+            for val in row {
+                data.extend_from_slice(&val.to_le_bytes());
+            }
+        }
+        for row in [[500u16, 600, 700, 800], [500, 600, 700, 800]] {
+            for val in row {
+                data.extend_from_slice(&val.to_le_bytes());
+            }
+        }
+
+        let (alloc_result, alloc_w, alloc_h) = downsample_2x2(&data, 4, 4);
+
+        let mut reuse_buf = Vec::new();
+        let (reuse_w, reuse_h) = downsample_2x2_into(&data, 4, 4, &mut reuse_buf);
+
+        assert_eq!(alloc_w, reuse_w);
+        assert_eq!(alloc_h, reuse_h);
+        assert_eq!(alloc_result, reuse_buf);
+    }
+
+    #[test]
+    fn test_downsample_4x4_into_matches_allocating_variant() {
+        // Verify that _into produces identical output to the allocating variant
+        let value = 1000u16;
+        let mut data = Vec::new();
+        for _ in 0..(8 * 8) {
+            data.extend_from_slice(&value.to_le_bytes());
+        }
+
+        let (alloc_result, alloc_w, alloc_h) = downsample_4x4(&data, 8, 8);
+
+        let mut reuse_buf = Vec::new();
+        let (reuse_w, reuse_h) = downsample_4x4_into(&data, 8, 8, &mut reuse_buf);
+
+        assert_eq!(alloc_w, reuse_w);
+        assert_eq!(alloc_h, reuse_h);
+        assert_eq!(alloc_result, reuse_buf);
+    }
+
+    #[test]
+    fn test_downsample_2x2_into_reuses_capacity() {
+        // Verify that calling _into repeatedly reuses the buffer's capacity
+        let data = create_test_frame(100, 100);
+        let mut buf = Vec::new();
+
+        // First call allocates
+        let (w, h) = downsample_2x2_into(&data, 100, 100, &mut buf);
+        assert_eq!((w, h), (50, 50));
+        let first_cap = buf.capacity();
+        assert!(first_cap >= 5000, "Should have allocated for 50x50x2 bytes");
+
+        // Second call reuses capacity (no new allocation needed)
+        let (w2, h2) = downsample_2x2_into(&data, 100, 100, &mut buf);
+        assert_eq!((w2, h2), (50, 50));
+        assert_eq!(
+            buf.capacity(),
+            first_cap,
+            "Capacity should be reused, not reallocated"
+        );
+    }
+
+    #[test]
+    fn test_downsample_4x4_into_reuses_capacity() {
+        // Verify that calling _into repeatedly reuses the buffer's capacity
+        let data = create_test_frame(100, 100);
+        let mut buf = Vec::new();
+
+        // First call allocates
+        let (w, h) = downsample_4x4_into(&data, 100, 100, &mut buf);
+        assert_eq!((w, h), (25, 25));
+        let first_cap = buf.capacity();
+        assert!(first_cap >= 1250, "Should have allocated for 25x25x2 bytes");
+
+        // Second call reuses capacity
+        let (w2, h2) = downsample_4x4_into(&data, 100, 100, &mut buf);
+        assert_eq!((w2, h2), (25, 25));
+        assert_eq!(
+            buf.capacity(),
+            first_cap,
+            "Capacity should be reused, not reallocated"
+        );
+    }
+
+    #[test]
+    fn test_downsample_2x2_into_too_small_copies_original() {
+        let data = vec![0u8; 2]; // 1 pixel * 2 bytes
+        let mut buf = Vec::new();
+        let (w, h) = downsample_2x2_into(&data, 1, 1, &mut buf);
+        assert_eq!((w, h), (1, 1));
+        assert_eq!(buf, data);
+    }
+
+    #[test]
+    fn test_downsample_4x4_into_too_small_copies_original() {
+        let data = vec![0u8; 18]; // 3x3 * 2 bytes
+        let mut buf = Vec::new();
+        let (w, h) = downsample_4x4_into(&data, 3, 3, &mut buf);
+        assert_eq!((w, h), (3, 3));
+        assert_eq!(buf, data);
+    }
+
+    #[test]
+    fn test_downsample_into_clears_previous_contents() {
+        // Verify that _into clears the buffer before writing, even if it had
+        // leftover data from a previous call with different dimensions.
+        let data_small = create_test_frame(4, 4);
+        let data_large = create_test_frame(100, 100);
+
+        let mut buf = Vec::new();
+
+        // First call with large frame
+        downsample_2x2_into(&data_large, 100, 100, &mut buf);
+        assert_eq!(buf.len(), 5000); // 50x50x2
+
+        // Second call with small frame - should clear and produce correct output
+        let (w, h) = downsample_2x2_into(&data_small, 4, 4, &mut buf);
+        assert_eq!((w, h), (2, 2));
+        assert_eq!(buf.len(), 8); // 2x2x2
+
+        // Verify output matches allocating variant
+        let (alloc_result, _, _) = downsample_2x2(&data_small, 4, 4);
+        assert_eq!(buf, alloc_result);
     }
 }

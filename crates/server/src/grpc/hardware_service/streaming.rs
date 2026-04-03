@@ -4,12 +4,12 @@ use crate::grpc::proto::StreamQuality;
 use common::capabilities::FrameObserver;
 use common::data::FrameView;
 use common::limits::MAX_STREAMS_PER_CLIENT;
-use protocol::downsample::{downsample_2x2, downsample_4x4};
+use protocol::downsample::{downsample_2x2_into, downsample_4x4_into};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::net::IpAddr;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use tonic::Status;
 
 // =============================================================================
@@ -61,6 +61,10 @@ pub(super) struct GrpcStreamObserver {
     frames_received: AtomicU64,
     /// Frames dropped due to backpressure
     frames_dropped: AtomicU64,
+    /// Reusable buffer for downsample/copy output, avoiding per-frame allocation churn.
+    /// Wrapped in `Mutex` because `on_frame` takes `&self` (interior mutability needed).
+    /// Contention is negligible: only one frame-loop thread calls `on_frame` per observer.
+    frame_buffer: Mutex<Vec<u8>>,
 }
 
 impl GrpcStreamObserver {
@@ -76,6 +80,7 @@ impl GrpcStreamObserver {
             device_id,
             frames_received: AtomicU64::new(0),
             frames_dropped: AtomicU64::new(0),
+            frame_buffer: Mutex::new(Vec::new()),
         }
     }
 }
@@ -96,13 +101,33 @@ impl FrameObserver for GrpcStreamObserver {
             );
         }
 
-        // Apply server-side downsampling based on quality setting
-        // Note: downsample functions expect 16-bit data
-        let (frame_data, effective_width, effective_height) = match self.quality {
-            StreamQuality::Preview => downsample_2x2(frame.pixels(), frame.width, frame.height),
-            StreamQuality::Fast => downsample_4x4(frame.pixels(), frame.width, frame.height),
-            StreamQuality::Full => (frame.pixels().to_vec(), frame.width, frame.height),
+        // Apply server-side downsampling based on quality setting.
+        // Uses the buffer-reuse _into variants to avoid per-frame allocation churn.
+        // The Mutex is uncontended (single frame-loop thread per observer).
+        let mut buf = self.frame_buffer.lock().unwrap_or_else(|poisoned| {
+            tracing::error!("GrpcStreamObserver frame_buffer mutex poisoned, recovering");
+            poisoned.into_inner()
+        });
+
+        let (effective_width, effective_height) = match self.quality {
+            StreamQuality::Preview => {
+                downsample_2x2_into(frame.pixels(), frame.width, frame.height, &mut buf)
+            }
+            StreamQuality::Fast => {
+                downsample_4x4_into(frame.pixels(), frame.width, frame.height, &mut buf)
+            }
+            StreamQuality::Full => {
+                buf.clear();
+                buf.extend_from_slice(frame.pixels());
+                (frame.width, frame.height)
+            }
         };
+
+        // Clone the buffer contents for the packet. The buffer's *capacity*
+        // persists across frames (clear + extend/reserve reuse it), eliminating
+        // the alloc/dealloc churn of the intermediate downsample buffer.
+        let frame_data = buf.clone();
+        drop(buf); // Release lock before channel send
 
         let packet = ObserverFramePacket {
             data: frame_data,
