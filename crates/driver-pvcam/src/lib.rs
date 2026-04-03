@@ -1165,12 +1165,15 @@ impl PvcamDriver {
                                 max_count,
                                 threshold,
                             };
-                            tokio::task::spawn_blocking(move || {
-                                PvcamFeatures::set_centroids_config(&conn_guard, &config)
-                                    .map_err(|e| DaqError::Instrument(e.to_string()))
-                            })
+                            ffi_timeout::ffi_with_timeout_daq(
+                                "set_centroids_config",
+                                ffi_timeout::CONFIG_TIMEOUT,
+                                move || {
+                                    PvcamFeatures::set_centroids_config(&conn_guard, &config)
+                                        .map_err(|e| DaqError::Instrument(e.to_string()))
+                                },
+                            )
                             .await
-                            .map_err(|e| DaqError::Instrument(e.to_string()))?
                         })
                     });
                 }
