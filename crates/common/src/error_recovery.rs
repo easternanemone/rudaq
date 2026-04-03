@@ -465,6 +465,7 @@ mod tests {
         let policy = RetryPolicy {
             max_attempts: 3,
             backoff_delay: Duration::from_millis(10),
+            backoff_strategy: BackoffStrategy::Constant,
         };
         let result = handle_recoverable_error(&mut recoverable, &policy).await;
         assert!(result.is_ok());
@@ -480,9 +481,212 @@ mod tests {
         let policy = RetryPolicy {
             max_attempts: 3,
             backoff_delay: Duration::from_millis(10),
+            backoff_strategy: BackoffStrategy::Constant,
         };
         let result = handle_recoverable_error(&mut recoverable, &policy).await;
         assert!(result.is_err());
         assert_eq!(*recoverable.attempts.borrow(), 3);
+    }
+
+    // --- Exponential backoff tests ---
+
+    #[test]
+    fn test_exponential_backoff_basic_growth() {
+        let backoff = ExponentialBackoff {
+            initial_delay: Duration::from_millis(100),
+            max_delay: Duration::from_secs(60),
+            multiplier: 2.0,
+            jitter: false,
+        };
+
+        // delay = initial_delay * multiplier^attempt
+        assert_eq!(backoff.delay_for_attempt(0), Duration::from_millis(100)); // 100 * 2^0
+        assert_eq!(backoff.delay_for_attempt(1), Duration::from_millis(200)); // 100 * 2^1
+        assert_eq!(backoff.delay_for_attempt(2), Duration::from_millis(400)); // 100 * 2^2
+        assert_eq!(backoff.delay_for_attempt(3), Duration::from_millis(800)); // 100 * 2^3
+        assert_eq!(backoff.delay_for_attempt(4), Duration::from_millis(1600)); // 100 * 2^4
+    }
+
+    #[test]
+    fn test_exponential_backoff_max_delay_cap() {
+        let backoff = ExponentialBackoff {
+            initial_delay: Duration::from_millis(100),
+            max_delay: Duration::from_millis(500),
+            multiplier: 2.0,
+            jitter: false,
+        };
+
+        assert_eq!(backoff.delay_for_attempt(0), Duration::from_millis(100));
+        assert_eq!(backoff.delay_for_attempt(1), Duration::from_millis(200));
+        assert_eq!(backoff.delay_for_attempt(2), Duration::from_millis(400));
+        // 100 * 2^3 = 800ms, but capped at 500ms
+        assert_eq!(backoff.delay_for_attempt(3), Duration::from_millis(500));
+        // Higher attempts remain capped
+        assert_eq!(backoff.delay_for_attempt(10), Duration::from_millis(500));
+    }
+
+    #[test]
+    fn test_exponential_backoff_non_doubling_multiplier() {
+        let backoff = ExponentialBackoff {
+            initial_delay: Duration::from_millis(100),
+            max_delay: Duration::from_secs(60),
+            multiplier: 1.5,
+            jitter: false,
+        };
+
+        assert_eq!(backoff.delay_for_attempt(0), Duration::from_millis(100)); // 100 * 1.5^0
+        assert_eq!(backoff.delay_for_attempt(1), Duration::from_millis(150)); // 100 * 1.5^1
+        assert_eq!(backoff.delay_for_attempt(2), Duration::from_millis(225)); // 100 * 1.5^2
+    }
+
+    #[test]
+    fn test_exponential_backoff_multiplier_below_one_clamped() {
+        // Multiplier < 1.0 should be treated as 1.0 (no shrinking)
+        let backoff = ExponentialBackoff {
+            initial_delay: Duration::from_millis(100),
+            max_delay: Duration::from_secs(60),
+            multiplier: 0.5,
+            jitter: false,
+        };
+
+        assert_eq!(backoff.delay_for_attempt(0), Duration::from_millis(100));
+        assert_eq!(backoff.delay_for_attempt(1), Duration::from_millis(100));
+        assert_eq!(backoff.delay_for_attempt(5), Duration::from_millis(100));
+    }
+
+    #[test]
+    fn test_exponential_backoff_jitter_within_bounds() {
+        let backoff = ExponentialBackoff {
+            initial_delay: Duration::from_millis(1000),
+            max_delay: Duration::from_secs(60),
+            multiplier: 2.0,
+            jitter: true,
+        };
+
+        // With jitter, delay should be in [base, base * 1.25]
+        // Run multiple samples to verify bounds
+        for attempt in 0..5u32 {
+            let base = backoff.initial_delay.as_nanos() as f64
+                * backoff.multiplier.powi(attempt as i32);
+            let base_dur = Duration::from_nanos(base as u64);
+            let max_with_jitter = base_dur + Duration::from_nanos((base * 0.25) as u64);
+
+            for _ in 0..50 {
+                let delay = backoff.delay_for_attempt(attempt);
+                assert!(
+                    delay >= base_dur,
+                    "Delay {delay:?} should be >= base {base_dur:?} for attempt {attempt}"
+                );
+                assert!(
+                    delay <= max_with_jitter + Duration::from_nanos(1),
+                    "Delay {delay:?} should be <= {max_with_jitter:?} for attempt {attempt}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_exponential_backoff_jitter_produces_variation() {
+        let backoff = ExponentialBackoff {
+            initial_delay: Duration::from_secs(1),
+            max_delay: Duration::from_secs(60),
+            multiplier: 2.0,
+            jitter: true,
+        };
+
+        // Collect a set of delays; with jitter on a 1s base, we should see
+        // some variation across 20 samples.
+        let delays: Vec<Duration> = (0..20).map(|_| backoff.delay_for_attempt(0)).collect();
+        let unique_count = {
+            let mut unique = delays.clone();
+            unique.dedup();
+            unique.len()
+        };
+
+        // With random jitter on a 1-second base (250ms jitter range),
+        // getting all 20 identical is astronomically unlikely.
+        assert!(
+            unique_count > 1,
+            "Jitter should produce varying delays, but got {unique_count} unique values out of 20"
+        );
+    }
+
+    #[test]
+    fn test_exponential_backoff_no_jitter_deterministic() {
+        let backoff = ExponentialBackoff {
+            initial_delay: Duration::from_millis(100),
+            max_delay: Duration::from_secs(60),
+            multiplier: 2.0,
+            jitter: false,
+        };
+
+        // Without jitter, delays should be perfectly deterministic
+        for attempt in 0..5 {
+            let d1 = backoff.delay_for_attempt(attempt);
+            let d2 = backoff.delay_for_attempt(attempt);
+            assert_eq!(d1, d2, "Without jitter, delay should be deterministic");
+        }
+    }
+
+    #[test]
+    fn test_exponential_backoff_default() {
+        let backoff = ExponentialBackoff::default();
+        assert_eq!(backoff.initial_delay, Duration::from_millis(100));
+        assert_eq!(backoff.max_delay, Duration::from_secs(30));
+        assert!((backoff.multiplier - 2.0).abs() < f64::EPSILON);
+        assert!(!backoff.jitter);
+    }
+
+    #[tokio::test]
+    async fn test_handle_recoverable_error_with_exponential_backoff() {
+        let mut recoverable = MockRecoverable {
+            attempts: RefCell::new(0),
+            succeed_on_attempt: 3,
+        };
+        let policy = RetryPolicy {
+            max_attempts: 5,
+            backoff_delay: Duration::ZERO, // ignored for exponential
+            backoff_strategy: BackoffStrategy::Exponential(ExponentialBackoff {
+                initial_delay: Duration::from_millis(1),
+                max_delay: Duration::from_millis(50),
+                multiplier: 2.0,
+                jitter: false,
+            }),
+        };
+
+        let result = handle_recoverable_error(&mut recoverable, &policy).await;
+        assert!(result.is_ok());
+        assert_eq!(*recoverable.attempts.borrow(), 3);
+    }
+
+    #[tokio::test]
+    async fn test_handle_recoverable_error_exponential_exhausted() {
+        let mut recoverable = MockRecoverable {
+            attempts: RefCell::new(0),
+            succeed_on_attempt: 10, // will never succeed within 3 attempts
+        };
+        let policy = RetryPolicy {
+            max_attempts: 3,
+            backoff_delay: Duration::ZERO,
+            backoff_strategy: BackoffStrategy::Exponential(ExponentialBackoff {
+                initial_delay: Duration::from_millis(1),
+                max_delay: Duration::from_millis(10),
+                multiplier: 2.0,
+                jitter: false,
+            }),
+        };
+
+        let result = handle_recoverable_error(&mut recoverable, &policy).await;
+        assert!(result.is_err());
+        assert_eq!(*recoverable.attempts.borrow(), 3);
+    }
+
+    #[test]
+    fn test_retry_policy_default_uses_constant_backoff() {
+        let policy = RetryPolicy::default();
+        assert!(
+            matches!(policy.backoff_strategy, BackoffStrategy::Constant),
+            "Default RetryPolicy should use Constant backoff"
+        );
     }
 }
