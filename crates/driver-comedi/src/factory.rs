@@ -224,17 +224,21 @@ impl MockAnalogInput {
 /// Mock analog output for testing.
 struct MockAnalogOutput {
     value: RwLock<f64>,
+    write_count: std::sync::atomic::AtomicU32,
 }
 
 impl MockAnalogOutput {
     fn new() -> Self {
         Self {
             value: RwLock::new(0.0),
+            write_count: std::sync::atomic::AtomicU32::new(0),
         }
     }
 
     async fn write_voltage(&self, voltage: f64) -> Result<()> {
         *self.value.write().await = voltage;
+        self.write_count
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         Ok(())
     }
 }
@@ -566,6 +570,10 @@ pub struct ComediAnalogOutputDriver {
     device: Option<ComediDevice>,
     analog_output: Option<AnalogOutput>,
 
+    /// Mock handle retained for test observability (write count verification).
+    #[cfg_attr(not(test), allow(dead_code))]
+    mock: Option<Arc<MockAnalogOutput>>,
+
     /// Channel
     channel: u32,
 
@@ -667,6 +675,7 @@ impl ComediAnalogOutputDriver {
         let driver = Self {
             device,
             analog_output: ao,
+            mock: mock_impl,
             channel,
             range_index,
             params: Arc::new(params),
@@ -712,6 +721,16 @@ impl ComediAnalogOutputDriver {
     /// Get the range index.
     pub fn range_index(&self) -> u32 {
         self.range_index
+    }
+}
+
+#[cfg(test)]
+impl ComediAnalogOutputDriver {
+    /// Number of times the mock hardware writer was invoked.
+    fn mock_write_count(&self) -> u32 {
+        self.mock.as_ref().map_or(0, |m| {
+            m.write_count.load(std::sync::atomic::Ordering::Relaxed)
+        })
     }
 }
 
@@ -1515,12 +1534,15 @@ mod tests {
     }
 
     /// Regression test: calling `output.set(value)` on the exported parameter
-    /// must trigger the hardware writer and update the mock readback.
+    /// must trigger the hardware writer callback (verified via mock write count)
+    /// and update the cached parameter value.
     #[tokio::test]
     async fn test_ao_parameter_set_triggers_hardware_write() {
         let driver = ComediAnalogOutputDriver::new_async("/dev/comedi0", 0, 0, true)
             .await
             .expect("Failed to create mock AO driver");
+
+        assert_eq!(driver.mock_write_count(), 0, "No writes yet");
 
         // Get the output parameter (same object the registry exposes)
         let output_param = driver.output().clone();
@@ -1528,14 +1550,14 @@ mod tests {
         // Set via Parameter::set — this must invoke the hardware writer callback
         output_param.set(4.56).await.expect("Parameter set failed");
 
-        // Verify the mock reflects the write
-        let readback = driver.read_output();
-        assert!(
-            (readback - 4.56).abs() < 1e-9,
-            "Expected 4.56, got {readback}"
+        // Verify the hardware writer was actually invoked (not just a cache update)
+        assert_eq!(
+            driver.mock_write_count(),
+            1,
+            "Hardware writer should have been called exactly once"
         );
 
-        // Verify the parameter's cached value also matches
+        // Verify the parameter's cached value matches
         let cached = output_param.get();
         assert!(
             (cached - 4.56).abs() < 1e-9,

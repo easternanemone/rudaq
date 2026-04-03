@@ -1332,9 +1332,10 @@ mod tests {
         let max_latency_us = max_latency.load(Ordering::Relaxed) / 1000;
         println!("Max access latency: {} us", max_latency_us);
 
-        // Max latency should be under 5ms. Single-sample spikes up to a few ms
-        // are normal OS scheduling jitter; sustained multi-ms latency across many
-        // samples would indicate real lock contention.
+        // Worst-case observed access latency should stay under 5ms. Small spikes
+        // can occur due to normal OS scheduling jitter, but this test guards
+        // against unusually large single-sample stalls that could indicate
+        // lock contention in the read path.
         assert!(
             max_latency_us < 5000,
             "Max latency {} us exceeds 5ms - possible lock contention",
