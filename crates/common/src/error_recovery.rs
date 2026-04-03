@@ -208,6 +208,7 @@ impl Default for RetryPolicy {
         Self {
             max_attempts: 3,
             backoff_delay: Duration::from_millis(100),
+            backoff_strategy: BackoffStrategy::Constant,
         }
     }
 }
