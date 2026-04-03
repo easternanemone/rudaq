@@ -129,7 +129,7 @@ impl FrameProducer for AndorCamera {
                     let encoding = Self::get_enum_string(handle, "PixelEncoding")
                         .unwrap_or_else(|_| "Unknown".to_string());
                     Ok((img_bytes, w, h, stride, encoding))
-                })
+                }, crate::ffi_timeout::FFI_QUERY_TIMEOUT, "start_stream:read_dimensions")
                 .await??;
 
             // Warn if AOI doesn't match full sensor — indicates stale or user-set crop.
