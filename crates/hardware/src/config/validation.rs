@@ -23,7 +23,7 @@ use serde_valid::validation::Error as ValidationError;
 /// * `Ok(())` if pattern is None or a valid regex
 /// * `Err(ValidationError)` if pattern is invalid
 pub fn validate_regex_pattern(pattern: &Option<String>) -> Result<(), ValidationError> {
-    if let Some(ref p) = pattern {
+    if let Some(p) = pattern {
         validate_regex_string(p)?;
     }
     Ok(())
