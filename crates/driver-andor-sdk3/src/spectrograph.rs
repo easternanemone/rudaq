@@ -703,7 +703,7 @@ impl AndorSpectrograph {
         {
             let handle = self.inner.handle;
             let pos = position.0;
-            tokio::task::spawn_blocking(move || {
+            crate::ffi_timeout::ffi_call(move || {
                 use crate::error::sdk_result;
                 unsafe {
                     let mut buffer = vec![0i8; 256];
@@ -714,7 +714,7 @@ impl AndorSpectrograph {
                         .trim_end_matches('\0')
                         .to_string())
                 }
-            })
+            }, crate::ffi_timeout::FFI_QUERY_TIMEOUT, "get_filter_info")
             .await?
         }
 
