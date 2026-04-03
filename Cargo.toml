@@ -28,6 +28,7 @@ members = [
     "crates/ui-slint",
 ]
 exclude = []
+rust-version = "1.85.0"
 
 # Shared dependency versions across all crates
 [workspace.dependencies]
