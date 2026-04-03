@@ -507,7 +507,7 @@ impl DaemonInstance {
         // Reuses the HardwareConfig already parsed above — no redundant file I/O.
         // Non-fatal: if anything fails, log a warning and continue.
         #[cfg(all(feature = "db-surreal", feature = "networking"))]
-        if let (Some(ref db), Some(ref hw_config)) = (&db, &hw_config) {
+        if let (Some(db), Some(hw_config)) = (&db, &hw_config) {
             use crate::db_bridge;
             match db_bridge::shadow_write_with_registry(db, hw_config, &registry).await {
                 Ok((drivers, instruments)) => {
