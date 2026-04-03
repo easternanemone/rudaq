@@ -19,7 +19,7 @@ use tokio::time::sleep;
 /// # Example
 ///
 /// ```rust
-/// use common::error_recovery::BackoffStrategy;
+/// use common::error_recovery::{BackoffStrategy, ExponentialBackoff};
 /// use std::time::Duration;
 ///
 /// // Constant 500ms between each retry
