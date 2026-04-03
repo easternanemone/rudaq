@@ -325,7 +325,7 @@ impl PvcamDriver {
         // Run initialization in blocking task
 
         let (connection, early_pp_features) =
-            ffi_timeout::ffi_with_timeout("PVCAM SDK init", ffi_timeout::ACQUISITION_TIMEOUT, {
+            ffi_timeout::ffi_with_timeout("PVCAM SDK init", ffi_timeout::INIT_TIMEOUT, {
                 #[cfg(feature = "pvcam_sdk")]
                 let name = camera_name.clone();
                 move || -> Result<(Arc<Mutex<PvcamConnection>>, Vec<PPFeature>)> {
@@ -3155,7 +3155,7 @@ impl PvcamDriver {
 
         ffi_timeout::ffi_with_timeout(
             "PVCAM reinitialize",
-            ffi_timeout::ACQUISITION_TIMEOUT,
+            ffi_timeout::INIT_TIMEOUT,
             move || -> Result<()> {
                 let mut conn = connection.blocking_lock();
 

@@ -147,7 +147,7 @@ async fn poll_device_state(
                 "PVCAM health check failed"
             );
             // Distinguish timeout (likely offline) from SDK errors
-            if e.to_string().contains("timed out") {
+            if crate::ffi_timeout::is_timeout_error(&e) {
                 PvcamDeviceState::Offline
             } else {
                 PvcamDeviceState::Error

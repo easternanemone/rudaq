@@ -6,6 +6,10 @@
 //! FFI call is detected and surfaced as an error rather than silently blocking
 //! a Tokio worker thread forever.
 //!
+//! `tokio::time::timeout` only bounds how long the caller waits. It does not
+//! stop the blocking FFI closure if the SDK is already wedged, so the timeout
+//! path must be treated as a notification signal rather than an actual cancel.
+//!
 //! Two variants are provided:
 //! - [`ffi_with_timeout`] returns `anyhow::Result<R>` for general use
 //!   (e.g., SDK init, reinitialize).
@@ -27,7 +31,11 @@ pub const PARAM_QUERY_TIMEOUT: Duration = Duration::from_secs(5);
 pub const CONFIG_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// Timeout for acquisition start/stop and heavy setup operations.
+#[allow(dead_code)]
 pub const ACQUISITION_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Timeout for SDK init, device open, and reinitialization.
+pub const INIT_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// Timeout for single-frame readout operations.
 #[allow(dead_code)]
@@ -41,6 +49,39 @@ pub const SERIAL_OPEN_TIMEOUT: Duration = Duration::from_secs(10);
 // Generic (anyhow) variant
 // ---------------------------------------------------------------------------
 
+/// Typed timeout signal returned by this module.
+#[derive(Debug)]
+pub(crate) struct FfiTimeoutError {
+    label: String,
+    timeout: Duration,
+}
+
+impl FfiTimeoutError {
+    fn new(label: &str, timeout: Duration) -> Self {
+        Self {
+            label: label.to_owned(),
+            timeout,
+        }
+    }
+}
+
+impl std::fmt::Display for FfiTimeoutError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "FFI call timed out after {:?} ({}) -- SDK call may be hung",
+            self.timeout, self.label
+        )
+    }
+}
+
+impl std::error::Error for FfiTimeoutError {}
+
+/// Return true when the error came from a timed-out FFI call.
+pub(crate) fn is_timeout_error(error: &anyhow::Error) -> bool {
+    error.is::<FfiTimeoutError>()
+}
+
 /// Run a blocking FFI closure on the Tokio blocking pool with a timeout.
 ///
 /// Returns `anyhow::Error` on timeout or if the blocking task panics/joins
@@ -53,9 +94,7 @@ where
     match tokio::time::timeout(timeout, tokio::task::spawn_blocking(f)).await {
         Ok(Ok(result)) => result,
         Ok(Err(join_err)) => Err(anyhow::anyhow!("FFI task panicked ({label}): {join_err}")),
-        Err(_elapsed) => Err(anyhow::anyhow!(
-            "FFI call timed out after {timeout:?} ({label})"
-        )),
+        Err(_elapsed) => Err(anyhow::Error::new(FfiTimeoutError::new(label, timeout))),
     }
 }
 
@@ -78,9 +117,9 @@ where
         Ok(Err(join_err)) => Err(DaqError::Instrument(format!(
             "FFI task panicked ({label}): {join_err}"
         ))),
-        Err(_elapsed) => Err(DaqError::Instrument(format!(
-            "FFI call timed out after {timeout:?} ({label})"
-        ))),
+        Err(_elapsed) => Err(DaqError::Instrument(
+            FfiTimeoutError::new(label, timeout).to_string(),
+        )),
     }
 }
 
@@ -100,27 +139,28 @@ mod tests {
 
     #[tokio::test]
     async fn timeout_triggers_error() {
-        let result = ffi_with_timeout("slow_op", Duration::from_millis(50), || {
-            std::thread::sleep(Duration::from_secs(5));
+        let result = ffi_with_timeout("slow_op", Duration::from_millis(5), || {
+            std::thread::sleep(Duration::from_millis(20));
             Ok(())
         })
         .await;
         let err = result.unwrap_err();
         assert!(
-            err.to_string().contains("timed out"),
-            "expected timeout error, got: {err}"
+            is_timeout_error(&err),
+            "expected typed timeout error, got: {err}"
         );
-        assert!(
-            err.to_string().contains("slow_op"),
-            "expected label in error, got: {err}"
+        assert_eq!(
+            err.downcast_ref::<FfiTimeoutError>()
+                .map(|timeout| timeout.label.as_str()),
+            Some("slow_op")
         );
     }
 
     #[tokio::test]
     async fn daq_error_mapping() {
         let result: Result<(), DaqError> =
-            ffi_with_timeout_daq("daq_test", Duration::from_millis(50), || {
-                std::thread::sleep(Duration::from_secs(5));
+            ffi_with_timeout_daq("daq_test", Duration::from_millis(5), || {
+                std::thread::sleep(Duration::from_millis(20));
                 Ok(())
             })
             .await;

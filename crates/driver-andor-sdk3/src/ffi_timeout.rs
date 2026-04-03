@@ -4,6 +4,10 @@
 //! runtime. This module adds timeout protection so that a hung SDK call cannot
 //! stall the entire daemon indefinitely.
 //!
+//! `tokio::time::timeout` only limits how long the caller waits. It does not
+//! cancel the underlying blocking SDK call, so timeout errors here mean the
+//! daemon can recover control, not that the SDK work itself has stopped.
+//!
 //! Timeout categories are calibrated to real hardware behavior:
 //! - **Query** (5s): parameter reads, feature checks, temperature reads
 //! - **Config** (15s): set exposure, modes, gain, shutter, general config
@@ -100,10 +104,10 @@ mod tests {
     async fn ffi_call_timeout_fires() {
         let result = ffi_call(
             || {
-                std::thread::sleep(Duration::from_secs(10));
+                std::thread::sleep(Duration::from_millis(20));
                 42
             },
-            Duration::from_millis(50),
+            Duration::from_millis(1),
             "test_timeout",
         )
         .await;
@@ -134,10 +138,10 @@ mod tests {
     async fn ffi_call_daq_timeout_fires() {
         let result: Result<i32, DaqError> = ffi_call_daq(
             || {
-                std::thread::sleep(Duration::from_secs(10));
+                std::thread::sleep(Duration::from_millis(20));
                 Ok(0)
             },
-            Duration::from_millis(50),
+            Duration::from_millis(1),
             "test_daq_timeout",
         )
         .await;

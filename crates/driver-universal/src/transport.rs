@@ -4,11 +4,18 @@
 //! - [`SerialTransport`] — real serial via `common::serial`
 //! - [`TcpTransport`] — real TCP via `tokio::net`
 //! - [`MockTransport`] — pre-programmed responses for testing
+//!
+//! `spawn_blocking` is used for custom serial-port open paths so the async
+//! runtime is not blocked. The timeout around that call only bounds how long
+//! the caller waits; it does not cancel a hung `SerialPort::open()` once it is
+//! already running.
 
 use anyhow::Result;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+const CUSTOM_SERIAL_OPEN_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Read a line terminated by `\r`, `\n`, or `\r\n`.
 ///
@@ -96,8 +103,10 @@ impl SerialTransport {
 
                 let port_path_owned = port_path.to_string();
                 let sc = serial_config.clone();
+                // Timeout only bounds the awaiter; a wedged `SerialPort::open()`
+                // keeps running in the blocking pool even if this future returns.
                 let port = tokio::time::timeout(
-                    Duration::from_secs(10),
+                    CUSTOM_SERIAL_OPEN_TIMEOUT,
                     spawn_blocking(move || {
                         let mut port = serial2_tokio::SerialPort::open(&port_path_owned, baud_rate)
                             .context(format!("Failed to open serial port: {port_path_owned}"))?;
@@ -143,7 +152,9 @@ impl SerialTransport {
                     }),
                 )
                 .await
-                .context("serial port open timed out after 10s")?
+                .context(
+                    "serial port open timed out after 10s; underlying open may still be running",
+                )?
                 .context("spawn_blocking for serial port opening failed")??;
                 Box::new(port)
             }
