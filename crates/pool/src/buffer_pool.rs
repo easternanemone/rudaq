@@ -557,9 +557,11 @@ impl PooledBuffer {
             buf.capacity()
         );
 
-        std::ptr::copy_nonoverlapping(src, buf.as_mut_ptr(), len);
+        // SAFETY: src is valid for `len` bytes (caller contract), dst has sufficient capacity
+        // (asserted above), and regions don't overlap (src is external, dst is our buffer).
+        unsafe { std::ptr::copy_nonoverlapping(src, buf.as_mut_ptr(), len) };
         // SAFETY: We just copied `len` bytes into the buffer, and asserted len <= capacity
-        buf.set_len(len);
+        unsafe { buf.set_len(len) };
         self.actual_len = len;
     }
 
