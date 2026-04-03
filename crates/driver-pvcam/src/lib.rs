@@ -1242,12 +1242,15 @@ impl PvcamDriver {
                             let direction = ScanDirection::from_str(&val).ok_or_else(|| {
                                 DaqError::Instrument(format!("Invalid scan direction '{val}'"))
                             })?;
-                            tokio::task::spawn_blocking(move || {
-                                PvcamFeatures::set_scan_direction(&conn_guard, direction)
-                                    .map_err(|e| DaqError::Instrument(e.to_string()))
-                            })
+                            ffi_timeout::ffi_with_timeout_daq(
+                                "set_scan_direction",
+                                ffi_timeout::CONFIG_TIMEOUT,
+                                move || {
+                                    PvcamFeatures::set_scan_direction(&conn_guard, direction)
+                                        .map_err(|e| DaqError::Instrument(e.to_string()))
+                                },
+                            )
                             .await
-                            .map_err(|e| DaqError::Instrument(e.to_string()))?
                         })
                     }
                 });
