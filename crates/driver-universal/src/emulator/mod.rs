@@ -271,13 +271,13 @@ impl ManifestEmulator {
                 // (c) Generate response if expected
                 if expects_response {
                     let compiled = &self.commands[idx];
-                    if let Some(gen) = &compiled.response_gen {
+                    if let Some(generator) = &compiled.response_gen {
                         let current_state = self
                             .state
                             .get(&compiled.response_key)
                             .cloned()
                             .unwrap_or_default();
-                        match gen.generate(&current_state) {
+                        match generator.generate(&current_state) {
                             Ok(resp) => self.pending_response = Some(resp),
                             Err(e) => {
                                 tracing::error!(

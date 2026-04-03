@@ -3,6 +3,7 @@
 //! - **Reliable Path**: Uses `mpsc::Sender`. Supports backpressure. If full, the source slows down.
 //! - **Lossy Path**: Uses `broadcast::Sender`. Drops messages if receivers lag.
 
+use async_trait::async_trait;
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
 
@@ -31,6 +32,7 @@ impl<T> Tee<T> {
     }
 }
 
+#[async_trait]
 impl<T> MeasurementSink for Tee<T>
 where
     T: Send + Clone + 'static,
