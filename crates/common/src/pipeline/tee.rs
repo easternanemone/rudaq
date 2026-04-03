@@ -51,11 +51,10 @@ where
                 if let Some(ref tx) = reliable_tx
                     && tx.send(item.clone()).await.is_err()
                 {
-                        // Reliable receiver closed (e.g., storage full/error)
-                        // We should probably stop the pipeline or log error
-                        tracing::error!("Reliable pipeline path closed unexpectedly");
-                        break;
-                    }
+                    // Reliable receiver closed (e.g., storage full/error)
+                    // We should probably stop the pipeline or log error
+                    tracing::error!("Reliable pipeline path closed unexpectedly");
+                    break;
                 }
 
                 // 2. Send to Lossy Path (Fire and forget)
