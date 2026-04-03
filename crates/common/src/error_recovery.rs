@@ -10,6 +10,146 @@ use async_trait::async_trait;
 use std::time::Duration;
 use tokio::time::sleep;
 
+/// Backoff strategy for retry policies.
+///
+/// Determines how the delay between retry attempts is calculated.
+/// Use [`BackoffStrategy::Constant`] for fixed delays, or
+/// [`BackoffStrategy::Exponential`] for delays that grow each attempt.
+///
+/// # Example
+///
+/// ```rust
+/// use common::error_recovery::BackoffStrategy;
+/// use std::time::Duration;
+///
+/// // Constant 500ms between each retry
+/// let constant = BackoffStrategy::Constant;
+///
+/// // Exponential: 100ms, 200ms, 400ms, ... capped at 5s
+/// let exponential = BackoffStrategy::Exponential(ExponentialBackoff {
+///     initial_delay: Duration::from_millis(100),
+///     max_delay: Duration::from_secs(5),
+///     multiplier: 2.0,
+///     jitter: false,
+/// });
+/// ```
+#[derive(Clone, Debug)]
+pub enum BackoffStrategy {
+    /// Fixed delay between each retry attempt.
+    ///
+    /// Uses the `backoff_delay` field from [`RetryPolicy`] for every attempt.
+    Constant,
+
+    /// Exponentially increasing delay between retry attempts.
+    ///
+    /// Delay grows as `initial_delay * multiplier^attempt`, capped at `max_delay`.
+    /// The `backoff_delay` field from [`RetryPolicy`] is ignored when this strategy
+    /// is active; the [`ExponentialBackoff`] parameters control timing instead.
+    Exponential(ExponentialBackoff),
+}
+
+/// Configuration for exponential backoff retry delays.
+///
+/// Computes the delay for attempt `n` as:
+/// `min(initial_delay * multiplier^n, max_delay)`
+///
+/// When `jitter` is enabled, a random value between 0% and 25% of the computed
+/// delay is added to prevent thundering herd effects when multiple clients retry
+/// simultaneously.
+///
+/// # Example
+///
+/// ```rust
+/// use common::error_recovery::ExponentialBackoff;
+/// use std::time::Duration;
+///
+/// let backoff = ExponentialBackoff {
+///     initial_delay: Duration::from_millis(100),
+///     max_delay: Duration::from_secs(30),
+///     multiplier: 2.0,
+///     jitter: true,
+/// };
+///
+/// // Attempt 0: ~100ms (+ up to 25ms jitter)
+/// // Attempt 1: ~200ms (+ up to 50ms jitter)
+/// // Attempt 2: ~400ms (+ up to 100ms jitter)
+/// // ...capped at 30s
+/// ```
+#[derive(Clone, Debug)]
+pub struct ExponentialBackoff {
+    /// Delay before the first retry attempt.
+    pub initial_delay: Duration,
+
+    /// Maximum delay between retry attempts.
+    ///
+    /// The computed delay will never exceed this value (before jitter).
+    pub max_delay: Duration,
+
+    /// Multiplier applied to the delay each attempt.
+    ///
+    /// Typical values are 2.0 (doubling) or 1.5 (50% growth).
+    /// Must be >= 1.0; values less than 1.0 are treated as 1.0.
+    pub multiplier: f64,
+
+    /// Whether to add random jitter (0-25% of delay) to prevent thundering herd.
+    pub jitter: bool,
+}
+
+impl ExponentialBackoff {
+    /// Computes the delay for a given attempt number (0-indexed).
+    ///
+    /// Returns `min(initial_delay * multiplier^attempt, max_delay)`, with
+    /// optional random jitter added on top.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    // Truncation is acceptable: we clamp the f64 multiplication result to max_delay
+    // and jitter_nanos is bounded by delay/4, both well within u64 range.
+    pub fn delay_for_attempt(&self, attempt: u32) -> Duration {
+        let multiplier = self.multiplier.max(1.0);
+        let base_nanos = self.initial_delay.as_nanos() as f64;
+        let scaled = base_nanos * multiplier.powi(attempt as i32);
+
+        let max_nanos = self.max_delay.as_nanos() as f64;
+        let clamped_nanos = scaled.min(max_nanos);
+        let delay = Duration::from_nanos(clamped_nanos as u64);
+
+        if self.jitter {
+            // Add random jitter: 0-25% of the computed delay
+            let jitter_max_nanos = clamped_nanos * 0.25;
+            let jitter_nanos = fastrand::f64() * jitter_max_nanos;
+            delay + Duration::from_nanos(jitter_nanos as u64)
+        } else {
+            delay
+        }
+    }
+}
+
+impl Default for ExponentialBackoff {
+    /// Creates a default exponential backoff configuration.
+    ///
+    /// Defaults: 100ms initial delay, 30s max delay, 2.0 multiplier, no jitter.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use common::error_recovery::ExponentialBackoff;
+    /// use std::time::Duration;
+    ///
+    /// let backoff = ExponentialBackoff::default();
+    /// assert_eq!(backoff.initial_delay, Duration::from_millis(100));
+    /// assert_eq!(backoff.max_delay, Duration::from_secs(30));
+    /// assert!((backoff.multiplier - 2.0).abs() < f64::EPSILON);
+    /// assert!(!backoff.jitter);
+    /// ```
+    fn default() -> Self {
+        Self {
+            initial_delay: Duration::from_millis(100),
+            max_delay: Duration::from_secs(30),
+            multiplier: 2.0,
+            jitter: false,
+        }
+    }
+}
+
 /// Defines a policy for retrying an operation.
 ///
 /// Specifies how many times to retry a failed operation and how long to wait
