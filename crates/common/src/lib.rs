@@ -89,6 +89,3 @@ pub mod time;
 
 // Arrow extension metadata helpers for Python interop
 pub mod arrow_metadata;
-
-// Signal-processing utilities (radiance calibration, interpolation, etc.)
-pub mod processing;

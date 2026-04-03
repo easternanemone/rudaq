@@ -18,6 +18,7 @@ pub mod calibration_pipeline;
 pub mod calibration_quality;
 pub mod chebyshev_2d;
 pub mod optimal_extraction;
+pub mod radiance_calibration;
 pub mod rectification;
 pub mod scattered_light;
 pub mod simulation;
