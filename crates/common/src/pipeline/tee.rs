@@ -48,8 +48,9 @@ where
             while let Some(item) = rx.recv().await {
                 // 1. Send to Reliable Path (Backpressure enforced here)
                 // We await this send, which pushes backpressure upstream to the source
-                if let Some(ref tx) = reliable_tx {
-                    if tx.send(item.clone()).await.is_err() {
+                if let Some(ref tx) = reliable_tx
+                    && tx.send(item.clone()).await.is_err()
+                {
                         // Reliable receiver closed (e.g., storage full/error)
                         // We should probably stop the pipeline or log error
                         tracing::error!("Reliable pipeline path closed unexpectedly");
