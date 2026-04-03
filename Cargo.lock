@@ -2699,6 +2699,7 @@ dependencies = [
  "bytes",
  "chrono",
  "criterion",
+ "fastrand",
  "fitsio",
  "futures",
  "getrandom 0.2.17",
