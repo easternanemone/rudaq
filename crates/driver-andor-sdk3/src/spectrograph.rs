@@ -1008,21 +1008,17 @@ impl AndorSpectrograph {
         param.connect_to_hardware_write(move |position: FlipperMirror| {
             Box::pin(async move {
                 let pos = position as i32;
-                tokio::task::spawn_blocking(move || {
+                crate::ffi_timeout::ffi_call_daq(move || {
                     use crate::error::sdk_result;
                     // SAFETY: handle is valid from initialization.
                     // Bound to default port 1.
-                    // spawn_blocking moves the FFI call off the async runtime to avoid blocking.
-                    // It does not serialize concurrent calls.
                     unsafe {
                         let ret = ShamrockSetFlipperMirror(handle, 1, pos);
                         sdk_result(ret)?;
-                        Ok::<(), anyhow::Error>(())
+                        Ok(())
                     }
-                })
+                }, crate::ffi_timeout::FFI_CONFIG_TIMEOUT, "set_flipper_mirror")
                 .await
-                .map_err(|e| DaqError::Instrument(format!("spawn_blocking: {e}")))?
-                .map_err(|e| DaqError::Instrument(e.to_string()))
             })
         });
     }
