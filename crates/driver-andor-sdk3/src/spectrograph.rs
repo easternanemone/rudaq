@@ -469,18 +469,16 @@ impl AndorSpectrograph {
         if port != 1 {
             let handle = self.inner.handle;
             let pos = position as i32;
-            tokio::task::spawn_blocking(move || {
+            crate::ffi_timeout::ffi_call(move || {
                 use crate::error::sdk_result;
                 // SAFETY: handle is valid from initialization.
                 // pos is a valid FlipperMirror enum value cast to i32.
-                // spawn_blocking moves the FFI call off the async runtime to avoid blocking.
-                // It does not serialize concurrent calls.
                 unsafe {
                     let ret = ShamrockSetFlipperMirror(handle, port, pos);
                     sdk_result(ret)?;
                     Ok::<(), anyhow::Error>(())
                 }
-            })
+            }, crate::ffi_timeout::FFI_CONFIG_TIMEOUT, "set_flipper_mirror")
             .await??;
         }
 
