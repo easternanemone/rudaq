@@ -1814,12 +1814,15 @@ impl PvcamDriver {
                 Box::pin(async move {
                     tracing::debug!(param = "exposure_ms", ?val, "PVCAM hw_write called");
                     let conn_guard = conn.lock_owned().await;
-                    let result = tokio::task::spawn_blocking(move || {
-                        PvcamFeatures::set_exposure_time_ms(&conn_guard, val)
-                            .map_err(|e| DaqError::Instrument(e.to_string()))
-                    })
-                    .await
-                    .map_err(|e| DaqError::Instrument(e.to_string()))?;
+                    let result = ffi_timeout::ffi_with_timeout_daq(
+                        "set_exposure_time_ms",
+                        ffi_timeout::CONFIG_TIMEOUT,
+                        move || {
+                            PvcamFeatures::set_exposure_time_ms(&conn_guard, val)
+                                .map_err(|e| DaqError::Instrument(e.to_string()))
+                        },
+                    )
+                    .await;
                     tracing::debug!(
                         param = "exposure_ms",
                         success = result.is_ok(),
