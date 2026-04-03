@@ -64,6 +64,7 @@ impl PvcamAcquisition {
             smart_stream_exposures,
             prime_locate_enabled,
             prime_enhance_enabled,
+            multi_roi_regions,
         } = config;
 
         // Avoid unused parameter warnings when hardware feature is disabled.
@@ -75,6 +76,7 @@ impl PvcamAcquisition {
         let _ = &smart_stream_exposures;
         let _ = &prime_locate_enabled;
         let _ = &prime_enhance_enabled;
+        let _ = &multi_roi_regions;
         if self.streaming.get() {
             tracing::warn!("start_stream: already streaming");
             bail!("Already streaming");
@@ -1083,6 +1085,7 @@ impl PvcamAcquisition {
                     Parameter::new("_single_frame_prime_enhance", false)
                 }
             },
+            multi_roi_regions: vec![], // Single-frame always uses single ROI
         };
         self.start_stream(conn, config).await?;
 

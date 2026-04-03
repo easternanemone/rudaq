@@ -3142,6 +3142,19 @@ impl FrameProducer for PvcamDriver {
             smart_stream_exposures: self.smart_stream_exposures.clone(),
             prime_locate_enabled: self.prime_locate_enabled.clone(),
             prime_enhance_enabled: self.prime_enhance_enabled.clone(),
+            multi_roi_regions: {
+                use crate::components::acquisition::RoiRegion;
+                let json = self.multi_roi_config.get();
+                if json.trim().is_empty() || json == "[]" {
+                    vec![]
+                } else {
+                    // Parse with sensor bounds validation (2048x2048 for Prime BSI)
+                    RoiRegion::parse_json(&json, 2048, 2048).unwrap_or_else(|e| {
+                        tracing::warn!("Invalid multi_roi_config, using single ROI: {e}");
+                        vec![]
+                    })
+                }
+            },
         };
         self.acquisition.start_stream(&conn, config).await
     }
