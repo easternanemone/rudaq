@@ -2318,12 +2318,15 @@ impl PvcamDriver {
                 Box::pin(async move {
                     let mode = SmartStreamMode::from_str(&val);
                     let conn_guard = conn.lock_owned().await;
-                    tokio::task::spawn_blocking(move || {
-                        PvcamFeatures::set_smart_stream_mode(&conn_guard, mode)
-                            .map_err(|e| DaqError::Instrument(e.to_string()))
-                    })
+                    ffi_timeout::ffi_with_timeout_daq(
+                        "set_smart_stream_mode",
+                        ffi_timeout::CONFIG_TIMEOUT,
+                        move || {
+                            PvcamFeatures::set_smart_stream_mode(&conn_guard, mode)
+                                .map_err(|e| DaqError::Instrument(e.to_string()))
+                        },
+                    )
                     .await
-                    .map_err(|e| DaqError::Instrument(e.to_string()))?
                 })
             }
         });
