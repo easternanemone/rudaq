@@ -134,9 +134,9 @@ impl AndorCamera {
         #[cfg(feature = "camera")]
         {
             let handle = self.inner.handle;
-            tokio::task::spawn_blocking(move || {
+            crate::ffi_timeout::ffi_call(move || {
                 Self::set_bool_feature(handle, "SensorCooling", enabled)
-            })
+            }, crate::ffi_timeout::FFI_CONFIG_TIMEOUT, "set_cooling")
             .await??;
         }
 
