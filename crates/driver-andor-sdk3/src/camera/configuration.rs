@@ -196,7 +196,7 @@ impl AndorCamera {
         {
             let handle = self.inner.handle;
             let tc_value = temperature_control.to_string();
-            match tokio::task::spawn_blocking(move || -> anyhow::Result<&str> {
+            match crate::ffi_timeout::ffi_call(move || -> anyhow::Result<&str> {
                 // Try TemperatureControl enum (calibrated setpoints)
                 if Self::is_feature_implemented(handle, "TemperatureControl")? {
                     if Self::is_feature_writable(handle, "TemperatureControl")? {
@@ -229,7 +229,7 @@ impl AndorCamera {
                      (camera manages its own setpoint)"
                 );
                 Ok("skipped")
-            })
+            }, crate::ffi_timeout::FFI_CONFIG_TIMEOUT, "configure_cooling:temperature")
             .await
             {
                 Ok(Ok(method)) => match method {
