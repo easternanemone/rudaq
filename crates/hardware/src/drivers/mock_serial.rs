@@ -188,7 +188,7 @@ impl MockDeviceHarness {
     /// Panics if the expected data is not received within 2 seconds or if
     /// the received data does not match the expected data.
     pub async fn expect_write(&mut self, expected: &[u8]) {
-        use tokio::time::{timeout, Duration};
+        use tokio::time::{Duration, timeout};
 
         let timeout_duration = Duration::from_secs(2); // Generous timeout for tests
 
@@ -235,7 +235,7 @@ impl MockDeviceHarness {
     ///
     /// Useful for clearing the buffer in setup or teardown.
     pub async fn drain_writes(&mut self) {
-        use tokio::time::{timeout, Duration};
+        use tokio::time::{Duration, timeout};
         let short_timeout = Duration::from_millis(50);
 
         while let Ok(Some(chunk)) = timeout(short_timeout, self.writes_rx.recv()).await {
@@ -249,7 +249,7 @@ impl MockDeviceHarness {
 mod tests {
     use super::*;
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-    use tokio::time::{timeout, Duration};
+    use tokio::time::{Duration, timeout};
 
     #[tokio::test]
     async fn test_basic_write_read() {

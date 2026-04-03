@@ -13,7 +13,7 @@
 
 mod signal;
 
-pub use signal::{export_signal_traces, SignalExportOptions, SignalTraceData};
+pub use signal::{SignalExportOptions, SignalTraceData, export_signal_traces};
 
 use std::io::{self, Write};
 

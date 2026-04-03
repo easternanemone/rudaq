@@ -7,7 +7,7 @@ use eframe::egui::{self, Color32, RichText, Ui};
 use std::collections::VecDeque;
 use tokio::sync::mpsc;
 
-use crate::widgets::{offline_notice, OfflineContext};
+use crate::widgets::{OfflineContext, offline_notice};
 use client::DaqClient;
 use protocol::ni_daq::{DaqStatus, TimingCapabilities};
 

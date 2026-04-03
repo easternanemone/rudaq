@@ -521,8 +521,10 @@ mod tests {
             AddressError::EmptyInput.to_string(),
             "Address cannot be empty"
         );
-        assert!(AddressError::UnsupportedScheme("ftp".to_string())
-            .to_string()
-            .contains("ftp"));
+        assert!(
+            AddressError::UnsupportedScheme("ftp".to_string())
+                .to_string()
+                .contains("ftp")
+        );
     }
 }

@@ -879,9 +879,11 @@ library = "test"
         )
         .unwrap();
         let errors = manifest.validate();
-        assert!(errors
-            .iter()
-            .any(|e| e.path == "plugin.name" && e.message.contains("spaces")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.path == "plugin.name" && e.message.contains("spaces"))
+        );
     }
 
     #[test]
@@ -898,9 +900,11 @@ library = "test"
         )
         .unwrap();
         let errors = manifest.validate();
-        assert!(errors
-            .iter()
-            .any(|e| e.path == "plugin.name" && e.message.contains("lowercase")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.path == "plugin.name" && e.message.contains("lowercase"))
+        );
     }
 
     #[test]

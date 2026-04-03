@@ -16,10 +16,10 @@
 )]
 
 use echelle::calibration_pipeline::{
-    run_calibration_pipeline, CalibrationPipelineConfig, WavelengthSeed,
+    CalibrationPipelineConfig, WavelengthSeed, run_calibration_pipeline,
 };
 use echelle::trace_fitting::TraceFitConfig;
-use echelle::wavelength_fitting::{load_hgar_atlas, ArcDetectConfig, WlFitConfig};
+use echelle::wavelength_fitting::{ArcDetectConfig, WlFitConfig, load_hgar_atlas};
 use echelle::{AxisDirection, DetectorAxis, EchelleFrameCompatibility, EchelleOrientation};
 
 // ─── Constants ───────────────────────────────────────────────────────────────

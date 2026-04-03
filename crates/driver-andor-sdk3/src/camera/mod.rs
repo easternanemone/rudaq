@@ -81,8 +81,8 @@ use common::data::FrameView;
 use common::error::DaqError;
 use common::observable::ParameterSet;
 use common::parameter::Parameter;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use tokio::sync::Mutex;
 
 /// SDK3 feature names already represented by core typed parameters.
@@ -118,9 +118,9 @@ const CORE_FEATURE_NAMES: &[&str] = &[
 #[cfg(feature = "camera")]
 use crate::error::AndorError;
 #[cfg(feature = "camera")]
-use std::sync::atomic::AtomicUsize;
-#[cfg(feature = "camera")]
 use std::sync::Mutex as StdMutex;
+#[cfg(feature = "camera")]
+use std::sync::atomic::AtomicUsize;
 
 #[cfg(feature = "camera")]
 use andor_sdk3_sys::*;

@@ -12,8 +12,8 @@ use rand::Rng;
 use slint::{Rgb8Pixel, SharedPixelBuffer, Timer, TimerMode};
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Instant;
 
 const CAMERA_W: u32 = 512;

@@ -9,9 +9,9 @@ use common::error::DaqError;
 use common::observable::ParameterSet;
 use common::parameter::Parameter;
 #[cfg(feature = "camera")]
-use std::sync::atomic::AtomicBool;
-#[cfg(feature = "camera")]
 use std::sync::Arc;
+#[cfg(feature = "camera")]
+use std::sync::atomic::AtomicBool;
 
 #[cfg(feature = "camera")]
 use andor_sdk3_sys::AT_H;

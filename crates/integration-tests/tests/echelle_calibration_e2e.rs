@@ -5,12 +5,12 @@
 //! would trigger from the calibration workspace GUI.
 
 use echelle::calibration_pipeline::{
-    run_calibration_pipeline, CalibrationPipelineConfig, SeedAnchor, WavelengthSeed,
+    CalibrationPipelineConfig, SeedAnchor, WavelengthSeed, run_calibration_pipeline,
 };
 use echelle::trace_fitting::TraceFitConfig;
 use echelle::wavelength_fitting::{
-    detect_arc_lines, fit_order_wavelength, load_hgar_atlas, match_lines_to_atlas, ArcDetectConfig,
-    WlFitConfig,
+    ArcDetectConfig, WlFitConfig, detect_arc_lines, fit_order_wavelength, load_hgar_atlas,
+    match_lines_to_atlas,
 };
 use echelle::{
     AxisDirection, DetectorAxis, EchelleFrameCompatibility, EchelleOrientation,

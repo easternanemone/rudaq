@@ -44,8 +44,8 @@ use crate::runtime::Runtime;
 use egui::Ui;
 use egui_plot::{Line, Plot, PlotPoints};
 
-use crate::widgets::device_controls::{DeviceControlWidget, DevicePanelState};
 use crate::widgets::Gauge;
+use crate::widgets::device_controls::{DeviceControlWidget, DevicePanelState};
 use client::DaqClient;
 use protocol::daq::DeviceInfo;
 

@@ -24,7 +24,7 @@
 
 use std::{collections::HashMap, fs, path::Path};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use chrono::{DateTime, Utc};
 
 /// Optional metadata parsed from a calibration text file header.
@@ -589,8 +589,8 @@ mod tests {
     }
 
     #[test]
-    fn test_load_calibration_file_parses_metadata(
-    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    fn test_load_calibration_file_parses_metadata()
+    -> std::result::Result<(), Box<dyn std::error::Error>> {
         use std::io::Write;
 
         let mut tmp = tempfile::NamedTempFile::new()?;
@@ -609,8 +609,8 @@ mod tests {
     }
 
     #[test]
-    fn test_radiance_calibrator_from_files_uses_oldest_timestamp(
-    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    fn test_radiance_calibrator_from_files_uses_oldest_timestamp()
+    -> std::result::Result<(), Box<dyn std::error::Error>> {
         use std::io::Write;
 
         let write_file = |content: &str| -> std::io::Result<tempfile::NamedTempFile> {

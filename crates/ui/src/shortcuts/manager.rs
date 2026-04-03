@@ -92,13 +92,13 @@ impl Default for ShortcutManager {
 impl ShortcutManager {
     /// Create a new manager with default key bindings
     pub fn with_defaults() -> Self {
-        use egui::Key;
         use ShortcutAction::{
             CycleColormap, FitToView, OpenSettings, PanDown, PanLeft, PanRight, PanUp, SaveCurrent,
             ToggleAcquisition, ToggleCheatSheet, ToggleCrosshair, ToggleHistogram, ToggleRecording,
             Zoom100, Zoom200, Zoom300, Zoom400, Zoom500, Zoom600, Zoom700, Zoom800, Zoom900,
             ZoomIn, ZoomOut,
         };
+        use egui::Key;
 
         let mut manager = Self {
             bindings: HashMap::new(),
@@ -249,9 +249,11 @@ mod tests {
         let manager = ShortcutManager::with_defaults();
 
         // Check that some key bindings exist
-        assert!(manager
-            .get_binding(ShortcutAction::ToggleAcquisition)
-            .is_some());
+        assert!(
+            manager
+                .get_binding(ShortcutAction::ToggleAcquisition)
+                .is_some()
+        );
         assert!(manager.get_binding(ShortcutAction::FitToView).is_some());
         assert!(manager.get_binding(ShortcutAction::OpenSettings).is_some());
     }
@@ -274,11 +276,15 @@ mod tests {
         let image_bindings = manager.bindings_for_context(ShortcutContext::ImageViewer);
 
         // Should include both ImageViewer and Global actions
-        assert!(image_bindings
-            .iter()
-            .any(|(a, _)| *a == ShortcutAction::FitToView));
-        assert!(image_bindings
-            .iter()
-            .any(|(a, _)| *a == ShortcutAction::OpenSettings));
+        assert!(
+            image_bindings
+                .iter()
+                .any(|(a, _)| *a == ShortcutAction::FitToView)
+        );
+        assert!(
+            image_bindings
+                .iter()
+                .any(|(a, _)| *a == ShortcutAction::OpenSettings)
+        );
     }
 }

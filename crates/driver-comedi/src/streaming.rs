@@ -41,16 +41,16 @@
 //! # }
 //! ```
 
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
 use tracing::{debug, error, info, trace, warn};
 
 use comedi_sys::{
-    comedi_cmd, lsampl_t, AREF_GROUND, CMDF_PRIORITY, CR_PACK, SDF_LSAMPL, TRIG_COUNT, TRIG_EXT,
-    TRIG_FOLLOW, TRIG_NONE, TRIG_NOW, TRIG_TIMER,
+    AREF_GROUND, CMDF_PRIORITY, CR_PACK, SDF_LSAMPL, TRIG_COUNT, TRIG_EXT, TRIG_FOLLOW, TRIG_NONE,
+    TRIG_NOW, TRIG_TIMER, comedi_cmd, lsampl_t,
 };
 
 use crate::device::{ComediDevice, SubdeviceType};

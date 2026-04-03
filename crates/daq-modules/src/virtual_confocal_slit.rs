@@ -40,14 +40,14 @@
 //! - `scan_metrics` - Running metrics: `{frames_acquired, avg_frame_rate_hz}`
 
 use super::{Module, ModuleContext};
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use common::modules::{
     ModuleEventSeverity, ModuleParameter, ModuleRole, ModuleState, ModuleTypeInfo,
 };
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use tracing::{info, warn};
 

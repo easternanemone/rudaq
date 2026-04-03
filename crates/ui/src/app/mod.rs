@@ -10,8 +10,8 @@ use tokio::sync::mpsc;
 
 #[cfg(not(target_arch = "wasm32"))]
 use crate::connection::{
-    clear_legacy_daemon_address, migrate_legacy_daemon_address, resolve_address, AddressSource,
-    DaemonAddress,
+    AddressSource, DaemonAddress, clear_legacy_daemon_address, migrate_legacy_daemon_address,
+    resolve_address,
 };
 #[cfg(not(target_arch = "wasm32"))]
 use crate::connection_state_ext::ConnectionStateExt;
@@ -21,7 +21,7 @@ use crate::device_ext::DeviceInfoExt;
 use crate::icons;
 use crate::layout;
 use crate::panels::instrument_manager::{
-    config_loader::DeviceConfigCache, config_renderer::ConfigDrivenPanel, DeviceDragId,
+    DeviceDragId, config_loader::DeviceConfigCache, config_renderer::ConfigDrivenPanel,
 };
 use crate::panels::{
     ComediPanel, DocumentViewerPanel, ExperimentDesignerPanel, GettingStartedPanel,
@@ -36,9 +36,9 @@ use crate::widgets::{
     DeviceControlWidget, GenericDevicePanel, MaiTaiControlPanel, PowerMeterControlPanel,
     RotatorControlPanel, StageControlPanel, StatusBar,
 };
-#[cfg(not(target_arch = "wasm32"))]
-use client::reconnect::{friendly_error_message, ConnectionManager, ConnectionState};
 use client::DaqClient;
+#[cfg(not(target_arch = "wasm32"))]
+use client::reconnect::{ConnectionManager, ConnectionState, friendly_error_message};
 use protocol::daq::DeviceInfo;
 
 mod automation;
@@ -1012,12 +1012,16 @@ mod tests {
 
         assert_eq!(device_info.capabilities.len(), 3);
         assert!(device_info.capabilities.contains(&"readable".to_string()));
-        assert!(device_info
-            .capabilities
-            .contains(&"shutter_controllable".to_string()));
-        assert!(device_info
-            .capabilities
-            .contains(&"emission_controllable".to_string()));
+        assert!(
+            device_info
+                .capabilities
+                .contains(&"shutter_controllable".to_string())
+        );
+        assert!(
+            device_info
+                .capabilities
+                .contains(&"emission_controllable".to_string())
+        );
     }
 
     #[test]

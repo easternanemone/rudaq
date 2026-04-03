@@ -13,8 +13,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use common::error::DaqError;
-use db::config_store::{config_hash, json_to_toml, DbDeviceFeature, DbDriver, DbInstrument};
 use db::DaqDb;
+use db::config_store::{DbDeviceFeature, DbDriver, DbInstrument, config_hash, json_to_toml};
 use hardware::registry::DeviceRegistry;
 use tracing::{info, warn};
 
@@ -554,8 +554,8 @@ pub async fn start_polling_reconciler(
 #[cfg(feature = "db-surreal-mem")]
 mod tests {
     use super::*;
-    use db::config_store::DbInstrument;
     use db::DbConfig;
+    use db::config_store::DbInstrument;
     use driver_mock::MockPowerMeterFactory;
 
     /// Create a registry with mock factories pre-registered.
@@ -901,7 +901,7 @@ mod tests {
     #[tokio::test]
     async fn test_e2e_db_to_game_loop_broadcast() {
         use common::state_cache::{
-            now_ns, run_game_loop, GameLoopConfig, NodeStateUpdate, NodeValue, SystemStateSnapshot,
+            GameLoopConfig, NodeStateUpdate, NodeValue, SystemStateSnapshot, now_ns, run_game_loop,
         };
         use tokio::sync::{broadcast, mpsc};
         use tokio_util::sync::CancellationToken;
@@ -979,7 +979,7 @@ mod tests {
     /// the device is Readable (proving the full factory → capabilities path).
     #[tokio::test]
     async fn test_e2e_watch_to_readable() {
-        use crate::watch_reconciler::{start_watch_reconciler, WatchConfig};
+        use crate::watch_reconciler::{WatchConfig, start_watch_reconciler};
         use tokio_util::sync::CancellationToken;
 
         let db = DaqDb::init(DbConfig::in_memory()).await.unwrap();
@@ -1039,7 +1039,7 @@ mod tests {
     /// removes it from the registry via LIVE SELECT → reconcile_once.
     #[tokio::test]
     async fn test_e2e_watch_detects_delete() {
-        use crate::watch_reconciler::{start_watch_reconciler, WatchConfig};
+        use crate::watch_reconciler::{WatchConfig, start_watch_reconciler};
         use tokio_util::sync::CancellationToken;
 
         let db = DaqDb::init(DbConfig::in_memory()).await.unwrap();
@@ -1099,7 +1099,7 @@ mod tests {
     /// in sequence: Create → Update → Delete, each triggering reconcile_once.
     #[tokio::test]
     async fn test_e2e_watch_full_lifecycle() {
-        use crate::watch_reconciler::{start_watch_reconciler, WatchConfig};
+        use crate::watch_reconciler::{WatchConfig, start_watch_reconciler};
         use tokio_util::sync::CancellationToken;
 
         let db = DaqDb::init(DbConfig::in_memory()).await.unwrap();
@@ -1174,7 +1174,7 @@ mod tests {
     #[tokio::test]
     #[cfg(feature = "networking")]
     async fn test_e2e_grpc_config_hot_swap() {
-        use crate::watch_reconciler::{start_watch_reconciler, WatchConfig};
+        use crate::watch_reconciler::{WatchConfig, start_watch_reconciler};
         use server::grpc::proto::DeleteInstrumentRequest;
         use server::grpc::{
             ConfigService, ConfigServiceImpl, HardwareService, HardwareServiceImpl,
@@ -1290,7 +1290,7 @@ mod tests {
     /// lock, the periodic resync (or next notification) picks it up.
     #[tokio::test]
     async fn test_e2e_measurement_lock_defers_reconfig() {
-        use crate::watch_reconciler::{start_watch_reconciler, WatchConfig};
+        use crate::watch_reconciler::{WatchConfig, start_watch_reconciler};
         use tokio_util::sync::CancellationToken;
 
         let db = DaqDb::init(DbConfig::in_memory()).await.unwrap();
@@ -1377,7 +1377,7 @@ mod tests {
     /// reconciler converges.
     #[tokio::test]
     async fn test_e2e_concurrent_upserts_converge() {
-        use crate::watch_reconciler::{start_watch_reconciler, WatchConfig};
+        use crate::watch_reconciler::{WatchConfig, start_watch_reconciler};
         use tokio_util::sync::CancellationToken;
 
         let db = DaqDb::init(DbConfig::in_memory()).await.unwrap();

@@ -1189,9 +1189,10 @@ regex = "[invalid("
 "#;
         let raw: RawManifest = toml::from_str(toml_str).unwrap();
         let errs = parse_manifest(raw).unwrap_err();
-        assert!(errs
-            .iter()
-            .any(|e| matches!(e, ConfigError::InvalidRegex { .. })));
+        assert!(
+            errs.iter()
+                .any(|e| matches!(e, ConfigError::InvalidRegex { .. }))
+        );
     }
 
     #[test]
@@ -1212,9 +1213,10 @@ template = "{{ unclosed"
 "#;
         let raw: RawManifest = toml::from_str(toml_str).unwrap();
         let errs = parse_manifest(raw).unwrap_err();
-        assert!(errs
-            .iter()
-            .any(|e| matches!(e, ConfigError::InvalidTemplate { .. })));
+        assert!(
+            errs.iter()
+                .any(|e| matches!(e, ConfigError::InvalidTemplate { .. }))
+        );
     }
 
     #[test]
@@ -1235,9 +1237,10 @@ formula = "((( unclosed"
 "#;
         let raw: RawManifest = toml::from_str(toml_str).unwrap();
         let errs = parse_manifest(raw).unwrap_err();
-        assert!(errs
-            .iter()
-            .any(|e| matches!(e, ConfigError::InvalidFormula { .. })));
+        assert!(
+            errs.iter()
+                .any(|e| matches!(e, ConfigError::InvalidFormula { .. }))
+        );
     }
 
     #[test]
@@ -1255,9 +1258,10 @@ baud_rate = 0
 "#;
         let raw: RawManifest = toml::from_str(toml_str).unwrap();
         let errs = parse_manifest(raw).unwrap_err();
-        assert!(errs
-            .iter()
-            .any(|e| matches!(e, ConfigError::InvalidBaudRate(0))));
+        assert!(
+            errs.iter()
+                .any(|e| matches!(e, ConfigError::InvalidBaudRate(0)))
+        );
     }
 
     #[test]
@@ -1276,9 +1280,10 @@ timeout_ms = 0
 "#;
         let raw: RawManifest = toml::from_str(toml_str).unwrap();
         let errs = parse_manifest(raw).unwrap_err();
-        assert!(errs
-            .iter()
-            .any(|e| matches!(e, ConfigError::InvalidTimeout(0))));
+        assert!(
+            errs.iter()
+                .any(|e| matches!(e, ConfigError::InvalidTimeout(0)))
+        );
     }
 
     #[test]

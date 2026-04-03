@@ -47,8 +47,8 @@ use common::observable::ParameterSet;
 use common::parameter::Parameter;
 use common::pipeline::MeasurementSource;
 use futures::future::BoxFuture;
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 use tokio::sync::Mutex;
 
@@ -61,8 +61,8 @@ pub use crate::components::features::{
 };
 // Re-export feature functions for direct access
 pub use crate::components::features::{
-    is_prime_enhance_name, is_prime_locate_name, normalize_pp_name, pp_name_contains,
-    pp_name_matches, PvcamFeatures,
+    PvcamFeatures, is_prime_enhance_name, is_prime_locate_name, normalize_pp_name,
+    pp_name_contains, pp_name_matches,
 };
 
 use crate::components::acquisition::{PvcamAcquisition, StreamConfig};

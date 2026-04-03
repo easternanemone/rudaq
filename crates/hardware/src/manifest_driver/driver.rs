@@ -5,7 +5,7 @@
 //! recompilation.
 
 use crate::manifest_driver::templating::render_command;
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use rand::Rng;
 use regex::Regex;
 use serde_json::Value;

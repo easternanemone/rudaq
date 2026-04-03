@@ -14,7 +14,7 @@
 //! (between QueueBuffer and WaitBuffer), so we must ensure they
 //! are not dropped while in use.
 
-use std::alloc::{alloc_zeroed, dealloc, Layout};
+use std::alloc::{Layout, alloc_zeroed, dealloc};
 use std::ptr::NonNull;
 
 /// SDK3-required alignment for frame buffers.

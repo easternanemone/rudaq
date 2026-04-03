@@ -349,13 +349,13 @@ pub fn get_oldest_frame(
         if err_code != 0 {
             let err_msg = get_pvcam_error();
             tracing::debug!(
-                    "ffi_safe::get_oldest_frame_ex FAILED: hcam={}, result={}, err_code={}, err_msg={}, frame_ptr_null={}",
-                    hcam,
-                    result,
-                    err_code,
-                    err_msg,
-                    frame_ptr.is_null()
-                );
+                "ffi_safe::get_oldest_frame_ex FAILED: hcam={}, result={}, err_code={}, err_msg={}, frame_ptr_null={}",
+                hcam,
+                result,
+                err_code,
+                err_msg,
+                frame_ptr.is_null()
+            );
         }
         Err(())
     } else {

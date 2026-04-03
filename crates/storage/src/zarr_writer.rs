@@ -54,7 +54,7 @@
 //! }
 //! ```
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use serde_json::json;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

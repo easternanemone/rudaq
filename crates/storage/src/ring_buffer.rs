@@ -39,7 +39,7 @@ use common::error::{DaqError, StorageError, StorageErrorKind};
 use memmap2::{MmapMut, MmapOptions};
 use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{fence, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering, fence};
 use std::sync::{Arc, OnceLock, RwLock};
 use std::time::Instant;
 use tokio::sync::mpsc;

@@ -25,7 +25,7 @@
 
 use common::driver::DriverFactory;
 use common::error::DaqError;
-use hardware::registry::{register_mock_factories, DeviceRegistry, HardwareConfig};
+use hardware::registry::{DeviceRegistry, HardwareConfig, register_mock_factories};
 
 // ============================================================================
 // Runtime SDK probing (feature: runtime_probe)

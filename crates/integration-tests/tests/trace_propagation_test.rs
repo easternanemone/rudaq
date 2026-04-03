@@ -33,18 +33,18 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::sync::mpsc;
+use tonic::Request;
 use tonic::metadata::MetadataValue;
 use tonic::transport::Server;
-use tonic::Request;
-use tracing::{info_span, Instrument};
-use tracing_subscriber::layer::SubscriberExt;
+use tracing::{Instrument, info_span};
 use tracing_subscriber::Layer;
+use tracing_subscriber::layer::SubscriberExt;
 
 use experiment::RunEngine;
 use hardware::registry::DeviceRegistry;
+use protocol::daq::ListDevicesRequest;
 use protocol::daq::hardware_service_client::HardwareServiceClient;
 use protocol::daq::hardware_service_server::HardwareServiceServer;
-use protocol::daq::ListDevicesRequest;
 use server::grpc::hardware_service::HardwareServiceImpl;
 
 /// Custom header name for request ID (commonly used convention)
@@ -222,7 +222,10 @@ async fn test_request_id_propagates_to_spans() {
             "\n[TDD] Request ID {} NOT found in spans - trace propagation not yet implemented",
             request_id
         );
-        println!("      To implement: Extract '{}' header in gRPC interceptor and inject into span context", REQUEST_ID_HEADER);
+        println!(
+            "      To implement: Extract '{}' header in gRPC interceptor and inject into span context",
+            REQUEST_ID_HEADER
+        );
     }
 
     // Hard assertion for when implementation is complete

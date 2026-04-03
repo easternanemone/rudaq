@@ -28,10 +28,10 @@ use std::sync::Arc;
 
 use chrono::Utc;
 
-use crate::optimal_extraction::{optimal_extract, OptimalExtractionConfig};
-use crate::rectification::{rectify_order, OrderSpec, RectifyConfig};
-use crate::scattered_light::{subtract_scattered_light, ScatteredLightConfig, TraceInfo};
-use crate::trace_fitting::{detect_orders, OrderTrace, TraceFitConfig};
+use crate::optimal_extraction::{OptimalExtractionConfig, optimal_extract};
+use crate::rectification::{OrderSpec, RectifyConfig, rectify_order};
+use crate::scattered_light::{ScatteredLightConfig, TraceInfo, subtract_scattered_light};
+use crate::trace_fitting::{OrderTrace, TraceFitConfig, detect_orders};
 use crate::types::{
     AxisDirection, DetectorAxis, EchelleCalibrationProfile, EchelleCorrections,
     EchelleExtractionConfig, EchelleFrameCompatibility, EchelleOrderCalibration,
@@ -39,9 +39,9 @@ use crate::types::{
     EchelleWavelengthModel, PolynomialBasis,
 };
 use crate::wavelength_fitting::{
+    ArcDetectConfig, ArcLine, AtlasLine, OrderWlSolution, TwoPhaseMatchConfig, WlFitConfig,
     detect_arc_lines, fit_order_wavelength, match_lines_to_atlas, match_lines_two_phase,
-    merge_arc_lines_hdr, ArcDetectConfig, ArcLine, AtlasLine, OrderWlSolution, TwoPhaseMatchConfig,
-    WlFitConfig,
+    merge_arc_lines_hdr,
 };
 
 // ─── Configuration ───────────────────────────────────────────────────────────

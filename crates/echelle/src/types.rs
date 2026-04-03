@@ -3,7 +3,7 @@
 //! This module defines the canonical, versioned calibration profile format used
 //! by rust-daq for echellegram-to-spectrum extraction workflows.
 
-use crate::scattered_light::{estimate_scatter_map_fast_f32, TraceInfo};
+use crate::scattered_light::{TraceInfo, estimate_scatter_map_fast_f32};
 use chrono::{DateTime, Utc};
 use common::core::Measurement;
 use serde::{Deserialize, Serialize};
@@ -2320,9 +2320,10 @@ mod tests {
         let mut profile = minimal_profile();
         profile.compatibility.roi_x = 2000;
         let err = profile.validate().unwrap_err();
-        assert!(err
-            .to_string()
-            .contains("ROI/frame extent exceeds sensor bounds"));
+        assert!(
+            err.to_string()
+                .contains("ROI/frame extent exceeds sensor bounds")
+        );
     }
 
     #[test]
@@ -2383,9 +2384,10 @@ mod tests {
         let dir = tempdir().unwrap();
         let path = dir.path().join("echelle_profile.yaml");
         let err = profile.save_to_path(&path).unwrap_err();
-        assert!(err
-            .to_string()
-            .contains("unsupported echelle profile extension"));
+        assert!(
+            err.to_string()
+                .contains("unsupported echelle profile extension")
+        );
     }
 
     #[test]

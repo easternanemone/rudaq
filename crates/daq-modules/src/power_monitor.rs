@@ -37,14 +37,14 @@
 //! - `statistics` - Computed stats: `{mean, std, min, max, count}`
 
 use super::{Module, ModuleContext};
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use common::modules::{
     ModuleEventSeverity, ModuleParameter, ModuleRole, ModuleState, ModuleTypeInfo,
 };
 use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tracing::{info, warn};
 

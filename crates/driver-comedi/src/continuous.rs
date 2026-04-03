@@ -72,8 +72,8 @@
 //! ```
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 

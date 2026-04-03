@@ -19,7 +19,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, unused_imports, dead_code)]
 
 use pvcam_sys::*;
-use std::ffi::{c_void, CStr};
+use std::ffi::{CStr, c_void};
 use std::time::{Duration, Instant};
 
 // Use constants from pvcam_sys (no local redefinition needed)

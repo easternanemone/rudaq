@@ -25,8 +25,8 @@
     clippy::cast_precision_loss
 )]
 
-use fitsio::hdu::HduInfo;
 use fitsio::FitsFile;
+use fitsio::hdu::HduInfo;
 use std::path::Path;
 
 /// Metadata extracted from FITS header keywords.

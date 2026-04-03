@@ -12,17 +12,18 @@ use undo::Record;
 
 use crate::graph::commands::{AddNodeData, GraphEdit, ModifyNodeData};
 use crate::graph::{
-    graph_to_rhai_script, load_graph, save_graph, EngineStateLocal, ExecutionState, ExperimentNode,
-    ExperimentViewer, GraphFile, GraphMetadata, GraphPlan, GRAPH_FILE_EXTENSION,
+    EngineStateLocal, ExecutionState, ExperimentNode, ExperimentViewer, GRAPH_FILE_EXTENSION,
+    GraphFile, GraphMetadata, GraphPlan, graph_to_rhai_script, load_graph, save_graph,
 };
 use crate::panels::{
-    data_channel, frame_channel, spectrum_channel, CodePreviewPanel, DataUpdate, DataUpdateSender,
-    FrameUpdate, FrameUpdateSender, LiveVisualizationPanel, SpectrumUpdate, SpectrumUpdateSender,
+    CodePreviewPanel, DataUpdate, DataUpdateSender, FrameUpdate, FrameUpdateSender,
+    LiveVisualizationPanel, SpectrumUpdate, SpectrumUpdateSender, data_channel, frame_channel,
+    spectrum_channel,
 };
 use crate::widgets::node_palette::{NodePalette, NodeType};
 use crate::widgets::{
-    show_adaptive_alert, AdaptiveAlertData, AdaptiveAlertResponse, EditableParameter,
-    PropertyInspector, RuntimeParameterEditResult, RuntimeParameterEditor,
+    AdaptiveAlertData, AdaptiveAlertResponse, EditableParameter, PropertyInspector,
+    RuntimeParameterEditResult, RuntimeParameterEditor, show_adaptive_alert,
 };
 use client::DaqClient;
 use experiment::Plan;

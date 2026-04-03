@@ -4,9 +4,9 @@
 //! `UniversalDriver` instances wired to the appropriate capability trait objects.
 
 use crate::config::validated::DeviceManifest;
-use crate::config::{parse_manifest, RawManifest};
+use crate::config::{RawManifest, parse_manifest};
 use crate::driver::UniversalDriver;
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use common::capabilities::DeviceCategory;
 use common::driver::{
     Capability as CoreCapability, DeviceComponents, DeviceMetadata, DriverFactory,
@@ -626,9 +626,11 @@ mod tests {
         assert!(factory.driver_type().contains("ell14"));
         assert_eq!(factory.name(), "Thorlabs ELL14");
         assert!(factory.capabilities().contains(&CoreCapability::Movable));
-        assert!(factory
-            .capabilities()
-            .contains(&CoreCapability::Parameterized));
+        assert!(
+            factory
+                .capabilities()
+                .contains(&CoreCapability::Parameterized)
+        );
     }
 
     #[test]
@@ -741,9 +743,11 @@ max = 10.0
 
         let components = factory.build(config.into()).await.unwrap();
         assert!(components.parameterized.is_some());
-        assert!(factory
-            .capabilities()
-            .contains(&CoreCapability::Parameterized));
+        assert!(
+            factory
+                .capabilities()
+                .contains(&CoreCapability::Parameterized)
+        );
     }
 
     #[tokio::test]
@@ -871,9 +875,11 @@ get_wavelength = { command = "get_wavelength", output_field = "value" }
         assert!(factory.driver_type().contains("pm400"));
         assert_eq!(factory.name(), "Thorlabs PM400");
         assert!(factory.capabilities().contains(&CoreCapability::Readable));
-        assert!(factory
-            .capabilities()
-            .contains(&CoreCapability::WavelengthTunable));
+        assert!(
+            factory
+                .capabilities()
+                .contains(&CoreCapability::WavelengthTunable)
+        );
     }
 
     #[tokio::test]

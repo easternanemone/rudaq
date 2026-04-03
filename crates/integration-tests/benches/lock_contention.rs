@@ -17,7 +17,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use hardware::registry::{register_mock_factories, DeviceRegistry};
+use hardware::registry::{DeviceRegistry, register_mock_factories};
 
 /// Number of iterations per task for read-heavy benchmarks.
 const READ_ITERATIONS: usize = 10_000;

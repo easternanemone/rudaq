@@ -19,7 +19,7 @@ use tokio_util::sync::CancellationToken;
 use crate::safety_sentinel::SafetySentinel;
 use common::health::watchdog::{HardwareWatchdog, WatchdogConfig};
 use hardware::registry::DeviceRegistry;
-use hardware::supervisor::{run_device_supervisor, SupervisorConfig};
+use hardware::supervisor::{SupervisorConfig, run_device_supervisor};
 use scripting::shutter_safety::ShutterRegistry;
 use server::config::ServerConfig;
 use server::health::sys_monitor::SystemMetricsCollector;

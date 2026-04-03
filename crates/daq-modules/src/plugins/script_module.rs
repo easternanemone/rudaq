@@ -57,15 +57,15 @@
 //! ```
 
 use crate::{Module, ModuleContext};
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use common::modules::{ModuleParameter, ModuleRole, ModuleState, ModuleTypeInfo};
 use scripting::rhai::{Array, Dynamic, Map};
 use scripting::{RhaiEngine, ScriptEngine, ScriptError, ScriptValue};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::Mutex;
 use tracing::{info, warn};
 

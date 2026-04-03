@@ -25,7 +25,7 @@
 //! crc = { algorithm = "crc16_modbus", append = true }
 //! ```
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use std::collections::HashMap;
 use tracing::{instrument, warn};
 
@@ -56,7 +56,7 @@ pub struct CrcValue {
 // u64 for uniformity. The narrowing casts back to u8/u16/u32 for byte encoding are
 // exact because the value was originally computed at that width.
 pub fn calculate_crc(data: &[u8], config: &CrcConfig) -> CrcValue {
-    use crc::{Crc, CRC_16_IBM_SDLC, CRC_16_MODBUS, CRC_16_XMODEM, CRC_32_ISCSI, CRC_32_ISO_HDLC};
+    use crc::{CRC_16_IBM_SDLC, CRC_16_MODBUS, CRC_16_XMODEM, CRC_32_ISCSI, CRC_32_ISO_HDLC, Crc};
 
     let (value, size): (u64, usize) = match config.algorithm {
         CrcAlgorithm::Crc16Modbus => {

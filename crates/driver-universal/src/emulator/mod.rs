@@ -18,15 +18,15 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Duration;
 
-use anyhow::{anyhow, Result};
-use serde_json::{json, Value};
+use anyhow::{Result, anyhow};
+use serde_json::{Value, json};
 
 use crate::config::validated::{
     CapabilitySet, CommandConfig, DeviceManifest, MethodConfig, ResponseParser,
 };
 use crate::format_parser::FormatSegment;
 use crate::transport::Transport;
-use response_gen::{regex_capture_names, regex_to_template, ResponseGen};
+use response_gen::{ResponseGen, regex_capture_names, regex_to_template};
 use template_matcher::TemplateMatcher;
 
 /// A compiled command ready for matching and response generation.

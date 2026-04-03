@@ -6,7 +6,7 @@
 //! Export functions (`db_to_hardware_config`, `db_to_hardware_toml`) are used
 //! by CLI subcommands (`rust-daq config export`).
 
-use db::config_store::{json_to_toml, toml_to_json, DbDriver, DbInstrument};
+use db::config_store::{DbDriver, DbInstrument, json_to_toml, toml_to_json};
 use hardware::registry::{DeviceConfig, DeviceRegistry, DriverConfig, HardwareConfig};
 use std::collections::{HashMap, HashSet};
 

@@ -18,15 +18,15 @@ mod common;
 
 use common::circ_buffer_fixtures::*;
 use driver_pvcam::components::acquisition::{
-    clear_global_callback_ctx, pvcam_eof_callback, set_global_callback_ctx, CallbackContext,
-    GLOBAL_CALLBACK_CTX,
+    CallbackContext, GLOBAL_CALLBACK_CTX, clear_global_callback_ctx, pvcam_eof_callback,
+    set_global_callback_ctx,
 };
 use pvcam_sys::*;
-use std::alloc::{alloc, alloc_zeroed, dealloc, Layout};
-use std::ffi::{c_void, CStr};
+use std::alloc::{Layout, alloc, alloc_zeroed, dealloc};
+use std::ffi::{CStr, c_void};
 use std::ptr;
-use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 
 // =============================================================================
 // TEST 23: Post-unlock check_cont_status call
@@ -1348,7 +1348,7 @@ async fn test_27_callback_rereg_during_fallback() {
 #[tokio::test]
 #[ignore] // Requires physical PVCAM hardware — run with --ignored on maitai
 async fn test_28_full_driver_channel_infrastructure() {
-    use std::alloc::{alloc, dealloc, Layout};
+    use std::alloc::{Layout, alloc, dealloc};
     use std::sync::atomic::{AtomicI32, Ordering};
     use std::time::Duration;
 

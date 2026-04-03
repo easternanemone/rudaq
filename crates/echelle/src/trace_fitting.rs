@@ -192,11 +192,7 @@ fn sigma_clipped_mean(data: &[f64], sigma_thresh: f64) -> f64 {
         .zip(&mask)
         .filter(|&(_, &m)| m)
         .fold((0.0, 0usize), |(s, c), (&v, _)| (s + v, c + 1));
-    if count == 0 {
-        0.0
-    } else {
-        sum / count as f64
-    }
+    if count == 0 { 0.0 } else { sum / count as f64 }
 }
 
 /// Estimate noise via MAD (Median Absolute Deviation) of the spatial profile.

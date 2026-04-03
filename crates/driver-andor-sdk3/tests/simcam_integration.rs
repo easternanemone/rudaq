@@ -16,8 +16,8 @@
 use common::capabilities::{ExposureControl, FrameObserver, FrameProducer, ObserverHandle};
 use common::data::FrameView;
 use driver_andor_sdk3::AndorCamera;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 /// Helper: create a mock camera with given exposure (seconds).

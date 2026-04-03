@@ -3,7 +3,7 @@
 //! Exports signal traces from SignalPlotter to CSV format.
 //! Supports multiple traces with aligned time points.
 
-use super::{write_metadata_comments, CsvExportOptions};
+use super::{CsvExportOptions, write_metadata_comments};
 use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{self, Write};

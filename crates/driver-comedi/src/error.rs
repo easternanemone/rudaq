@@ -153,7 +153,9 @@ impl ComediError {
             "Unknown error".to_string()
         } else {
             // SAFETY: msg_ptr is a valid C string returned by comedi_strerror
-            unsafe { CStr::from_ptr(msg_ptr) }.to_string_lossy().into_owned()
+            unsafe { CStr::from_ptr(msg_ptr) }
+                .to_string_lossy()
+                .into_owned()
         };
 
         Self::LibraryError { errno, message }
@@ -172,7 +174,9 @@ impl ComediError {
             "Unknown error".to_string()
         } else {
             // SAFETY: msg_ptr is a valid C string returned by comedi_strerror
-            unsafe { CStr::from_ptr(msg_ptr) }.to_string_lossy().into_owned()
+            unsafe { CStr::from_ptr(msg_ptr) }
+                .to_string_lossy()
+                .into_owned()
         };
 
         Self::LibraryError { errno, message }

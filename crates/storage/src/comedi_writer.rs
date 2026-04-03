@@ -58,8 +58,8 @@ use common::error::{DaqError, StorageError, StorageErrorKind};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 use tokio::sync::{OnceCell, RwLock};
 
@@ -406,8 +406,8 @@ impl ComediStreamWriter {
         let compression = self.compression;
 
         tokio::task::spawn_blocking(move || -> Result<()> {
-            use hdf5::types::VarLenUnicode;
             use hdf5::File;
+            use hdf5::types::VarLenUnicode;
 
             let file = File::create(&output_path)?;
 

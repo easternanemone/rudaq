@@ -465,11 +465,7 @@ pub fn compute_quality_report(
             .collect();
 
         let rms = leave_one_out_rms(&loo_data, loo_degree_x, loo_degree_m);
-        if rms.is_finite() {
-            Some(rms)
-        } else {
-            None
-        }
+        if rms.is_finite() { Some(rms) } else { None }
     } else {
         None
     };
@@ -534,11 +530,7 @@ pub fn compute_quality_report_from_2d(
             .collect();
 
         let rms = leave_one_out_rms(&loo_data, loo_degree_x, loo_degree_m);
-        if rms.is_finite() {
-            Some(rms)
-        } else {
-            None
-        }
+        if rms.is_finite() { Some(rms) } else { None }
     } else {
         None
     };

@@ -1,16 +1,16 @@
 //! Frame acquisition loops for PVCAM hardware and sequence modes.
 
 #[cfg(feature = "pvcam_sdk")]
-use super::callback_context::SEQUENCE_BATCH_SIZE;
-#[cfg(feature = "pvcam_sdk")]
-use super::ffi_safe;
-#[cfg(feature = "pvcam_sdk")]
 use super::AcquisitionError;
 use super::PvcamAcquisition;
 #[cfg(feature = "pvcam_sdk")]
 use super::TapRegistry;
 #[cfg(feature = "pvcam_sdk")]
-use super::{get_pvcam_error, CallbackContext, FrameMetadata};
+use super::callback_context::SEQUENCE_BATCH_SIZE;
+#[cfg(feature = "pvcam_sdk")]
+use super::ffi_safe;
+#[cfg(feature = "pvcam_sdk")]
+use super::{CallbackContext, FrameMetadata, get_pvcam_error};
 #[cfg(feature = "pvcam_sdk")]
 use crate::components::features::PvcamFeatures;
 #[cfg(feature = "pvcam_sdk")]
@@ -26,11 +26,11 @@ use pool::{FrameData, Pool};
 #[cfg(feature = "pvcam_sdk")]
 use pvcam_sys::*;
 #[cfg(feature = "pvcam_sdk")]
+use std::sync::Arc;
+#[cfg(feature = "pvcam_sdk")]
 use std::sync::atomic::AtomicU64;
 #[cfg(feature = "pvcam_sdk")]
 use std::sync::atomic::{self, Ordering};
-#[cfg(feature = "pvcam_sdk")]
-use std::sync::Arc;
 #[cfg(feature = "pvcam_sdk")]
 use std::time::Duration;
 
@@ -149,11 +149,7 @@ impl PvcamAcquisition {
                         // bd-oqo7.7: Include summing_count in frame metadata
                         let summing_count = if host_summing_enabled.get() {
                             let count = host_summing_count.get();
-                            if count > 1 {
-                                Some(count)
-                            } else {
-                                None
-                            }
+                            if count > 1 { Some(count) } else { None }
                         } else {
                             None
                         };
@@ -436,7 +432,7 @@ impl PvcamAcquisition {
         let mut buffer_cnt: uns32 = 0;
         let mut consecutive_timeouts: u32 = 0;
         const CALLBACK_WAIT_TIMEOUT_MS: u64 = 2000; // 2 seconds (align with C++ 5s, but responsive enough)
-                                                    // FORCE LONG TIMEOUT for debugging
+        // FORCE LONG TIMEOUT for debugging
         let max_consecutive_timeouts: u32 = 5; // 10 seconds total
 
         if use_callback {
@@ -617,8 +613,7 @@ impl PvcamAcquisition {
                     tracing::warn!("Frame loop: max consecutive timeouts reached");
                     eprintln!(
                         "[PVCAM DEBUG] Breaking due to max consecutive timeouts (iter={}, timeouts={})",
-                        loop_iteration,
-                        consecutive_timeouts
+                        loop_iteration, consecutive_timeouts
                     );
                     // Gemini SDK review: Signal involuntary stop on timeout
                     let _ = error_tx.send(AcquisitionError::Timeout);
@@ -1065,11 +1060,11 @@ impl PvcamAcquisition {
                         // Log the first duplicate in this drain with FRAME_INFO details for diagnosis.
                         if consecutive_duplicates == 1 {
                             tracing::warn!(
-                                    "PVCAM duplicate frame detected: FrameNr={}, buffer_cnt={}, bytes_arrived={}",
-                                    current_frame_nr,
-                                    buffer_cnt,
-                                    bytes_arrived
-                                );
+                                "PVCAM duplicate frame detected: FrameNr={}, buffer_cnt={}, bytes_arrived={}",
+                                current_frame_nr,
+                                buffer_cnt,
+                                bytes_arrived
+                            );
                         }
 
                         // bd-immediate-unlock-2026-01-12: Frame already unlocked at top of loop
@@ -1120,9 +1115,9 @@ impl PvcamAcquisition {
                     // Frame appears to be all zeros - likely corrupted or race condition
                     discontinuity_events.fetch_add(1, Ordering::Relaxed);
                     tracing::warn!(
-                            "Zero-frame detected for FrameNr {}: buffer appears uninitialized, skipping (bd-ha3w)",
-                            current_frame_nr
-                        );
+                        "Zero-frame detected for FrameNr {}: buffer appears uninitialized, skipping (bd-ha3w)",
+                        current_frame_nr
+                    );
                     // bd-immediate-unlock-2026-01-12: Frame already unlocked at top of loop
                     // Just consume callback and skip
                     if use_callback {
@@ -1180,11 +1175,7 @@ impl PvcamAcquisition {
                 // bd-oqo7.7: Include summing_count in frame metadata
                 let summing_count = if host_summing_enabled.get() {
                     let count = host_summing_count.get();
-                    if count > 1 {
-                        Some(count)
-                    } else {
-                        None
-                    }
+                    if count > 1 { Some(count) } else { None }
                 } else {
                     None
                 };
@@ -1352,9 +1343,9 @@ impl PvcamAcquisition {
                     if tx.try_send(frame_arc.clone()).is_err() && current_frame_nr % 100 == 0 {
                         // Rate-limit warnings to avoid log spam at high FPS
                         tracing::warn!(
-                                "Reliable channel full, dropping frames around {} for measurement pipeline",
-                                current_frame_nr
-                            );
+                            "Reliable channel full, dropping frames around {} for measurement pipeline",
+                            current_frame_nr
+                        );
                     }
                 }
 

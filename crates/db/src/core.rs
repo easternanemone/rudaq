@@ -5,8 +5,8 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
-use surrealdb::engine::any::Any;
 use surrealdb::Surreal;
+use surrealdb::engine::any::Any;
 use tracing::info;
 
 use crate::error::Result;

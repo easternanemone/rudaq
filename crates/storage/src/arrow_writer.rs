@@ -44,7 +44,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 #[cfg(feature = "storage_arrow")]
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 #[cfg(feature = "storage_arrow")]
 use arrow::array::{ArrayRef, Float64Builder, UInt64Builder};
 #[cfg(feature = "storage_arrow")]

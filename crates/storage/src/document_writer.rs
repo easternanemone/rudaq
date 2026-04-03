@@ -12,9 +12,9 @@
 //!
 //! This replaces the legacy `ScanProgress` pipeline.
 
+use anyhow::Result;
 #[cfg(feature = "storage_hdf5")]
 use anyhow::anyhow;
-use anyhow::Result;
 use async_trait::async_trait;
 use common::experiment::document::Document;
 use std::collections::HashMap;
@@ -858,10 +858,12 @@ mod tests {
         };
         let result = writer.write(Document::Manifest(manifest)).await;
         assert!(result.is_err(), "Mismatched run_uid should produce error");
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Manifest run_uid mismatch"),);
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Manifest run_uid mismatch"),
+        );
     }
 
     #[tokio::test]

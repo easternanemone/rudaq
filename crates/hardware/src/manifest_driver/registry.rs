@@ -3,7 +3,7 @@
 //! This module provides `PluginFactory` which scans directories for plugin YAML files,
 //! validates them, and spawns `GenericDriver` instances on demand.
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -987,9 +987,11 @@ mod tests {
             get_pattern: "{val}".to_string(),
         });
         let errors = validate_plugin_config(&config);
-        assert!(errors
-            .iter()
-            .any(|e| e.message.contains("must be less than")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("must be less than"))
+        );
     }
 
     #[test]

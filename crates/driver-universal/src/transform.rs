@@ -17,7 +17,7 @@
 //! assert_eq!(result.as_f64().unwrap(), 25.5);
 //! ```
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 

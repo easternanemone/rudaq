@@ -7,7 +7,7 @@ use eframe::egui::{self, Color32, RichText, Ui};
 use protocol::ni_daq::SetAnalogOutputRequest;
 use tokio::sync::mpsc;
 
-use crate::widgets::{offline_notice, OfflineContext};
+use crate::widgets::{OfflineContext, offline_notice};
 use client::DaqClient;
 
 use super::NI_VOLTAGE_RANGES;
