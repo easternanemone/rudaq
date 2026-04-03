@@ -609,14 +609,14 @@ impl AndorSpectrograph {
         #[cfg(feature = "spectrograph")]
         {
             let handle = self.inner.handle;
-            tokio::task::spawn_blocking(move || {
+            crate::ffi_timeout::ffi_call(move || {
                 use crate::error::sdk_result;
                 unsafe {
                     let ret = ShamrockSetDetectorOffset(handle, offset);
                     sdk_result(ret)?;
                     Ok::<(), anyhow::Error>(())
                 }
-            })
+            }, crate::ffi_timeout::FFI_CONFIG_TIMEOUT, "set_detector_offset")
             .await??;
         }
 
