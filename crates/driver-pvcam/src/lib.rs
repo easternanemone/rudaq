@@ -2560,12 +2560,15 @@ impl PvcamDriver {
                 Box::pin(async move {
                     let mode = pmode_from_name(&val);
                     let conn_guard = conn.lock_owned().await;
-                    tokio::task::spawn_blocking(move || {
-                        PvcamFeatures::set_pmode(&conn_guard, mode)
-                            .map_err(|e| DaqError::Instrument(e.to_string()))
-                    })
+                    ffi_timeout::ffi_with_timeout_daq(
+                        "set_pmode",
+                        ffi_timeout::CONFIG_TIMEOUT,
+                        move || {
+                            PvcamFeatures::set_pmode(&conn_guard, mode)
+                                .map_err(|e| DaqError::Instrument(e.to_string()))
+                        },
+                    )
                     .await
-                    .map_err(|e| DaqError::Instrument(e.to_string()))?
                 })
             }
         });
