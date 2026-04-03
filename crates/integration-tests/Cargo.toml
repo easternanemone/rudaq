@@ -62,7 +62,7 @@ libs_spirit_driver = []  # Nextest group marker (no cfg usage)
 #   2. Forward feature flags to downstream crates (server/networking, storage/storage_hdf5, etc.)
 #   3. Gate #[cfg(feature = "...")] in test files to skip tests when disabled
 # ============================================================================
-server = ["dep:server", "networking"]     # gRPC tests (grpc_server_test, grpc_roundtrip, grpc_config_service_e2e)
+server = ["dep:server"]                   # gRPC tests (grpc_server_test, grpc_roundtrip, grpc_config_service_e2e)
 scripting = ["dep:scripting"]             # e2e_script_execution, grpc tests with scripting
 universal = ["dep:driver-universal"]      # hardware_universal_driver_validation tests
 gui_egui = ["ui/standalone"]              # gui_logic_test, gui_visual_test, gui_camera_test
