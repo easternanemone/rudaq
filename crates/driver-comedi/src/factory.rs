@@ -212,7 +212,7 @@ impl MockAnalogInput {
         let noise = (f64::from(
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .expect("system clock before UNIX epoch")
                 .subsec_nanos(),
         ) / 1e9
             - 0.5)
@@ -227,7 +227,7 @@ struct MockAnalogOutput {
 }
 
 impl MockAnalogOutput {
-    fn new(_channel: u32) -> Self {
+    fn new() -> Self {
         Self {
             value: RwLock::new(0.0),
         }
@@ -236,10 +236,6 @@ impl MockAnalogOutput {
     async fn write_voltage(&self, voltage: f64) -> Result<()> {
         *self.value.write().await = voltage;
         Ok(())
-    }
-
-    async fn read_voltage(&self) -> Result<f64> {
-        Ok(*self.value.read().await)
     }
 }
 
@@ -570,9 +566,6 @@ pub struct ComediAnalogOutputDriver {
     device: Option<ComediDevice>,
     analog_output: Option<AnalogOutput>,
 
-    /// Mock implementation
-    mock: Option<Arc<MockAnalogOutput>>,
-
     /// Channel
     channel: u32,
 
@@ -606,7 +599,7 @@ impl ComediAnalogOutputDriver {
                 "Creating mock Comedi analog output driver (channel={})",
                 channel
             );
-            (None, None, Some(Arc::new(MockAnalogOutput::new(channel))))
+            (None, None, Some(Arc::new(MockAnalogOutput::new())))
         } else {
             info!(
                 "Opening Comedi device {} for analog output (channel={})",
@@ -674,7 +667,6 @@ impl ComediAnalogOutputDriver {
         let driver = Self {
             device,
             analog_output: ao,
-            mock: mock_impl,
             channel,
             range_index,
             params: Arc::new(params),
@@ -693,13 +685,8 @@ impl ComediAnalogOutputDriver {
     ///
     /// Note: Comedi AO doesn't support hardware readback on all devices.
     /// This returns the cached value from the output parameter.
-    pub async fn read_output(&self) -> Result<f64> {
-        if let Some(mock) = &self.mock {
-            return mock.read_voltage().await;
-        }
-
-        // Return cached parameter value (no hardware readback for AO)
-        Ok(self.output.get())
+    pub fn read_output(&self) -> f64 {
+        self.output.get()
     }
 
     /// Get output parameter for external control.
@@ -751,7 +738,7 @@ impl Settable for ComediAnalogOutputDriver {
 
     async fn get_value(&self, name: &str) -> Result<serde_json::Value> {
         match name {
-            "voltage" => Ok(serde_json::json!(self.read_output().await?)),
+            "voltage" => Ok(serde_json::json!(self.read_output())),
             _ => Err(anyhow::anyhow!("Unknown parameter '{}'", name)),
         }
     }
@@ -1523,7 +1510,7 @@ mod tests {
 
         // Write and read back
         driver.write_voltage(2.5).await.expect("Failed to write");
-        let readback = driver.read_output().await.expect("Failed to read");
+        let readback = driver.read_output();
         assert!((readback - 2.5).abs() < 0.001);
     }
 
@@ -1542,7 +1529,7 @@ mod tests {
         output_param.set(4.56).await.expect("Parameter set failed");
 
         // Verify the mock reflects the write
-        let readback = driver.read_output().await.expect("Failed to read output");
+        let readback = driver.read_output();
         assert!(
             (readback - 4.56).abs() < 1e-9,
             "Expected 4.56, got {readback}"

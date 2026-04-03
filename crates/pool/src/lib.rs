@@ -1332,11 +1332,12 @@ mod tests {
         let max_latency_us = max_latency.load(Ordering::Relaxed) / 1000;
         println!("Max access latency: {} us", max_latency_us);
 
-        // Max latency should be under 20ms (mostly OS scheduling)
-        // With RwLock contention, we'd see multi-millisecond spikes
+        // Max latency should be under 5ms. Single-sample spikes up to a few ms
+        // are normal OS scheduling jitter; sustained multi-ms latency across many
+        // samples would indicate real lock contention.
         assert!(
-            max_latency_us < 20000,
-            "Max latency {} us exceeds 20ms - possible lock contention",
+            max_latency_us < 5000,
+            "Max latency {} us exceeds 5ms - possible lock contention",
             max_latency_us
         );
     }
