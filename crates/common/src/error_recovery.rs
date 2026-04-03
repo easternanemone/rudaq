@@ -113,7 +113,8 @@ impl ExponentialBackoff {
     pub fn delay_for_attempt(&self, attempt: u32) -> Duration {
         let multiplier = self.multiplier.max(1.0);
         let base_nanos = self.initial_delay.as_nanos() as f64;
-        let scaled = base_nanos * multiplier.powi(attempt as i32);
+        // attempt is a retry count (realistically < 100), safe to convert to i32
+        let scaled = base_nanos * multiplier.powi(attempt.cast_signed());
 
         let max_nanos = self.max_delay.as_nanos() as f64;
         let clamped_nanos = scaled.min(max_nanos);
