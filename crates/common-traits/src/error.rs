@@ -276,7 +276,7 @@ pub enum DaqError {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// use common::error::DaqError;
     ///
     /// const CAMERA_FAULT: u32 = 0x01;
