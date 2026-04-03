@@ -2,10 +2,8 @@
 //!
 //! Sources produce data and push it into a provided channel.
 
-use async_trait::async_trait;
 use tokio::sync::mpsc;
 
-#[async_trait]
 pub trait MeasurementSource: Send + Sync {
     /// The type of data produced (usually `common::core::Measurement`)
     type Output: Send + Clone + 'static;
