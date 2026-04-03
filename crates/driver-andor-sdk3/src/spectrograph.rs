@@ -853,14 +853,14 @@ impl AndorSpectrograph {
         {
             let handle = self.inner.handle;
             let port_id = port as i32;
-            tokio::task::spawn_blocking(move || {
+            crate::ffi_timeout::ffi_call(move || {
                 use crate::error::sdk_result;
                 unsafe {
                     let ret = ShamrockSetAutoSlitWidth(handle, port_id, width_um as f32);
                     sdk_result(ret)?;
                     Ok::<(), anyhow::Error>(())
                 }
-            })
+            }, crate::ffi_timeout::FFI_MOTION_TIMEOUT, "set_slit_width_port")
             .await??;
         }
 
