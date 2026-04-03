@@ -168,10 +168,13 @@ impl ManifestEmulator {
         if let Some(sr) = &manifest.capabilities.spectrum_readable
             && let Some(read_cfg) = &sr.read_spectrum
         {
-            let key = response_key_for(
-                &read_cfg.command.0,
-                manifest.commands.get(&read_cfg.command.0).unwrap(),
-            );
+            let Some(command) = manifest.commands.get(&read_cfg.command.0) else {
+                return Err(anyhow!(
+                    "SpectrumReadable.read_spectrum references missing command '{}'",
+                    read_cfg.command.0
+                ));
+            };
+            let key = response_key_for(&read_cfg.command.0, command);
             let entry = state.entry(key).or_default();
             let n = sr.spectrum_length;
             #[allow(clippy::cast_precision_loss)]
@@ -946,6 +949,56 @@ mod tests {
 
         emu.handle_command("XYZGARBAGE");
         assert!(emu.pending_response.is_none());
+    }
+
+    #[test]
+    fn spectrum_readable_requires_existing_command() {
+        let manifest = DeviceManifest {
+            device: crate::config::validated::DeviceInfo {
+                name: "Test Spectrum Device".into(),
+                capability_names: vec!["SpectrumReadable".into()],
+                manufacturer: None,
+                model: None,
+                category: None,
+                description: None,
+            },
+            connection: crate::config::validated::ConnectionConfig::Tcp {
+                host: "127.0.0.1".into(),
+                port: 5025,
+                timeout: crate::config::validated::Timeout::new(1000).unwrap(),
+                terminator: None,
+            },
+            commands: std::collections::HashMap::new(),
+            responses: std::collections::HashMap::new(),
+            conversions: std::collections::HashMap::new(),
+            capabilities: crate::config::validated::CapabilitySet {
+                spectrum_readable: Some(crate::config::validated::SpectrumReadableConfig {
+                    read_spectrum: Some(crate::config::validated::MethodConfig {
+                        command: crate::config::validated::CommandRef("missing".into()),
+                        input_conversion: None,
+                        input_param: None,
+                        from_param: None,
+                        output_conversion: None,
+                        output_field: None,
+                    }),
+                    spectrum_length: 8,
+                    value_units: "counts".into(),
+                    axis_units: Some("nm".into()),
+                }),
+                ..Default::default()
+            },
+            parameters: std::collections::HashMap::new(),
+            parameter_metadata: Vec::new(),
+            init_sequence: Vec::new(),
+            ui: None,
+        };
+
+        let result = ManifestEmulator::from_manifest(&manifest, "0");
+        assert!(result.is_err(), "missing spectrum command should fail");
+        match result {
+            Ok(_) => panic!("missing spectrum command should fail"),
+            Err(err) => assert!(err.to_string().contains("missing command")),
+        }
     }
 }
 
