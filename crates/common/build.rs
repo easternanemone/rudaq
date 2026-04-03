@@ -22,10 +22,10 @@ fn main() {
     }
 
     // Get git commit date
-    if let Ok(output) = Command::new("git")
+    let date_output = Command::new("git")
         .args(["log", "-1", "--format=%cI"])
-        .output()
-    {
+        .output();
+    if let Ok(output) = date_output {
         if let (true, Ok(date)) = (output.status.success(), String::from_utf8(output.stdout)) {
             println!("cargo:rustc-env=VERGEN_GIT_COMMIT_DATE={}", date.trim());
         }
