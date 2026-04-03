@@ -556,6 +556,13 @@ impl PvcamAcquisition {
         // Use Acquire ordering to synchronize with Release store in Drop (bd-nfk6).
         let mut loop_iteration: u64 = 0;
 
+        // bd-oqo7.7: Host frame summing accumulator for continuous mode.
+        // Uses u32 per pixel to prevent overflow when summing many u16 frames.
+        let cont_pixel_count = (width * height) as usize;
+        let mut cont_sum_accumulator: Vec<u32> = vec![0u32; cont_pixel_count];
+        let mut cont_sum_frames_collected: u32 = 0;
+        let mut cont_summed_frames_emitted: u64 = 0;
+
         while streaming.get() && !shutdown.load(Ordering::Acquire) {
             loop_iteration += 1;
 
@@ -1295,13 +1302,73 @@ impl PvcamAcquisition {
                     }
                     m
                 };
-                let ext_metadata = common::data::FrameMetadata {
-                    binning: Some(binning),
-                    summing_count,
-                    extra,
-                    ..Default::default()
+                // bd-oqo7.7: Host frame summing in continuous mode.
+                // When summing_count > 1, accumulate pixel values and only emit
+                // every Nth frame with averaged pixel data.
+                let cont_summing_target = if host_summing_enabled.get() {
+                    host_summing_count.get().max(1)
+                } else {
+                    1
                 };
-                frame = frame.with_metadata(ext_metadata);
+
+                if cont_summing_target > 1 {
+                    // Accumulate u16 pixels from raw bytes into u32 buffer
+                    let raw = frame.data.as_ref();
+                    for (i, chunk) in raw.chunks_exact(2).enumerate() {
+                        if i < cont_sum_accumulator.len() {
+                            cont_sum_accumulator[i] +=
+                                u16::from_le_bytes([chunk[0], chunk[1]]) as u32;
+                        }
+                    }
+                    cont_sum_frames_collected += 1;
+
+                    if cont_sum_frames_collected < cont_summing_target {
+                        // Still accumulating — skip delivery, unlock frame, continue
+                        continue;
+                    }
+
+                    // Emit averaged frame
+                    let averaged_bytes: Vec<u8> = cont_sum_accumulator
+                        .iter()
+                        .flat_map(|&sum| {
+                            let avg =
+                                (sum / cont_summing_target as u32).min(u16::MAX as u32) as u16;
+                            avg.to_le_bytes()
+                        })
+                        .collect();
+
+                    cont_sum_accumulator.iter_mut().for_each(|v| *v = 0);
+                    cont_sum_frames_collected = 0;
+                    cont_summed_frames_emitted += 1;
+
+                    // Build summed frame with averaged data
+                    let ext_metadata = common::data::FrameMetadata {
+                        binning: Some(binning),
+                        summing_count: Some(cont_summing_target),
+                        extra,
+                        ..Default::default()
+                    };
+                    frame = Frame::from_bytes(
+                        width,
+                        height,
+                        frame_bit_depth,
+                        bytes::Bytes::from(averaged_bytes),
+                    )
+                    .with_frame_number(cont_summed_frames_emitted)
+                    .with_timestamp(Frame::timestamp_now())
+                    .with_exposure(exposure_ms * cont_summing_target as f64)
+                    .with_roi_offset(roi_x, roi_y)
+                    .with_metadata(ext_metadata);
+                } else {
+                    // No summing — original metadata path
+                    let ext_metadata = common::data::FrameMetadata {
+                        binning: Some(binning),
+                        summing_count,
+                        extra,
+                        ..Default::default()
+                    };
+                    frame = frame.with_metadata(ext_metadata);
+                }
 
                 let frame_arc = Arc::new(frame);
 
