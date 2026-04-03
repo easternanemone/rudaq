@@ -52,9 +52,7 @@ where
 {
     match tokio::time::timeout(timeout, tokio::task::spawn_blocking(f)).await {
         Ok(Ok(result)) => result,
-        Ok(Err(join_err)) => {
-            Err(anyhow::anyhow!("FFI task panicked ({label}): {join_err}"))
-        }
+        Ok(Err(join_err)) => Err(anyhow::anyhow!("FFI task panicked ({label}): {join_err}")),
         Err(_elapsed) => Err(anyhow::anyhow!(
             "FFI call timed out after {timeout:?} ({label})"
         )),

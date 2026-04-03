@@ -99,11 +99,8 @@ impl SerialTransport {
                 let port = tokio::time::timeout(
                     Duration::from_secs(10),
                     spawn_blocking(move || {
-                        let mut port =
-                            serial2_tokio::SerialPort::open(&port_path_owned, baud_rate)
-                                .context(format!(
-                                    "Failed to open serial port: {port_path_owned}"
-                                ))?;
+                        let mut port = serial2_tokio::SerialPort::open(&port_path_owned, baud_rate)
+                            .context(format!("Failed to open serial port: {port_path_owned}"))?;
 
                         // Read current settings and apply overrides
                         let mut settings = port

@@ -10,8 +10,8 @@
 #[macro_use]
 mod macros;
 
-pub(crate) mod ffi_timeout;
 pub mod components;
+pub(crate) mod ffi_timeout;
 
 #[cfg(feature = "pvcam_sdk")]
 pub use crate::components::connection::sdk_ref_count;
@@ -324,10 +324,8 @@ impl PvcamDriver {
 
         // Run initialization in blocking task
 
-        let (connection, early_pp_features) = ffi_timeout::ffi_with_timeout(
-            "PVCAM SDK init",
-            ffi_timeout::ACQUISITION_TIMEOUT,
-            {
+        let (connection, early_pp_features) =
+            ffi_timeout::ffi_with_timeout("PVCAM SDK init", ffi_timeout::ACQUISITION_TIMEOUT, {
                 #[cfg(feature = "pvcam_sdk")]
                 let name = camera_name.clone();
                 move || -> Result<(Arc<Mutex<PvcamConnection>>, Vec<PPFeature>)> {
@@ -369,9 +367,8 @@ impl PvcamDriver {
                     }
                     Ok((Arc::new(Mutex::new(conn)), pp_features))
                 }
-            },
-        )
-        .await?;
+            })
+            .await?;
 
         Self::create(camera_name, connection, early_pp_features).await
     }
@@ -2278,10 +2275,7 @@ impl PvcamDriver {
                                 PvcamFeatures::set_gain_index(&conn_guard, mode.index)
                                     .map_err(|e| DaqError::Instrument(e.to_string()))
                             } else {
-                                Err(DaqError::Instrument(format!(
-                                    "Invalid gain mode: {}",
-                                    name
-                                )))
+                                Err(DaqError::Instrument(format!("Invalid gain mode: {}", name)))
                             }
                         },
                     )
