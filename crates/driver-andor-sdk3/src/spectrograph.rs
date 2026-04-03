@@ -967,23 +967,19 @@ impl AndorSpectrograph {
     fn attach_wavelength_reader(param: &mut Parameter<f64>, handle: i32) {
         param.connect_to_hardware_read(move || {
             Box::pin(async move {
-                tokio::task::spawn_blocking(move || {
+                crate::ffi_timeout::ffi_call_daq(move || {
                     use crate::error::sdk_result;
                     // SAFETY: handle is valid from initialization.
                     // wavelength is a stack-allocated f32 with a valid pointer.
                     // ShamrockGetWavelength writes the current wavelength to this location.
-                    // spawn_blocking moves the FFI call off the async runtime to avoid blocking.
-                    // It does not serialize concurrent calls.
                     unsafe {
                         let mut wavelength: f32 = 0.0;
                         let ret = ShamrockGetWavelength(handle, &mut wavelength);
                         sdk_result(ret)?;
-                        Ok::<f64, anyhow::Error>(wavelength as f64)
+                        Ok(wavelength as f64)
                     }
-                })
+                }, crate::ffi_timeout::FFI_QUERY_TIMEOUT, "read_wavelength")
                 .await
-                .map_err(|e| DaqError::Instrument(format!("spawn_blocking: {e}")))?
-                .map_err(|e| DaqError::Instrument(e.to_string()))
             })
         });
     }
