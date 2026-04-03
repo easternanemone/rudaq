@@ -500,14 +500,12 @@ impl AndorSpectrograph {
         #[cfg(feature = "spectrograph")]
         {
             let handle = self.inner.handle;
-            tokio::task::spawn_blocking(move || {
+            crate::ffi_timeout::ffi_call(move || {
                 use crate::error::sdk_result;
                 // SAFETY: handle is valid from initialization.
                 // wavelengths is a heap-allocated Vec with num_pixels elements.
                 // ShamrockGetCalibration writes wavelength values to this buffer.
                 // The buffer size matches num_pixels, preventing buffer overflow.
-                // spawn_blocking moves the FFI call off the async runtime to avoid blocking.
-                // It does not serialize concurrent calls.
                 unsafe {
                     let mut wavelengths = vec![0.0f32; num_pixels as usize];
                     let ret =
@@ -521,7 +519,7 @@ impl AndorSpectrograph {
 
                     Ok(calibration)
                 }
-            })
+            }, crate::ffi_timeout::FFI_QUERY_TIMEOUT, "get_wavelength_calibration")
             .await?
         }
 
