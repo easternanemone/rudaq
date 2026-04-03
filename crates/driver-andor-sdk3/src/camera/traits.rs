@@ -178,7 +178,7 @@ impl FrameProducer for AndorCamera {
             let buffer_count = crate::buffer::DEFAULT_BUFFER_COUNT;
             let sdk_buffers = Arc::new(crate::buffer::SdkBufferSet::new(buffer_count, image_size));
 
-            tokio::task::spawn_blocking({
+            crate::ffi_timeout::ffi_call({
                 let sdk_buffers = sdk_buffers.clone();
                 move || -> Result<()> {
                     use crate::error::sdk_result;
@@ -204,7 +204,7 @@ impl FrameProducer for AndorCamera {
                     }
                     Ok(())
                 }
-            })
+            }, crate::ffi_timeout::FFI_ACQ_TIMEOUT, "start_stream:queue_and_start")
             .await??;
 
             // Store buffer set on inner so pause_apply_restart can flush/re-queue (bd-71sq)
