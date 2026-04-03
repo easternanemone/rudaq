@@ -1894,32 +1894,35 @@ impl PvcamDriver {
                     tracing::debug!(param = "trigger_mode", %val, "PVCAM hw_write called");
                     let conn_guard = conn.lock_owned().await;
                     let requested_name = val.clone();
-                    let result = tokio::task::spawn_blocking(move || {
-                        let modes = PvcamFeatures::list_exposure_modes(&conn_guard)
-                            .map_err(|e| DaqError::Instrument(e.to_string()))?;
+                    let result = ffi_timeout::ffi_with_timeout_daq(
+                        "set_trigger_mode",
+                        ffi_timeout::CONFIG_TIMEOUT,
+                        move || {
+                            let modes = PvcamFeatures::list_exposure_modes(&conn_guard)
+                                .map_err(|e| DaqError::Instrument(e.to_string()))?;
 
-                        if let Some((raw, _)) =
-                            modes.iter().find(|(_, name)| name == &requested_name)
-                        {
-                            return PvcamFeatures::set_exposure_mode_raw(&conn_guard, *raw)
-                                .map_err(|e| DaqError::Instrument(e.to_string()));
-                        }
+                            if let Some((raw, _)) =
+                                modes.iter().find(|(_, name)| name == &requested_name)
+                            {
+                                return PvcamFeatures::set_exposure_mode_raw(&conn_guard, *raw)
+                                    .map_err(|e| DaqError::Instrument(e.to_string()));
+                            }
 
-                        // Backward compatibility with legacy static trigger strings.
-                        let legacy_mode = ExposureMode::from_str(&requested_name);
-                        let requested_trimmed = requested_name.trim();
-                        if legacy_mode.as_str().eq_ignore_ascii_case(requested_trimmed) {
-                            return PvcamFeatures::set_exposure_mode(&conn_guard, legacy_mode)
-                                .map_err(|e| DaqError::Instrument(e.to_string()));
-                        }
+                            // Backward compatibility with legacy static trigger strings.
+                            let legacy_mode = ExposureMode::from_str(&requested_name);
+                            let requested_trimmed = requested_name.trim();
+                            if legacy_mode.as_str().eq_ignore_ascii_case(requested_trimmed) {
+                                return PvcamFeatures::set_exposure_mode(&conn_guard, legacy_mode)
+                                    .map_err(|e| DaqError::Instrument(e.to_string()));
+                            }
 
-                        Err(DaqError::Instrument(format!(
-                            "Invalid trigger mode: {}",
-                            requested_name
-                        )))
-                    })
-                    .await
-                    .map_err(|e| DaqError::Instrument(e.to_string()))?;
+                            Err(DaqError::Instrument(format!(
+                                "Invalid trigger mode: {}",
+                                requested_name
+                            )))
+                        },
+                    )
+                    .await;
                     tracing::debug!(
                         param = "trigger_mode",
                         success = result.is_ok(),
