@@ -280,9 +280,9 @@ impl AndorCamera {
         #[cfg(feature = "camera")]
         {
             let handle = self.inner.handle;
-            tokio::task::spawn_blocking(move || {
+            crate::ffi_timeout::ffi_call(move || {
                 Self::set_float_feature(handle, "TargetSensorTemperature", target_c)
-            })
+            }, crate::ffi_timeout::FFI_CONFIG_TIMEOUT, "set_target_temperature")
             .await??;
         }
 
