@@ -1872,12 +1872,15 @@ impl PvcamDriver {
                 Box::pin(async move {
                     let conn_guard = conn.lock_owned().await;
                     let speed = FanSpeed::from_str(&val);
-                    tokio::task::spawn_blocking(move || {
-                        PvcamFeatures::set_fan_speed(&conn_guard, speed)
-                            .map_err(|e| DaqError::Instrument(e.to_string()))
-                    })
+                    ffi_timeout::ffi_with_timeout_daq(
+                        "set_fan_speed",
+                        ffi_timeout::CONFIG_TIMEOUT,
+                        move || {
+                            PvcamFeatures::set_fan_speed(&conn_guard, speed)
+                                .map_err(|e| DaqError::Instrument(e.to_string()))
+                        },
+                    )
                     .await
-                    .map_err(|e| DaqError::Instrument(e.to_string()))?
                 })
             }
         });
