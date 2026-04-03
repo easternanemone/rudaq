@@ -50,7 +50,7 @@ impl FrameProducer for AndorCamera {
             // ── Step 1: Configure all features BEFORE reading sizes or queuing buffers.
             let trigger_str = self.inner.trigger_mode.get().to_string();
             let gate_str = self.inner.gate_mode.get().to_string();
-            let hw_ts_freq = tokio::task::spawn_blocking({
+            let hw_ts_freq = crate::ffi_timeout::ffi_call({
                 let inner = inner.clone();
                 move || -> u64 {
                     if Self::is_feature_implemented(handle, features::METADATA_ENABLE)
