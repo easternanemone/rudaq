@@ -2186,21 +2186,24 @@ impl PvcamDriver {
                         ));
                     }
                     let conn_guard = conn.lock_owned().await;
-                    tokio::task::spawn_blocking(move || {
-                        let ports = PvcamFeatures::list_readout_ports(&conn_guard)
-                            .map_err(|e| DaqError::Instrument(e.to_string()))?;
-                        if let Some(port) = ports.iter().find(|p| p.name == name) {
-                            PvcamFeatures::set_readout_port(&conn_guard, port.index)
-                                .map_err(|e| DaqError::Instrument(e.to_string()))
-                        } else {
-                            Err(DaqError::Instrument(format!(
-                                "Invalid readout port: {}",
-                                name
-                            )))
-                        }
-                    })
+                    ffi_timeout::ffi_with_timeout_daq(
+                        "set_readout_port",
+                        ffi_timeout::CONFIG_TIMEOUT,
+                        move || {
+                            let ports = PvcamFeatures::list_readout_ports(&conn_guard)
+                                .map_err(|e| DaqError::Instrument(e.to_string()))?;
+                            if let Some(port) = ports.iter().find(|p| p.name == name) {
+                                PvcamFeatures::set_readout_port(&conn_guard, port.index)
+                                    .map_err(|e| DaqError::Instrument(e.to_string()))
+                            } else {
+                                Err(DaqError::Instrument(format!(
+                                    "Invalid readout port: {}",
+                                    name
+                                )))
+                            }
+                        },
+                    )
                     .await
-                    .map_err(|e| DaqError::Instrument(e.to_string()))?
                 })
             }
         });
