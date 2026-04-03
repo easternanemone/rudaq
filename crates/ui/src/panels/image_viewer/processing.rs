@@ -1,6 +1,7 @@
 //! Frame-to-RGBA image processing pipeline.
 
 use super::colormap::{Colormap, ContrastMode, ScaleMode};
+use super::types::{LineMeasurement, LineProfileSample};
 use std::sync::Arc;
 
 /// Request for background RGBA conversion (bd-xifj, bd-j6xm)
@@ -98,6 +99,65 @@ pub(super) fn get_pixel_value_inline(
         }
         _ => None,
     }
+}
+
+/// Sample pixel intensities along a measured line in image coordinates.
+pub(super) fn sample_line_profile(
+    frame_data: &[u8],
+    width: u32,
+    height: u32,
+    bit_depth: u32,
+    measurement: &LineMeasurement,
+    pixel_scale_x: Option<f64>,
+    pixel_scale_y: Option<f64>,
+) -> Vec<LineProfileSample> {
+    let dx = measurement.end.x - measurement.start.x;
+    let dy = measurement.end.y - measurement.start.y;
+    let pixel_length = (dx * dx + dy * dy).sqrt();
+    let steps = pixel_length.ceil().max(1.0) as usize;
+    let scale_x = pixel_scale_x.or(pixel_scale_y);
+    let scale_y = pixel_scale_y.or(pixel_scale_x);
+
+    let mut samples = Vec::with_capacity(steps.saturating_add(1));
+    for step in 0..=steps {
+        let t = if steps == 0 {
+            0.0
+        } else {
+            step as f32 / steps as f32
+        };
+        let x = (measurement.start.x + dx * t).round();
+        let y = (measurement.start.y + dy * t).round();
+
+        if x < 0.0 || y < 0.0 {
+            continue;
+        }
+
+        let x_u32 = x as u32;
+        let y_u32 = y as u32;
+        let Some(intensity) =
+            get_pixel_value_inline(frame_data, x_u32, y_u32, width, height, bit_depth)
+        else {
+            continue;
+        };
+
+        let distance_pixels = pixel_length * t;
+        let distance_physical = match (scale_x, scale_y) {
+            (Some(scale_x), Some(scale_y)) => {
+                let sample_dx = f64::from(dx) * f64::from(t) * scale_x;
+                let sample_dy = f64::from(dy) * f64::from(t) * scale_y;
+                Some((sample_dx * sample_dx + sample_dy * sample_dy).sqrt())
+            }
+            _ => None,
+        };
+
+        samples.push(LineProfileSample {
+            distance_pixels,
+            distance_physical,
+            intensity,
+        });
+    }
+
+    samples
 }
 
 /// Convert raw frame data to RGBA, reusing the provided buffer (bd-wdx3, bd-xifj)

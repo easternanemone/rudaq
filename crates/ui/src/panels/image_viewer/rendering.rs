@@ -519,6 +519,7 @@ impl ImageViewerPanel {
                 {
                     self.line_measurements.clear();
                     self.angle_measurements.clear();
+                    self.selected_line_measurement = None;
                     self.clear_measurement_interaction_state();
                 }
 
@@ -550,6 +551,80 @@ impl ImageViewerPanel {
                 ui.checkbox(&mut self.show_controls, "Controls");
                 ui.checkbox(&mut self.show_metadata_overlay, "Metadata Overlay");
                 ui.checkbox(&mut self.show_scale_bar, "Scale Bar");
+                if self.show_scale_bar {
+                    egui::ComboBox::from_id_salt("scale_bar_pos")
+                        .width(110.0)
+                        .selected_text(format!("Bar: {}", self.scale_bar_position.label()))
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut self.scale_bar_position,
+                                ScaleBarPosition::TopLeft,
+                                "Top Left",
+                            );
+                            ui.selectable_value(
+                                &mut self.scale_bar_position,
+                                ScaleBarPosition::TopRight,
+                                "Top Right",
+                            );
+                            ui.selectable_value(
+                                &mut self.scale_bar_position,
+                                ScaleBarPosition::BottomLeft,
+                                "Bottom Left",
+                            );
+                            ui.selectable_value(
+                                &mut self.scale_bar_position,
+                                ScaleBarPosition::BottomRight,
+                                "Bottom Right",
+                            );
+                        });
+
+                    egui::ComboBox::from_id_salt("scale_bar_color")
+                        .width(105.0)
+                        .selected_text(format!("Color: {}", self.scale_bar_color.label()))
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut self.scale_bar_color,
+                                ScaleBarColor::White,
+                                "White",
+                            );
+                            ui.selectable_value(
+                                &mut self.scale_bar_color,
+                                ScaleBarColor::Black,
+                                "Black",
+                            );
+                            ui.selectable_value(
+                                &mut self.scale_bar_color,
+                                ScaleBarColor::Cyan,
+                                "Cyan",
+                            );
+                            ui.selectable_value(
+                                &mut self.scale_bar_color,
+                                ScaleBarColor::Yellow,
+                                "Yellow",
+                            );
+                        });
+
+                    egui::ComboBox::from_id_salt("scale_bar_style")
+                        .width(110.0)
+                        .selected_text(format!("Style: {}", self.scale_bar_style.label()))
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut self.scale_bar_style,
+                                ScaleBarStyle::Solid,
+                                "Solid",
+                            );
+                            ui.selectable_value(
+                                &mut self.scale_bar_style,
+                                ScaleBarStyle::Outlined,
+                                "Outlined",
+                            );
+                            ui.selectable_value(
+                                &mut self.scale_bar_style,
+                                ScaleBarStyle::Minimal,
+                                "Minimal",
+                            );
+                        });
+                }
 
                 // === Histogram Position ===
                 egui::ComboBox::from_id_salt("histogram_pos")
@@ -938,6 +1013,9 @@ impl ImageViewerPanel {
                     let show_scale_bar = self.show_scale_bar;
                     let scale_bar_pixel_scale_x = self.pixel_scale_x;
                     let scale_bar_unit = self.scale_unit.clone();
+                    let scale_bar_position = self.scale_bar_position;
+                    let scale_bar_color = self.scale_bar_color;
+                    let scale_bar_style = self.scale_bar_style;
 
                     let echelle_trace_overlay_paths = self.build_echelle_trace_overlay_paths();
                     let echelle_trace_overlay_selected_relative = self
@@ -1038,6 +1116,9 @@ impl ImageViewerPanel {
                                                         };
                                                         if measurement.pixel_length() > 0.5 {
                                                             self.line_measurements.push(measurement);
+                                                            self.selected_line_measurement = Some(
+                                                                self.line_measurements.len() - 1,
+                                                            );
                                                         }
                                                     }
                                                     self.line_measurement_start = None;
@@ -1374,7 +1455,14 @@ impl ImageViewerPanel {
                                             let painter = ui.painter();
                                             let padding = 12.0_f32;
                                             let bar_height = 4.0_f32;
-                                            let bar_y = image_rect.max.y - padding - bar_height;
+                                            let label_gap = 4.0_f32;
+                                            let overlay_color = scale_bar_color.bar_color();
+                                            let contrast_color = scale_bar_color.contrast_color();
+                                            let top_aligned = matches!(
+                                                scale_bar_position,
+                                                ScaleBarPosition::TopLeft
+                                                    | ScaleBarPosition::TopRight
+                                            );
 
                                             if let Some(um_per_px) = scale_bar_pixel_scale_x {
                                                 // Calibrated: compute a "nice" bar length
@@ -1401,34 +1489,131 @@ impl ImageViewerPanel {
                                                 // Convert bar length from physical units to screen pixels
                                                 let bar_pixels = bar_um / um_per_px; // image pixels
                                                 #[allow(clippy::cast_possible_truncation)]
-                                                let bar_screen_width = (bar_pixels as f32) * zoom;
+                                                let unclamped_bar_screen_width =
+                                                    (bar_pixels as f32) * zoom;
+                                                let max_bar_width =
+                                                    (image_rect.width() - padding * 2.0).max(8.0);
+                                                let bar_screen_width =
+                                                    unclamped_bar_screen_width.min(max_bar_width);
 
-                                                let bar_x = image_rect.min.x + padding;
+                                                let bar_x = match scale_bar_position {
+                                                    ScaleBarPosition::TopLeft
+                                                    | ScaleBarPosition::BottomLeft => {
+                                                        image_rect.min.x + padding
+                                                    }
+                                                    ScaleBarPosition::TopRight
+                                                    | ScaleBarPosition::BottomRight => {
+                                                        image_rect.max.x
+                                                            - padding
+                                                            - bar_screen_width
+                                                    }
+                                                };
+                                                let bar_y = if top_aligned {
+                                                    image_rect.min.y + padding
+                                                } else {
+                                                    image_rect.max.y - padding - bar_height
+                                                };
 
-                                                // Draw black outline behind white bar for contrast
-                                                let outline_rect = egui::Rect::from_min_size(
-                                                    egui::pos2(bar_x - 1.0, bar_y - 1.0),
-                                                    egui::vec2(
-                                                        bar_screen_width + 2.0,
-                                                        bar_height + 2.0,
-                                                    ),
-                                                );
-                                                painter.rect_filled(
-                                                    outline_rect,
-                                                    0.0,
-                                                    egui::Color32::BLACK,
-                                                );
-
-                                                // Draw white bar
                                                 let bar_rect = egui::Rect::from_min_size(
                                                     egui::pos2(bar_x, bar_y),
                                                     egui::vec2(bar_screen_width, bar_height),
                                                 );
-                                                painter.rect_filled(
-                                                    bar_rect,
-                                                    0.0,
-                                                    egui::Color32::WHITE,
-                                                );
+
+                                                match scale_bar_style {
+                                                    ScaleBarStyle::Solid => {
+                                                        let outline_rect =
+                                                            egui::Rect::from_min_size(
+                                                                egui::pos2(
+                                                                    bar_x - 1.0,
+                                                                    bar_y - 1.0,
+                                                                ),
+                                                                egui::vec2(
+                                                                    bar_screen_width + 2.0,
+                                                                    bar_height + 2.0,
+                                                                ),
+                                                            );
+                                                        painter.rect_filled(
+                                                            outline_rect,
+                                                            0.0,
+                                                            contrast_color,
+                                                        );
+                                                        painter.rect_filled(
+                                                            bar_rect,
+                                                            0.0,
+                                                            overlay_color,
+                                                        );
+                                                    }
+                                                    ScaleBarStyle::Outlined => {
+                                                        let stroke = egui::Stroke::new(
+                                                            2.0,
+                                                            overlay_color,
+                                                        );
+                                                        painter.line_segment(
+                                                            [
+                                                                bar_rect.left_top(),
+                                                                bar_rect.right_top(),
+                                                            ],
+                                                            stroke,
+                                                        );
+                                                        painter.line_segment(
+                                                            [
+                                                                bar_rect.right_top(),
+                                                                bar_rect.right_bottom(),
+                                                            ],
+                                                            stroke,
+                                                        );
+                                                        painter.line_segment(
+                                                            [
+                                                                bar_rect.right_bottom(),
+                                                                bar_rect.left_bottom(),
+                                                            ],
+                                                            stroke,
+                                                        );
+                                                        painter.line_segment(
+                                                            [
+                                                                bar_rect.left_bottom(),
+                                                                bar_rect.left_top(),
+                                                            ],
+                                                            stroke,
+                                                        );
+                                                    }
+                                                    ScaleBarStyle::Minimal => {
+                                                        let stroke = egui::Stroke::new(
+                                                            2.0,
+                                                            overlay_color,
+                                                        );
+                                                        painter.line_segment(
+                                                            [
+                                                                egui::pos2(bar_x, bar_y),
+                                                                egui::pos2(
+                                                                    bar_x + bar_screen_width,
+                                                                    bar_y,
+                                                                ),
+                                                            ],
+                                                            stroke,
+                                                        );
+                                                        painter.line_segment(
+                                                            [
+                                                                egui::pos2(bar_x, bar_y - 5.0),
+                                                                egui::pos2(bar_x, bar_y + 5.0),
+                                                            ],
+                                                            stroke,
+                                                        );
+                                                        painter.line_segment(
+                                                            [
+                                                                egui::pos2(
+                                                                    bar_x + bar_screen_width,
+                                                                    bar_y - 5.0,
+                                                                ),
+                                                                egui::pos2(
+                                                                    bar_x + bar_screen_width,
+                                                                    bar_y + 5.0,
+                                                                ),
+                                                            ],
+                                                            stroke,
+                                                        );
+                                                    }
+                                                }
 
                                                 // Format label: use integer if whole number, else one decimal
                                                 let label = if bar_um.fract() < f64::EPSILON {
@@ -1441,59 +1626,149 @@ impl ImageViewerPanel {
 
                                                 let label_pos = egui::pos2(
                                                     bar_x + bar_screen_width / 2.0,
-                                                    bar_y - 3.0,
+                                                    if top_aligned {
+                                                        bar_y + bar_height + label_gap
+                                                    } else {
+                                                        bar_y - label_gap
+                                                    },
                                                 );
+                                                let label_align = if top_aligned {
+                                                    egui::Align2::CENTER_TOP
+                                                } else {
+                                                    egui::Align2::CENTER_BOTTOM
+                                                };
 
-                                                // Draw label with black shadow for readability
-                                                for dx in [-1.0_f32, 0.0, 1.0] {
-                                                    for dy in [-1.0_f32, 0.0, 1.0] {
-                                                        if dx != 0.0 || dy != 0.0 {
-                                                            painter.text(
-                                                                label_pos + egui::vec2(dx, dy),
-                                                                egui::Align2::CENTER_BOTTOM,
-                                                                &label,
-                                                                egui::FontId::proportional(12.0),
-                                                                egui::Color32::BLACK,
-                                                            );
+                                                if scale_bar_style == ScaleBarStyle::Outlined {
+                                                    let galley = painter.layout_no_wrap(
+                                                        label.clone(),
+                                                        egui::FontId::proportional(12.0),
+                                                        overlay_color,
+                                                    );
+                                                    let label_min = if top_aligned {
+                                                        label_pos - egui::vec2(
+                                                            galley.size().x / 2.0 + 4.0,
+                                                            2.0,
+                                                        )
+                                                    } else {
+                                                        label_pos
+                                                            - egui::vec2(
+                                                                galley.size().x / 2.0 + 4.0,
+                                                                galley.size().y + 6.0,
+                                                            )
+                                                    };
+                                                    let label_rect = egui::Rect::from_min_size(
+                                                        label_min,
+                                                        galley.size() + egui::vec2(8.0, 4.0),
+                                                    );
+                                                    painter.rect_filled(
+                                                        label_rect,
+                                                        4.0,
+                                                        contrast_color.linear_multiply(0.75),
+                                                    );
+                                                    painter.galley(
+                                                        label_rect.min + egui::vec2(4.0, 2.0),
+                                                        galley,
+                                                        overlay_color,
+                                                    );
+                                                } else {
+                                                    for dx in [-1.0_f32, 0.0, 1.0] {
+                                                        for dy in [-1.0_f32, 0.0, 1.0] {
+                                                            if dx != 0.0 || dy != 0.0 {
+                                                                painter.text(
+                                                                    label_pos
+                                                                        + egui::vec2(dx, dy),
+                                                                    label_align,
+                                                                    &label,
+                                                                    egui::FontId::proportional(
+                                                                        12.0,
+                                                                    ),
+                                                                    contrast_color,
+                                                                );
+                                                            }
                                                         }
                                                     }
+                                                    painter.text(
+                                                        label_pos,
+                                                        label_align,
+                                                        &label,
+                                                        egui::FontId::proportional(12.0),
+                                                        overlay_color,
+                                                    );
                                                 }
-                                                painter.text(
-                                                    label_pos,
-                                                    egui::Align2::CENTER_BOTTOM,
-                                                    &label,
-                                                    egui::FontId::proportional(12.0),
-                                                    egui::Color32::WHITE,
-                                                );
                                             } else {
-                                                // Uncalibrated: show warning text at bottom-left
-                                                let warn_pos =
-                                                    egui::pos2(image_rect.min.x + padding, bar_y);
+                                                let warn_pos = match scale_bar_position {
+                                                    ScaleBarPosition::TopLeft => egui::pos2(
+                                                        image_rect.min.x + padding,
+                                                        image_rect.min.y + padding,
+                                                    ),
+                                                    ScaleBarPosition::TopRight => egui::pos2(
+                                                        image_rect.max.x - padding,
+                                                        image_rect.min.y + padding,
+                                                    ),
+                                                    ScaleBarPosition::BottomLeft => egui::pos2(
+                                                        image_rect.min.x + padding,
+                                                        image_rect.max.y - padding - bar_height,
+                                                    ),
+                                                    ScaleBarPosition::BottomRight => egui::pos2(
+                                                        image_rect.max.x - padding,
+                                                        image_rect.max.y - padding - bar_height,
+                                                    ),
+                                                };
                                                 let warn_text = "Scale bar: uncalibrated";
                                                 let warn_galley = painter.layout_no_wrap(
                                                     warn_text.to_string(),
                                                     egui::FontId::proportional(11.0),
                                                     egui::Color32::from_rgb(255, 200, 80),
                                                 );
-                                                let warn_bg = egui::Rect::from_min_size(
-                                                    warn_pos
-                                                        - egui::vec2(
-                                                            0.0,
-                                                            warn_galley.size().y + 4.0,
-                                                        ),
-                                                    warn_galley.size() + egui::vec2(8.0, 4.0),
-                                                );
+                                                let warn_bg = match scale_bar_position {
+                                                    ScaleBarPosition::TopLeft => {
+                                                        egui::Rect::from_min_size(
+                                                            warn_pos,
+                                                            warn_galley.size()
+                                                                + egui::vec2(8.0, 4.0),
+                                                        )
+                                                    }
+                                                    ScaleBarPosition::TopRight => {
+                                                        egui::Rect::from_min_size(
+                                                            warn_pos
+                                                                - egui::vec2(
+                                                                    warn_galley.size().x + 8.0,
+                                                                    0.0,
+                                                                ),
+                                                            warn_galley.size()
+                                                                + egui::vec2(8.0, 4.0),
+                                                        )
+                                                    }
+                                                    ScaleBarPosition::BottomLeft => {
+                                                        egui::Rect::from_min_size(
+                                                            warn_pos
+                                                                - egui::vec2(
+                                                                    0.0,
+                                                                    warn_galley.size().y + 4.0,
+                                                                ),
+                                                            warn_galley.size()
+                                                                + egui::vec2(8.0, 4.0),
+                                                        )
+                                                    }
+                                                    ScaleBarPosition::BottomRight => {
+                                                        egui::Rect::from_min_size(
+                                                            warn_pos
+                                                                - egui::vec2(
+                                                                    warn_galley.size().x + 8.0,
+                                                                    warn_galley.size().y + 4.0,
+                                                                ),
+                                                            warn_galley.size()
+                                                                + egui::vec2(8.0, 4.0),
+                                                        )
+                                                    }
+                                                };
                                                 painter.rect_filled(
                                                     warn_bg,
                                                     4.0,
                                                     egui::Color32::from_black_alpha(180),
                                                 );
                                                 painter.galley(
-                                                    warn_pos
-                                                        - egui::vec2(
-                                                            -4.0,
-                                                            warn_galley.size().y + 2.0,
-                                                        ),
+                                                    warn_bg.min + egui::vec2(4.0, 2.0),
                                                     warn_galley,
                                                     egui::Color32::from_rgb(255, 200, 80),
                                                 );
