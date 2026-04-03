@@ -292,7 +292,7 @@ fn apply_spacing_filter(measurements: &[TraceMeasurement], keep: &mut [bool], si
     let alive: Vec<usize> = keep
         .iter()
         .enumerate()
-        .filter(|(_, &k)| k)
+        .filter(|&(_, &k)| k)
         .map(|(j, _)| j)
         .collect();
     if alive.len() < 3 {
