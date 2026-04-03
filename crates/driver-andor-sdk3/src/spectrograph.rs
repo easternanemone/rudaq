@@ -50,7 +50,6 @@ use crate::types::{
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use common::capabilities::{Parameterized, ShutterControl, WavelengthTunable};
-use common::error::DaqError;
 use common::observable::ParameterSet;
 use common::parameter::Parameter;
 use std::sync::atomic::{AtomicBool, Ordering};
