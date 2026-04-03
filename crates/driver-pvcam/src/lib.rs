@@ -3159,27 +3159,31 @@ impl PvcamDriver {
         let camera_name = self.camera_name.clone();
         let connection = self.connection.clone();
 
-        tokio::task::spawn_blocking(move || -> Result<()> {
-            let mut conn = connection.blocking_lock();
+        ffi_timeout::ffi_with_timeout(
+            "PVCAM reinitialize",
+            ffi_timeout::ACQUISITION_TIMEOUT,
+            move || -> Result<()> {
+                let mut conn = connection.blocking_lock();
 
-            // Close existing connection
-            conn.close();
+                // Close existing connection
+                conn.close();
 
-            // Full SDK teardown (bd-a2iv): uninitialize() decrements ref count and
-            // calls pl_pvcam_uninit() if we're the last connection. This ensures
-            // the SDK is fully reset, not just the camera handle.
-            conn.uninitialize();
+                // Full SDK teardown (bd-a2iv): uninitialize() decrements ref count and
+                // calls pl_pvcam_uninit() if we're the last connection. This ensures
+                // the SDK is fully reset, not just the camera handle.
+                conn.uninitialize();
 
-            // Reinitialize SDK (ref counting handles multiple instances)
-            conn.initialize()?;
+                // Reinitialize SDK (ref counting handles multiple instances)
+                conn.initialize()?;
 
-            // Reopen camera
-            conn.open(&camera_name)?;
+                // Reopen camera
+                conn.open(&camera_name)?;
 
-            tracing::info!("Camera reconnected successfully");
-            Ok(())
-        })
-        .await??;
+                tracing::info!("Camera reconnected successfully");
+                Ok(())
+            },
+        )
+        .await?;
 
         // 4. Reload camera info (temperature, etc. may have changed)
         let conn = self.connection.lock().await;
