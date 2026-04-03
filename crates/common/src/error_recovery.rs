@@ -80,8 +80,7 @@ impl Default for RetryPolicy {
 ///     port: Option<SerialPort>,
 /// }
 ///
-/// #[async_trait]
-/// impl Recoverable<std::io::Error> for SerialConnection {
+/// /// impl Recoverable<std::io::Error> for SerialConnection {
 ///     async fn recover(&mut self) -> Result<(), std::io::Error> {
 ///         // Attempt to reconnect
 ///         self.port = Some(SerialPort::open("/dev/ttyUSB0")?);
@@ -89,7 +88,6 @@ impl Default for RetryPolicy {
 ///     }
 /// }
 /// ```
-#[async_trait]
 pub trait Recoverable<E> {
     /// Attempts to recover from a failure.
     ///
@@ -118,8 +116,7 @@ pub trait Recoverable<E> {
 ///     camera: Camera,
 /// }
 ///
-/// #[async_trait]
-/// impl Restartable<anyhow::Error> for Acquisition {
+/// /// impl Restartable<anyhow::Error> for Acquisition {
 ///     async fn restart(&mut self) -> Result<(), anyhow::Error> {
 ///         self.camera.stop_acquisition().await?;
 ///         self.camera.clear_buffer().await?;
@@ -128,7 +125,6 @@ pub trait Recoverable<E> {
 ///     }
 /// }
 /// ```
-#[async_trait]
 pub trait Restartable<E> {
     /// Restarts the operation from a clean state.
     ///
@@ -157,8 +153,7 @@ pub trait Restartable<E> {
 ///     serial: SerialPort,
 /// }
 ///
-/// #[async_trait]
-/// impl Resettable<std::io::Error> for LaserController {
+/// /// impl Resettable<std::io::Error> for LaserController {
 ///     async fn reset(&mut self) -> Result<(), std::io::Error> {
 ///         self.serial.write_all(b"*RST\r\n").await?;
 ///         tokio::time::sleep(Duration::from_secs(2)).await;
@@ -166,7 +161,6 @@ pub trait Restartable<E> {
 ///     }
 /// }
 /// ```
-#[async_trait]
 pub trait Resettable<E> {
     /// Resets the device to a known good state.
     ///
@@ -291,8 +285,7 @@ mod tests {
         succeed_on_attempt: u32,
     }
 
-    #[async_trait]
-    impl Recoverable<DaqError> for MockRecoverable {
+        impl Recoverable<DaqError> for MockRecoverable {
         async fn recover(&mut self) -> Result<(), DaqError> {
             let mut attempts = self.attempts.borrow_mut();
             *attempts += 1;
