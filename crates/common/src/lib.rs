@@ -49,21 +49,21 @@
 
 pub mod core;
 pub mod validation;
-// Data types (Frame, etc.)
-pub mod data;
-// Document model (Bluesky-style)
-pub mod error;
+
 pub mod error_recovery;
 pub mod experiment;
 pub mod health;
 pub mod limits;
 pub mod log_scrubbing;
 
-// Trait and reactive parameter system — canonical source is common-traits crate.
-// Re-exported here for backward compatibility so all consumers continue to use
-// `common::capabilities`, `common::driver`, etc. without import changes.
+// Canonical source for traits, data types, error types, and reactive parameters
+// is the common-traits crate. Re-exported here for backward compatibility so
+// all consumers continue to use `common::capabilities`, `common::data`, etc.
+// without any import changes.
 pub use common_traits::capabilities;
+pub use common_traits::data;
 pub use common_traits::driver;
+pub use common_traits::error;
 pub use common_traits::modules;
 pub use common_traits::observable;
 pub use common_traits::parameter;
