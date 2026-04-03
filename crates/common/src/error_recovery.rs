@@ -583,8 +583,8 @@ mod tests {
         // Run multiple samples to verify bounds
         for attempt in 0..5u32 {
             // Test values are small enough that these casts are exact.
-            let base = backoff.initial_delay.as_nanos() as f64
-                * backoff.multiplier.powi(attempt as i32);
+            let base =
+                backoff.initial_delay.as_nanos() as f64 * backoff.multiplier.powi(attempt as i32);
             let base_dur = Duration::from_nanos(base as u64);
             let max_with_jitter = base_dur + Duration::from_nanos((base * 0.25) as u64);
 
