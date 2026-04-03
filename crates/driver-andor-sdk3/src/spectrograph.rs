@@ -367,13 +367,11 @@ impl AndorSpectrograph {
         #[cfg(feature = "spectrograph")]
         {
             let handle = self.inner.handle;
-            tokio::task::spawn_blocking(move || {
+            crate::ffi_timeout::ffi_call(move || {
                 use crate::error::sdk_result;
                 // SAFETY: handle is valid from initialization. All output parameters
                 // (lines, blaze, home, offset) are stack-allocated with valid pointers.
                 // ShamrockGetGratingInfo writes to these locations.
-                // spawn_blocking moves the FFI call off the async runtime to avoid blocking.
-                // It does not serialize concurrent calls.
                 unsafe {
                     let mut lines = 0.0;
                     let mut blaze = 0.0;
@@ -395,7 +393,7 @@ impl AndorSpectrograph {
                         blaze_wavelength_nm: blaze,
                     })
                 }
-            })
+            }, crate::ffi_timeout::FFI_QUERY_TIMEOUT, "get_grating_info")
             .await?
         }
 
