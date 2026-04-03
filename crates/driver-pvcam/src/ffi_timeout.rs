@@ -30,9 +30,11 @@ pub const CONFIG_TIMEOUT: Duration = Duration::from_secs(15);
 pub const ACQUISITION_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Timeout for single-frame readout operations.
+#[allow(dead_code)]
 pub const FRAME_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Timeout for serial-port / USB open operations.
+#[allow(dead_code)]
 pub const SERIAL_OPEN_TIMEOUT: Duration = Duration::from_secs(10);
 
 // ---------------------------------------------------------------------------
