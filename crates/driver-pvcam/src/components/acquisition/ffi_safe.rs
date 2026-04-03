@@ -658,9 +658,18 @@ pub fn setup_multi_roi_cont(
     exposure_ms: u32,
     buffer_mode: i16,
 ) -> Result<uns32, String> {
-    debug_assert!(hcam >= 0, "Invalid camera handle: {}", hcam);
-    debug_assert!(!regions.is_empty(), "At least one region required");
-    debug_assert!(regions.len() <= 16, "PVCAM supports at most 16 ROIs");
+    if hcam < 0 {
+        return Err(format!("Invalid camera handle: {hcam}"));
+    }
+    if regions.is_empty() {
+        return Err("At least one region required".to_string());
+    }
+    if regions.len() > 16 {
+        return Err(format!(
+            "Maximum 16 ROIs supported, got {}",
+            regions.len()
+        ));
+    }
 
     let rgn_count = regions.len() as u16;
     let mut frame_bytes: uns32 = 0;
