@@ -418,18 +418,16 @@ impl AndorSpectrograph {
         #[cfg(feature = "spectrograph")]
         if port != 2 {
             let handle = self.inner.handle;
-            tokio::task::spawn_blocking(move || {
+            crate::ffi_timeout::ffi_call(move || {
                 use crate::error::sdk_result;
                 // SAFETY: handle is valid from initialization.
                 // port and width_um are validated by the SDK (will return error if invalid).
-                // spawn_blocking moves the FFI call off the async runtime to avoid blocking.
-                // It does not serialize concurrent calls.
                 unsafe {
                     let ret = ShamrockSetAutoSlitWidth(handle, port, width_um as f32);
                     sdk_result(ret)?;
                     Ok::<(), anyhow::Error>(())
                 }
-            })
+            }, crate::ffi_timeout::FFI_MOTION_TIMEOUT, "set_slit_width")
             .await??;
         }
 
