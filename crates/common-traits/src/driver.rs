@@ -73,7 +73,7 @@ use crate::capabilities::{
     SpectrometerControl, SpectrumReadable, Stageable, StateRefreshable, TriggerOnPosition,
     Triggerable, WavelengthTunable,
 };
-use common::data::Frame;
+use crate::data::Frame;
 use crate::pipeline::MeasurementSource;
 use anyhow::Result;
 use futures::future::BoxFuture;
