@@ -2040,12 +2040,15 @@ impl PvcamDriver {
                 let conn = conn.clone();
                 Box::pin(async move {
                     let conn_guard = conn.lock_owned().await;
-                    tokio::task::spawn_blocking(move || {
-                        PvcamFeatures::set_post_trigger_delay_us(&conn_guard, val)
-                            .map_err(|e| DaqError::Instrument(e.to_string()))
-                    })
+                    ffi_timeout::ffi_with_timeout_daq(
+                        "set_post_trigger_delay_us",
+                        ffi_timeout::CONFIG_TIMEOUT,
+                        move || {
+                            PvcamFeatures::set_post_trigger_delay_us(&conn_guard, val)
+                                .map_err(|e| DaqError::Instrument(e.to_string()))
+                        },
+                    )
                     .await
-                    .map_err(|e| DaqError::Instrument(e.to_string()))?
                 })
             }
         });
