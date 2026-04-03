@@ -565,6 +565,12 @@ mod tests {
     }
 
     #[test]
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss,
+        clippy::cast_possible_wrap
+    )]
     fn test_exponential_backoff_jitter_within_bounds() {
         let backoff = ExponentialBackoff {
             initial_delay: Duration::from_millis(1000),
@@ -576,6 +582,7 @@ mod tests {
         // With jitter, delay should be in [base, base * 1.25]
         // Run multiple samples to verify bounds
         for attempt in 0..5u32 {
+            // Test values are small enough that these casts are exact.
             let base = backoff.initial_delay.as_nanos() as f64
                 * backoff.multiplier.powi(attempt as i32);
             let base_dur = Duration::from_nanos(base as u64);
