@@ -144,7 +144,12 @@ impl AndorSpectrograph {
     /// - Device index is invalid
     pub async fn new_async(device_index: i32) -> Result<Self> {
         #[cfg(feature = "spectrograph")]
-        let info = tokio::task::spawn_blocking(move || Self::init_hardware(device_index)).await??;
+        let info = crate::ffi_timeout::ffi_call(
+            move || Self::init_hardware(device_index),
+            crate::ffi_timeout::FFI_INIT_TIMEOUT,
+            "AndorSpectrograph::init_hardware",
+        )
+        .await??;
 
         #[cfg(not(feature = "spectrograph"))]
         let info = Self::mock_spectrograph_info(device_index);
