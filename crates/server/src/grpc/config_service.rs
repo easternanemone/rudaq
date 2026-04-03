@@ -365,14 +365,13 @@ impl ConfigService for ConfigServiceImpl {
         let (tx, rx) = tokio::sync::mpsc::channel(64);
 
         tokio::spawn(async move {
-            let live_stream = db
-                .live_instruments()
-                .await
-                .unwrap_or_else(|e| {
+            let live_stream = match db.live_instruments().await {
+                Ok(stream) => stream,
+                Err(e) => {
                     tracing::error!("failed to start live query: {e}");
-                    // Return an empty stream on error
-                    futures::stream::empty().boxed()
-                });
+                    return;
+                }
+            };
             futures::pin_mut!(live_stream);
             while let Some(result) = live_stream.next().await {
                 let event = match result {
