@@ -407,8 +407,12 @@ impl AndorCamera {
     /// Create new camera instance (async, validates device identity)
     pub async fn new_async(camera_index: i32) -> Result<Self> {
         #[cfg(feature = "camera")]
-        let (handle, info) =
-            tokio::task::spawn_blocking(move || Self::init_hardware(camera_index)).await??;
+        let (handle, info) = crate::ffi_timeout::ffi_call(
+            move || Self::init_hardware(camera_index),
+            crate::ffi_timeout::FFI_INIT_TIMEOUT,
+            "AndorCamera::init_hardware",
+        )
+        .await??;
 
         #[cfg(not(feature = "camera"))]
         let (handle, info) = (camera_index, Self::mock_camera_info(camera_index));
