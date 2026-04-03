@@ -928,21 +928,17 @@ impl AndorSpectrograph {
     fn attach_wavelength_callback(param: &mut Parameter<f64>, handle: i32) {
         param.connect_to_hardware_write(move |val: f64| {
             Box::pin(async move {
-                tokio::task::spawn_blocking(move || {
+                crate::ffi_timeout::ffi_call_daq(move || {
                     use crate::error::sdk_result;
                     // SAFETY: handle is valid from initialization.
                     // val is cast to f32 for the SDK API.
-                    // spawn_blocking moves the FFI call off the async runtime to avoid blocking.
-                    // It does not serialize concurrent calls.
                     unsafe {
                         let ret = ShamrockSetWavelength(handle, val as f32);
                         sdk_result(ret)?;
-                        Ok::<(), anyhow::Error>(())
+                        Ok(())
                     }
-                })
+                }, crate::ffi_timeout::FFI_MOTION_TIMEOUT, "set_wavelength")
                 .await
-                .map_err(|e| DaqError::Instrument(format!("spawn_blocking: {e}")))?
-                .map_err(|e| DaqError::Instrument(e.to_string()))
             })
         });
     }
