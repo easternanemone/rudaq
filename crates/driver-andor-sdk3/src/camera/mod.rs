@@ -138,20 +138,20 @@ type CameraHandle = i32;
 // Blocking bridge helper
 // =============================================================================
 
-/// Run an SDK FFI call on `spawn_blocking` and map errors to `DaqError`.
+/// Run an SDK FFI call on `spawn_blocking` with a config-class timeout and
+/// map errors to `DaqError`.
 ///
 /// This eliminates the repeated `.await.map_err(...)?.map_err(...)` pattern
 /// used by every `Parameter<T>` hardware callback in this module.
+/// Default timeout is [`FFI_CONFIG_TIMEOUT`](crate::ffi_timeout::FFI_CONFIG_TIMEOUT) (15s).
 #[cfg(feature = "camera")]
 async fn sdk_blocking<F, T>(f: F) -> Result<T, DaqError>
 where
     F: FnOnce() -> anyhow::Result<T> + Send + 'static,
     T: Send + 'static,
 {
-    tokio::task::spawn_blocking(f)
+    crate::ffi_timeout::ffi_call_daq(f, crate::ffi_timeout::FFI_CONFIG_TIMEOUT, "sdk_blocking")
         .await
-        .map_err(|e| DaqError::Instrument(format!("spawn_blocking: {e}")))?
-        .map_err(|e| DaqError::Instrument(e.to_string()))
 }
 
 /// Pause SDK acquisition, apply a parameter change, then restart (bd-4msn, bd-71sq).
