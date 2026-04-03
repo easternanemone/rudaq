@@ -1,7 +1,7 @@
 [package]
 name = "ui-slint"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 description = "[EXPERIMENTAL] Slint evaluation UI for rust-daq (native + WASM)"
 license = "MIT"
 build = "build.rs"
