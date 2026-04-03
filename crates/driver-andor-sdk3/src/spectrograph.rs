@@ -631,7 +631,7 @@ impl AndorSpectrograph {
         #[cfg(feature = "spectrograph")]
         {
             let handle = self.inner.handle;
-            tokio::task::spawn_blocking(move || unsafe {
+            crate::ffi_timeout::ffi_call(move || unsafe {
                 let mut present: i32 = 0;
                 let ret = ShamrockFilterIsPresent(handle, &mut present);
                 if ret == SHAMROCK_SUCCESS {
@@ -639,7 +639,7 @@ impl AndorSpectrograph {
                 } else {
                     Ok(false)
                 }
-            })
+            }, crate::ffi_timeout::FFI_QUERY_TIMEOUT, "filter_is_present")
             .await?
         }
 
