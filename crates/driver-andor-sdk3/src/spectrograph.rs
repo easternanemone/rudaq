@@ -1053,18 +1053,16 @@ impl ShutterControl for AndorSpectrograph {
         #[cfg(feature = "spectrograph")]
         {
             let handle = self.inner.handle;
-            tokio::task::spawn_blocking(move || {
+            crate::ffi_timeout::ffi_call(move || {
                 use crate::error::sdk_result;
                 // SAFETY: handle is valid from initialization.
                 // 1 is a valid shutter command (open).
-                // spawn_blocking moves the FFI call off the async runtime to avoid blocking.
-                // It does not serialize concurrent calls.
                 unsafe {
                     let ret = ShamrockSetShutter(handle, 1);
                     sdk_result(ret)?;
                     Ok::<(), anyhow::Error>(())
                 }
-            })
+            }, crate::ffi_timeout::FFI_CONFIG_TIMEOUT, "open_shutter")
             .await??;
         }
 
