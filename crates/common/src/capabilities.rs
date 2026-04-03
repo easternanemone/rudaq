@@ -32,8 +32,7 @@
 //!     frame_count: u32,
 //! }
 //!
-//! #[async_trait]
-//! impl ExposureControl for SimulatedCamera {
+//! //! impl ExposureControl for SimulatedCamera {
 //!     async fn set_exposure(&self, seconds: f64) -> Result<()> {
 //!         self.exposure_ms = seconds * 1000.0;
 //!         Ok(())
@@ -44,8 +43,7 @@
 //!     }
 //! }
 //!
-//! #[async_trait]
-//! impl Triggerable for SimulatedCamera {
+//! //! impl Triggerable for SimulatedCamera {
 //!     async fn arm(&self) -> Result<()> {
 //!         self.armed = true;
 //!         Ok(())
@@ -60,8 +58,7 @@
 //!     }
 //! }
 //!
-//! #[async_trait]
-//! impl FrameProducer for SimulatedCamera {
+//! //! impl FrameProducer for SimulatedCamera {
 //!     async fn start_stream(&self) -> Result<()> { Ok(()) }
 //!     async fn stop_stream(&self) -> Result<()> { Ok(()) }
 //!     fn resolution(&self) -> (u32, u32) { (1024, 1024) }
@@ -155,7 +152,6 @@ impl DeviceCategory {
 /// # Thread Safety
 /// - All methods are async and require `&self` (immutable reference)
 /// - Interior mutability (Mutex/RwLock) should be used for state
-#[async_trait]
 pub trait Movable: Send + Sync {
     /// Move to absolute position
     ///
@@ -219,7 +215,6 @@ pub trait Movable: Send + Sync {
 /// - `trigger()` initiates acquisition/output
 /// - Some devices require arm before every trigger, others stay armed
 /// - Calling `trigger()` on unarmed device should return Err
-#[async_trait]
 pub trait Triggerable: Send + Sync {
     /// Arm device for trigger
     ///
@@ -262,7 +257,6 @@ pub trait Triggerable: Send + Sync {
 /// - Exposure is in seconds (not milliseconds)
 /// - Setting exposure does not start acquisition
 /// - Exposure applies to next acquisition
-#[async_trait]
 pub trait ExposureControl: Send + Sync {
     /// Set exposure/integration time
     ///
@@ -419,7 +413,6 @@ pub use pool::LoanedFrame;
 /// ## Legacy: `subscribe_frames()` (deprecated - do not use)
 /// Returns a broadcast receiver for `Arc<Frame>`. Deprecated in favor of
 /// `register_primary_output()` which provides better performance through pooling.
-#[async_trait]
 pub trait FrameProducer: Send + Sync {
     /// Start continuous frame acquisition
     ///
@@ -686,7 +679,6 @@ pub trait FrameProducer: Send + Sync {
 /// - `read()` performs measurement and returns value
 /// - Units are device-specific (document in implementation)
 /// - Reading should be fast (<100ms typical)
-#[async_trait]
 pub trait Readable: Send + Sync {
     /// Read current value
     ///
@@ -711,7 +703,6 @@ pub trait Readable: Send + Sync {
 /// # Safety
 /// CAUTION: Wavelength changes on high-power lasers may affect
 /// beam alignment and optical safety equipment effectiveness.
-#[async_trait]
 pub trait WavelengthTunable: Send + Sync {
     /// Set output wavelength
     ///
@@ -753,7 +744,6 @@ pub trait WavelengthTunable: Send + Sync {
 /// # Safety
 /// CAUTION: Always verify shutter state before assuming beam is blocked.
 /// Use hardware interlocks for laser safety, never rely on software alone.
-#[async_trait]
 pub trait ShutterControl: Send + Sync {
     /// Open the shutter (allow beam to pass)
     ///
@@ -794,7 +784,6 @@ pub trait ShutterControl: Send + Sync {
 /// # Safety
 /// CAUTION: Enabling emission on a high-power laser creates immediate
 /// hazards. Always verify safety interlocks and shutter state first.
-#[async_trait]
 pub trait EmissionControl: Send + Sync {
     /// Enable emission (turn on the source)
     ///
@@ -854,7 +843,6 @@ pub trait EmissionControl: Send + Sync {
 /// // After scan
 /// device.unstage().await?;
 /// ```
-#[async_trait]
 pub trait Stageable: Send + Sync {
     /// Prepare device for acquisition sequence
     ///
@@ -900,7 +888,6 @@ pub trait Stageable: Send + Sync {
 /// - Values are represented as `serde_json::Value` to allow flexibility (f64, i64, bool, string, enum).
 /// - Methods take `&self` (not `&mut self`) to allow use with `Arc<dyn Settable>`.
 ///   Implementations should use interior mutability (e.g., `Mutex`) for state changes.
-#[async_trait]
 pub trait Settable: Send + Sync {
     /// Set a named parameter to a new value.
     ///
@@ -926,7 +913,6 @@ pub trait Settable: Send + Sync {
 /// - `turn_on()` activates the device/feature.
 /// - `turn_off()` deactivates the device/feature.
 /// - `is_on()` queries the current on/off state.
-#[async_trait]
 pub trait Switchable: Send + Sync {
     /// Turn on a named switchable feature.
     ///
@@ -961,7 +947,6 @@ pub trait Switchable: Send + Sync {
 /// # Contract
 /// - `execute_action()` triggers a specific action.
 /// - Actions are typically fire-and-forget or block until completion.
-#[async_trait]
 pub trait Actionable: Send + Sync {
     /// Execute a named one-time action.
     ///
@@ -978,7 +963,6 @@ pub trait Actionable: Send + Sync {
 /// # Contract
 /// - `get_log_value()` retrieves a specific piece of loggable data.
 /// - Values are typically strings (e.g., serial number, firmware version).
-#[async_trait]
 pub trait Loggable: Send + Sync {
     /// Get a named piece of static loggable data.
     ///
@@ -1120,7 +1104,6 @@ impl<T: Triggerable + FrameProducer> Camera for T {}
 /// # Contract
 /// - `execute_command()` takes a command name and JSON arguments.
 /// - Returns a JSON object with results.
-#[async_trait]
 pub trait Commandable: Send + Sync {
     /// Execute a specialized command
     ///
@@ -1180,7 +1163,6 @@ pub enum TemperatureStatus {
 /// # Safety
 /// CAUTION: High MCP gain with bright light can damage the intensifier.
 /// Always verify gate timing and ambient light conditions before enabling MCP.
-#[async_trait]
 pub trait GatedCamera: FrameProducer {
     /// Set gate mode from a vendor-specific string (e.g. "DDG", "CW On", "FireOnly").
     ///
@@ -1285,7 +1267,6 @@ pub trait GatedCamera: FrameProducer {
 /// # Safety
 /// CAUTION: Moving gratings while shutters are open can expose
 /// sensitive detectors to uncalibrated wavelengths.
-#[async_trait]
 pub trait SpectrometerControl: Send + Sync {
     /// Set active grating
     ///
@@ -1398,7 +1379,6 @@ pub enum TriggerSource {
 /// # Safety
 /// CAUTION: Ensure connected devices can handle the trigger rate
 /// at maximum velocity and minimum increment.
-#[async_trait]
 pub trait TriggerOnPosition: Movable {
     /// Enable trigger-on-position mode
     ///
@@ -1467,7 +1447,6 @@ pub enum InterlockStatus {
 /// CRITICAL: This is a monitoring capability only. Never rely on software
 /// interlocks alone for laser safety. Always use hardware interlocks that
 /// directly cut power to the laser in unsafe conditions.
-#[async_trait]
 pub trait SafetyInterlock: Send + Sync {
     /// Check if safety interlock is open
     ///
@@ -1505,7 +1484,6 @@ pub trait SafetyInterlock: Send + Sync {
 /// - Return `Err` if the change requires a full restart (caller will
 ///   fall back to unregister + register)
 /// - Implementations should be idempotent: applying the same config twice is a no-op
-#[async_trait]
 pub trait Reconfigurable: Send + Sync {
     /// Apply new configuration values at runtime.
     ///
@@ -1538,7 +1516,6 @@ pub trait Reconfigurable: Send + Sync {
 /// or manually adjusted. The software's cached position, wavelength, shutter
 /// state, etc. may no longer match reality. This trait provides a standardized
 /// hook for the supervisor to trigger a full state re-read.
-#[async_trait]
 pub trait StateRefreshable: Send + Sync {
     /// Refresh all readable device state from hardware.
     ///
@@ -1630,7 +1607,6 @@ pub struct CounterConfig {
 ///
 /// Devices that expose hardware counter/timer channels with configurable
 /// modes, edges, and clock/gate routing.
-#[async_trait]
 pub trait CounterConfigurable: Send + Sync {
     /// Apply a counter configuration.
     async fn configure_counter(&self, config: CounterConfig) -> Result<()>;
@@ -1672,7 +1648,6 @@ pub struct AnalogRange {
 /// Devices that can report the available analog voltage/current ranges
 /// for each subdevice (e.g., Comedi `comedi_get_n_ranges` /
 /// `comedi_get_range`).
-#[async_trait]
 pub trait RangeIntrospectable: Send + Sync {
     /// Get all available ranges for the given subdevice.
     async fn get_ranges(&self, subdevice: u32) -> Result<Vec<AnalogRange>>;
@@ -1710,7 +1685,6 @@ pub struct DeviceIntrospectionInfo {
 ///
 /// Devices that can report board-level and subdevice-level metadata
 /// (e.g., Comedi `comedi_get_board_name`, `comedi_get_n_subdevices`).
-#[async_trait]
 pub trait DeviceIntrospection: Send + Sync {
     /// Return full device introspection info.
     async fn introspect(&self) -> Result<DeviceIntrospectionInfo>;
@@ -1737,7 +1711,6 @@ pub struct ReadResult {
 ///
 /// Like [`Readable`] but returns structured metadata (raw value, calibrated
 /// voltage, timestamp, range index) instead of a single `f64`.
-#[async_trait]
 pub trait ReadableWithMetadata: Send + Sync {
     /// Read a channel and return structured metadata.
     async fn read_with_metadata(&self, channel: u32) -> Result<ReadResult>;
@@ -1778,7 +1751,6 @@ pub struct SpectrumData {
 /// - Echelle spectrometer (extracted 1D spectrum)
 /// - Multichannel DAQ (simultaneous analog channels)
 /// - Waveform digitizer (time-domain trace)
-#[async_trait]
 pub trait SpectrumReadable: Send + Sync {
     /// Read the current 1D detector data.
     async fn read_spectrum(&self) -> Result<SpectrumData>;
@@ -1795,7 +1767,6 @@ pub trait SpectrumReadable: Send + Sync {
 ///
 /// Implementations combine capabilities from multiple devices into
 /// higher-level operations (e.g., synchronized acquisition, coordinated motion).
-#[async_trait]
 pub trait CompositeCapability: Send + Sync {
     /// Human-readable name for this composite operation.
     fn name(&self) -> &str;
@@ -1853,8 +1824,7 @@ mod tests {
         position: std::sync::Mutex<f64>,
     }
 
-    #[async_trait]
-    impl Movable for MockStage {
+        impl Movable for MockStage {
         async fn move_abs(&self, position: f64) -> Result<()> {
             *self.position.lock().unwrap() = position;
             Ok(())
@@ -1896,8 +1866,7 @@ mod tests {
 
     struct MockPowerMeter;
 
-    #[async_trait]
-    impl Readable for MockPowerMeter {
+        impl Readable for MockPowerMeter {
         async fn read(&self) -> Result<f64> {
             Ok(0.123)
         }
