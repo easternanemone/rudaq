@@ -360,8 +360,8 @@ impl ConfigService for ConfigServiceImpl {
     ) -> Result<Response<Self::SubscribeConfigChangesStream>, Status> {
         use futures::StreamExt;
 
-        let live_stream = self
-            .db
+        let db = self.db.clone();
+        let live_stream = db
             .live_instruments()
             .await
             .map_err(|e| Status::internal(format!("failed to start live query: {e}")))?;
