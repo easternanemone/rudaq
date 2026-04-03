@@ -878,7 +878,7 @@ impl AndorSpectrograph {
         {
             let handle = self.inner.handle;
             let port_id = port as i32;
-            tokio::task::spawn_blocking(move || {
+            crate::ffi_timeout::ffi_call(move || {
                 use crate::error::sdk_result;
                 unsafe {
                     let mut width: f32 = 0.0;
@@ -886,7 +886,7 @@ impl AndorSpectrograph {
                     sdk_result(ret)?;
                     Ok(width as f64)
                 }
-            })
+            }, crate::ffi_timeout::FFI_QUERY_TIMEOUT, "get_slit_width_port")
             .await?
         }
 
