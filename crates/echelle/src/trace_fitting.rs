@@ -160,7 +160,7 @@ fn sigma_clipped_mean(data: &[f64], sigma_thresh: f64) -> f64 {
         let (sum, count) = data
             .iter()
             .zip(&mask)
-            .filter(|(_, &m)| m)
+            .filter(|&(_, &m)| m)
             .fold((0.0, 0usize), |(s, c), (&v, _)| (s + v, c + 1));
         if count == 0 {
             return 0.0;
@@ -170,7 +170,7 @@ fn sigma_clipped_mean(data: &[f64], sigma_thresh: f64) -> f64 {
         let var = data
             .iter()
             .zip(&mask)
-            .filter(|(_, &m)| m)
+            .filter(|&(_, &m)| m)
             .map(|(&v, _)| (v - mean).powi(2))
             .sum::<f64>()
             / count as f64;
@@ -190,7 +190,7 @@ fn sigma_clipped_mean(data: &[f64], sigma_thresh: f64) -> f64 {
     let (sum, count) = data
         .iter()
         .zip(&mask)
-        .filter(|(_, &m)| m)
+        .filter(|&(_, &m)| m)
         .fold((0.0, 0usize), |(s, c), (&v, _)| (s + v, c + 1));
     if count == 0 {
         0.0
@@ -341,13 +341,13 @@ fn trace_order(
         let fxs: Vec<f64> = xs
             .iter()
             .zip(&mask)
-            .filter(|(_, &m)| m)
+            .filter(|&(_, &m)| m)
             .map(|(&x, _)| x)
             .collect();
         let fys: Vec<f64> = ys
             .iter()
             .zip(&mask)
-            .filter(|(_, &m)| m)
+            .filter(|&(_, &m)| m)
             .map(|(&y, _)| y)
             .collect();
 
@@ -503,7 +503,7 @@ fn residual_rms(residuals: &[f64], mask: &[bool]) -> f64 {
     let (sum_sq, count) = residuals
         .iter()
         .zip(mask)
-        .filter(|(_, &m)| m)
+        .filter(|&(_, &m)| m)
         .fold((0.0, 0usize), |(s, c), (&r, _)| (s + r * r, c + 1));
     if count == 0 {
         0.0
