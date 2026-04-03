@@ -1,3 +1,4 @@
+#![allow(clippy::collapsible_if)]
 use std::process::Command;
 
 fn main() {
