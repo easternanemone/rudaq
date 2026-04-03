@@ -117,13 +117,14 @@ pub fn decompress_frame(frame: &mut FrameData) -> Result<(), String> {
     }
 }
 
-/// Decompress frame data into a pre-allocated buffer, avoiding per-frame allocation.
+/// Decompress frame data into a pre-allocated buffer, avoiding per-frame
+/// allocation.
 ///
 /// The buffer's capacity is grown (if needed) to `uncompressed_size` and its
-/// length is set via `unsafe set_len` — the zero-fill is skipped because
-/// `decompress_into` immediately overwrites the entire range.  After a two-call
-/// warmup the buffer stabilises at `uncompressed_size` capacity and no further
-/// heap allocation occurs, provided the frame size stays constant.
+/// length is initialized before decompression so a failure never exposes
+/// uninitialized bytes. After a two-call warmup the buffer stabilises at
+/// `uncompressed_size` capacity and no further heap allocation occurs,
+/// provided the frame size stays constant.
 ///
 /// The compressed data must carry the 4-byte LE size prefix written by
 /// [`compress_frame`] / [`compress_frame_into`].
@@ -143,21 +144,13 @@ pub fn decompress_frame_into(frame: &mut FrameData, buffer: &mut Vec<u8>) -> Res
         Ok(CompressionType::CompressionLz4) => {
             let expected_size = frame.uncompressed_size as usize;
             buffer.reserve(expected_size.saturating_sub(buffer.len()));
-            // SAFETY: The entire buffer[..expected_size] range is immediately
-            // overwritten by lz4_flex::decompress_into, which writes exactly
-            // `expected_size` decompressed bytes on success. On error, the
-            // buffer is not read — the function returns Err before the swap.
-            // No uninitialized memory is ever read.
-            #[allow(clippy::uninit_vec, unsafe_code)]
-            unsafe {
-                buffer.set_len(expected_size);
-            }
-
             // Skip the 4-byte LE size prefix written by compress_prepend_size / compress_frame_into
             if frame.data.len() < 4 {
                 return Err("LZ4 compressed data too short (missing size prefix)".to_string());
             }
             let compressed_payload = &frame.data[4..];
+
+            buffer.resize(expected_size, 0);
 
             let decompressed_len = lz4_flex::decompress_into(compressed_payload, buffer)
                 .map_err(|e| format!("LZ4 decompression failed: {e}"))?;

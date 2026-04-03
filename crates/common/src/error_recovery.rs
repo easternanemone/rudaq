@@ -7,6 +7,7 @@
 
 use crate::error::DaqError;
 use async_trait::async_trait;
+use std::convert::TryFrom;
 use std::time::Duration;
 use tokio::time::sleep;
 
@@ -113,8 +114,8 @@ impl ExponentialBackoff {
     pub fn delay_for_attempt(&self, attempt: u32) -> Duration {
         let multiplier = self.multiplier.max(1.0);
         let base_nanos = self.initial_delay.as_nanos() as f64;
-        // attempt is a retry count (realistically < 100), safe to convert to i32
-        let scaled = base_nanos * multiplier.powi(attempt.cast_signed());
+        let exponent = i32::try_from(attempt).unwrap_or(i32::MAX);
+        let scaled = base_nanos * multiplier.powi(exponent);
 
         let max_nanos = self.max_delay.as_nanos() as f64;
         let clamped_nanos = scaled.min(max_nanos);
@@ -614,11 +615,11 @@ mod tests {
         // Collect a set of delays; with jitter on a 1s base, we should see
         // some variation across 20 samples.
         let delays: Vec<Duration> = (0..20).map(|_| backoff.delay_for_attempt(0)).collect();
-        let unique_count = {
-            let mut unique = delays.clone();
-            unique.dedup();
-            unique.len()
-        };
+        let unique_count = delays
+            .iter()
+            .copied()
+            .collect::<std::collections::HashSet<_>>()
+            .len();
 
         // With random jitter on a 1-second base (250ms jitter range),
         // getting all 20 identical is astronomically unlikely.
