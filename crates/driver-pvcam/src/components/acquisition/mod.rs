@@ -79,6 +79,7 @@ pub struct StreamConfig {
     pub smart_stream_enabled: common::parameter::Parameter<bool>,
     pub smart_stream_exposures: common::parameter::Parameter<String>,
     pub prime_locate_enabled: common::parameter::Parameter<bool>,
+    pub prime_enhance_enabled: common::parameter::Parameter<bool>,
 }
 
 #[cfg(feature = "pvcam_sdk")]

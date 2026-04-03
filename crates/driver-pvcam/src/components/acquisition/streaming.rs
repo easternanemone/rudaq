@@ -63,6 +63,7 @@ impl PvcamAcquisition {
             smart_stream_enabled,
             smart_stream_exposures,
             prime_locate_enabled,
+            prime_enhance_enabled,
         } = config;
 
         // Avoid unused parameter warnings when hardware feature is disabled.
@@ -73,6 +74,7 @@ impl PvcamAcquisition {
         let _ = &smart_stream_enabled;
         let _ = &smart_stream_exposures;
         let _ = &prime_locate_enabled;
+        let _ = &prime_enhance_enabled;
         if self.streaming.get() {
             tracing::warn!("start_stream: already streaming");
             bail!("Already streaming");
@@ -125,6 +127,20 @@ impl PvcamAcquisition {
             // disabling metadata mid-acquisition risks data corruption.
             self.metadata_enabled.store(true, Ordering::Release);
             let use_metadata = true;
+
+            // bd-oqo7.3: Re-apply PrimeEnhance state before acquisition setup.
+            // The write callback sets PP state immediately on Parameter change,
+            // but camera power-cycles reset PP features. Re-apply on each start_stream
+            // to ensure the configured state is always active.
+            let use_prime_enhance = prime_enhance_enabled.get();
+            if use_prime_enhance {
+                tracing::info!("Re-applying PrimeEnhance enabled state for acquisition");
+                if let Err(e) = PvcamFeatures::set_prime_enhance(conn, true) {
+                    tracing::warn!(
+                        "Failed to re-apply PrimeEnhance: {e}. Continuing without denoising."
+                    );
+                }
+            }
 
             // bd-oqo7.1: Configure SMART Streaming before acquisition setup.
             // SMART Streaming lets the FPGA cycle through pre-programmed exposures,
@@ -1054,6 +1070,19 @@ impl PvcamAcquisition {
             smart_stream_enabled: smart_disabled,
             smart_stream_exposures: smart_empty,
             prime_locate_enabled,
+            prime_enhance_enabled: {
+                #[cfg(feature = "pvcam_sdk")]
+                {
+                    Parameter::new(
+                        "_single_frame_prime_enhance",
+                        PvcamFeatures::get_prime_enhance_enabled(conn).unwrap_or(false),
+                    )
+                }
+                #[cfg(not(feature = "pvcam_sdk"))]
+                {
+                    Parameter::new("_single_frame_prime_enhance", false)
+                }
+            },
         };
         self.start_stream(conn, config).await?;
 

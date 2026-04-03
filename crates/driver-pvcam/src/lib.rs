@@ -3141,6 +3141,7 @@ impl FrameProducer for PvcamDriver {
             smart_stream_enabled: self.smart_stream_enabled.clone(),
             smart_stream_exposures: self.smart_stream_exposures.clone(),
             prime_locate_enabled: self.prime_locate_enabled.clone(),
+            prime_enhance_enabled: self.prime_enhance_enabled.clone(),
         };
         self.acquisition.start_stream(&conn, config).await
     }
