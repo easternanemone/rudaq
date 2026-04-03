@@ -5,7 +5,6 @@ use super::AndorCamera;
 use super::{pause_apply_restart, sdk_blocking};
 use crate::types::{ElectronicShutteringMode, GateMode, TriggerMode};
 use common::core::Roi;
-use common::error::DaqError;
 use common::observable::ParameterSet;
 use common::parameter::Parameter;
 #[cfg(feature = "camera")]
