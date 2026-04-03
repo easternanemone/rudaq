@@ -339,7 +339,7 @@ impl ObserverHandle {
 ///
 /// ```rust,ignore
 /// use common::capabilities::{FrameObserver, ObserverHandle};
-/// use common::data::FrameView;
+/// use crate::data::FrameView;
 ///
 /// struct DecimatedObserver {
 ///     interval: u64,
@@ -383,7 +383,7 @@ pub trait FrameObserver: Send + Sync {
     /// Blocking or slow observers will stall the entire hardware driver loop,
     /// potentially causing buffer overflows in the SDK and dropping frames for
     /// all consumers.
-    fn on_frame(&self, frame: &common::data::FrameView<'_>);
+    fn on_frame(&self, frame: &crate::data::FrameView<'_>);
 
     /// Optional: Return a descriptive name for this observer (for debugging/logging).
     fn name(&self) -> &'static str {
