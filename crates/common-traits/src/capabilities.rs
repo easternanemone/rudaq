@@ -525,7 +525,7 @@ pub trait FrameProducer: Send + Sync {
     )]
     async fn subscribe_frames(
         &self,
-    ) -> Option<tokio::sync::broadcast::Receiver<std::sync::Arc<crate::data::Frame>>> {
+    ) -> Option<tokio::sync::broadcast::Receiver<std::sync::Arc<common::data::Frame>>> {
         // Default: no broadcast support
         None
     }
