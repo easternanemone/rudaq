@@ -206,9 +206,17 @@ async fn test_watch_reconciler_adds_removes_and_restarts_devices() {
         .await
         .unwrap();
     let instruments = resp.into_inner().instruments;
-    assert_eq!(instruments.len(), initial_count + 1, "Count should still be {} after modify", initial_count + 1);
+    assert_eq!(
+        instruments.len(),
+        initial_count + 1,
+        "Count should still be {} after modify",
+        initial_count + 1
+    );
 
-    let modified_instrument = instruments.iter().find(|i| i.device_id == "watch_test_rotator").expect("Modified instrument should exist");
+    let modified_instrument = instruments
+        .iter()
+        .find(|i| i.device_id == "watch_test_rotator")
+        .expect("Modified instrument should exist");
     assert_eq!(
         modified_instrument.name, "Watch Test Rotator (Modified)",
         "Name should be updated after modify"

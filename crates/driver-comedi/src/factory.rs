@@ -196,15 +196,12 @@ pub struct ComediAnalogOutputConfig {
 
 /// Mock analog input for testing.
 struct MockAnalogInput {
-    #[allow(dead_code)]
-    channel: u32,
     value: RwLock<f64>,
 }
 
 impl MockAnalogInput {
     fn new(channel: u32) -> Self {
         Self {
-            channel,
             value: RwLock::new(0.5 + 0.1 * f64::from(channel)), // Simulated offset per channel
         }
     }
@@ -226,15 +223,12 @@ impl MockAnalogInput {
 
 /// Mock analog output for testing.
 struct MockAnalogOutput {
-    #[allow(dead_code)]
-    channel: u32,
     value: RwLock<f64>,
 }
 
 impl MockAnalogOutput {
-    fn new(channel: u32) -> Self {
+    fn new(_channel: u32) -> Self {
         Self {
-            channel,
             value: RwLock::new(0.0),
         }
     }
@@ -580,11 +574,9 @@ pub struct ComediAnalogOutputDriver {
     mock: Option<Arc<MockAnalogOutput>>,
 
     /// Channel
-    #[allow(dead_code)]
     channel: u32,
 
     /// Range index
-    #[allow(dead_code)]
     range_index: u32,
 
     /// Parameter registry
@@ -723,6 +715,16 @@ impl ComediAnalogOutputDriver {
     /// Get the underlying analog output subsystem (if using real hardware).
     pub fn analog_output(&self) -> Option<&AnalogOutput> {
         self.analog_output.as_ref()
+    }
+
+    /// Get the channel number.
+    pub fn channel(&self) -> u32 {
+        self.channel
+    }
+
+    /// Get the range index.
+    pub fn range_index(&self) -> u32 {
+        self.range_index
     }
 }
 
@@ -1523,6 +1525,39 @@ mod tests {
         driver.write_voltage(2.5).await.expect("Failed to write");
         let readback = driver.read_output().await.expect("Failed to read");
         assert!((readback - 2.5).abs() < 0.001);
+    }
+
+    /// Regression test: calling `output.set(value)` on the exported parameter
+    /// must trigger the hardware writer and update the mock readback.
+    #[tokio::test]
+    async fn test_ao_parameter_set_triggers_hardware_write() {
+        let driver = ComediAnalogOutputDriver::new_async("/dev/comedi0", 0, 0, true)
+            .await
+            .expect("Failed to create mock AO driver");
+
+        // Get the output parameter (same object the registry exposes)
+        let output_param = driver.output().clone();
+
+        // Set via Parameter::set — this must invoke the hardware writer callback
+        output_param.set(4.56).await.expect("Parameter set failed");
+
+        // Verify the mock reflects the write
+        let readback = driver.read_output().await.expect("Failed to read output");
+        assert!(
+            (readback - 4.56).abs() < 1e-9,
+            "Expected 4.56, got {readback}"
+        );
+
+        // Verify the parameter's cached value also matches
+        let cached = output_param.get();
+        assert!(
+            (cached - 4.56).abs() < 1e-9,
+            "Parameter cache expected 4.56, got {cached}"
+        );
+
+        // Verify channel/range accessors
+        assert_eq!(driver.channel(), 0);
+        assert_eq!(driver.range_index(), 0);
     }
 
     #[tokio::test]
