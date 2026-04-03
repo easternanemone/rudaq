@@ -249,7 +249,7 @@ impl AndorCamera {
                     "Failed to set temperature target"
                 ),
                 Err(e) => {
-                    tracing::warn!(error = %e, "spawn_blocking failed for temperature control")
+                    tracing::warn!(error = %e, "FFI call failed for temperature control")
                 }
             }
         }
