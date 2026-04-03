@@ -50,86 +50,97 @@ impl FrameProducer for AndorCamera {
             // ── Step 1: Configure all features BEFORE reading sizes or queuing buffers.
             let trigger_str = self.inner.trigger_mode.get().to_string();
             let gate_str = self.inner.gate_mode.get().to_string();
-            let hw_ts_freq = crate::ffi_timeout::ffi_call({
-                let inner = inner.clone();
-                move || -> u64 {
-                    if Self::is_feature_implemented(handle, features::METADATA_ENABLE)
-                        .unwrap_or(false)
-                    {
-                        if let Err(e) =
-                            Self::set_bool_feature(handle, features::METADATA_ENABLE, true)
+            let hw_ts_freq = crate::ffi_timeout::ffi_call(
+                {
+                    let inner = inner.clone();
+                    move || -> u64 {
+                        if Self::is_feature_implemented(handle, features::METADATA_ENABLE)
+                            .unwrap_or(false)
                         {
-                            tracing::debug!("Could not enable MetadataEnable: {e}");
-                        }
-                    }
-
-                    if let Err(e) = Self::set_enum_feature(handle, "CycleMode", "Continuous") {
-                        tracing::error!("Failed to set CycleMode: {e}");
-                    }
-
-                    if let Err(e) = Self::set_enum_feature(handle, "TriggerMode", &trigger_str) {
-                        tracing::error!("Failed to set TriggerMode: {e}");
-                    }
-
-                    if let Err(e) = Self::set_enum_feature(handle, "GateMode", &gate_str) {
-                        tracing::debug!("GateMode not available (non-gated camera): {e}");
-                    }
-
-                    // bd-zg9e.1: When DDG mode is active, ensure DDGOutputSelector
-                    // targets the MCP gater so DDGOutputDelay/Width control the gate.
-                    if inner.gate_mode.get() == crate::types::GateMode::DDG {
-                        if let Err(e) = Self::set_enum_feature(handle, "DDGOutputSelector", "Gater")
-                        {
-                            tracing::debug!("DDGOutputSelector not available: {e}");
-                        }
-                        // bd-zg9e.2: Enable MCPIntelligate in DDG mode for UV safety
-                        if inner.info.features.mcp_intelligate && inner.mcp_intelligate.get() {
                             if let Err(e) =
-                                Self::set_bool_feature(handle, "MCPIntelligentGating", true)
+                                Self::set_bool_feature(handle, features::METADATA_ENABLE, true)
                             {
-                                tracing::debug!("MCPIntelligate not available: {e}");
+                                tracing::debug!("Could not enable MetadataEnable: {e}");
                             }
                         }
-                    }
 
-                    if let Err(e) = Self::set_enum_feature(handle, "ShutterMode", "Open") {
-                        tracing::debug!("ShutterMode not available: {e}");
-                    }
+                        if let Err(e) = Self::set_enum_feature(handle, "CycleMode", "Continuous") {
+                            tracing::error!("Failed to set CycleMode: {e}");
+                        }
 
-                    if Self::is_feature_implemented(handle, features::TIMESTAMP_CLOCK_FREQUENCY)
-                        .unwrap_or(false)
-                    {
-                        match Self::get_int_feature(handle, features::TIMESTAMP_CLOCK_FREQUENCY) {
-                            Ok(freq) if freq > 0 => {
-                                tracing::info!(freq, "Hardware timestamp clock frequency (Hz)");
-                                freq as u64
+                        if let Err(e) = Self::set_enum_feature(handle, "TriggerMode", &trigger_str)
+                        {
+                            tracing::error!("Failed to set TriggerMode: {e}");
+                        }
+
+                        if let Err(e) = Self::set_enum_feature(handle, "GateMode", &gate_str) {
+                            tracing::debug!("GateMode not available (non-gated camera): {e}");
+                        }
+
+                        // bd-zg9e.1: When DDG mode is active, ensure DDGOutputSelector
+                        // targets the MCP gater so DDGOutputDelay/Width control the gate.
+                        if inner.gate_mode.get() == crate::types::GateMode::DDG {
+                            if let Err(e) =
+                                Self::set_enum_feature(handle, "DDGOutputSelector", "Gater")
+                            {
+                                tracing::debug!("DDGOutputSelector not available: {e}");
                             }
-                            Ok(_) => 0,
-                            Err(e) => {
-                                tracing::debug!("Could not read TimestampClockFrequency: {e}");
-                                0
+                            // bd-zg9e.2: Enable MCPIntelligate in DDG mode for UV safety
+                            if inner.info.features.mcp_intelligate && inner.mcp_intelligate.get() {
+                                if let Err(e) =
+                                    Self::set_bool_feature(handle, "MCPIntelligentGating", true)
+                                {
+                                    tracing::debug!("MCPIntelligate not available: {e}");
+                                }
                             }
                         }
-                    } else {
-                        0
+
+                        if let Err(e) = Self::set_enum_feature(handle, "ShutterMode", "Open") {
+                            tracing::debug!("ShutterMode not available: {e}");
+                        }
+
+                        if Self::is_feature_implemented(handle, features::TIMESTAMP_CLOCK_FREQUENCY)
+                            .unwrap_or(false)
+                        {
+                            match Self::get_int_feature(handle, features::TIMESTAMP_CLOCK_FREQUENCY)
+                            {
+                                Ok(freq) if freq > 0 => {
+                                    tracing::info!(freq, "Hardware timestamp clock frequency (Hz)");
+                                    freq as u64
+                                }
+                                Ok(_) => 0,
+                                Err(e) => {
+                                    tracing::debug!("Could not read TimestampClockFrequency: {e}");
+                                    0
+                                }
+                            }
+                        } else {
+                            0
+                        }
                     }
-                }
-            }, crate::ffi_timeout::FFI_ACQ_TIMEOUT, "start_stream:configure")
+                },
+                crate::ffi_timeout::FFI_ACQ_TIMEOUT,
+                "start_stream:configure",
+            )
             .await
             .unwrap_or(0);
             inner.hw_timestamp_freq.store(hw_ts_freq, Ordering::Relaxed);
 
             // ── Step 2: Read frame dimensions AFTER all configuration is complete.
             let (image_size, aoi_width, aoi_height, aoi_stride, pixel_encoding) =
-                crate::ffi_timeout::ffi_call(move || -> Result<(usize, u32, u32, usize, String)> {
-                    let img_bytes = Self::get_int_feature(handle, "ImageSizeBytes")? as usize;
-                    let w = Self::get_int_feature(handle, "AOIWidth")? as u32;
-                    let h = Self::get_int_feature(handle, "AOIHeight")? as u32;
-                    let stride = Self::get_int_feature(handle, "AOIStride")? as usize;
-                    let encoding = Self::get_enum_string(handle, "PixelEncoding")
-                        .unwrap_or_else(|_| "Unknown".to_string());
-                    Ok((img_bytes, w, h, stride, encoding))
-                }, crate::ffi_timeout::FFI_QUERY_TIMEOUT, "start_stream:read_dimensions")
+                crate::ffi_timeout::ffi_call(
+                    move || -> Result<(usize, u32, u32, usize, String)> {
+                        let img_bytes = Self::get_int_feature(handle, "ImageSizeBytes")? as usize;
+                        let w = Self::get_int_feature(handle, "AOIWidth")? as u32;
+                        let h = Self::get_int_feature(handle, "AOIHeight")? as u32;
+                        let stride = Self::get_int_feature(handle, "AOIStride")? as usize;
+                        let encoding = Self::get_enum_string(handle, "PixelEncoding")
+                            .unwrap_or_else(|_| "Unknown".to_string());
+                        Ok((img_bytes, w, h, stride, encoding))
+                    },
+                    crate::ffi_timeout::FFI_QUERY_TIMEOUT,
+                    "start_stream:read_dimensions",
+                )
                 .await??;
 
             // Warn if AOI doesn't match full sensor — indicates stale or user-set crop.
@@ -178,33 +189,37 @@ impl FrameProducer for AndorCamera {
             let buffer_count = crate::buffer::DEFAULT_BUFFER_COUNT;
             let sdk_buffers = Arc::new(crate::buffer::SdkBufferSet::new(buffer_count, image_size));
 
-            crate::ffi_timeout::ffi_call({
-                let sdk_buffers = sdk_buffers.clone();
-                move || -> Result<()> {
-                    use crate::error::sdk_result;
-                    unsafe {
-                        for buf in sdk_buffers.iter() {
-                            let ret = AT_QueueBuffer(
-                                handle,
-                                buf.as_ptr(),
-                                buf.size() as std::os::raw::c_int,
+            crate::ffi_timeout::ffi_call(
+                {
+                    let sdk_buffers = sdk_buffers.clone();
+                    move || -> Result<()> {
+                        use crate::error::sdk_result;
+                        unsafe {
+                            for buf in sdk_buffers.iter() {
+                                let ret = AT_QueueBuffer(
+                                    handle,
+                                    buf.as_ptr(),
+                                    buf.size() as std::os::raw::c_int,
+                                );
+                                sdk_result(ret)?;
+                            }
+
+                            let feature = to_wide_string("AcquisitionStart");
+                            tracing::debug!(
+                                sdk_handle = handle,
+                                buffer_count,
+                                image_size,
+                                "Issuing AT_Command(AcquisitionStart) after buffer queue"
                             );
+                            let ret = AT_Command(handle, feature.as_ptr());
                             sdk_result(ret)?;
                         }
-
-                        let feature = to_wide_string("AcquisitionStart");
-                        tracing::debug!(
-                            sdk_handle = handle,
-                            buffer_count,
-                            image_size,
-                            "Issuing AT_Command(AcquisitionStart) after buffer queue"
-                        );
-                        let ret = AT_Command(handle, feature.as_ptr());
-                        sdk_result(ret)?;
+                        Ok(())
                     }
-                    Ok(())
-                }
-            }, crate::ffi_timeout::FFI_ACQ_TIMEOUT, "start_stream:queue_and_start")
+                },
+                crate::ffi_timeout::FFI_ACQ_TIMEOUT,
+                "start_stream:queue_and_start",
+            )
             .await??;
 
             // Store buffer set on inner so pause_apply_restart can flush/re-queue (bd-71sq)
@@ -269,23 +284,27 @@ impl FrameProducer for AndorCamera {
         #[cfg(feature = "camera")]
         {
             let handle = self.inner.handle;
-            crate::ffi_timeout::ffi_call(move || -> Result<()> {
-                use crate::error::sdk_result;
-                unsafe {
-                    tracing::debug!(sdk_handle = handle, "Issuing AT_Command(AcquisitionStop)");
-                    let feature = to_wide_string("AcquisitionStop");
-                    let ret = AT_Command(handle, feature.as_ptr());
-                    sdk_result(ret)?;
+            crate::ffi_timeout::ffi_call(
+                move || -> Result<()> {
+                    use crate::error::sdk_result;
+                    unsafe {
+                        tracing::debug!(sdk_handle = handle, "Issuing AT_Command(AcquisitionStop)");
+                        let feature = to_wide_string("AcquisitionStop");
+                        let ret = AT_Command(handle, feature.as_ptr());
+                        sdk_result(ret)?;
 
-                    tracing::debug!(
-                        sdk_handle = handle,
-                        "Issuing AT_Flush after AcquisitionStop"
-                    );
-                    let ret = AT_Flush(handle);
-                    sdk_result(ret)?;
-                }
-                Ok(())
-            }, crate::ffi_timeout::FFI_ACQ_TIMEOUT, "stop_stream:stop_and_flush")
+                        tracing::debug!(
+                            sdk_handle = handle,
+                            "Issuing AT_Flush after AcquisitionStop"
+                        );
+                        let ret = AT_Flush(handle);
+                        sdk_result(ret)?;
+                    }
+                    Ok(())
+                },
+                crate::ffi_timeout::FFI_ACQ_TIMEOUT,
+                "stop_stream:stop_and_flush",
+            )
             .await??;
 
             // Clear stored buffer set (bd-71sq)
@@ -482,28 +501,32 @@ impl AndorCamera {
                 }
             }
 
-            let requeue_result = crate::ffi_timeout::ffi_call({
-                let sdk_buffers = sdk_buffers.clone();
-                move || -> Result<()> {
-                    use crate::error::sdk_result;
-                    let frame_ptr = frame_ptr_addr as *const u8;
-                    if let Some(idx) = sdk_buffers.index_for_ptr(frame_ptr) {
-                        if let Some(buf) = sdk_buffers.get(idx) {
-                            unsafe {
-                                let ret = AT_QueueBuffer(
-                                    handle,
-                                    buf.as_ptr(),
-                                    buf.size() as std::os::raw::c_int,
-                                );
-                                sdk_result(ret)?;
+            let requeue_result = crate::ffi_timeout::ffi_call(
+                {
+                    let sdk_buffers = sdk_buffers.clone();
+                    move || -> Result<()> {
+                        use crate::error::sdk_result;
+                        let frame_ptr = frame_ptr_addr as *const u8;
+                        if let Some(idx) = sdk_buffers.index_for_ptr(frame_ptr) {
+                            if let Some(buf) = sdk_buffers.get(idx) {
+                                unsafe {
+                                    let ret = AT_QueueBuffer(
+                                        handle,
+                                        buf.as_ptr(),
+                                        buf.size() as std::os::raw::c_int,
+                                    );
+                                    sdk_result(ret)?;
+                                }
                             }
+                        } else {
+                            tracing::error!("WaitBuffer returned unknown pointer");
                         }
-                    } else {
-                        tracing::error!("WaitBuffer returned unknown pointer");
+                        Ok(())
                     }
-                    Ok(())
-                }
-            }, crate::ffi_timeout::FFI_QUERY_TIMEOUT, "acq_loop:requeue_buffer")
+                },
+                crate::ffi_timeout::FFI_QUERY_TIMEOUT,
+                "acq_loop:requeue_buffer",
+            )
             .await;
 
             if let Err(e) = requeue_result {
@@ -618,15 +641,19 @@ impl Triggerable for AndorCamera {
         #[cfg(feature = "camera")]
         {
             let handle = self.inner.handle;
-            crate::ffi_timeout::ffi_call(move || {
-                use crate::error::sdk_result;
-                unsafe {
-                    let feature = to_wide_string("SoftwareTrigger");
-                    let ret = AT_Command(handle, feature.as_ptr());
-                    sdk_result(ret)?;
-                    Ok::<(), anyhow::Error>(())
-                }
-            }, crate::ffi_timeout::FFI_CONFIG_TIMEOUT, "trigger:software_trigger")
+            crate::ffi_timeout::ffi_call(
+                move || {
+                    use crate::error::sdk_result;
+                    unsafe {
+                        let feature = to_wide_string("SoftwareTrigger");
+                        let ret = AT_Command(handle, feature.as_ptr());
+                        sdk_result(ret)?;
+                        Ok::<(), anyhow::Error>(())
+                    }
+                },
+                crate::ffi_timeout::FFI_CONFIG_TIMEOUT,
+                "trigger:software_trigger",
+            )
             .await??;
         }
 

@@ -66,9 +66,11 @@ impl AndorCamera {
                             param.connect_to_hardware_write(move |val: f64| {
                                 let fname = fname.clone();
                                 Box::pin(async move {
-                                    crate::ffi_timeout::ffi_call_daq(move || {
-                                        AndorCamera::set_float_feature(handle, &fname, val)
-                                    }, crate::ffi_timeout::FFI_CONFIG_TIMEOUT, "dynamic:set_float")
+                                    crate::ffi_timeout::ffi_call_daq(
+                                        move || AndorCamera::set_float_feature(handle, &fname, val),
+                                        crate::ffi_timeout::FFI_CONFIG_TIMEOUT,
+                                        "dynamic:set_float",
+                                    )
                                     .await
                                 })
                             });
@@ -98,9 +100,11 @@ impl AndorCamera {
                             param.connect_to_hardware_write(move |val: i64| {
                                 let fname = fname.clone();
                                 Box::pin(async move {
-                                    crate::ffi_timeout::ffi_call_daq(move || {
-                                        AndorCamera::set_int_feature(handle, &fname, val)
-                                    }, crate::ffi_timeout::FFI_CONFIG_TIMEOUT, "dynamic:set_int")
+                                    crate::ffi_timeout::ffi_call_daq(
+                                        move || AndorCamera::set_int_feature(handle, &fname, val),
+                                        crate::ffi_timeout::FFI_CONFIG_TIMEOUT,
+                                        "dynamic:set_int",
+                                    )
                                     .await
                                 })
                             });
@@ -126,9 +130,11 @@ impl AndorCamera {
                             param.connect_to_hardware_write(move |val: bool| {
                                 let fname = fname.clone();
                                 Box::pin(async move {
-                                    crate::ffi_timeout::ffi_call_daq(move || {
-                                        AndorCamera::set_bool_feature(handle, &fname, val)
-                                    }, crate::ffi_timeout::FFI_CONFIG_TIMEOUT, "dynamic:set_bool")
+                                    crate::ffi_timeout::ffi_call_daq(
+                                        move || AndorCamera::set_bool_feature(handle, &fname, val),
+                                        crate::ffi_timeout::FFI_CONFIG_TIMEOUT,
+                                        "dynamic:set_bool",
+                                    )
                                     .await
                                 })
                             });
@@ -157,9 +163,11 @@ impl AndorCamera {
                             param.connect_to_hardware_write(move |val: String| {
                                 let fname = fname.clone();
                                 Box::pin(async move {
-                                    crate::ffi_timeout::ffi_call_daq(move || {
-                                        AndorCamera::set_enum_feature(handle, &fname, &val)
-                                    }, crate::ffi_timeout::FFI_CONFIG_TIMEOUT, "dynamic:set_enum")
+                                    crate::ffi_timeout::ffi_call_daq(
+                                        move || AndorCamera::set_enum_feature(handle, &fname, &val),
+                                        crate::ffi_timeout::FFI_CONFIG_TIMEOUT,
+                                        "dynamic:set_enum",
+                                    )
                                     .await
                                 })
                             });

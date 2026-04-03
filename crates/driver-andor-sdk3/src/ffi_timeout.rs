@@ -69,11 +69,7 @@ where
 ///
 /// Designed for `Parameter<T>` hardware-write callbacks where the return type
 /// must be `Result<T, DaqError>`.
-pub(crate) async fn ffi_call_daq<F, R>(
-    f: F,
-    timeout: Duration,
-    label: &str,
-) -> Result<R, DaqError>
+pub(crate) async fn ffi_call_daq<F, R>(f: F, timeout: Duration, label: &str) -> Result<R, DaqError>
 where
     F: FnOnce() -> anyhow::Result<R> + Send + 'static,
     R: Send + 'static,
