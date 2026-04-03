@@ -38,9 +38,15 @@ pub fn restart_acquisition(
     circ_ptr: *mut u8,
     circ_size_bytes: u32,
 ) -> Result<(), String> {
-    debug_assert!(hcam >= 0, "Invalid camera handle: {}", hcam);
-    debug_assert!(!circ_ptr.is_null(), "Circular buffer pointer is null");
-    debug_assert!(circ_size_bytes > 0, "Circular buffer size must be > 0");
+    if hcam < 0 {
+        return Err(format!("Invalid camera handle: {hcam}"));
+    }
+    if circ_ptr.is_null() {
+        return Err("Circular buffer pointer is null".to_string());
+    }
+    if circ_size_bytes == 0 {
+        return Err("Circular buffer size must be > 0".to_string());
+    }
 
     // SAFETY: Caller guarantees hcam is valid, circ_ptr is valid page-aligned buffer
     let result = unsafe { pl_exp_start_cont(hcam, circ_ptr as *mut _, circ_size_bytes) };
@@ -82,9 +88,15 @@ pub(crate) fn full_restart_acquisition(
     circ_size_bytes: u32,
     circ_overwrite: bool,
 ) -> Result<uns32, String> {
-    debug_assert!(hcam >= 0, "Invalid camera handle: {}", hcam);
-    debug_assert!(!circ_ptr.is_null(), "Circular buffer pointer is null");
-    debug_assert!(circ_size_bytes > 0, "Circular buffer size must be > 0");
+    if hcam < 0 {
+        return Err(format!("Invalid camera handle: {hcam}"));
+    }
+    if circ_ptr.is_null() {
+        return Err("Circular buffer pointer is null".to_string());
+    }
+    if circ_size_bytes == 0 {
+        return Err("Circular buffer size must be > 0".to_string());
+    }
 
     let (x_bin, y_bin) = binning;
 
@@ -410,7 +422,10 @@ pub fn release_oldest_frame(hcam: i16) -> bool {
 /// - `Some(ptr)` - valid md_frame pointer (must be released with `release_md_frame`)
 /// - `None` if creation failed
 pub fn create_md_frame(roi_count: u16) -> Option<*mut md_frame> {
-    debug_assert!(roi_count > 0, "ROI count must be positive");
+    if roi_count == 0 {
+        tracing::error!("create_md_frame called with roi_count=0");
+        return None;
+    }
     let mut ptr: *mut md_frame = std::ptr::null_mut();
 
     // SAFETY: ptr is a valid stack allocation, roi_count is validated
@@ -499,9 +514,15 @@ pub fn decode_frame_metadata(
     frame_ptr: *const std::ffi::c_void,
     frame_size: u32,
 ) -> bool {
-    debug_assert!(!md_frame_ptr.is_null(), "md_frame_ptr must not be null");
-    debug_assert!(!frame_ptr.is_null(), "frame_ptr must not be null");
-    debug_assert!(frame_size > 0, "frame_size must be positive");
+    if md_frame_ptr.is_null() || frame_ptr.is_null() || frame_size == 0 {
+        tracing::error!(
+            "decode_frame_metadata: invalid args (md_null={}, frame_null={}, size={})",
+            md_frame_ptr.is_null(),
+            frame_ptr.is_null(),
+            frame_size
+        );
+        return false;
+    }
 
     // SAFETY: All pointers are valid per caller contract, frame_size matches buffer
     let result = unsafe { pl_md_frame_decode(md_frame_ptr, frame_ptr as *mut _, frame_size) };
@@ -658,9 +679,15 @@ pub fn setup_multi_roi_cont(
     exposure_ms: u32,
     buffer_mode: i16,
 ) -> Result<uns32, String> {
-    debug_assert!(hcam >= 0, "Invalid camera handle: {}", hcam);
-    debug_assert!(!regions.is_empty(), "At least one region required");
-    debug_assert!(regions.len() <= 16, "PVCAM supports at most 16 ROIs");
+    if hcam < 0 {
+        return Err(format!("Invalid camera handle: {hcam}"));
+    }
+    if regions.is_empty() {
+        return Err("At least one region required".to_string());
+    }
+    if regions.len() > 16 {
+        return Err(format!("Maximum 16 ROIs supported, got {}", regions.len()));
+    }
 
     let rgn_count = regions.len() as u16;
     let mut frame_bytes: uns32 = 0;

@@ -12,9 +12,9 @@
     missing_docs
 )]
 //! Integration test to verify gRPC API definitions are accessible
-//! Requires 'networking' feature
+//! Requires 'server' feature
 
-#![cfg(feature = "networking")]
+#![cfg(feature = "server")]
 
 use protocol::daq::{
     DataPoint, MeasurementRequest, ScriptStatus, StartRequest, StartResponse, StatusRequest,
