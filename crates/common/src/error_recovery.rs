@@ -159,12 +159,13 @@ impl Default for ExponentialBackoff {
 /// # Example
 ///
 /// ```rust
-/// use common::error_recovery::RetryPolicy;
+/// use common::error_recovery::{RetryPolicy, BackoffStrategy};
 /// use std::time::Duration;
 ///
 /// let policy = RetryPolicy {
 ///     max_attempts: 5,
 ///     backoff_delay: Duration::from_millis(200),
+///     backoff_strategy: BackoffStrategy::Constant,
 /// };
 /// ```
 #[derive(Clone, Debug)]
