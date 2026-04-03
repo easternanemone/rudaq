@@ -652,7 +652,7 @@ impl AndorSpectrograph {
         #[cfg(feature = "spectrograph")]
         {
             let handle = self.inner.handle;
-            tokio::task::spawn_blocking(move || {
+            crate::ffi_timeout::ffi_call(move || {
                 use crate::error::sdk_result;
                 unsafe {
                     let mut filter: i32 = 0;
@@ -660,7 +660,7 @@ impl AndorSpectrograph {
                     sdk_result(ret)?;
                     Ok(FilterPosition(filter))
                 }
-            })
+            }, crate::ffi_timeout::FFI_QUERY_TIMEOUT, "get_filter")
             .await?
         }
 
