@@ -2268,18 +2268,24 @@ impl PvcamDriver {
                         ));
                     }
                     let conn_guard = conn.lock_owned().await;
-                    tokio::task::spawn_blocking(move || {
-                        let modes = PvcamFeatures::list_gain_modes(&conn_guard)
-                            .map_err(|e| DaqError::Instrument(e.to_string()))?;
-                        if let Some(mode) = modes.iter().find(|m| m.name == name) {
-                            PvcamFeatures::set_gain_index(&conn_guard, mode.index)
-                                .map_err(|e| DaqError::Instrument(e.to_string()))
-                        } else {
-                            Err(DaqError::Instrument(format!("Invalid gain mode: {}", name)))
-                        }
-                    })
+                    ffi_timeout::ffi_with_timeout_daq(
+                        "set_gain_mode",
+                        ffi_timeout::CONFIG_TIMEOUT,
+                        move || {
+                            let modes = PvcamFeatures::list_gain_modes(&conn_guard)
+                                .map_err(|e| DaqError::Instrument(e.to_string()))?;
+                            if let Some(mode) = modes.iter().find(|m| m.name == name) {
+                                PvcamFeatures::set_gain_index(&conn_guard, mode.index)
+                                    .map_err(|e| DaqError::Instrument(e.to_string()))
+                            } else {
+                                Err(DaqError::Instrument(format!(
+                                    "Invalid gain mode: {}",
+                                    name
+                                )))
+                            }
+                        },
+                    )
                     .await
-                    .map_err(|e| DaqError::Instrument(e.to_string()))?
                 })
             }
         });
