@@ -1129,7 +1129,7 @@ impl PvcamAcquisition {
                 }
 
                 // bd-5oss: Send through primary_tx if registered (pooled path)
-                if let (Some(ref p_tx), Some(ref pool)) = (&primary_tx, &frame_pool) {
+                if let (Some(p_tx), Some(pool)) = (&primary_tx, &frame_pool) {
                     if let Some(mut loaned_frame) = pool.try_acquire() {
                         let frame_data = loaned_frame.get_mut();
                         frame_data.width = binned_width;
