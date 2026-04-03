@@ -295,9 +295,9 @@ impl AndorCamera {
         #[cfg(feature = "camera")]
         {
             let handle = self.inner.handle;
-            let status_str = tokio::task::spawn_blocking(move || {
+            let status_str = crate::ffi_timeout::ffi_call(move || {
                 Self::get_enum_string(handle, "TemperatureStatus")
-            })
+            }, crate::ffi_timeout::FFI_QUERY_TIMEOUT, "get_cooling_status")
             .await??;
 
             return match status_str.as_str() {
