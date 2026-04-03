@@ -224,7 +224,11 @@ PY
     cd "$LIVE_CLI_DIR"
     for name in issues comments dependencies labels config events interactions; do
       if [[ -f "$tmpdir/$name.json" ]]; then
-        dolt table import -u --file-type json "$name" "$tmpdir/$name.json" >/dev/null
+        if dolt schema show "$name" >/dev/null 2>&1; then
+          dolt table import -u --file-type json "$name" "$tmpdir/$name.json" >/dev/null
+        else
+          dolt table import -c --file-type json "$name" "$tmpdir/$name.json" >/dev/null
+        fi
       fi
     done
   )
@@ -263,6 +267,23 @@ Note: beads auto-backup already reserves $repo_backup_url as Dolt backup 'backup
 EOF
   fi
 }
+
+# Derive the sync branch from .beads/config.yaml (or fall back to "main").
+BEADS_CONFIG="$REPO_ROOT/.beads/config.yaml"
+SYNC_BRANCH="main"
+if [[ -f "$BEADS_CONFIG" ]]; then
+  _parsed_branch="$(python3 -c '
+import sys, re
+for line in open(sys.argv[1]):
+    m = re.match(r"^sync-branch:\s*[\"'"'"']?([^\"'"'"'#\s]+)", line)
+    if m:
+        print(m.group(1))
+        break
+' "$BEADS_CONFIG" 2>/dev/null || true)"
+  if [[ -n "$_parsed_branch" ]]; then
+    SYNC_BRANCH="$_parsed_branch"
+  fi
+fi
 
 ORIGIN_URL="${BEADS_DOLT_ORIGIN:-}"
 if [[ -z "$ORIGIN_URL" ]]; then
@@ -312,7 +333,7 @@ if [[ "$ORIGIN_URL" == file://* ]]; then
   fi
 
   push_output="$(
-    cd "$LIVE_CLI_DIR" && dolt push -u origin main 2>&1
+    cd "$LIVE_CLI_DIR" && dolt push -u origin "$SYNC_BRANCH" 2>&1
   )" || push_status=$?
   push_status="${push_status:-0}"
 
@@ -323,7 +344,7 @@ if [[ "$ORIGIN_URL" == file://* ]]; then
       echo "Reseeded local file remote from the repaired embedded checkout."
       (
         cd "$LIVE_CLI_DIR"
-        dolt push -u origin main >/dev/null
+        dolt push -u origin "$SYNC_BRANCH" >/dev/null
       )
     else
       echo "$push_output" >&2
