@@ -17,6 +17,9 @@
 )]
 
 use crate::rectification::RectifiedOrder;
+use std::time::Instant;
+
+use tracing::info;
 
 /// Configuration for optimal extraction.
 #[derive(Debug, Clone)]
@@ -97,6 +100,7 @@ pub fn optimal_extract(
     sky: Option<&[f32]>,
     config: &OptimalExtractionConfig,
 ) -> Option<OptimalExtractionResult> {
+    let start_time = Instant::now();
     let n_disp = rect.n_dispersion;
     let n_cross = rect.n_cross;
 
@@ -105,7 +109,18 @@ pub fn optimal_extract(
     }
 
     // Stage A: Fit spatial profile.
+    let stage_a_start = Instant::now();
     let profile = fit_spatial_profile(rect, sky);
+    let stage_a_duration = stage_a_start.elapsed();
+    let stage_a_ms = stage_a_duration.as_secs_f64() * 1000.0;
+
+    info!(
+        target: "echelle::optimal_extraction",
+        order_index = %rect.order_index,
+        stage = "A",
+        duration_ms = stage_a_ms,
+        "Stage A: Spatial profile fitting completed"
+    );
 
     // Initialize pixel mask (true = use this pixel).
     let mut pixel_mask = vec![true; n_cross * n_disp];
@@ -119,12 +134,19 @@ pub fn optimal_extract(
     let mut n_cr_rejected = 0;
 
     // Outer loop: Stage B + Stage C iteration.
+    let stage_bc_start = Instant::now();
     let mut flux = vec![0.0f64; n_disp];
     let mut variance = vec![0.0f64; n_disp];
     let mut frac_use = vec![0.0f64; n_disp];
 
+    let mut stage_b_total = std::time::Duration::from_secs(0);
+    let mut stage_c_total = std::time::Duration::from_secs(0);
+    let mut n_iterations = 0;
+
     for iteration in 0..=config.max_cr_iterations {
+        n_iterations = iteration + 1;
         // Stage B: Optimal extraction.
+        let stage_b_start = Instant::now();
         extract_with_profile(
             rect,
             sky,
@@ -136,19 +158,59 @@ pub fn optimal_extract(
             &mut frac_use,
             iteration == 0,
         );
+        let stage_b_duration = stage_b_start.elapsed();
+        stage_b_total += stage_b_duration;
+
+        info!(
+            target: "echelle::optimal_extraction",
+            order_index = %rect.order_index,
+            stage = "B",
+            iteration = iteration + 1,
+            duration_ms = stage_b_duration.as_secs_f64() * 1000.0,
+            "Stage B: Optimal extraction completed"
+        );
 
         if iteration == config.max_cr_iterations {
             break;
         }
 
         // Stage C: Cosmic ray rejection.
+        let stage_c_start = Instant::now();
         let n_flagged = reject_cosmic_rays(rect, sky, &profile, &flux, &mut pixel_mask, config);
+        let stage_c_duration = stage_c_start.elapsed();
+        stage_c_total += stage_c_duration;
+
+        info!(
+            target: "echelle::optimal_extraction",
+            order_index = %rect.order_index,
+            stage = "C",
+            iteration = iteration + 1,
+            duration_ms = stage_c_duration.as_secs_f64() * 1000.0,
+            n_flagged = n_flagged,
+            "Stage C: Cosmic ray rejection completed"
+        );
 
         n_cr_rejected += n_flagged;
         if n_flagged == 0 {
             break;
         }
     }
+
+    let stage_bc_duration = stage_bc_start.elapsed();
+    let stage_bc_ms = stage_bc_duration.as_secs_f64() * 1000.0;
+    let stage_b_avg_ms = stage_b_total.as_secs_f64() * 1000.0 / n_iterations as f64;
+    let stage_c_avg_ms = stage_c_total.as_secs_f64() * 1000.0 / n_iterations as f64;
+
+    info!(
+        target: "echelle::optimal_extraction",
+        order_index = %rect.order_index,
+        stage = "B+C",
+        total_duration_ms = stage_bc_ms,
+        stage_b_avg_ms = stage_b_avg_ms,
+        stage_c_avg_ms = stage_c_avg_ms,
+        iterations = n_iterations,
+        "Stages B+C: Extraction and cosmic ray rejection loop completed"
+    );
 
     // Mask flux where coverage is too low.
     for col in 0..n_disp {
@@ -157,6 +219,24 @@ pub fn optimal_extract(
             variance[col] = 0.0;
         }
     }
+
+    // Overall timing summary
+    let total_duration = start_time.elapsed();
+    let total_ms = total_duration.as_secs_f64() * 1000.0;
+    let stage_a_pct = stage_a_duration.as_secs_f64() / total_duration.as_secs_f64() * 100.0;
+    let stage_bc_pct = stage_bc_duration.as_secs_f64() / total_duration.as_secs_f64() * 100.0;
+
+    info!(
+        target: "echelle::optimal_extraction",
+        order_index = %rect.order_index,
+        total_duration_ms = total_ms,
+        stage_a_duration_ms = stage_a_ms,
+        stage_bc_duration_ms = stage_bc_ms,
+        stage_a_percent = stage_a_pct,
+        stage_bc_percent = stage_bc_pct,
+        n_cr_rejected = n_cr_rejected,
+        "Optimal extraction completed for order"
+    );
 
     Some(OptimalExtractionResult {
         flux,
