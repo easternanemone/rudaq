@@ -12,7 +12,9 @@
 #![allow(rustdoc::broken_intra_doc_links)]
 
 pub mod capabilities;
+pub mod data;
 pub mod driver;
+pub mod error;
 pub mod modules;
 pub mod observable;
 pub mod parameter;
