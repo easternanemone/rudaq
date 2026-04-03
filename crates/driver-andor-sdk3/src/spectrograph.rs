@@ -678,14 +678,14 @@ impl AndorSpectrograph {
         {
             let handle = self.inner.handle;
             let pos = position.0;
-            tokio::task::spawn_blocking(move || {
+            crate::ffi_timeout::ffi_call(move || {
                 use crate::error::sdk_result;
                 unsafe {
                     let ret = ShamrockSetFilter(handle, pos);
                     sdk_result(ret)?;
                     Ok::<(), anyhow::Error>(())
                 }
-            })
+            }, crate::ffi_timeout::FFI_MOTION_TIMEOUT, "set_filter")
             .await??;
         }
 
