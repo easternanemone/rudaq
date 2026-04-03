@@ -324,49 +324,54 @@ impl PvcamDriver {
 
         // Run initialization in blocking task
 
-        let (connection, early_pp_features) = tokio::task::spawn_blocking({
-            #[cfg(feature = "pvcam_sdk")]
-            let name = camera_name.clone();
-            move || -> Result<(Arc<Mutex<PvcamConnection>>, Vec<PPFeature>)> {
+        let (connection, early_pp_features) = ffi_timeout::ffi_with_timeout(
+            "PVCAM SDK init",
+            ffi_timeout::ACQUISITION_TIMEOUT,
+            {
                 #[cfg(feature = "pvcam_sdk")]
-                let mut conn = PvcamConnection::new();
-                #[cfg(not(feature = "pvcam_sdk"))]
-                let conn = PvcamConnection::new();
+                let name = camera_name.clone();
+                move || -> Result<(Arc<Mutex<PvcamConnection>>, Vec<PPFeature>)> {
+                    #[cfg(feature = "pvcam_sdk")]
+                    let mut conn = PvcamConnection::new();
+                    #[cfg(not(feature = "pvcam_sdk"))]
+                    let conn = PvcamConnection::new();
 
-                let pp_features;
-                #[cfg(feature = "pvcam_sdk")]
-                {
-                    tracing::info!("Initializing PVCAM SDK...");
-                    conn.initialize()?;
-                    tracing::info!("PVCAM SDK initialized, opening camera: {}", name);
-                    conn.open(&name)?;
-                    tracing::info!("Camera opened successfully, handle: {:?}", conn.handle());
+                    let pp_features;
+                    #[cfg(feature = "pvcam_sdk")]
+                    {
+                        tracing::info!("Initializing PVCAM SDK...");
+                        conn.initialize()?;
+                        tracing::info!("PVCAM SDK initialized, opening camera: {}", name);
+                        conn.open(&name)?;
+                        tracing::info!("Camera opened successfully, handle: {:?}", conn.handle());
 
-                    // Reset and enumerate PP features IMMEDIATELY after open, before any
-                    // other SDK calls. Speed table enumeration changes readout config which
-                    // invalidates PP feature availability (PARAM_PP_INDEX becomes unsupported).
-                    // (bd-ldjy.1: confirmed via C probe that PP features work before speed table)
-                    if let Err(e) = PvcamFeatures::reset_pp_features(&conn) {
-                        tracing::warn!("Failed to reset PP features: {e}");
+                        // Reset and enumerate PP features IMMEDIATELY after open, before any
+                        // other SDK calls. Speed table enumeration changes readout config which
+                        // invalidates PP feature availability (PARAM_PP_INDEX becomes unsupported).
+                        // (bd-ldjy.1: confirmed via C probe that PP features work before speed table)
+                        if let Err(e) = PvcamFeatures::reset_pp_features(&conn) {
+                            tracing::warn!("Failed to reset PP features: {e}");
+                        }
+                        pp_features =
+                            PvcamFeatures::enumerate_pp_features(&conn).unwrap_or_default();
+                        tracing::info!(
+                            "PP features discovered: {} (before speed table build)",
+                            pp_features.len()
+                        );
+                        for f in &pp_features {
+                            tracing::info!("  PP[{}]: '{}' (id={})", f.index, f.name, f.id);
+                        }
                     }
-                    pp_features = PvcamFeatures::enumerate_pp_features(&conn).unwrap_or_default();
-                    tracing::info!(
-                        "PP features discovered: {} (before speed table build)",
-                        pp_features.len()
-                    );
-                    for f in &pp_features {
-                        tracing::info!("  PP[{}]: '{}' (id={})", f.index, f.name, f.id);
+                    #[cfg(not(feature = "pvcam_sdk"))]
+                    {
+                        pp_features = Vec::new();
+                        tracing::warn!("pvcam_sdk feature NOT enabled - using mock mode");
                     }
+                    Ok((Arc::new(Mutex::new(conn)), pp_features))
                 }
-                #[cfg(not(feature = "pvcam_sdk"))]
-                {
-                    pp_features = Vec::new();
-                    tracing::warn!("pvcam_sdk feature NOT enabled - using mock mode");
-                }
-                Ok((Arc::new(Mutex::new(conn)), pp_features))
-            }
-        })
-        .await??;
+            },
+        )
+        .await?;
 
         Self::create(camera_name, connection, early_pp_features).await
     }
