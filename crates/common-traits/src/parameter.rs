@@ -101,7 +101,7 @@ use std::fmt::Debug;
 use std::sync::Arc;
 use tokio::sync::{watch, RwLock};
 
-use common::error::DaqError;
+use crate::error::DaqError;
 use crate::observable::{Observable, ParameterAny, ParameterBase as ObservableParameterBase};
 
 // =============================================================================
