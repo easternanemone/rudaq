@@ -6,7 +6,6 @@
 // include configurable retry policies.
 
 use crate::error::DaqError;
-use async_trait::async_trait;
 use std::time::Duration;
 use tokio::time::sleep;
 
