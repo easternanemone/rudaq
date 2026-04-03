@@ -112,10 +112,10 @@ impl SwitchableDigitalIO {
 
         // Try prefixed formats
         for prefix in &["dio", "pin", "ch", "channel"] {
-            if let Some(suffix) = name.strip_prefix(prefix) {
-                if let Ok(n) = suffix.parse::<u32>() {
-                    return Ok(n);
-                }
+            if let Some(suffix) = name.strip_prefix(prefix)
+                && let Ok(n) = suffix.parse::<u32>()
+            {
+                return Ok(n);
             }
         }
 

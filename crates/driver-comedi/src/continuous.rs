@@ -411,10 +411,10 @@ impl ContinuousStream {
         self.acquisition.stop()?;
 
         // Wait for reader thread
-        if let Some(handle) = self.reader_thread.lock().take() {
-            if let Err(e) = handle.join() {
-                error!("Reader thread panicked: {:?}", e);
-            }
+        if let Some(handle) = self.reader_thread.lock().take()
+            && let Err(e) = handle.join()
+        {
+            error!("Reader thread panicked: {:?}", e);
         }
 
         let stats = self.stats();
@@ -507,10 +507,10 @@ impl ContinuousStream {
 
 impl Drop for ContinuousStream {
     fn drop(&mut self) {
-        if self.running.load(Ordering::SeqCst) {
-            if let Err(e) = self.stop() {
-                error!("Error stopping stream on drop: {}", e);
-            }
+        if self.running.load(Ordering::SeqCst)
+            && let Err(e) = self.stop()
+        {
+            error!("Error stopping stream on drop: {}", e);
         }
     }
 }

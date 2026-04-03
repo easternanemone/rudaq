@@ -284,14 +284,14 @@ impl ArrowDocumentWriter {
                     }
                 }
                 Document::Stop(stop) => {
-                    if let Some(run) = guard.as_mut() {
-                        if run.run_uid == stop.run_uid {
-                            // Final flush
-                            flush_arrow_buffer(run)?;
+                    if let Some(run) = guard.as_mut()
+                        && run.run_uid == stop.run_uid
+                    {
+                        // Final flush
+                        flush_arrow_buffer(run)?;
 
-                            // Clear active run
-                            *guard = None;
-                        }
+                        // Clear active run
+                        *guard = None;
                     }
                 }
                 Document::Manifest(_) => {

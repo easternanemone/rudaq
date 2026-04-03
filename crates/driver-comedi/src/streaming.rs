@@ -943,10 +943,10 @@ impl StreamAcquisition {
 
 impl Drop for StreamAcquisition {
     fn drop(&mut self) {
-        if self.running.load(Ordering::SeqCst) {
-            if let Err(e) = self.stop() {
-                error!("Error stopping acquisition on drop: {}", e);
-            }
+        if self.running.load(Ordering::SeqCst)
+            && let Err(e) = self.stop()
+        {
+            error!("Error stopping acquisition on drop: {}", e);
         }
     }
 }

@@ -376,13 +376,13 @@ impl Module for ScriptModule {
                 match Self::call_script_fn(&mut engine, &script_source, &function_call).await {
                     Ok(result) => {
                         // Try to extract warnings array
-                        if let Ok(dynamic) = result.downcast::<Dynamic>() {
-                            if let Some(arr) = dynamic.try_cast::<Array>() {
-                                return arr
-                                    .into_iter()
-                                    .filter_map(as_string)
-                                    .collect::<Vec<String>>();
-                            }
+                        if let Ok(dynamic) = result.downcast::<Dynamic>()
+                            && let Some(arr) = dynamic.try_cast::<Array>()
+                        {
+                            return arr
+                                .into_iter()
+                                .filter_map(as_string)
+                                .collect::<Vec<String>>();
                         }
                         vec![]
                     }

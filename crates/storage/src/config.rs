@@ -145,10 +145,10 @@ fn platform_default_data_path() -> PathBuf {
     #[cfg(target_os = "linux")]
     {
         // Respect XDG_DATA_HOME if set
-        if let Ok(xdg) = std::env::var("XDG_DATA_HOME") {
-            if !xdg.is_empty() {
-                return PathBuf::from(xdg).join("daq").join("data");
-            }
+        if let Ok(xdg) = std::env::var("XDG_DATA_HOME")
+            && !xdg.is_empty()
+        {
+            return PathBuf::from(xdg).join("daq").join("data");
         }
         if let Some(home) = home_dir() {
             return home.join(".local").join("share").join("daq").join("data");

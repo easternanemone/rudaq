@@ -81,21 +81,21 @@ impl SoftLimits {
 
     /// Check if a position is within soft limits
     pub fn validate(&self, position: f64) -> Result<(), String> {
-        if let Some(min) = self.min {
-            if position < min {
-                return Err(format!(
-                    "Position {} is below soft limit minimum {}",
-                    position, min
-                ));
-            }
+        if let Some(min) = self.min
+            && position < min
+        {
+            return Err(format!(
+                "Position {} is below soft limit minimum {}",
+                position, min
+            ));
         }
-        if let Some(max) = self.max {
-            if position > max {
-                return Err(format!(
-                    "Position {} exceeds soft limit maximum {}",
-                    position, max
-                ));
-            }
+        if let Some(max) = self.max
+            && position > max
+        {
+            return Err(format!(
+                "Position {} exceeds soft limit maximum {}",
+                position, max
+            ));
         }
         Ok(())
     }

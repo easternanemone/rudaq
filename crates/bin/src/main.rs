@@ -678,10 +678,10 @@ fn resolve_hardware_config(cli_config: Option<PathBuf>) -> (Option<PathBuf>, &'s
     if cli_config.is_some() {
         return (cli_config, "from --hardware-config flag");
     }
-    if let Ok(val) = std::env::var("DAQ_CONFIG_PATH") {
-        if !val.is_empty() {
-            return (Some(PathBuf::from(val)), "from DAQ_CONFIG_PATH env var");
-        }
+    if let Ok(val) = std::env::var("DAQ_CONFIG_PATH")
+        && !val.is_empty()
+    {
+        return (Some(PathBuf::from(val)), "from DAQ_CONFIG_PATH env var");
     }
     (None, "default")
 }

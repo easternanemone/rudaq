@@ -313,10 +313,10 @@ impl ComediStreamWriterBuilder {
         }
 
         // Ensure parent directory exists so file creation doesn't fail on fresh systems
-        if let Some(parent) = self.output_path.parent() {
-            if !parent.as_os_str().is_empty() {
-                std::fs::create_dir_all(parent)?;
-            }
+        if let Some(parent) = self.output_path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            std::fs::create_dir_all(parent)?;
         }
 
         let ring_buffer = if let Some(mb) = self.ring_buffer_mb {

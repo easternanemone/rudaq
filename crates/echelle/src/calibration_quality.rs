@@ -204,12 +204,11 @@ pub fn compute_global_rms(
             .orders
             .iter()
             .find(|o| o.relative_index == line.relative_order)
+            && let Some(predicted) = eval_wavelength_model(&order.wavelength, line.pixel)
         {
-            if let Some(predicted) = eval_wavelength_model(&order.wavelength, line.pixel) {
-                let residual = line.atlas_wavelength_nm - predicted;
-                sum_sq += residual * residual;
-                count += 1;
-            }
+            let residual = line.atlas_wavelength_nm - predicted;
+            sum_sq += residual * residual;
+            count += 1;
         }
     }
 

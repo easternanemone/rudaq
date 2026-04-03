@@ -284,16 +284,16 @@ fn run_calibration_pipeline_impl(
     }
 
     // Validate flat frame dimensions if provided.
-    if let Some(flat) = flat_frame {
-        if flat.len() < w * h {
-            return Err(format!(
-                "flat frame too small: {} pixels for {}x{} = {}",
-                flat.len(),
-                width,
-                height,
-                w * h
-            ));
-        }
+    if let Some(flat) = flat_frame
+        && flat.len() < w * h
+    {
+        return Err(format!(
+            "flat frame too small: {} pixels for {}x{} = {}",
+            flat.len(),
+            width,
+            height,
+            w * h
+        ));
     }
 
     for (i, ex) in config.hdr_extra_arc_frames.iter().enumerate() {
@@ -550,15 +550,15 @@ fn run_calibration_pipeline_impl(
             wl_solution: None,
         });
 
-        if final_diag.success {
-            if let Some(ref sol) = final_diag.wl_solution {
-                let order_cal = build_order_calibration(trace, sol, oi, width, grating_constant_nm);
-                eprintln!(
-                    "Pass 1: Order {} matched physical order {:?}",
-                    oi, order_cal.physical_order_number
-                );
-                order_calibrations.push(order_cal);
-            }
+        if final_diag.success
+            && let Some(ref sol) = final_diag.wl_solution
+        {
+            let order_cal = build_order_calibration(trace, sol, oi, width, grating_constant_nm);
+            eprintln!(
+                "Pass 1: Order {} matched physical order {:?}",
+                oi, order_cal.physical_order_number
+            );
+            order_calibrations.push(order_cal);
         }
 
         diagnostics.push(final_diag);
@@ -625,15 +625,15 @@ fn run_calibration_pipeline_impl(
                     Some(&tp_config_p2),
                 );
 
-                if diag.success {
-                    if let Some(ref sol) = diag.wl_solution {
-                        let order_cal = build_order_calibration(trace, sol, oi, width, Some(gc));
-                        eprintln!(
-                            "Pass 2: Order {} matched physical order {:?}",
-                            oi, order_cal.physical_order_number
-                        );
-                        order_calibrations.push(order_cal);
-                    }
+                if diag.success
+                    && let Some(ref sol) = diag.wl_solution
+                {
+                    let order_cal = build_order_calibration(trace, sol, oi, width, Some(gc));
+                    eprintln!(
+                        "Pass 2: Order {} matched physical order {:?}",
+                        oi, order_cal.physical_order_number
+                    );
+                    order_calibrations.push(order_cal);
                 }
                 diagnostics[order_idx] = diag;
             }
@@ -669,16 +669,16 @@ fn run_calibration_pipeline_impl(
     {
         let mut seen_m: std::collections::HashSet<i32> = std::collections::HashSet::new();
         for cal in &mut order_calibrations {
-            if let Some(m) = cal.physical_order_number {
-                if !seen_m.insert(m) {
-                    eprintln!(
-                        "Deduplicator: Clearing order {} because physical order {} is duplicate",
-                        cal.relative_index, m
-                    );
-                    cal.physical_order_number = None;
-                    if let Some(notes) = cal.notes.as_mut() {
-                        notes.push_str(" [physical_order_number cleared: duplicate]");
-                    }
+            if let Some(m) = cal.physical_order_number
+                && !seen_m.insert(m)
+            {
+                eprintln!(
+                    "Deduplicator: Clearing order {} because physical order {} is duplicate",
+                    cal.relative_index, m
+                );
+                cal.physical_order_number = None;
+                if let Some(notes) = cal.notes.as_mut() {
+                    notes.push_str(" [physical_order_number cleared: duplicate]");
                 }
             }
         }

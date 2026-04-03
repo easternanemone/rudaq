@@ -627,52 +627,52 @@ impl EchelleCalibrationProfile {
 
         // ROI: incompatible if different, because trace polynomials encode
         // sensor-coordinate positions that depend on the ROI origin.
-        if let Some(roi_x) = frame.roi_x {
-            if roi_x != c.roi_x {
-                hard_mismatches.push(CompatibilityWarning::RoiMismatch {
-                    axis: "X",
-                    expected: c.roi_x,
-                    actual: roi_x,
-                });
-            }
+        if let Some(roi_x) = frame.roi_x
+            && roi_x != c.roi_x
+        {
+            hard_mismatches.push(CompatibilityWarning::RoiMismatch {
+                axis: "X",
+                expected: c.roi_x,
+                actual: roi_x,
+            });
         }
-        if let Some(roi_y) = frame.roi_y {
-            if roi_y != c.roi_y {
-                hard_mismatches.push(CompatibilityWarning::RoiMismatch {
-                    axis: "Y",
-                    expected: c.roi_y,
-                    actual: roi_y,
-                });
-            }
+        if let Some(roi_y) = frame.roi_y
+            && roi_y != c.roi_y
+        {
+            hard_mismatches.push(CompatibilityWarning::RoiMismatch {
+                axis: "Y",
+                expected: c.roi_y,
+                actual: roi_y,
+            });
         }
 
         // Binning: incompatible if different, because it changes effective
         // pixel scale and invalidates trace polynomial coefficients.
-        if let Some(bx) = frame.binning_x {
-            if bx != c.binning_x {
-                hard_mismatches.push(CompatibilityWarning::BinningMismatch {
-                    axis: "X",
-                    expected: c.binning_x,
-                    actual: bx,
-                });
-            }
+        if let Some(bx) = frame.binning_x
+            && bx != c.binning_x
+        {
+            hard_mismatches.push(CompatibilityWarning::BinningMismatch {
+                axis: "X",
+                expected: c.binning_x,
+                actual: bx,
+            });
         }
-        if let Some(by) = frame.binning_y {
-            if by != c.binning_y {
-                hard_mismatches.push(CompatibilityWarning::BinningMismatch {
-                    axis: "Y",
-                    expected: c.binning_y,
-                    actual: by,
-                });
-            }
+        if let Some(by) = frame.binning_y
+            && by != c.binning_y
+        {
+            hard_mismatches.push(CompatibilityWarning::BinningMismatch {
+                axis: "Y",
+                expected: c.binning_y,
+                actual: by,
+            });
         }
 
         // Bit depth: usable with warning. Extraction math is the same but
         // saturation detection thresholds will be wrong.
-        if let (Some(expected), Some(actual)) = (c.bit_depth, frame.bit_depth) {
-            if expected != actual {
-                soft_mismatches.push(CompatibilityWarning::BitDepthMismatch { expected, actual });
-            }
+        if let (Some(expected), Some(actual)) = (c.bit_depth, frame.bit_depth)
+            && expected != actual
+        {
+            soft_mismatches.push(CompatibilityWarning::BitDepthMismatch { expected, actual });
         }
 
         if !hard_mismatches.is_empty() {
@@ -794,10 +794,10 @@ impl EchelleCalibrationProfile {
                     order.relative_index
                 )));
             }
-            if let Some(m) = order.physical_order_number {
-                if !seen_physical.insert(m) {
-                    return Err(invalid(format!("duplicate physical_order_number {}", m)));
-                }
+            if let Some(m) = order.physical_order_number
+                && !seen_physical.insert(m)
+            {
+                return Err(invalid(format!("duplicate physical_order_number {}", m)));
             }
             if order.sample_start > order.sample_end {
                 return Err(invalid(format!(
@@ -811,13 +811,13 @@ impl EchelleCalibrationProfile {
                     order.relative_index, order.sample_start, order.sample_end, dispersion_len
                 )));
             }
-            if let Some(half_width) = order.aperture_half_width_px {
-                if !half_width.is_finite() || half_width <= 0.0 {
-                    return Err(invalid(format!(
-                        "order {} aperture_half_width_px must be finite and > 0",
-                        order.relative_index
-                    )));
-                }
+            if let Some(half_width) = order.aperture_half_width_px
+                && (!half_width.is_finite() || half_width <= 0.0)
+            {
+                return Err(invalid(format!(
+                    "order {} aperture_half_width_px must be finite and > 0",
+                    order.relative_index
+                )));
             }
             validate_trace_model(
                 &order.trace,
@@ -1550,21 +1550,18 @@ fn extract_order(
                     profile.orientation.dispersion_axis,
                     sample_local as i32,
                     center_px,
-                ) {
-                    if x >= 0
-                        && y >= 0
-                        && (x as u32) < frame.width()
-                        && (y as u32) < frame.height()
-                        && !is_excluded(profile, mask, x as u32, y as u32)
-                    {
-                        if let Some(pixel) = frame.get(x as u32, y as u32) {
-                            let signal = f64::from(pixel)
-                                - scatter_at(scatter_map, x as u32, y as u32, frame.width());
-                            sample_sum = signal.max(0.0);
-                            valid = 1;
-                            saturated_sample = pixel >= saturation_threshold;
-                        }
-                    }
+                ) && x >= 0
+                    && y >= 0
+                    && (x as u32) < frame.width()
+                    && (y as u32) < frame.height()
+                    && !is_excluded(profile, mask, x as u32, y as u32)
+                    && let Some(pixel) = frame.get(x as u32, y as u32)
+                {
+                    let signal = f64::from(pixel)
+                        - scatter_at(scatter_map, x as u32, y as u32, frame.width());
+                    sample_sum = signal.max(0.0);
+                    valid = 1;
+                    saturated_sample = pixel >= saturation_threshold;
                 }
             }
             // Optimal extraction requires a rectified order and spatial profile
@@ -1653,26 +1650,24 @@ fn extract_order(
                 profile.extraction.summation_mode,
                 EchelleSummationMode::OrderCenterPixel
             )
+            && let Some(background) = &profile.extraction.background
+            && background.enabled
         {
-            if let Some(background) = &profile.extraction.background {
-                if background.enabled {
-                    #[allow(clippy::cast_possible_wrap)]
-                    let (background_sum, background_count) = sample_background_sidebands(
-                        profile,
-                        mask,
-                        frame,
-                        sample_local as i32,
-                        center_px,
-                        radius,
-                        background.inter_order_gap_min_px as i32,
-                        background.baseline_window_px as i32,
-                    );
-                    if background_count > 0 {
-                        let background_mean = background_sum / f64::from(background_count);
-                        sample_sum -= background_mean * f64::from(valid);
-                        sample_sum = sample_sum.max(0.0); // Clamp to non-negative
-                    }
-                }
+            #[allow(clippy::cast_possible_wrap)]
+            let (background_sum, background_count) = sample_background_sidebands(
+                profile,
+                mask,
+                frame,
+                sample_local as i32,
+                center_px,
+                radius,
+                background.inter_order_gap_min_px as i32,
+                background.baseline_window_px as i32,
+            );
+            if background_count > 0 {
+                let background_mean = background_sum / f64::from(background_count);
+                sample_sum -= background_mean * f64::from(valid);
+                sample_sum = sample_sum.max(0.0); // Clamp to non-negative
             }
         }
 

@@ -253,18 +253,18 @@ impl UniversalDriver {
         }
 
         // Tier 1-3: Named response parser
-        if let Some(ref resp_ref) = cmd_config.response {
-            if let Some(parser) = self.manifest.responses.get(&resp_ref.0) {
-                let parsed = response::parse_with_parser(raw_response, parser)?;
-                return match parsed {
-                    serde_json::Value::Object(map) => Ok(map.into_iter().collect()),
-                    other => {
-                        let mut result = HashMap::new();
-                        result.insert("value".to_string(), other);
-                        Ok(result)
-                    }
-                };
-            }
+        if let Some(ref resp_ref) = cmd_config.response
+            && let Some(parser) = self.manifest.responses.get(&resp_ref.0)
+        {
+            let parsed = response::parse_with_parser(raw_response, parser)?;
+            return match parsed {
+                serde_json::Value::Object(map) => Ok(map.into_iter().collect()),
+                other => {
+                    let mut result = HashMap::new();
+                    result.insert("value".to_string(), other);
+                    Ok(result)
+                }
+            };
         }
 
         // No parser configured -- return raw response as string
@@ -443,10 +443,10 @@ impl UniversalDriver {
                 .ok_or_else(|| anyhow!("Condition field '{}' not found in response", field))?;
 
             // Try numeric comparison
-            if let Ok(expected_num) = value.parse::<i64>() {
-                if let Some(actual_num) = actual.as_i64() {
-                    return Ok(actual_num == expected_num);
-                }
+            if let Ok(expected_num) = value.parse::<i64>()
+                && let Some(actual_num) = actual.as_i64()
+            {
+                return Ok(actual_num == expected_num);
             }
             // String comparison
             Ok(actual.as_str() == Some(value) || actual.to_string().trim_matches('"') == value)
@@ -456,10 +456,10 @@ impl UniversalDriver {
             let actual = fields
                 .get(field)
                 .ok_or_else(|| anyhow!("Condition field '{}' not found in response", field))?;
-            if let Ok(expected_num) = value.parse::<i64>() {
-                if let Some(actual_num) = actual.as_i64() {
-                    return Ok(actual_num != expected_num);
-                }
+            if let Ok(expected_num) = value.parse::<i64>()
+                && let Some(actual_num) = actual.as_i64()
+            {
+                return Ok(actual_num != expected_num);
             }
             Ok(actual.as_str() != Some(value))
         } else {
@@ -746,10 +746,10 @@ impl common::capabilities::Settable for UniversalDriver {
         drop(transport);
 
         // Keep runtime parameter values in sync for manifest-defined params.
-        if let Some(v) = f_val {
-            if let Some(param) = self.parameters.get_typed::<Parameter<f64>>(name) {
-                let _ = param.set_from_hardware(v).await;
-            }
+        if let Some(v) = f_val
+            && let Some(param) = self.parameters.get_typed::<Parameter<f64>>(name)
+        {
+            let _ = param.set_from_hardware(v).await;
         }
 
         Ok(())
@@ -872,86 +872,86 @@ impl common::capabilities::StateRefreshable for UniversalDriver {
         let mut state = HashMap::new();
 
         // Refresh Movable.position if configured
-        if let Some(movable_cfg) = &self.manifest.capabilities.movable {
-            if let Some(position_mapping) = &movable_cfg.position {
-                match self.execute_read(position_mapping).await {
-                    Ok(pos) => {
-                        state.insert("position".to_string(), serde_json::json!(pos));
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            error = %e,
-                            "State refresh: failed to read position"
-                        );
-                    }
+        if let Some(movable_cfg) = &self.manifest.capabilities.movable
+            && let Some(position_mapping) = &movable_cfg.position
+        {
+            match self.execute_read(position_mapping).await {
+                Ok(pos) => {
+                    state.insert("position".to_string(), serde_json::json!(pos));
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        "State refresh: failed to read position"
+                    );
                 }
             }
         }
 
         // Refresh WavelengthTunable.get_wavelength if configured
-        if let Some(wl_cfg) = &self.manifest.capabilities.wavelength_tunable {
-            if let Some(get_wl_mapping) = &wl_cfg.get_wavelength {
-                match self.execute_read(get_wl_mapping).await {
-                    Ok(wl) => {
-                        state.insert("wavelength_nm".to_string(), serde_json::json!(wl));
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            error = %e,
-                            "State refresh: failed to read wavelength"
-                        );
-                    }
+        if let Some(wl_cfg) = &self.manifest.capabilities.wavelength_tunable
+            && let Some(get_wl_mapping) = &wl_cfg.get_wavelength
+        {
+            match self.execute_read(get_wl_mapping).await {
+                Ok(wl) => {
+                    state.insert("wavelength_nm".to_string(), serde_json::json!(wl));
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        "State refresh: failed to read wavelength"
+                    );
                 }
             }
         }
 
         // Refresh ShutterControl.is_open if configured
-        if let Some(shutter_cfg) = &self.manifest.capabilities.shutter_control {
-            if let Some(is_open_mapping) = &shutter_cfg.is_open {
-                match self.execute_read_bool(is_open_mapping).await {
-                    Ok(open) => {
-                        state.insert("shutter_open".to_string(), serde_json::json!(open));
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            error = %e,
-                            "State refresh: failed to read shutter state"
-                        );
-                    }
+        if let Some(shutter_cfg) = &self.manifest.capabilities.shutter_control
+            && let Some(is_open_mapping) = &shutter_cfg.is_open
+        {
+            match self.execute_read_bool(is_open_mapping).await {
+                Ok(open) => {
+                    state.insert("shutter_open".to_string(), serde_json::json!(open));
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        "State refresh: failed to read shutter state"
+                    );
                 }
             }
         }
 
         // Refresh EmissionControl.is_enabled if configured
-        if let Some(emission_cfg) = &self.manifest.capabilities.emission_control {
-            if let Some(is_enabled_mapping) = &emission_cfg.is_enabled {
-                match self.execute_read_bool(is_enabled_mapping).await {
-                    Ok(enabled) => {
-                        state.insert("emission_enabled".to_string(), serde_json::json!(enabled));
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            error = %e,
-                            "State refresh: failed to read emission state"
-                        );
-                    }
+        if let Some(emission_cfg) = &self.manifest.capabilities.emission_control
+            && let Some(is_enabled_mapping) = &emission_cfg.is_enabled
+        {
+            match self.execute_read_bool(is_enabled_mapping).await {
+                Ok(enabled) => {
+                    state.insert("emission_enabled".to_string(), serde_json::json!(enabled));
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        "State refresh: failed to read emission state"
+                    );
                 }
             }
         }
 
         // Refresh Readable.read if configured
-        if let Some(readable_cfg) = &self.manifest.capabilities.readable {
-            if let Some(read_mapping) = &readable_cfg.read {
-                match self.execute_read(read_mapping).await {
-                    Ok(val) => {
-                        state.insert("value".to_string(), serde_json::json!(val));
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            error = %e,
-                            "State refresh: failed to read value"
-                        );
-                    }
+        if let Some(readable_cfg) = &self.manifest.capabilities.readable
+            && let Some(read_mapping) = &readable_cfg.read
+        {
+            match self.execute_read(read_mapping).await {
+                Ok(val) => {
+                    state.insert("value".to_string(), serde_json::json!(val));
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        "State refresh: failed to read value"
+                    );
                 }
             }
         }

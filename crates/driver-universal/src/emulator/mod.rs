@@ -165,27 +165,27 @@ impl ManifestEmulator {
         );
 
         // 2b. Seed synthetic 1D data for SpectrumReadable devices
-        if let Some(sr) = &manifest.capabilities.spectrum_readable {
-            if let Some(read_cfg) = &sr.read_spectrum {
-                let key = response_key_for(
-                    &read_cfg.command.0,
-                    manifest.commands.get(&read_cfg.command.0).unwrap(),
-                );
-                let entry = state.entry(key).or_default();
-                let n = sr.spectrum_length;
-                #[allow(clippy::cast_precision_loss)]
-                let n_f = n as f64;
-                let synthetic: Vec<String> = (0..n)
-                    .map(|i| {
-                        #[allow(clippy::cast_precision_loss)]
-                        let x = i as f64 / n_f;
-                        let intensity = 100.0 * (-((x - 0.4) * 8.0).powi(2)).exp()
-                            + 50.0 * (-((x - 0.7) * 12.0).powi(2)).exp();
-                        format!("{intensity:.2}")
-                    })
-                    .collect();
-                entry.insert("value".to_string(), json!(synthetic.join(",")));
-            }
+        if let Some(sr) = &manifest.capabilities.spectrum_readable
+            && let Some(read_cfg) = &sr.read_spectrum
+        {
+            let key = response_key_for(
+                &read_cfg.command.0,
+                manifest.commands.get(&read_cfg.command.0).unwrap(),
+            );
+            let entry = state.entry(key).or_default();
+            let n = sr.spectrum_length;
+            #[allow(clippy::cast_precision_loss)]
+            let n_f = n as f64;
+            let synthetic: Vec<String> = (0..n)
+                .map(|i| {
+                    #[allow(clippy::cast_precision_loss)]
+                    let x = i as f64 / n_f;
+                    let intensity = 100.0 * (-((x - 0.4) * 8.0).powi(2)).exp()
+                        + 50.0 * (-((x - 0.7) * 12.0).powi(2)).exp();
+                    format!("{intensity:.2}")
+                })
+                .collect();
+            entry.insert("value".to_string(), json!(synthetic.join(",")));
         }
 
         // 3. Add SCPI pairing heuristic for non-capability commands
@@ -457,19 +457,19 @@ fn build_response_gen(
     }
 
     // Tier 1-3: named response reference
-    if let Some(resp_ref) = &cmd.response {
-        if let Some(parser) = manifest.responses.get(&resp_ref.0) {
-            return Ok(Some(match parser {
-                ResponseParser::Format(fmt) => ResponseGen::FormatString(fmt.segments.clone()),
-                ResponseParser::Transform(pipeline) => ResponseGen::TransformInverse {
-                    ops: pipeline.ops().to_vec(),
-                    cmd_prefix: extract_cmd_prefix(&cmd.template.source),
-                },
-                ResponseParser::Regex(regex) => {
-                    ResponseGen::RegexTemplate(regex_to_template(&regex.source))
-                }
-            }));
-        }
+    if let Some(resp_ref) = &cmd.response
+        && let Some(parser) = manifest.responses.get(&resp_ref.0)
+    {
+        return Ok(Some(match parser {
+            ResponseParser::Format(fmt) => ResponseGen::FormatString(fmt.segments.clone()),
+            ResponseParser::Transform(pipeline) => ResponseGen::TransformInverse {
+                ops: pipeline.ops().to_vec(),
+                cmd_prefix: extract_cmd_prefix(&cmd.template.source),
+            },
+            ResponseParser::Regex(regex) => {
+                ResponseGen::RegexTemplate(regex_to_template(&regex.source))
+            }
+        }));
     }
 
     Ok(None)
@@ -589,87 +589,87 @@ fn build_capability_routes(
     routes: &mut HashMap<String, Vec<SetterRoute>>,
 ) {
     // Movable
-    if let Some(movable) = &caps.movable {
-        if let Some(position) = &movable.position {
-            if let Some(move_abs) = &movable.move_abs {
-                add_param_route(routes, move_abs, position, commands, responses);
-            }
-            if let Some(move_rel) = &movable.move_rel {
-                add_param_route(routes, move_rel, position, commands, responses);
-            }
+    if let Some(movable) = &caps.movable
+        && let Some(position) = &movable.position
+    {
+        if let Some(move_abs) = &movable.move_abs {
+            add_param_route(routes, move_abs, position, commands, responses);
+        }
+        if let Some(move_rel) = &movable.move_rel {
+            add_param_route(routes, move_rel, position, commands, responses);
         }
     }
 
     // WavelengthTunable
-    if let Some(wave) = &caps.wavelength_tunable {
-        if let (Some(setter), Some(getter)) = (&wave.set_wavelength, &wave.get_wavelength) {
-            add_param_route(routes, setter, getter, commands, responses);
-        }
+    if let Some(wave) = &caps.wavelength_tunable
+        && let (Some(setter), Some(getter)) = (&wave.set_wavelength, &wave.get_wavelength)
+    {
+        add_param_route(routes, setter, getter, commands, responses);
     }
 
     // ShutterControl
-    if let Some(shutter) = &caps.shutter_control {
-        if let Some(is_open) = &shutter.is_open {
-            let target_key = getter_response_key(&is_open.command.0, commands);
-            let target_field = determine_target_field(is_open, responses.get(&target_key));
+    if let Some(shutter) = &caps.shutter_control
+        && let Some(is_open) = &shutter.is_open
+    {
+        let target_key = getter_response_key(&is_open.command.0, commands);
+        let target_field = determine_target_field(is_open, responses.get(&target_key));
 
-            if let Some(open) = &shutter.open {
-                routes
-                    .entry(open.command.0.clone())
-                    .or_default()
-                    .push(SetterRoute {
-                        target_key: target_key.clone(),
-                        param_to_field: vec![],
-                        fixed_values: vec![(target_field.clone(), json!(1))],
-                    });
-            }
-            if let Some(close) = &shutter.close {
-                routes
-                    .entry(close.command.0.clone())
-                    .or_default()
-                    .push(SetterRoute {
-                        target_key: target_key.clone(),
-                        param_to_field: vec![],
-                        fixed_values: vec![(target_field, json!(0))],
-                    });
-            }
+        if let Some(open) = &shutter.open {
+            routes
+                .entry(open.command.0.clone())
+                .or_default()
+                .push(SetterRoute {
+                    target_key: target_key.clone(),
+                    param_to_field: vec![],
+                    fixed_values: vec![(target_field.clone(), json!(1))],
+                });
+        }
+        if let Some(close) = &shutter.close {
+            routes
+                .entry(close.command.0.clone())
+                .or_default()
+                .push(SetterRoute {
+                    target_key: target_key.clone(),
+                    param_to_field: vec![],
+                    fixed_values: vec![(target_field, json!(0))],
+                });
         }
     }
 
     // EmissionControl
-    if let Some(emission) = &caps.emission_control {
-        if let Some(is_enabled) = &emission.is_enabled {
-            let target_key = getter_response_key(&is_enabled.command.0, commands);
-            let target_field = determine_target_field(is_enabled, responses.get(&target_key));
+    if let Some(emission) = &caps.emission_control
+        && let Some(is_enabled) = &emission.is_enabled
+    {
+        let target_key = getter_response_key(&is_enabled.command.0, commands);
+        let target_field = determine_target_field(is_enabled, responses.get(&target_key));
 
-            if let Some(enable) = &emission.enable {
-                routes
-                    .entry(enable.command.0.clone())
-                    .or_default()
-                    .push(SetterRoute {
-                        target_key: target_key.clone(),
-                        param_to_field: vec![],
-                        fixed_values: vec![(target_field.clone(), json!(1))],
-                    });
-            }
-            if let Some(disable) = &emission.disable {
-                routes
-                    .entry(disable.command.0.clone())
-                    .or_default()
-                    .push(SetterRoute {
-                        target_key: target_key.clone(),
-                        param_to_field: vec![],
-                        fixed_values: vec![(target_field, json!(0))],
-                    });
-            }
+        if let Some(enable) = &emission.enable {
+            routes
+                .entry(enable.command.0.clone())
+                .or_default()
+                .push(SetterRoute {
+                    target_key: target_key.clone(),
+                    param_to_field: vec![],
+                    fixed_values: vec![(target_field.clone(), json!(1))],
+                });
+        }
+        if let Some(disable) = &emission.disable {
+            routes
+                .entry(disable.command.0.clone())
+                .or_default()
+                .push(SetterRoute {
+                    target_key: target_key.clone(),
+                    param_to_field: vec![],
+                    fixed_values: vec![(target_field, json!(0))],
+                });
         }
     }
 
     // Settable + Readable
-    if let (Some(settable), Some(readable)) = (&caps.settable, &caps.readable) {
-        if let (Some(setter), Some(reader)) = (&settable.set, &readable.read) {
-            add_param_route(routes, setter, reader, commands, responses);
-        }
+    if let (Some(settable), Some(readable)) = (&caps.settable, &caps.readable)
+        && let (Some(setter), Some(reader)) = (&settable.set, &readable.read)
+    {
+        add_param_route(routes, setter, reader, commands, responses);
     }
 }
 
@@ -725,10 +725,10 @@ fn determine_target_field(
     getter_response: Option<&ResponseParser>,
 ) -> String {
     // Transform/SCPI responses always use "value" as the field name
-    if let Some(parser) = getter_response {
-        if matches!(parser, ResponseParser::Transform(_)) {
-            return "value".to_string();
-        }
+    if let Some(parser) = getter_response
+        && matches!(parser, ResponseParser::Transform(_))
+    {
+        return "value".to_string();
     }
 
     // Use output_field from capability config if specified

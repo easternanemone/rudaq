@@ -179,117 +179,117 @@ impl DocumentWriter {
                     }
                 }
                 Document::Event(event) => {
-                    if let Some(run) = guard.as_mut() {
-                        if let Some(desc_info) = run.descriptors.get(&event.descriptor_uid) {
-                            let file = &run.file;
+                    if let Some(run) = guard.as_mut()
+                        && let Some(desc_info) = run.descriptors.get(&event.descriptor_uid)
+                    {
+                        let file = &run.file;
 
-                            // Look up the stream name from the descriptor (bd-jcrz)
-                            let stream_name = &desc_info.stream_name;
-                            let group = file.group(stream_name).map_err(|_| {
-                                anyhow!(
-                                    "HDF5 group '{}' not found for descriptor {}",
-                                    stream_name,
-                                    event.descriptor_uid
-                                )
-                            })?;
+                        // Look up the stream name from the descriptor (bd-jcrz)
+                        let stream_name = &desc_info.stream_name;
+                        let group = file.group(stream_name).map_err(|_| {
+                            anyhow!(
+                                "HDF5 group '{}' not found for descriptor {}",
+                                stream_name,
+                                event.descriptor_uid
+                            )
+                        })?;
 
-                            // Write scalar data (f64)
-                            for (key, value) in &event.data {
-                                if desc_info.data_keys.contains_key(key) {
-                                    if let Ok(ds) = group.dataset(key.as_str()) {
-                                        let shape = ds.shape();
-                                        let current_len = shape[0];
-                                        ds.resize((current_len + 1,))?;
-                                        ds.write_slice(&[*value], current_len..)?;
-                                    }
-                                }
-                            }
-
-                            // Write array data (frames/waveforms)
-                            for (key, bytes) in &event.arrays {
-                                if let Some(dkey) = desc_info.data_keys.get(key) {
-                                    if let Ok(ds) = group.dataset(key.as_str()) {
-                                        let shape = ds.shape();
-                                        let current_len = shape[0]; // Dimension 0 is time/sequence
-
-                                        match dkey.dtype.as_str() {
-                                            "uint16" => {
-                                                if bytes.len() % 2 != 0 {
-                                                    continue; // Invalid buffer size
-                                                }
-                                                // Convert bytes to u16
-                                                let u16_data: Vec<u16> = bytes
-                                                    .chunks_exact(2)
-                                                    .map(|b| u16::from_le_bytes([b[0], b[1]]))
-                                                    .collect();
-
-                                                ds.resize((current_len + u16_data.len(),))?;
-                                                ds.write_slice(&u16_data, current_len..)?;
-                                            }
-                                            _ => {
-                                                // Default/Fallback
-                                                // If we don't resize, we can't write.
-                                                // Assume 1 element (scalar) or handle dynamic?
-                                                // For now, doing nothing avoids crash but drops data.
-                                                // To support existing f64 arrays if any:
-                                                // let count = bytes.len() / 8;
-                                                // ds.resize((current_len + count,))?;
-                                                // ds.write_slice(...)?
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Also write timestamps
-                            #[allow(clippy::cast_precision_loss)]
-                            // SAFETY: precision loss acceptable for timestamp conversion
-                            let ts_secs = event.time_ns as f64 / 1_000_000_000.0;
-                            if let Ok(ds) = group.dataset("timestamps") {
+                        // Write scalar data (f64)
+                        for (key, value) in &event.data {
+                            if desc_info.data_keys.contains_key(key)
+                                && let Ok(ds) = group.dataset(key.as_str())
+                            {
                                 let shape = ds.shape();
                                 let current_len = shape[0];
                                 ds.resize((current_len + 1,))?;
-                                ds.write_slice(&[ts_secs], current_len..)?;
-                            } else {
-                                // Create if missing (lazy)
-                                let ds = group
-                                    .new_dataset::<f64>()
-                                    .chunk(1024)
-                                    .shape(0..)
-                                    .create("timestamps")?;
-                                let shape = ds.shape();
-                                ds.resize((shape[0] + 1,))?;
-                                ds.write_slice(&[ts_secs], shape[0]..)?;
+                                ds.write_slice(&[*value], current_len..)?;
                             }
+                        }
 
-                            // Write event metadata as flat attributes (bd-p6r4)
-                            if !event.metadata.is_empty() {
-                                let md_group = if group.group("event_metadata").is_ok() {
-                                    group.group("event_metadata")?
-                                } else {
-                                    group.create_group("event_metadata")?
-                                };
-                                for (key, value) in &event.metadata {
-                                    let attr_name = format!("seq_{:06}_{}", event.seq_num, key);
-                                    write_group_attr(&md_group, &attr_name, value)?;
+                        // Write array data (frames/waveforms)
+                        for (key, bytes) in &event.arrays {
+                            if let Some(dkey) = desc_info.data_keys.get(key)
+                                && let Ok(ds) = group.dataset(key.as_str())
+                            {
+                                let shape = ds.shape();
+                                let current_len = shape[0]; // Dimension 0 is time/sequence
+
+                                match dkey.dtype.as_str() {
+                                    "uint16" => {
+                                        if bytes.len() % 2 != 0 {
+                                            continue; // Invalid buffer size
+                                        }
+                                        // Convert bytes to u16
+                                        let u16_data: Vec<u16> = bytes
+                                            .chunks_exact(2)
+                                            .map(|b| u16::from_le_bytes([b[0], b[1]]))
+                                            .collect();
+
+                                        ds.resize((current_len + u16_data.len(),))?;
+                                        ds.write_slice(&u16_data, current_len..)?;
+                                    }
+                                    _ => {
+                                        // Default/Fallback
+                                        // If we don't resize, we can't write.
+                                        // Assume 1 element (scalar) or handle dynamic?
+                                        // For now, doing nothing avoids crash but drops data.
+                                        // To support existing f64 arrays if any:
+                                        // let count = bytes.len() / 8;
+                                        // ds.resize((current_len + count,))?;
+                                        // ds.write_slice(...)?
+                                    }
                                 }
+                            }
+                        }
+
+                        // Also write timestamps
+                        #[allow(clippy::cast_precision_loss)]
+                        // SAFETY: precision loss acceptable for timestamp conversion
+                        let ts_secs = event.time_ns as f64 / 1_000_000_000.0;
+                        if let Ok(ds) = group.dataset("timestamps") {
+                            let shape = ds.shape();
+                            let current_len = shape[0];
+                            ds.resize((current_len + 1,))?;
+                            ds.write_slice(&[ts_secs], current_len..)?;
+                        } else {
+                            // Create if missing (lazy)
+                            let ds = group
+                                .new_dataset::<f64>()
+                                .chunk(1024)
+                                .shape(0..)
+                                .create("timestamps")?;
+                            let shape = ds.shape();
+                            ds.resize((shape[0] + 1,))?;
+                            ds.write_slice(&[ts_secs], shape[0]..)?;
+                        }
+
+                        // Write event metadata as flat attributes (bd-p6r4)
+                        if !event.metadata.is_empty() {
+                            let md_group = if group.group("event_metadata").is_ok() {
+                                group.group("event_metadata")?
+                            } else {
+                                group.create_group("event_metadata")?
+                            };
+                            for (key, value) in &event.metadata {
+                                let attr_name = format!("seq_{:06}_{}", event.seq_num, key);
+                                write_group_attr(&md_group, &attr_name, value)?;
                             }
                         }
                     }
                     return Ok(()); // Return Ok from closure
                 }
                 Document::Stop(stop) => {
-                    if let Some(run) = guard.as_mut() {
-                        if run.run_uid == stop.run_uid {
-                            let file = &run.file;
-                            let group = file.create_group("stop")?;
-                            write_group_attr(&group, "exit_status", &stop.exit_status)?;
+                    if let Some(run) = guard.as_mut()
+                        && run.run_uid == stop.run_uid
+                    {
+                        let file = &run.file;
+                        let group = file.create_group("stop")?;
+                        write_group_attr(&group, "exit_status", &stop.exit_status)?;
 
-                            // Flush HDF5 buffers before dropping the file handle
-                            run.file.flush()?;
-                            // Clear active run (file handle dropped here)
-                            *guard = None;
-                        }
+                        // Flush HDF5 buffers before dropping the file handle
+                        run.file.flush()?;
+                        // Clear active run (file handle dropped here)
+                        *guard = None;
                     }
                 }
                 Document::Manifest(manifest) => {

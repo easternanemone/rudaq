@@ -2590,10 +2590,10 @@ impl PvcamDriver {
                             let speed_names: Vec<String> =
                                 port.speeds.iter().map(|s| s.name.clone()).collect();
                             speed_mode.inner().update_choices(speed_names.clone());
-                            if !speed_names.iter().any(|n| *n == speed_mode.get()) {
-                                if let Some(first) = speed_names.first() {
-                                    let _ = speed_mode.set(first.clone()).await;
-                                }
+                            if !speed_names.iter().any(|n| *n == speed_mode.get())
+                                && let Some(first) = speed_names.first()
+                            {
+                                let _ = speed_mode.set(first.clone()).await;
                             }
 
                             // Cascade to gain
@@ -2609,10 +2609,10 @@ impl PvcamDriver {
                                 let gain_names: Vec<String> =
                                     speed.gains.iter().map(|g| g.name.clone()).collect();
                                 gain_mode.inner().update_choices(gain_names.clone());
-                                if !gain_names.iter().any(|n| *n == gain_mode.get()) {
-                                    if let Some(first) = gain_names.first() {
-                                        let _ = gain_mode.set(first.clone()).await;
-                                    }
+                                if !gain_names.iter().any(|n| *n == gain_mode.get())
+                                    && let Some(first) = gain_names.first()
+                                {
+                                    let _ = gain_mode.set(first.clone()).await;
                                 }
 
                                 let _ = bit_depth
@@ -2652,32 +2652,31 @@ impl PvcamDriver {
                 let new_speed = new_speed.clone();
                 tokio::spawn(async move {
                     let current_port = readout_port.get();
-                    if let Some(port) = table.ports.iter().find(|p| p.name == current_port) {
-                        if let Some(speed) =
+                    if let Some(port) = table.ports.iter().find(|p| p.name == current_port)
+                        && let Some(speed) =
                             port.speeds.iter().find(|s| s.name == new_speed).cloned()
+                    {
+                        let gain_names: Vec<String> =
+                            speed.gains.iter().map(|g| g.name.clone()).collect();
+                        gain_mode.inner().update_choices(gain_names.clone());
+                        if !gain_names.iter().any(|n| *n == gain_mode.get())
+                            && let Some(first) = gain_names.first()
                         {
-                            let gain_names: Vec<String> =
-                                speed.gains.iter().map(|g| g.name.clone()).collect();
-                            gain_mode.inner().update_choices(gain_names.clone());
-                            if !gain_names.iter().any(|n| *n == gain_mode.get()) {
-                                if let Some(first) = gain_names.first() {
-                                    let _ = gain_mode.set(first.clone()).await;
-                                }
-                            }
-
-                            let _ = bit_depth
-                                .set_from_hardware({
-                                    #[allow(clippy::cast_sign_loss)]
-                                    // SAFETY: PVCAM bit_depth is always positive (8, 12, 16)
-                                    {
-                                        speed.bit_depth as u16
-                                    }
-                                })
-                                .await;
-                            let _ = pixel_time_ns
-                                .set_from_hardware(u32::from(speed.pix_time_ns))
-                                .await;
+                            let _ = gain_mode.set(first.clone()).await;
                         }
+
+                        let _ = bit_depth
+                            .set_from_hardware({
+                                #[allow(clippy::cast_sign_loss)]
+                                // SAFETY: PVCAM bit_depth is always positive (8, 12, 16)
+                                {
+                                    speed.bit_depth as u16
+                                }
+                            })
+                            .await;
+                        let _ = pixel_time_ns
+                            .set_from_hardware(u32::from(speed.pix_time_ns))
+                            .await;
                     }
                 });
             })
@@ -2691,10 +2690,10 @@ impl PvcamDriver {
             let port_names: Vec<String> = table.ports.iter().map(|p| p.name.clone()).collect();
             self.readout_port.inner().update_choices(port_names.clone());
 
-            if !port_names.iter().any(|n| *n == self.readout_port.get()) {
-                if let Some(first) = port_names.first() {
-                    let _ = self.readout_port.set(first.clone()).await;
-                }
+            if !port_names.iter().any(|n| *n == self.readout_port.get())
+                && let Some(first) = port_names.first()
+            {
+                let _ = self.readout_port.set(first.clone()).await;
             }
 
             let selected_port_name = self.readout_port.get();
@@ -2708,10 +2707,10 @@ impl PvcamDriver {
             if let Some(port) = selected_port {
                 let speed_names: Vec<String> = port.speeds.iter().map(|s| s.name.clone()).collect();
                 self.speed_mode.inner().update_choices(speed_names.clone());
-                if !speed_names.iter().any(|n| *n == self.speed_mode.get()) {
-                    if let Some(first) = speed_names.first() {
-                        let _ = self.speed_mode.set(first.clone()).await;
-                    }
+                if !speed_names.iter().any(|n| *n == self.speed_mode.get())
+                    && let Some(first) = speed_names.first()
+                {
+                    let _ = self.speed_mode.set(first.clone()).await;
                 }
 
                 let selected_speed_name = self.speed_mode.get();
@@ -2726,10 +2725,10 @@ impl PvcamDriver {
                     let gain_names: Vec<String> =
                         speed.gains.iter().map(|g| g.name.clone()).collect();
                     self.gain_mode.inner().update_choices(gain_names.clone());
-                    if !gain_names.iter().any(|n| *n == self.gain_mode.get()) {
-                        if let Some(first) = gain_names.first() {
-                            let _ = self.gain_mode.set(first.clone()).await;
-                        }
+                    if !gain_names.iter().any(|n| *n == self.gain_mode.get())
+                        && let Some(first) = gain_names.first()
+                    {
+                        let _ = self.gain_mode.set(first.clone()).await;
                     }
 
                     // Update read-only info parameters when available
@@ -2804,15 +2803,14 @@ impl PvcamDriver {
                 tracing::debug!("Populating trigger mode choices: {:?}", names);
                 self.trigger_mode.inner().update_choices(names.clone());
 
-                if let Ok(current_raw) = current_raw_result {
-                    if let Some((_, current_name)) =
+                if let Ok(current_raw) = current_raw_result
+                    && let Some((_, current_name)) =
                         modes.iter().find(|(raw, _)| *raw == current_raw)
-                    {
-                        let _ = self
-                            .trigger_mode
-                            .set_from_hardware(current_name.clone())
-                            .await;
-                    }
+                {
+                    let _ = self
+                        .trigger_mode
+                        .set_from_hardware(current_name.clone())
+                        .await;
                 }
             }
             Err(e) => {

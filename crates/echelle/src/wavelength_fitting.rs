@@ -528,25 +528,25 @@ fn fit_gaussian_centroid(data: &[f64], peak_idx: usize, order_index: u32) -> Opt
     }
 
     // Need at least 3 points for quadratic fit.
-    if xs.len() >= 3 {
-        if let Some((center_offset, sigma)) = fit_log_parabola(&xs, &log_ys) {
-            // Recover absolute center from offset.
-            #[allow(clippy::cast_precision_loss)] // peak_idx is small
-            let center = peak_idx as f64 + center_offset;
-            // Sanity check: center should be near the peak.
-            #[allow(clippy::cast_precision_loss)] // half_win is 3
-            let half_f = half_win as f64;
-            if center_offset.abs() < half_f && sigma > 0.0 && sigma.is_finite() {
-                return Some(ArcLine {
-                    order: order_index,
-                    pixel_center: center,
-                    pixel_sigma: sigma,
-                    amplitude,
-                    wavelength_hint: None,
-                    used: true,
-                    saturated: false,
-                });
-            }
+    if xs.len() >= 3
+        && let Some((center_offset, sigma)) = fit_log_parabola(&xs, &log_ys)
+    {
+        // Recover absolute center from offset.
+        #[allow(clippy::cast_precision_loss)] // peak_idx is small
+        let center = peak_idx as f64 + center_offset;
+        // Sanity check: center should be near the peak.
+        #[allow(clippy::cast_precision_loss)] // half_win is 3
+        let half_f = half_win as f64;
+        if center_offset.abs() < half_f && sigma > 0.0 && sigma.is_finite() {
+            return Some(ArcLine {
+                order: order_index,
+                pixel_center: center,
+                pixel_sigma: sigma,
+                amplitude,
+                wavelength_hint: None,
+                used: true,
+                saturated: false,
+            });
         }
     }
 

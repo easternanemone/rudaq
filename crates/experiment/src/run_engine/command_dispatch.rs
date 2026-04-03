@@ -140,17 +140,16 @@ impl CommandDispatcher<'_> {
                         } else {
                             value < *threshold
                         };
-                        if result {
-                            if let Err(e) =
+                        if result
+                            && let Err(e) =
                                 self.feedback_tx.try_send(FeedbackEvent::ThresholdCrossed {
                                     device_id: device_id.clone(),
                                     field: "value".to_string(),
                                     value,
                                     threshold: *threshold,
                                 })
-                            {
-                                warn!("Feedback event dropped (channel full): {e}");
-                            }
+                        {
+                            warn!("Feedback event dropped (channel full): {e}");
                         }
                         result
                     }

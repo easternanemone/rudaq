@@ -154,14 +154,14 @@ impl ShutterRegistry {
 
     /// Unregister a shutter
     pub fn unregister(id: u64) {
-        if let Ok(mut shutters) = Self::global().shutters.lock() {
-            if shutters.remove(&id).is_some() {
-                info!(
-                    guard_id = id,
-                    remaining = shutters.len(),
-                    "Unregistered shutter from emergency registry"
-                );
-            }
+        if let Ok(mut shutters) = Self::global().shutters.lock()
+            && shutters.remove(&id).is_some()
+        {
+            info!(
+                guard_id = id,
+                remaining = shutters.len(),
+                "Unregistered shutter from emergency registry"
+            );
         }
     }
 

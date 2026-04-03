@@ -1363,10 +1363,10 @@ impl DeviceRegistry {
             Ok(()) => {
                 // Success: restore restart_attempts on the fresh health state
                 // so the supervisor can still track the cumulative count.
-                if let Some(prev) = &preserved_health {
-                    if let Some(mut new_state) = self.device_health.get_mut(device_id) {
-                        new_state.restart_attempts = prev.restart_attempts;
-                    }
+                if let Some(prev) = &preserved_health
+                    && let Some(mut new_state) = self.device_health.get_mut(device_id)
+                {
+                    new_state.restart_attempts = prev.restart_attempts;
                 }
                 // Post-reconnection state refresh (bd-47p2): query all
                 // readable parameters from hardware to re-sync cached state.
@@ -1787,12 +1787,12 @@ impl DeviceRegistry {
         // Check for movable capability
         let movable: Option<Arc<dyn Movable>> = if plugin_config.capabilities.movable.is_some() {
             // Extract metadata from first axis
-            if let Some(movable_cap) = &plugin_config.capabilities.movable {
-                if let Some(first_axis) = movable_cap.axes.first() {
-                    metadata.position_units.clone_from(&first_axis.unit);
-                    metadata.min_position = first_axis.min;
-                    metadata.max_position = first_axis.max;
-                }
+            if let Some(movable_cap) = &plugin_config.capabilities.movable
+                && let Some(first_axis) = movable_cap.axes.first()
+            {
+                metadata.position_units.clone_from(&first_axis.unit);
+                metadata.min_position = first_axis.min;
+                metadata.max_position = first_axis.max;
             }
 
             // Create axis handle for the first axis (convention)
