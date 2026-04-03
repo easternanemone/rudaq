@@ -66,7 +66,6 @@ default = ["modules", "server", "scripting", "alerting"]
 # ============================================================================
 server = ["dep:tonic-web", "dep:tower-http", "dep:tower-layer", "dep:tower-service"]  # gRPC web transport layer
 alerting = ["dep:reqwest"]             # Webhook alerting (Slack/Discord)
-networking = []                        # Guards one cfg check in grpc/server.rs
 scripting = ["dep:scripting"]          # Rhai/Python scripting engine
 modules = ["dep:daq-modules"]          # DAQ module system
 modules_scripting = ["modules", "daq-modules/scripting"]
