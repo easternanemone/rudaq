@@ -2585,13 +2585,16 @@ impl PvcamDriver {
                         _ => 0.0,       // Stop (default)
                     };
                     let conn_guard = conn.lock_owned().await;
-                    tokio::task::spawn_blocking(move || {
-                        // Use address 0 (default); PVCAM 3.x parameter-based API (bd-lkci)
-                        PvcamFeatures::io_control(&conn_guard, 0, "Output", state)
-                            .map_err(|e| DaqError::Instrument(e.to_string()))
-                    })
+                    ffi_timeout::ffi_with_timeout_daq(
+                        "io_control",
+                        ffi_timeout::CONFIG_TIMEOUT,
+                        move || {
+                            // Use address 0 (default); PVCAM 3.x parameter-based API (bd-lkci)
+                            PvcamFeatures::io_control(&conn_guard, 0, "Output", state)
+                                .map_err(|e| DaqError::Instrument(e.to_string()))
+                        },
+                    )
                     .await
-                    .map_err(|e| DaqError::Instrument(e.to_string()))?
                 })
             }
         });
