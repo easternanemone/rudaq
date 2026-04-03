@@ -988,21 +988,17 @@ impl AndorSpectrograph {
     fn attach_slit_width_callback(param: &mut Parameter<f64>, handle: i32) {
         param.connect_to_hardware_write(move |width_um: f64| {
             Box::pin(async move {
-                tokio::task::spawn_blocking(move || {
+                crate::ffi_timeout::ffi_call_daq(move || {
                     use crate::error::sdk_result;
                     // SAFETY: handle is valid from initialization.
                     // Bound to default port 2 (Input Direct).
-                    // spawn_blocking moves the FFI call off the async runtime to avoid blocking.
-                    // It does not serialize concurrent calls.
                     unsafe {
                         let ret = ShamrockSetAutoSlitWidth(handle, 2, width_um as f32);
                         sdk_result(ret)?;
-                        Ok::<(), anyhow::Error>(())
+                        Ok(())
                     }
-                })
+                }, crate::ffi_timeout::FFI_MOTION_TIMEOUT, "set_slit_width")
                 .await
-                .map_err(|e| DaqError::Instrument(format!("spawn_blocking: {e}")))?
-                .map_err(|e| DaqError::Instrument(e.to_string()))
             })
         });
     }
