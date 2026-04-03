@@ -361,11 +361,15 @@ pub async fn handle_recoverable_error<T: Recoverable<DaqError>>(
     recoverable: &mut T,
     policy: &RetryPolicy,
 ) -> Result<(), DaqError> {
-    for _attempt in 0..policy.max_attempts {
+    for attempt in 0..policy.max_attempts {
         if recoverable.recover().await.is_ok() {
             return Ok(());
         }
-        sleep(policy.backoff_delay).await;
+        let delay = match &policy.backoff_strategy {
+            BackoffStrategy::Constant => policy.backoff_delay,
+            BackoffStrategy::Exponential(backoff) => backoff.delay_for_attempt(attempt),
+        };
+        sleep(delay).await;
     }
     Err(DaqError::Instrument(format!(
         "Failed to recover after {} attempts.",
