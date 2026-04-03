@@ -1,0 +1,29 @@
+[package]
+name = "common-traits"
+version = "0.1.0"
+edition = "2021"
+description = "Capability traits, reactive parameters, and driver plugin API extracted from common"
+
+[dependencies]
+common = { path = "../common" }
+pool = { path = "../pool" }
+anyhow.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+async-trait.workspace = true
+futures.workspace = true
+parking_lot = "0.12"
+toml.workspace = true
+tracing.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { workspace = true, features = ["sync", "macros", "rt", "time"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+tokio = { workspace = true, default-features = false, features = ["sync", "macros"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros", "test-util"] }
+
+[lints]
+workspace = true
