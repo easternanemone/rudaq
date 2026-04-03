@@ -361,14 +361,18 @@ impl ConfigService for ConfigServiceImpl {
         use futures::StreamExt;
 
         let db = self.db.clone();
-        let live_stream = db
-            .live_instruments()
-            .await
-            .map_err(|e| Status::internal(format!("failed to start live query: {e}")))?;
 
         let (tx, rx) = tokio::sync::mpsc::channel(64);
 
         tokio::spawn(async move {
+            let live_stream = db
+                .live_instruments()
+                .await
+                .unwrap_or_else(|e| {
+                    tracing::error!("failed to start live query: {e}");
+                    // Return an empty stream on error
+                    futures::stream::empty().boxed()
+                });
             futures::pin_mut!(live_stream);
             while let Some(result) = live_stream.next().await {
                 let event = match result {
