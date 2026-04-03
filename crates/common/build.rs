@@ -28,10 +28,9 @@ fn main() {
         .args(["log", "-1", "--format=%cI"])
         .output()
     {
-        if output.status.success() {
-            if let Ok(date) = String::from_utf8(output.stdout) {
-                println!("cargo:rustc-env=VERGEN_GIT_COMMIT_DATE={}", date.trim());
-            }
+        if output.status.success() && String::from_utf8(output.stdout).is_ok() {
+            let date = String::from_utf8(output.stdout).expect("already checked");
+            println!("cargo:rustc-env=VERGEN_GIT_COMMIT_DATE={}", date.trim());
         }
     }
 
