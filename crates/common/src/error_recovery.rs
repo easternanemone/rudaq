@@ -175,11 +175,18 @@ pub struct RetryPolicy {
     /// Set to 0 to disable retries.
     pub max_attempts: u32,
 
-    /// The delay between retry attempts.
+    /// The delay between retry attempts (used with constant backoff).
     ///
-    /// Uses a constant backoff strategy. For exponential backoff,
-    /// implement custom retry logic.
+    /// When using [`BackoffStrategy::Constant`] (the default), this delay is
+    /// applied between every attempt. When using [`BackoffStrategy::Exponential`],
+    /// this field is ignored in favor of the [`ExponentialBackoff`] parameters.
     pub backoff_delay: Duration,
+
+    /// The backoff strategy to use between retry attempts.
+    ///
+    /// Defaults to [`BackoffStrategy::Constant`], which uses `backoff_delay` for
+    /// every attempt. Set to [`BackoffStrategy::Exponential`] for growing delays.
+    pub backoff_strategy: BackoffStrategy,
 }
 
 impl Default for RetryPolicy {
