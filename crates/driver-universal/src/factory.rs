@@ -262,7 +262,7 @@ impl DriverFactory for UniversalDriverFactory {
                     ConnectionConfig::Serial {
                         baud_rate,
                         terminator,
-                        ref serial_config,
+                        serial_config,
                         ..
                     } => {
                         let port_path = instance.port.as_deref().ok_or_else(|| {
