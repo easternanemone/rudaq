@@ -11,7 +11,7 @@
 
 use std::collections::HashMap;
 
-use common::processing::radiance_calibration::{linear_interp, RadianceCalibrator, Spectrum};
+use echelle::radiance_calibration::{linear_interp, RadianceCalibrator, Spectrum};
 
 // Re-export the standalone libs spectrum generator for use in benchmarks.
 // (It lives in driver-andor-sdk3 but we define a local equivalent here to
