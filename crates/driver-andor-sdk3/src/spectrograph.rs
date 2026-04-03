@@ -823,7 +823,7 @@ impl AndorSpectrograph {
         {
             let handle = self.inner.handle;
             let port_id = port as i32;
-            tokio::task::spawn_blocking(move || unsafe {
+            crate::ffi_timeout::ffi_call(move || unsafe {
                 let mut present: i32 = 0;
                 let ret = ShamrockAutoSlitIsPresent(handle, port_id, &mut present);
                 if ret == SHAMROCK_SUCCESS {
@@ -831,7 +831,7 @@ impl AndorSpectrograph {
                 } else {
                     Ok(false)
                 }
-            })
+            }, crate::ffi_timeout::FFI_QUERY_TIMEOUT, "auto_slit_is_present")
             .await?
         }
 
