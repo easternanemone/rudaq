@@ -90,9 +90,9 @@ impl AndorCamera {
         {
             let handle = self.inner.handle;
             let feature = feature.to_string();
-            return tokio::task::spawn_blocking(move || {
+            return crate::ffi_timeout::ffi_call(move || {
                 Self::is_feature_implemented(handle, &feature)
-            })
+            }, crate::ffi_timeout::FFI_QUERY_TIMEOUT, "is_feature_implemented_on_camera")
             .await?;
         }
 
