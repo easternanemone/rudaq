@@ -2395,12 +2395,15 @@ impl PvcamDriver {
                 let conn = conn.clone();
                 Box::pin(async move {
                     let conn_guard = conn.lock_owned().await;
-                    tokio::task::spawn_blocking(move || {
-                        PvcamFeatures::set_adc_offset(&conn_guard, val)
-                            .map_err(|e| DaqError::Instrument(e.to_string()))
-                    })
+                    ffi_timeout::ffi_with_timeout_daq(
+                        "set_adc_offset",
+                        ffi_timeout::CONFIG_TIMEOUT,
+                        move || {
+                            PvcamFeatures::set_adc_offset(&conn_guard, val)
+                                .map_err(|e| DaqError::Instrument(e.to_string()))
+                        },
+                    )
                     .await
-                    .map_err(|e| DaqError::Instrument(e.to_string()))?
                 })
             }
         });
