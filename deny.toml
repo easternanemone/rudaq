@@ -220,9 +220,6 @@ skip = [
     { crate = "windows-targets", reason = "Windows SDK version differences" },
     { crate = "windows_x86_64_msvc", reason = "Windows SDK" },
     { crate = "windows_x86_64_gnu", reason = "Windows SDK" },
-    { crate = "windows_aarch64_msvc", reason = "Windows SDK" },
-    { crate = "windows_i686_msvc", reason = "Windows SDK" },
-    { crate = "windows_i686_gnu", reason = "Windows SDK" },
 ]
 
 # Tree of crates to skip (skip-tree is more efficient for large dep trees)
@@ -259,4 +256,4 @@ allow-git = [
 
 [sources.allow-org]
 # Allow crates from your GitHub organization
-github = ["bsquires-lab"]
+github = ["JulianDicken"]

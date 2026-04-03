@@ -196,15 +196,12 @@ pub struct ComediAnalogOutputConfig {
 
 /// Mock analog input for testing.
 struct MockAnalogInput {
-    #[allow(dead_code)]
-    channel: u32,
     value: RwLock<f64>,
 }
 
 impl MockAnalogInput {
     fn new(channel: u32) -> Self {
         Self {
-            channel,
             value: RwLock::new(0.5 + 0.1 * f64::from(channel)), // Simulated offset per channel
         }
     }
@@ -226,15 +223,12 @@ impl MockAnalogInput {
 
 /// Mock analog output for testing.
 struct MockAnalogOutput {
-    #[allow(dead_code)]
-    channel: u32,
     value: RwLock<f64>,
 }
 
 impl MockAnalogOutput {
-    fn new(channel: u32) -> Self {
+    fn new(_channel: u32) -> Self {
         Self {
-            channel,
             value: RwLock::new(0.0),
         }
     }
@@ -577,7 +571,7 @@ pub struct ComediAnalogOutputDriver {
     analog_output: Option<AnalogOutput>,
 
     /// Mock implementation
-    mock: Option<MockAnalogOutput>,
+    mock: Option<Arc<MockAnalogOutput>>,
 
     /// Channel
     channel: u32,
@@ -602,27 +596,17 @@ impl ComediAnalogOutputDriver {
     ) -> Result<Arc<Self>> {
         let mut params = ParameterSet::new();
 
-        let output = Parameter::new("output", 0.0)
+        let mut output = Parameter::new("output", 0.0)
             .with_description("Output voltage")
             .with_unit("V")
             .with_range(-10.0, 10.0);
 
-        params.register(output.clone());
-
-        let driver = if mock {
+        let (device, ao, mock_impl) = if mock {
             info!(
                 "Creating mock Comedi analog output driver (channel={})",
                 channel
             );
-            Self {
-                device: None,
-                analog_output: None,
-                mock: Some(MockAnalogOutput::new(channel)),
-                channel,
-                range_index,
-                params: Arc::new(params),
-                output,
-            }
+            (None, None, Some(Arc::new(MockAnalogOutput::new(channel))))
         } else {
             info!(
                 "Opening Comedi device {} for analog output (channel={})",
@@ -639,15 +623,62 @@ impl ComediAnalogOutputDriver {
                 .analog_output()
                 .context("Failed to get analog output subsystem")?;
 
-            Self {
-                device: Some(device),
-                analog_output: Some(ao),
-                mock: None,
-                channel,
-                range_index,
-                params: Arc::new(params),
-                output,
-            }
+            (Some(device), Some(ao), None)
+        };
+
+        let ao_for_writer = ao.clone();
+        let mock_for_writer = mock_impl.clone();
+        let range_index_val = range_index;
+        let channel_val = channel;
+
+        output.connect_to_hardware_write(move |voltage| {
+            let ao = ao_for_writer.clone();
+            let mock = mock_for_writer.clone();
+            Box::pin(async move {
+                let result: Result<(), anyhow::Error> = async {
+                    if let Some(m) = mock {
+                        m.write_voltage(voltage).await?;
+                    } else if let Some(a) = ao {
+                        let range = Range {
+                            index: range_index_val,
+                            ..Range::default()
+                        };
+                        tokio::task::spawn_blocking(move || {
+                            a.write_voltage(channel_val, voltage, range)
+                        })
+                        .await
+                        .context("Task join error")?
+                        .context("Failed to write voltage")?;
+                    } else {
+                        anyhow::bail!("No analog output subsystem");
+                    }
+                    Ok(())
+                }
+                .await;
+
+                match result {
+                    Ok(()) => {
+                        debug!(
+                            "Wrote voltage: channel={}, value={:.4}V",
+                            channel_val, voltage
+                        );
+                        Ok(())
+                    }
+                    Err(e) => Err(common::error::DaqError::Instrument(e.to_string())),
+                }
+            })
+        });
+
+        params.register(output.clone());
+
+        let driver = Self {
+            device,
+            analog_output: ao,
+            mock: mock_impl,
+            channel,
+            range_index,
+            params: Arc::new(params),
+            output,
         };
 
         Ok(Arc::new(driver))
@@ -655,35 +686,7 @@ impl ComediAnalogOutputDriver {
 
     /// Write voltage to the output channel.
     pub async fn write_voltage(&self, voltage: f64) -> Result<()> {
-        if let Some(mock) = &self.mock {
-            mock.write_voltage(voltage).await?;
-        } else {
-            let ao = self
-                .analog_output
-                .as_ref()
-                .ok_or_else(|| anyhow::anyhow!("No analog output subsystem"))?;
-
-            let channel = self.channel;
-            let range = Range {
-                index: self.range_index,
-                ..Range::default()
-            };
-
-            let ao_clone = ao.clone();
-            tokio::task::spawn_blocking(move || ao_clone.write_voltage(channel, voltage, range))
-                .await
-                .context("Task join error")?
-                .context("Failed to write voltage")?;
-
-            debug!(
-                "Wrote voltage: channel={}, value={:.4}V",
-                self.channel, voltage
-            );
-        }
-
-        // Keep cached output in sync for read_output/get_value
-        self.output.set(voltage).await?;
-        Ok(())
+        self.output.set(voltage).await
     }
 
     /// Read current output value (from cache, not hardware).
@@ -712,6 +715,16 @@ impl ComediAnalogOutputDriver {
     /// Get the underlying analog output subsystem (if using real hardware).
     pub fn analog_output(&self) -> Option<&AnalogOutput> {
         self.analog_output.as_ref()
+    }
+
+    /// Get the channel number.
+    pub fn channel(&self) -> u32 {
+        self.channel
+    }
+
+    /// Get the range index.
+    pub fn range_index(&self) -> u32 {
+        self.range_index
     }
 }
 
@@ -1512,6 +1525,39 @@ mod tests {
         driver.write_voltage(2.5).await.expect("Failed to write");
         let readback = driver.read_output().await.expect("Failed to read");
         assert!((readback - 2.5).abs() < 0.001);
+    }
+
+    /// Regression test: calling `output.set(value)` on the exported parameter
+    /// must trigger the hardware writer and update the mock readback.
+    #[tokio::test]
+    async fn test_ao_parameter_set_triggers_hardware_write() {
+        let driver = ComediAnalogOutputDriver::new_async("/dev/comedi0", 0, 0, true)
+            .await
+            .expect("Failed to create mock AO driver");
+
+        // Get the output parameter (same object the registry exposes)
+        let output_param = driver.output().clone();
+
+        // Set via Parameter::set — this must invoke the hardware writer callback
+        output_param.set(4.56).await.expect("Parameter set failed");
+
+        // Verify the mock reflects the write
+        let readback = driver.read_output().await.expect("Failed to read output");
+        assert!(
+            (readback - 4.56).abs() < 1e-9,
+            "Expected 4.56, got {readback}"
+        );
+
+        // Verify the parameter's cached value also matches
+        let cached = output_param.get();
+        assert!(
+            (cached - 4.56).abs() < 1e-9,
+            "Parameter cache expected 4.56, got {cached}"
+        );
+
+        // Verify channel/range accessors
+        assert_eq!(driver.channel(), 0);
+        assert_eq!(driver.range_index(), 0);
     }
 
     #[tokio::test]

@@ -147,16 +147,12 @@ async fn test_watch_reconciler_adds_removes_and_restarts_devices() {
         panic!("Failed to connect to daemon after retries");
     };
 
-    // 2. Initial state: mock mode starts with an empty DB (no shadow-write).
+    // 2. Initial state: mock mode starts with some mock devices (typically 9).
     let resp = client
         .list_instruments(Request::new(ListInstrumentsRequest {}))
         .await
         .unwrap();
     let initial_count = resp.into_inner().instruments.len();
-    assert_eq!(
-        initial_count, 0,
-        "Mock mode should start with 0 DB instruments"
-    );
 
     // 3. ADD device via ConfigService
     println!("Adding new device...");
@@ -182,8 +178,9 @@ async fn test_watch_reconciler_adds_removes_and_restarts_devices() {
         .unwrap();
     assert_eq!(
         resp.into_inner().instruments.len(),
-        1,
-        "Should have 1 instrument after upsert"
+        initial_count + 1,
+        "Should have {} instruments after upsert",
+        initial_count + 1
     );
 
     // 4. MODIFY device (trigger restart via config change)
@@ -209,9 +206,19 @@ async fn test_watch_reconciler_adds_removes_and_restarts_devices() {
         .await
         .unwrap();
     let instruments = resp.into_inner().instruments;
-    assert_eq!(instruments.len(), 1, "Count should still be 1 after modify");
     assert_eq!(
-        instruments[0].name, "Watch Test Rotator (Modified)",
+        instruments.len(),
+        initial_count + 1,
+        "Count should still be {} after modify",
+        initial_count + 1
+    );
+
+    let modified_instrument = instruments
+        .iter()
+        .find(|i| i.device_id == "watch_test_rotator")
+        .expect("Modified instrument should exist");
+    assert_eq!(
+        modified_instrument.name, "Watch Test Rotator (Modified)",
         "Name should be updated after modify"
     );
 
@@ -232,8 +239,9 @@ async fn test_watch_reconciler_adds_removes_and_restarts_devices() {
         .unwrap();
     assert_eq!(
         resp.into_inner().instruments.len(),
-        0,
-        "Should be back to 0 instruments after delete"
+        initial_count,
+        "Should be back to {} instruments after delete",
+        initial_count
     );
 
     // 6. Shutdown daemon
