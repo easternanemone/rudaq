@@ -1,0 +1,383 @@
+# config/devices/siglent_sdg1025.toml
+# Siglent SDG1025 Arbitrary Waveform Generator - Universal Driver Manifest
+#
+# Drives galvo mirrors for beam steering via two analog output channels.
+# Primary use case: adjusting scan offset (DC offset) to center the
+# laser spot on the camera sensor.
+#
+# Connection options:
+#   - RS-232: 115200 baud, 8N1 (rear panel DB9)
+#   - USB-TMC: /dev/usbtmc0 (front panel USB-B)
+#   - LAN: TCP port 5024 (optional rear panel Ethernet)
+#
+# Protocol: Siglent proprietary SCPI-like commands
+#   - Channel prefix: C1: or C2:
+#   - Basic Waveform: C1:BSWV WVTP,SINE,FRQ,100,AMP,2,OFST,0.5
+#   - Query: C1:BSWV?
+#   - Identity: *IDN?
+#
+# Reference: Siglent SDG1000 Series Programming Guide
+# bd-b99h
+
+schema_version = 3
+
+[device]
+name = "Siglent SDG1025"
+description = "25 MHz arbitrary waveform generator for galvo mirror drive"
+manufacturer = "Siglent"
+model = "SDG1025"
+protocol = "siglent_sdg"
+category = "modulator"
+capabilities = ["Settable", "Parameterized", "Commandable"]
+
+# ==============================================================================
+# Connection Settings
+# ==============================================================================
+# Default to serial; override in hardware config for USB-TMC or TCP.
+
+[connection]
+type = "serial"
+baud_rate = 115200
+timeout_ms = 2000
+terminator_tx = "\n"
+terminator_rx = "\n"
+
+# ==============================================================================
+# Initialization Sequence
+# ==============================================================================
+
+[[init_sequence]]
+command = "identify"
+description = "Query device identity"
+required = true
+expect = "Siglent"
+
+[[init_sequence]]
+command = "get_ch1_config"
+description = "Read channel 1 waveform configuration"
+required = false
+delay_ms = 100
+
+[[init_sequence]]
+command = "get_ch2_config"
+description = "Read channel 2 waveform configuration"
+required = false
+delay_ms = 100
+
+# ==============================================================================
+# Device Parameters
+# ==============================================================================
+
+[parameters.ch1_offset_v]
+type = "float"
+default = 0.0
+range = [-10.0, 10.0]
+unit = "V"
+description = "Channel 1 DC offset (galvo X scan offset)"
+read_command = "get_ch1_config"
+write_command = "set_ch1_offset"
+
+[parameters.ch2_offset_v]
+type = "float"
+default = 0.0
+range = [-10.0, 10.0]
+unit = "V"
+description = "Channel 2 DC offset (galvo Y scan offset)"
+read_command = "get_ch2_config"
+write_command = "set_ch2_offset"
+
+[parameters.ch1_amplitude_v]
+type = "float"
+default = 2.0
+range = [0.002, 20.0]
+unit = "Vpp"
+description = "Channel 1 amplitude (galvo X scan range)"
+write_command = "set_ch1_amplitude"
+
+[parameters.ch2_amplitude_v]
+type = "float"
+default = 2.0
+range = [0.002, 20.0]
+unit = "Vpp"
+description = "Channel 2 amplitude (galvo Y scan range)"
+write_command = "set_ch2_amplitude"
+
+[parameters.ch1_frequency_hz]
+type = "float"
+default = 100.0
+range = [0.000001, 25000000.0]
+unit = "Hz"
+description = "Channel 1 frequency (galvo X scan rate)"
+write_command = "set_ch1_frequency"
+
+[parameters.ch2_frequency_hz]
+type = "float"
+default = 100.0
+range = [0.000001, 25000000.0]
+unit = "Hz"
+description = "Channel 2 frequency (galvo Y scan rate)"
+write_command = "set_ch2_frequency"
+
+[parameters.ch1_waveform]
+type = "string"
+default = "SINE"
+choices = ["SINE", "SQUARE", "RAMP", "PULSE", "NOISE", "ARB", "DC"]
+description = "Channel 1 waveform type"
+write_command = "set_ch1_waveform"
+
+[parameters.ch2_waveform]
+type = "string"
+default = "SINE"
+choices = ["SINE", "SQUARE", "RAMP", "PULSE", "NOISE", "ARB", "DC"]
+description = "Channel 2 waveform type"
+write_command = "set_ch2_waveform"
+
+[parameters.ch1_output]
+type = "bool"
+default = false
+description = "Channel 1 output enable"
+write_command = "set_ch1_output"
+
+[parameters.ch2_output]
+type = "bool"
+default = false
+description = "Channel 2 output enable"
+write_command = "set_ch2_output"
+
+# ==============================================================================
+# Commands
+# ==============================================================================
+
+[commands.identify]
+template = "*IDN?"
+description = "Query device identity"
+response = "identity"
+
+[commands.get_ch1_config]
+template = "C1:BSWV?"
+description = "Query channel 1 basic waveform parameters"
+response = "bswv_response"
+
+[commands.get_ch2_config]
+template = "C2:BSWV?"
+description = "Query channel 2 basic waveform parameters"
+response = "bswv_response"
+
+# --- Channel 1 setters ---
+
+[commands.set_ch1_offset]
+template = "C1:BSWV OFST,{{ value }}"
+description = "Set channel 1 DC offset"
+parameters = { value = "float" }
+expects_response = false
+
+[commands.set_ch1_amplitude]
+template = "C1:BSWV AMP,{{ value }}"
+description = "Set channel 1 amplitude"
+parameters = { value = "float" }
+expects_response = false
+
+[commands.set_ch1_frequency]
+template = "C1:BSWV FRQ,{{ value }}"
+description = "Set channel 1 frequency"
+parameters = { value = "float" }
+expects_response = false
+
+[commands.set_ch1_waveform]
+template = "C1:BSWV WVTP,{{ value }}"
+description = "Set channel 1 waveform type"
+parameters = { value = "string" }
+expects_response = false
+
+[commands.set_ch1_output]
+template = "C1:OUTP {{ value }}"
+description = "Set channel 1 output (ON/OFF)"
+parameters = { value = "string" }
+expects_response = false
+
+# --- Channel 2 setters ---
+
+[commands.set_ch2_offset]
+template = "C2:BSWV OFST,{{ value }}"
+description = "Set channel 2 DC offset"
+parameters = { value = "float" }
+expects_response = false
+
+[commands.set_ch2_amplitude]
+template = "C2:BSWV AMP,{{ value }}"
+description = "Set channel 2 amplitude"
+parameters = { value = "float" }
+expects_response = false
+
+[commands.set_ch2_frequency]
+template = "C2:BSWV FRQ,{{ value }}"
+description = "Set channel 2 frequency"
+parameters = { value = "float" }
+expects_response = false
+
+[commands.set_ch2_waveform]
+template = "C2:BSWV WVTP,{{ value }}"
+description = "Set channel 2 waveform type"
+parameters = { value = "string" }
+expects_response = false
+
+[commands.set_ch2_output]
+template = "C2:OUTP {{ value }}"
+description = "Set channel 2 output (ON/OFF)"
+parameters = { value = "string" }
+expects_response = false
+
+# --- Composite commands ---
+
+[commands.set_ch1_full]
+template = "C1:BSWV WVTP,{{ waveform }},FRQ,{{ frequency }},AMP,{{ amplitude }},OFST,{{ offset }}"
+description = "Set channel 1 waveform, frequency, amplitude, and offset in one command"
+parameters = { waveform = "string", frequency = "float", amplitude = "float", offset = "float" }
+expects_response = false
+
+[commands.set_ch2_full]
+template = "C2:BSWV WVTP,{{ waveform }},FRQ,{{ frequency }},AMP,{{ amplitude }},OFST,{{ offset }}"
+description = "Set channel 2 waveform, frequency, amplitude, and offset in one command"
+parameters = { waveform = "string", frequency = "float", amplitude = "float", offset = "float" }
+expects_response = false
+
+# ==============================================================================
+# Response Parsers
+# ==============================================================================
+
+[responses.identity]
+transform = ["trim"]
+
+# SDG1025 BSWV? response format:
+# C1:BSWV WVTP,SINE,FRQ,100HZ,PERI,0.01S,AMP,2V,AMPVRMS,0.707Vrms,OFST,0V,HLEV,1V,LLEV,-1V,PHSE,0
+[responses.bswv_response]
+regex = "OFST,(?P<offset>[\\-\\.0-9eE]+)V"
+
+# ==============================================================================
+# Capability Mappings
+# ==============================================================================
+
+[capabilities.settable]
+set = { command = "set_ch1_offset", input_param = "value" }
+
+# ==============================================================================
+# Emulator Configuration
+# ==============================================================================
+
+[emulator]
+mode = "echo"
+identity = "Siglent Technologies,SDG1025,SDG00001234567,1.01.01.33R1"
+
+[emulator.state]
+ch1_offset = "0.0"
+ch1_amplitude = "2.0"
+ch1_frequency = "100.0"
+ch1_waveform = "SINE"
+ch1_output = "OFF"
+ch2_offset = "0.0"
+ch2_amplitude = "2.0"
+ch2_frequency = "100.0"
+ch2_waveform = "SINE"
+ch2_output = "OFF"
+
+[[emulator.responses]]
+pattern = "\\*IDN\\?"
+response = "{{ identity }}"
+
+[[emulator.responses]]
+pattern = "C1:BSWV\\?"
+response = "C1:BSWV WVTP,{{ ch1_waveform }},FRQ,{{ ch1_frequency }}HZ,AMP,{{ ch1_amplitude }}V,OFST,{{ ch1_offset }}V"
+
+[[emulator.responses]]
+pattern = "C2:BSWV\\?"
+response = "C2:BSWV WVTP,{{ ch2_waveform }},FRQ,{{ ch2_frequency }}HZ,AMP,{{ ch2_amplitude }}V,OFST,{{ ch2_offset }}V"
+
+[[emulator.responses]]
+pattern = "C1:BSWV OFST,([\\-\\.0-9eE]+)"
+set_state = { ch1_offset = "$1" }
+
+[[emulator.responses]]
+pattern = "C2:BSWV OFST,([\\-\\.0-9eE]+)"
+set_state = { ch2_offset = "$1" }
+
+[[emulator.responses]]
+pattern = "C1:OUTP (ON|OFF)"
+set_state = { ch1_output = "$1" }
+
+[[emulator.responses]]
+pattern = "C2:OUTP (ON|OFF)"
+set_state = { ch2_output = "$1" }
+
+# ==============================================================================
+# UI Configuration
+# ==============================================================================
+
+[ui]
+icon = "waveform"
+color = "#4CAF50"
+panel_kind = "generic"
+
+[ui.control_panel]
+layout = "vertical"
+
+[[ui.control_panel.sections]]
+type = "separator"
+label = "Channel 1 (Galvo X)"
+
+[[ui.control_panel.sections]]
+type = "parameter"
+label = "X Offset"
+parameter = "ch1_offset_v"
+widget = "spinner"
+precision = 3
+
+[[ui.control_panel.sections]]
+type = "parameter"
+label = "X Amplitude"
+parameter = "ch1_amplitude_v"
+widget = "spinner"
+precision = 3
+
+[[ui.control_panel.sections]]
+type = "parameter"
+label = "X Frequency"
+parameter = "ch1_frequency_hz"
+widget = "spinner"
+precision = 1
+
+[[ui.control_panel.sections]]
+type = "parameter"
+label = "X Waveform"
+parameter = "ch1_waveform"
+widget = "dropdown"
+
+[[ui.control_panel.sections]]
+type = "separator"
+label = "Channel 2 (Galvo Y)"
+
+[[ui.control_panel.sections]]
+type = "parameter"
+label = "Y Offset"
+parameter = "ch2_offset_v"
+widget = "spinner"
+precision = 3
+
+[[ui.control_panel.sections]]
+type = "parameter"
+label = "Y Amplitude"
+parameter = "ch2_amplitude_v"
+widget = "spinner"
+precision = 3
+
+[[ui.control_panel.sections]]
+type = "parameter"
+label = "Y Frequency"
+parameter = "ch2_frequency_hz"
+widget = "spinner"
+precision = 1
+
+[[ui.control_panel.sections]]
+type = "parameter"
+label = "Y Waveform"
+parameter = "ch2_waveform"
+widget = "dropdown"

@@ -9,7 +9,7 @@
 //! ## Architecture
 //!
 //! `ConfigDrivenPanel` implements [`DeviceControlWidget`] so it plugs into both the
-//! inline Instruments pane and docked pop-out tabs. It uses the same async channel
+//! inline Instruments pane and docked device tabs. It uses the same async channel
 //! pattern as `GenericDevicePanel`: a unified `ConfigPanelAction` enum flows through
 //! an `mpsc` channel, and `poll_results()` dispatches each result to the correct
 //! per-section state.

@@ -156,27 +156,9 @@ pub struct GenericDriver {
 
     /// Monotonic counter for generating unique observer IDs.
     next_observer_id: std::sync::Arc<std::sync::atomic::AtomicU64>,
-
-    /// Primary frame output channel for pooled frame delivery (bd-b86g.2).
-    /// Only ONE primary consumer is allowed - it owns frames and controls pool reclamation.
-    primary_output:
-        std::sync::Arc<RwLock<Option<tokio::sync::mpsc::Sender<crate::capabilities::LoanedFrame>>>>,
 }
 
 impl GenericDriver {
-    /// Creates a new GenericDriver from an InstrumentConfig and a serial port.
-    ///
-    /// # Arguments
-    /// * `config` - The instrument configuration loaded from YAML
-    /// * `port` - An open serial port (common::serial::DynSerial, e.g. from open_serial_async)
-    ///
-    /// # Returns
-    /// A new GenericDriver instance, or an error if regex compilation fails.
-    #[deprecated(since = "0.2.0", note = "use new_serial instead. Sunset: v1.0")]
-    pub fn new(config: InstrumentConfig, port: DynSerial) -> Result<Self> {
-        Self::new_serial(config, port)
-    }
-
     /// Creates a new GenericDriver from an InstrumentConfig and a serial port.
     ///
     /// # Arguments
@@ -250,7 +232,6 @@ impl GenericDriver {
             on_connect_executed: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             observers: std::sync::Arc::new(RwLock::new(Vec::new())),
             next_observer_id: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(1)),
-            primary_output: std::sync::Arc::new(RwLock::new(None)),
         })
     }
 
@@ -1552,16 +1533,17 @@ impl GenericDriver {
     /// # Returns
     /// * `Ok(())` if registration succeeded
     /// * `Err` if device doesn't support pooled frames
+    #[allow(clippy::unused_async)] // must be async to match FrameProducer trait signature
     pub async fn register_primary_output(
         &self,
-        tx: tokio::sync::mpsc::Sender<crate::capabilities::LoanedFrame>,
+        _tx: tokio::sync::mpsc::Sender<crate::capabilities::LoanedFrame>,
     ) -> Result<()> {
-        // TODO(bd-p2a1): plugin-based devices don't yet support pooled frames.
-        // This is a stub for API compatibility. When pooled frame support is added,
-        // this method will store the sender and use it during frame acquisition.
-        let mut primary = self.primary_output.write().await;
-        *primary = Some(tx);
-        Ok(())
+        // Manifest drivers generate synthetic frames — they don't use a FramePool
+        // and the streaming loop never sends LoanedFrames through a primary output.
+        // Accepting the sender silently hangs callers, so return an explicit error.
+        Err(anyhow::anyhow!(
+            "Manifest driver does not support pooled frame delivery"
+        ))
     }
 
     // =========================================================================

@@ -11,9 +11,9 @@ use crate::config::validated::{
     BaudRate, CapabilitySet, CommandConfig, CommandRef, ConnectionConfig, ConversionRef,
     DeviceInfo, DeviceManifest, EmissionControlConfig, InitCommand, ManifestParameterMeta,
     MethodConfig, MovableConfig, ReadableConfig, ResponseParser, ResponseRef, ScpiResponseType,
-    SerialConfig, SerialFlowControl, SerialParity, SettableConfig, ShutterControlConfig, Timeout,
-    ValidatedFormat, ValidatedFormula, ValidatedRegex, ValidatedTemplate, WaitSettledConfig,
-    WavelengthTunableConfig,
+    SerialConfig, SerialFlowControl, SerialParity, SettableConfig, ShutterControlConfig,
+    SpectrumReadableConfig, Timeout, ValidatedFormat, ValidatedFormula, ValidatedRegex,
+    ValidatedTemplate, WaitSettledConfig, WavelengthTunableConfig,
 };
 use crate::format_parser;
 use crate::template;
@@ -769,6 +769,27 @@ fn validate_capabilities(raw: &RawManifest, errors: &mut Vec<ConfigError>) -> Ca
         }
     });
 
+    let spectrum_readable = raw.capabilities.spectrum_readable.as_ref().map(|sr| {
+        let read_spectrum = sr.read_spectrum.as_ref().map(|mm| {
+            validate_method_mapping(
+                mm,
+                "spectrum_readable.read_spectrum",
+                &command_names,
+                &conversion_names,
+                errors,
+            )
+        });
+        SpectrumReadableConfig {
+            read_spectrum,
+            spectrum_length: sr.spectrum_length.unwrap_or(1024),
+            value_units: sr
+                .value_units
+                .clone()
+                .unwrap_or_else(|| "counts".to_string()),
+            axis_units: sr.axis_units.clone(),
+        }
+    });
+
     CapabilitySet {
         movable,
         readable,
@@ -776,6 +797,7 @@ fn validate_capabilities(raw: &RawManifest, errors: &mut Vec<ConfigError>) -> Ca
         shutter_control,
         wavelength_tunable,
         emission_control,
+        spectrum_readable,
     }
 }
 

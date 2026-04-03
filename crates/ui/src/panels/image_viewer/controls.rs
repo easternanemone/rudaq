@@ -375,6 +375,18 @@ impl ImageViewerPanel {
                 self.param_edit_buffers.insert(key.clone(), unquoted);
                 self.param_errors.remove(&key);
             } else if let Some(err) = result.error {
+                // Revert edit buffer to server value so widgets (especially
+                // ComboBox/checkbox) don't stick on the rejected value (bd-oox7).
+                if Some(&result.device_id) == self.device_id.as_ref() {
+                    if let Some(param) = self
+                        .camera_params
+                        .iter()
+                        .find(|p| p.descriptor.name == result.param_name)
+                    {
+                        let reverted = param.current_value.trim_matches('"').to_string();
+                        self.param_edit_buffers.insert(key.clone(), reverted);
+                    }
+                }
                 self.param_errors.insert(key, err);
             }
             ctx.request_repaint();
@@ -498,8 +510,16 @@ impl ImageViewerPanel {
 
         // Enums
         if !desc.enum_values.is_empty() {
-            let current = param.current_value.trim_matches('"').to_string();
-            let mut selected = current.clone();
+            let server_value = param.current_value.trim_matches('"').to_string();
+            // Use edit buffer for immediate visual feedback after selection (bd-oox7).
+            // Without this, the ComboBox snaps back to the server value on the next
+            // frame — making it look like the change was ignored.
+            let buffered = self
+                .param_edit_buffers
+                .get(&buffer_key)
+                .cloned()
+                .unwrap_or_else(|| server_value.clone());
+            let mut selected = buffered.clone();
 
             ui.horizontal_wrapped(|ui| {
                 Self::render_star_button(ui, is_fav, &mut self.param_favorites, &param_name);
@@ -517,13 +537,23 @@ impl ImageViewerPanel {
                     });
             });
 
-            if selected != current {
+            // Only fire when the user actively changed the selection this frame
+            // (compare against the pre-interaction value, not the server value,
+            // to avoid re-sending on every frame while the async response is in flight).
+            if selected != buffered {
+                self.param_edit_buffers
+                    .insert(buffer_key.clone(), selected.clone());
                 pending_update = Some(format!("\"{}\"", selected));
             }
         }
         // Boolean
         else if desc.dtype == "bool" {
-            let mut val = param.current_value.parse::<bool>().unwrap_or(false);
+            // Use edit buffer for immediate visual feedback (bd-oox7).
+            let mut val = self
+                .param_edit_buffers
+                .get(&buffer_key)
+                .and_then(|b| b.parse::<bool>().ok())
+                .unwrap_or_else(|| param.current_value.parse::<bool>().unwrap_or(false));
             ui.horizontal_wrapped(|ui| {
                 Self::render_star_button(ui, is_fav, &mut self.param_favorites, &param_name);
                 let cb_response = ui.checkbox(&mut val, &desc.name);
@@ -532,6 +562,8 @@ impl ImageViewerPanel {
                     cb_response.on_hover_text(&tooltip);
                 }
                 if changed {
+                    self.param_edit_buffers
+                        .insert(buffer_key.clone(), val.to_string());
                     pending_update = Some(val.to_string());
                 }
             });

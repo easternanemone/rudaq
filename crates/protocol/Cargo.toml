@@ -8,7 +8,8 @@ description = "Protocol buffer definitions and conversions for rust-daq"
 common = { path = "../common" }
 prost.workspace = true
 # LZ4 compression for frame streaming (bd-7rk0: gRPC improvements)
-lz4_flex = "0.11"
+# Floor 0.11.6: RUSTSEC-2026-0041 (invalid decompression memory safety)
+lz4_flex = "0.11.6"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tonic = { workspace = true, default-features = false, features = ["transport", "prost", "codegen"] }

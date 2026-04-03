@@ -21,8 +21,6 @@ serde_json.workspace = true
 
 # Optional hardware driver dependencies for factory functions
 driver-comedi = { path = "../driver-comedi", optional = true }
-driver-andor-sdk3 = { path = "../driver-andor-sdk3", optional = true }
-driver-dover-motion = { path = "../driver-dover-motion", optional = true }
 
 # Optional HDF5 support for data storage (use hdf5-metno to match ui/daq-storage)
 hdf5 = { package = "hdf5-metno", version = "0.12.3", optional = true }
@@ -32,8 +30,8 @@ default = []
 python = ["dep:pyo3"]
 # HDF5 data storage from Rhai scripts
 hdf5_scripting = ["dep:hdf5"]
-# LIBS hardware scripting (Andor iStar + Shamrock + Dover SmartStage)
-libs_scripting = ["dep:driver-andor-sdk3", "dep:driver-dover-motion"]
+# LIBS hardware scripting (always available -- uses trait objects from common)
+libs_scripting = []
 # Marker feature for cfg guards on hardware factory functions
 hardware_factories = []
 
@@ -42,7 +40,7 @@ scripting_full = [
     "hardware_factories",
     "hdf5_scripting",
 ]
-# Full scripting with LIBS support (cross-platform, no native SDK required for mocks)
+# Full scripting with LIBS support (now identical to scripting_full -- libs uses trait objects)
 scripting_full_libs = [
     "scripting_full",
     "libs_scripting",

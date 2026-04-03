@@ -311,15 +311,18 @@ impl DaqServer {
 
                     match encode_measurement_frame(&measurement) {
                         Ok(frame) => {
-                            if let Err(e) = rb.write(&frame) {
+                            let rb = rb.clone();
+                            // Offload blocking mmap write to avoid stalling Tokio
+                            // workers under contention (bd-tvp6).
+                            if let Err(e) = tokio::task::spawn_blocking(move || rb.write(&frame))
+                                .await
+                                .expect("ring buffer write task panicked")
+                            {
                                 tracing::error!(error = %e, "Failed to write measurement to ring buffer");
                             }
                         }
                         Err(e) => tracing::error!(error = %e, "Failed to encode measurement frame"),
                     }
-
-                    // Yield to allow other tasks to run
-                    tokio::task::yield_now().await;
                 }
             });
         }
@@ -687,6 +690,7 @@ fn build_image_measurement(device_id: &str, frame: &common::data::Frame) -> Meas
             roi_origin,
             frame_number: Some(frame.frame_number),
             sequence_gap_from_previous: None,
+            summing_count: frame_metadata.and_then(|meta| meta.summing_count),
         },
         timestamp: chrono::Utc::now(),
     }
@@ -1783,13 +1787,17 @@ pub async fn start_server_with_hardware(
                     log_data_integrity_fault(&source, fault);
                 }
 
-                if let Ok(frame) = encode_measurement_frame(&measurement)
-                    && let Err(e) = rb_clone.write(&frame)
-                {
-                    tracing::error!(error = %e, "Failed to write measurement to ring buffer");
+                if let Ok(frame) = encode_measurement_frame(&measurement) {
+                    let rb = rb_clone.clone();
+                    // Offload blocking mmap write to avoid stalling Tokio
+                    // workers under contention (bd-tvp6).
+                    if let Err(e) = tokio::task::spawn_blocking(move || rb.write(&frame))
+                        .await
+                        .expect("ring buffer write task panicked")
+                    {
+                        tracing::error!(error = %e, "Failed to write measurement to ring buffer");
+                    }
                 }
-                // Yield to allow other tasks to run
-                tokio::task::yield_now().await;
             }
         });
         Some(tx)

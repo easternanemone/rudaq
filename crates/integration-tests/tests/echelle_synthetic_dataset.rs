@@ -527,8 +527,8 @@ fn test_echelle_pipeline_with_realistic_synthetic_hgar() {
             .join("\n")
     );
 
-    // RMS should be well under 1nm for synthetic data (even with perturbations,
-    // the seed model and fitting should handle them).
+    // RMS should be sub-nanometer when echelle seeds use Δλ=gc/m² across the chip
+    // (fixed bd-kt8k: build_echelle_seeds dispersion was gc/(m_ref·m·npx)).
     assert!(
         result.overall_rms_nm < 1.0,
         "overall RMS {:.4} nm exceeds 1.0 nm threshold",

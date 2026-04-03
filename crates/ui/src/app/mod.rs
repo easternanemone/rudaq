@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use eframe::egui;
 use egui_dock::tab_viewer::OnCloseResponse;
-use egui_dock::{DockArea, DockState, NodeIndex, Style, TabViewer};
+use egui_dock::{DockArea, DockState, NodeIndex, Style, TabDestination, TabViewer};
 use tokio::sync::mpsc;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -21,7 +21,7 @@ use crate::device_ext::DeviceInfoExt;
 use crate::icons;
 use crate::layout;
 use crate::panels::instrument_manager::{
-    config_loader::DeviceConfigCache, config_renderer::ConfigDrivenPanel,
+    config_loader::DeviceConfigCache, config_renderer::ConfigDrivenPanel, DeviceDragId,
 };
 use crate::panels::{
     ComediPanel, DocumentViewerPanel, ExperimentDesignerPanel, GettingStartedPanel,
@@ -184,7 +184,7 @@ pub struct DaqApp {
     grpc_ui_config_cache: HashMap<usize, Option<hardware::config::schema::ControlPanelConfig>>,
     /// User-added command widgets for advanced control panels (keyed by panel ID)
     docked_command_widgets: HashMap<usize, CommandWidgetPalette>,
-    /// Preferred control-panel layout mode for docked pop-outs
+    /// Preferred control-panel layout mode for docked device panels
     control_panel_layout_mode: ControlPanelLayoutMode,
 
     /// Settings window state
@@ -566,6 +566,14 @@ impl DaqApp {
             recovered_from_crash,
         };
 
+        if let Some(paths) = cc
+            .storage
+            .and_then(|s| eframe::get_value::<Vec<String>>(s, "echelle_recent_profile_paths"))
+        {
+            app.image_viewer_panel
+                .restore_echelle_recent_profile_paths(paths);
+        }
+
         // Restore last echelle profile path and auto-trigger load on next connection
         if let Some(path) = cc
             .storage
@@ -735,10 +743,22 @@ impl DaqApp {
             cheat_sheet_panel: CheatSheetPanel::new(),
             show_cheat_sheet: false,
             wasm_connection: {
-                let url = cc
+                // bd-5k2m: URL param takes highest priority, then stored, then default.
+                // detect_daemon_url() checks ?daemon= param first, then page origin.
+                let detected = detect_daemon_url();
+                let stored = cc
                     .storage
-                    .and_then(|s| eframe::get_value::<String>(s, WASM_SERVER_URL_KEY))
-                    .unwrap_or_else(|| WASM_DEFAULT_SERVER_URL.to_string());
+                    .and_then(|s| eframe::get_value::<String>(s, WASM_SERVER_URL_KEY));
+                // Use detected URL if it came from ?daemon= param (not the fallback default),
+                // otherwise use stored value, otherwise use detected (which falls back to default).
+                let url = if detected != WASM_DEFAULT_SERVER_URL {
+                    // detect_daemon_url found a ?daemon= param or page origin — use it
+                    detected
+                } else if let Some(stored_url) = stored {
+                    stored_url
+                } else {
+                    detected
+                };
                 WasmConnectionState {
                     url_input: url,
                     ..Default::default()
@@ -755,6 +775,14 @@ impl DaqApp {
                 }
             },
         };
+
+        if let Some(paths) = cc
+            .storage
+            .and_then(|s| eframe::get_value::<Vec<String>>(s, "echelle_recent_profile_paths"))
+        {
+            app.image_viewer_panel
+                .restore_echelle_recent_profile_paths(paths);
+        }
 
         // Restore last echelle profile path and auto-trigger load on next connection
         if let Some(path) = cc

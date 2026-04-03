@@ -25,10 +25,9 @@ pub(super) fn list_parameters(
         let param_set = parameterized.parameters();
         for param_name in param_set.names() {
             if let Some(param) = param_set.get(param_name) {
-                let observable_metadata = param.metadata();
                 // Use live metadata from the parameter itself. Registry metadata is a
                 // registration-time snapshot and can be stale for dynamic choices.
-                let live_metadata = CommonParameterMetadata::from(&observable_metadata);
+                let live_metadata = param.metadata();
 
                 // Use introspectable dtype from metadata if available,
                 // otherwise infer from current value (best-effort fallback)
@@ -56,7 +55,7 @@ pub(super) fn list_parameters(
 
                 parameters.push(ParameterDescriptor {
                     device_id: req.device_id.clone(),
-                    name: observable_metadata.name.clone(),
+                    name: live_metadata.name.clone(),
                     description: live_metadata.description.clone().unwrap_or_default(),
                     dtype,
                     units: live_metadata.units.clone().unwrap_or_default(),
@@ -93,9 +92,7 @@ pub(super) async fn get_parameter(
             let value = param.get_json().map_err(|e| {
                 map_hardware_error_to_status(&format!("Failed to get parameter: {}", e))
             })?;
-            let units = CommonParameterMetadata::from(&param.metadata())
-                .units
-                .unwrap_or_default();
+            let units = param.metadata().units.unwrap_or_default();
             #[allow(clippy::cast_possible_truncation)]
             // SAFETY: value is bounded and fits in target type
             let timestamp_ns = SystemTime::now()
@@ -242,7 +239,7 @@ pub(super) async fn set_parameter(
         let params = parameterized.parameters();
 
         if let Some(param) = params.get(&req.parameter_name) {
-            let metadata = CommonParameterMetadata::from(&param.metadata());
+            let metadata = param.metadata();
             let old_value = param.get_json().map(|v| v.to_string()).unwrap_or_default();
 
             // Parse the value string to JSON
@@ -545,6 +542,7 @@ fn snapshot_to_proto(snapshot: SystemStateSnapshot) -> ProtoSystemState {
 
 /// Set or clear the favorite flag for a parameter (bd-4wf7).
 #[allow(unused_variables)] // svc and req only used with db-surreal feature
+#[allow(clippy::unused_async)] // conditionally async: .await used only with db-surreal feature
 pub(super) async fn set_parameter_favorite(
     svc: &HardwareServiceImpl,
     request: Request<SetParameterFavoriteRequest>,
@@ -569,6 +567,7 @@ pub(super) async fn set_parameter_favorite(
 
 /// Get all favorited parameter names for a device (bd-4wf7).
 #[allow(unused_variables)] // svc and req only used with db-surreal feature
+#[allow(clippy::unused_async)] // conditionally async: .await used only with db-surreal feature
 pub(super) async fn get_parameter_favorites(
     svc: &HardwareServiceImpl,
     request: Request<GetParameterFavoritesRequest>,

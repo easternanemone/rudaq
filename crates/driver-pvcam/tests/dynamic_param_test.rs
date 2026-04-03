@@ -238,7 +238,7 @@ mod mock_dynamic_params {
         // These are statically configured with with_choices_introspectable
         assert_enum_param(&driver, "acquisition.trigger_mode");
         assert_enum_param(&driver, "acquisition.clear_mode");
-        assert_enum_param(&driver, "acquisition.expose_out_mode");
+        assert_enum_param(&driver, "trigger.expose_out_mode");
         assert_enum_param(&driver, "thermal.fan_speed");
         assert_enum_param(&driver, "shutter.mode");
         assert_enum_param(&driver, "acquisition.buffer_mode");

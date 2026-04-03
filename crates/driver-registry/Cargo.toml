@@ -55,5 +55,8 @@ all_hardware = ["pvcam", "comedi", "andor"]
 # Full feature set
 full = ["all_hardware"]
 
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
 [lints]
 workspace = true

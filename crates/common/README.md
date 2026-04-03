@@ -70,7 +70,6 @@ Fine-grained traits for composable device behavior (23 total):
 | `Commandable` | Raw command interface |
 | `SpectrometerControl` | Spectrometer configuration |
 | `TriggerOnPosition` | Position-based triggering |
-| `PulseGenerator` | Pulse/waveform generation |
 | `SafetyInterlock` | Safety system integration |
 | `Reconfigurable` | Runtime reconfiguration |
 

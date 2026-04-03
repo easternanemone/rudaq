@@ -293,7 +293,6 @@ impl DaqApp {
         }
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
     pub(super) fn on_connection_established(&mut self) {
         tracing::info!("Connection established - triggering panel refreshes");
 
@@ -310,6 +309,13 @@ impl DaqApp {
 
         self.logging_panel
             .info("Connection", "Connected - panels will refresh data");
+
+        // Update browser tab title to show connected daemon
+        #[cfg(target_arch = "wasm32")]
+        set_page_title(&format!(
+            "DAQ Panel — Connected ({})",
+            self.current_daemon_url()
+        ));
 
         // Start device reconciliation to validate persisted panels
         self.start_device_reconcile();
@@ -334,7 +340,7 @@ impl DaqApp {
         }
         #[cfg(target_arch = "wasm32")]
         {
-            self.wasm_connection.url_input.clone()
+            self.wasm_connection.url_input.trim().to_string()
         }
     }
 
@@ -346,7 +352,7 @@ impl DaqApp {
             return;
         }
 
-        // Clear stale state from any previous connection (fixes beefcake-48ad)
+        // Clear stale state from any previous connection (fixes beefcake-48ad / bd-0zu5)
         self.wasm_disconnect();
 
         self.wasm_connection.connecting = true;
@@ -359,9 +365,13 @@ impl DaqApp {
         self.wasm_connection.status = "Connected".to_string();
         self.was_connected = true;
 
-        // Trigger device list refresh
         self.logging_panel
             .info("Connection", &format!("Connected to {}", url));
+
+        // Reset all panels and trigger device reconciliation so stale data from a
+        // previous daemon is discarded (bd-0zu5: reconnect without page reload).
+        self.on_connection_established();
+
         ctx.request_repaint();
     }
 
@@ -380,5 +390,14 @@ impl DaqApp {
         if let Some(ref mut dock) = self.dock_state {
             dock.retain_tabs(|tab| !matches!(tab, Panel::DeviceControl { .. }));
         }
+        // Update browser tab title to show disconnected state
+        set_page_title("DAQ Panel — Disconnected");
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn set_page_title(title: &str) {
+    if let Some(doc) = web_sys::window().and_then(|w| w.document()) {
+        doc.set_title(title);
     }
 }

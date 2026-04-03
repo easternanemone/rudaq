@@ -12,6 +12,8 @@ use super::TapRegistry;
 #[cfg(feature = "pvcam_sdk")]
 use super::{get_pvcam_error, CallbackContext, FrameMetadata};
 #[cfg(feature = "pvcam_sdk")]
+use crate::components::features::PvcamFeatures;
+#[cfg(feature = "pvcam_sdk")]
 use bytes::Bytes;
 #[cfg(feature = "pvcam_sdk")]
 use common::data::Frame;
@@ -57,6 +59,9 @@ impl PvcamAcquisition {
         binning: (u16, u16),
         done_tx: std::sync::mpsc::Sender<()>,
         tap_registry: Arc<TapRegistry>, // bd-0dax.4: For synchronous tap observers
+        host_summing_enabled: Parameter<bool>, // bd-oqo7.7
+        host_summing_count: Parameter<u32>, // bd-oqo7.7
+        smart_stream_count: usize,      // bd-oqo7.1: SMART Streaming exposure cycle length
     ) {
         // Main sequence loop
         let mut total_frames: u64 = 0;
@@ -141,8 +146,30 @@ impl PvcamAcquisition {
                         frame_count.store(total_frames, Ordering::SeqCst);
 
                         // Build frame (matching mock and hardware path patterns)
+                        // bd-oqo7.7: Include summing_count in frame metadata
+                        let summing_count = if host_summing_enabled.get() {
+                            let count = host_summing_count.get();
+                            if count > 1 {
+                                Some(count)
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        };
+                        let extra = if smart_stream_count > 0 {
+                            let exposure_index = ((total_frames - 1) as usize) % smart_stream_count;
+                            let mut m = std::collections::HashMap::with_capacity(2);
+                            m.insert("smart_stream_index".into(), exposure_index.to_string());
+                            m.insert("smart_stream_count".into(), smart_stream_count.to_string());
+                            m
+                        } else {
+                            std::collections::HashMap::new()
+                        };
                         let ext_metadata = common::data::FrameMetadata {
                             binning: Some(binning),
+                            summing_count,
+                            extra,
                             ..Default::default()
                         };
                         let frame = Arc::new(
@@ -256,6 +283,9 @@ impl PvcamAcquisition {
     /// * `circ_overwrite` - Whether the acquisition was configured with CIRC_OVERWRITE
     /// * `buffer_pool` - Pre-allocated buffer pool for TRUE zero-allocation frame handling (bd-0dax.4).
     ///                  Uses bytes::Bytes with freeze() - no allocations during steady-state streaming.
+    /// * `smart_stream_count` - Number of SMART Streaming exposures in the cycle (0 = disabled, bd-oqo7.1).
+    ///                         When > 0, each frame's extended metadata includes `smart_stream_index`
+    ///                         and `smart_stream_count` for downstream HDR merging.
     #[cfg(feature = "pvcam_sdk")]
     #[allow(clippy::too_many_arguments)]
     pub(super) fn frame_loop_hardware(
@@ -291,6 +321,10 @@ impl PvcamAcquisition {
         tap_registry: Arc<TapRegistry>, // bd-0dax.4: For synchronous tap observers
         primary_tx: Option<tokio::sync::mpsc::Sender<common::capabilities::LoanedFrame>>, // bd-r8ux
         primary_frame_pool: Option<Arc<Pool<FrameData>>>, // bd-r8ux
+        host_summing_enabled: Parameter<bool>, // bd-oqo7.7
+        host_summing_count: Parameter<u32>, // bd-oqo7.7
+        smart_stream_count: usize, // bd-oqo7.1: SMART Streaming exposure cycle length
+        use_prime_locate: bool,  // bd-ldjy.4: PrimeLocate emits event records, not pixels
     ) {
         let loop_span = tracing::debug_span!(
             "pvcam_frame_loop",
@@ -305,7 +339,8 @@ impl PvcamAcquisition {
             roi_y,
             bin_x = binning.0,
             bin_y = binning.1,
-            metadata = use_metadata
+            metadata = use_metadata,
+            prime_locate = use_prime_locate
         );
         let _enter = loop_span.enter();
 
@@ -443,10 +478,9 @@ impl PvcamAcquisition {
             ffi_safe::MdFrameGuard::null()
         };
 
-        // Track when receiver count became zero for graceful disconnect (bd-cckz)
-        // Auto-stop acquisition after 5 seconds of no subscribers
-        let mut no_subscribers_since: Option<std::time::Instant> = None;
-        const NO_SUBSCRIBER_TIMEOUT: Duration = Duration::from_secs(5);
+        // bd-a9nr: Removed auto-stop-on-no-subscribers (was bd-cckz).
+        // The caller controls acquisition lifetime via streaming Parameter and stop_stream().
+        // Auto-stopping caused race conditions with gRPC tap observer registration.
 
         // Check both streaming flag and shutdown signal (bd-z8q8).
         // Shutdown is set in Drop to ensure the loop exits before SDK uninit.
@@ -938,8 +972,14 @@ impl PvcamAcquisition {
                                     );
                                 }
                             }
-                            // TODO(bd-0o6b): Pass roi_data to downstream consumers
-                            // when multi-ROI Frame output format is defined.
+                            // Multi-ROI passthrough is blocked on a Frame format
+                            // extension: the current Frame struct carries a single
+                            // contiguous pixel buffer (width x height) and has no
+                            // field for per-ROI sub-regions. When Frame gains a
+                            // `roi_regions: Vec<RoiRegion>` field (or similar),
+                            // wire `roi_data` through here. Until then, the
+                            // single-ROI primary pixel copy above is sufficient
+                            // for all current consumers.
                         }
                         Err(e) => {
                             tracing::warn!("Failed to extract multi-ROI data: {} (bd-0o6b)", e);
@@ -1137,8 +1177,59 @@ impl PvcamAcquisition {
                 }
 
                 // Add extended metadata (bd-183h)
+                // bd-oqo7.7: Include summing_count in frame metadata
+                let summing_count = if host_summing_enabled.get() {
+                    let count = host_summing_count.get();
+                    if count > 1 {
+                        Some(count)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                // bd-oqo7.1: Tag frames with SMART Streaming exposure index
+                // bd-oqo7.2: Bridge hardware metadata fields to extra map
+                let extra = {
+                    let mut m = std::collections::HashMap::with_capacity(9);
+                    // SMART Streaming exposure tagging (bd-oqo7.1)
+                    if smart_stream_count > 0 {
+                        let exposure_index =
+                            ((monotonic_frame_count - 1) as usize) % smart_stream_count;
+                        m.insert("smart_stream_index".into(), exposure_index.to_string());
+                        m.insert("smart_stream_count".into(), smart_stream_count.to_string());
+                    }
+                    // Hardware metadata fields (bd-oqo7.2)
+                    if let Some(ref md) = frame_metadata {
+                        m.insert("hw_frame_nr".into(), md.frame_nr.to_string());
+                        m.insert("timestamp_bof_ns".into(), md.timestamp_bof_ns.to_string());
+                        m.insert("timestamp_eof_ns".into(), md.timestamp_eof_ns.to_string());
+                        m.insert("exposure_time_ns".into(), md.exposure_time_ns.to_string());
+                        m.insert("bit_depth".into(), md.bit_depth.to_string());
+                        m.insert("roi_count".into(), md.roi_count.to_string());
+                        // Derived: readout time = EOF - BOF - exposure (bd-oqo7.2)
+                        if md.timestamp_eof_ns > md.timestamp_bof_ns + md.exposure_time_ns {
+                            let readout_ns =
+                                md.timestamp_eof_ns - md.timestamp_bof_ns - md.exposure_time_ns;
+                            m.insert("readout_time_ns".into(), readout_ns.to_string());
+                        }
+                    }
+                    if use_prime_locate {
+                        m.insert("prime_locate_enabled".into(), "true".into());
+                        let events = PvcamFeatures::parse_localization_events(&frame.data);
+                        m.insert("localization_event_count".into(), events.len().to_string());
+                        if !events.is_empty() {
+                            if let Ok(json) = serde_json::to_string(&events) {
+                                m.insert("localization_events_json".into(), json);
+                            }
+                        }
+                    }
+                    m
+                };
                 let ext_metadata = common::data::FrameMetadata {
                     binning: Some(binning),
+                    summing_count,
+                    extra,
                     ..Default::default()
                 };
                 frame = frame.with_metadata(ext_metadata);
@@ -1172,51 +1263,21 @@ impl PvcamAcquisition {
                     );
                 }
 
-                if !has_consumers {
-                    // Track when we lost all subscribers AND observers (bd-cckz, bd-fix-2026-01-17)
-                    if no_subscribers_since.is_none() {
-                        no_subscribers_since = Some(std::time::Instant::now());
-                        tracing::info!(
-                            "No consumers (broadcast={}, observers={}), starting {} second disconnect timer",
-                            receiver_count,
-                            tap_registry.tap_count(),
-                            NO_SUBSCRIBER_TIMEOUT.as_secs()
-                        );
-                    } else if let Some(since) = no_subscribers_since {
-                        if since.elapsed() >= NO_SUBSCRIBER_TIMEOUT {
-                            tracing::info!(
-                                "No consumers for {} seconds, stopping acquisition (bd-cckz)",
-                                NO_SUBSCRIBER_TIMEOUT.as_secs()
-                            );
-                            eprintln!(
-                                "[PVCAM DEBUG] Breaking due to no consumers for {} seconds (iter={}, receiver_count={}, observers={})",
-                                NO_SUBSCRIBER_TIMEOUT.as_secs(),
-                                loop_iteration,
-                                receiver_count,
-                                tap_registry.tap_count()
-                            );
-                            break;
-                        }
-                    }
-                    tracing::warn!(
-                        "Dropping frame {}: no active consumers (broadcast={}, observers={})",
+                // bd-a9nr: Log consumer count periodically but never auto-stop.
+                // Acquisition lifetime is controlled by streaming Parameter + stop_stream().
+                if !has_consumers && monotonic_frame_count % 100 == 1 {
+                    tracing::debug!(
+                        "Frame {}: no active consumers (broadcast={}, observers={}) — streaming continues until stop_stream()",
                         current_frame_nr,
                         receiver_count,
                         tap_registry.tap_count()
                     );
-                } else {
-                    // Reset timer when subscribers reconnect
-                    if no_subscribers_since.is_some() {
-                        tracing::info!("Subscriber reconnected, canceling disconnect timer");
-                        no_subscribers_since = None;
-                    }
-                    if current_frame_nr % 30 == 1 {
-                        tracing::debug!(
-                            "Sending frame {} to {} broadcast subscribers",
-                            current_frame_nr,
-                            receiver_count
-                        );
-                    }
+                } else if has_consumers && current_frame_nr % 30 == 1 {
+                    tracing::debug!(
+                        "Sending frame {} to {} broadcast subscribers",
+                        current_frame_nr,
+                        receiver_count
+                    );
                 }
 
                 // bd-0dax.4: Run taps SYNCHRONOUSLY before broadcast (observers get &Frame)

@@ -683,9 +683,9 @@ mod tests {
         excluded_region: Option<PixelRegion>,
     ) -> EchelleCalibrationProfile {
         let sample_count = (sample_end - sample_start + 1) as usize;
-        // Use 1nm spacing (not 0.1nm) to avoid landing exactly on the 0.1nm
-        // merge-bin boundary in build_merged_preview, where IEEE 754 rounding
-        // causes adjacent samples to sometimes collapse into the same bin.
+        // Use 1nm spacing (not a simple multiple of the 0.05nm merge bin width
+        // used by `build_merged_preview`) so bench spectra do not repeatedly land
+        // on the same merge bin boundaries due to IEEE 754 rounding effects.
         #[allow(clippy::cast_precision_loss)]
         let wavelengths = (0..sample_count)
             .map(|i| 500.0 + i as f64 * 1.0)
@@ -720,6 +720,7 @@ mod tests {
                     inter_order_gap_min_px: 3,
                     baseline_window_px: 7,
                 }),
+                scattered_light: None,
             },
             orders: vec![EchelleOrderCalibration {
                 relative_index: 0,

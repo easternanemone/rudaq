@@ -64,6 +64,42 @@ let expose_out_modes = PvcamFeatures::list_expose_out_modes(&conn)?;
 | `list_serial_binning()` | `Vec<i32>` | Serial binning factors |
 | `list_parallel_binning()` | `Vec<i32>` | Parallel binning factors |
 
+## Runtime Feature Surface
+
+The driver now exposes PVCAM capabilities opportunistically based on what the
+camera and SDK actually advertise at runtime. Unsupported parameters are not
+registered instead of being shown as inert controls.
+
+### Prime BSI Notes
+
+On the Linux PVCAM 7.1.1 stack used on `maitai`, Prime BSI reports:
+
+- `PrimeEnhance` as the PP feature name `DENOISING`
+- additional PP features such as the `DESPECKLE_*` controls and `QUANTVIEW`
+- programmable scan parameters only when `PARAM_SCAN_*` is available on the
+  attached camera
+
+The rust-daq driver therefore exposes:
+
+- generic PP parameters as `pp.<feature>.<param>`
+- `acquisition.clear_cycles`
+- `acquisition.exposure_resolution`
+- `acquisition.exposure_resolution_index`
+- `acquisition.binning_serial_choices`
+- `acquisition.binning_parallel_choices`
+- centroids / PrimeLocate controls under `processing.centroids_*`
+- programmable scan controls under `trigger.scan_*` when supported
+
+### PrimeLocate Metadata Bridge
+
+When PrimeLocate is enabled, the camera may emit localization-event payloads
+instead of normal image pixels. The driver preserves the frame delivery path and
+adds decoded event data to `Frame.metadata.extra`:
+
+- `prime_locate_enabled`
+- `localization_event_count`
+- `localization_events_json`
+
 ## SDK Compatibility
 
 ### Minimum Supported Version

@@ -391,11 +391,9 @@ pub trait FrameObserver: Send + Sync {
     }
 }
 
-/// Type alias for pooled frame data from the object pool.
-///
-/// This represents a frame buffer loaned from a pre-allocated pool,
-/// enabling zero-allocation frame handling for high-FPS scenarios.
-pub type LoanedFrame = pool::Loaned<pool::FrameData>;
+/// Pooled frame data from the object pool — defined in [`pool::LoanedFrame`],
+/// re-exported here for convenience.
+pub use pool::LoanedFrame;
 
 /// Capability: Frame/Image Production
 ///
@@ -471,25 +469,6 @@ pub trait FrameProducer: Send + Sync {
     /// Returns sensor resolution in pixels.
     /// This is immutable - use separate ROI trait for cropping.
     fn resolution(&self) -> (u32, u32);
-
-    /// Take the frame receiver for consuming streamed frames
-    ///
-    /// **DEPRECATED**: Use `register_primary_output()` instead for zero-allocation pooled frames.
-    ///
-    /// This can only be called once - subsequent calls return None.
-    /// Call this BEFORE `start_stream()` to receive frames.
-    ///
-    /// # Returns
-    /// - Some(receiver) if receiver is available
-    /// - None if receiver was already taken or not supported by this device
-    #[deprecated(
-        since = "0.2.0",
-        note = "Use register_primary_output() for zero-allocation pooled frame delivery. Sunset: v1.0"
-    )]
-    async fn take_frame_receiver(&self) -> Option<tokio::sync::mpsc::Receiver<crate::data::Frame>> {
-        // Default: no frame receiver support
-        None
-    }
 
     /// Subscribe to the frame stream
     ///
@@ -1045,9 +1024,7 @@ pub trait Parameterized: Send + Sync {
 
     /// Get metadata for a specific parameter (cached by registry on registration).
     fn get_parameter_metadata(&self, name: &str) -> Option<ParameterMetadata> {
-        self.parameters()
-            .get(name)
-            .map(|param| ParameterMetadata::from(&param.metadata()))
+        self.parameters().get(name).map(|param| param.metadata())
     }
 }
 
@@ -1206,15 +1183,24 @@ pub enum TemperatureStatus {
 /// Always verify gate timing and ambient light conditions before enabling MCP.
 #[async_trait]
 pub trait GatedCamera: FrameProducer {
-    /// Set gate mode
+    /// Set gate mode from a vendor-specific string (e.g. "DDG", "CW On", "FireOnly").
     ///
-    /// # Arguments
-    /// * `mode` - Gate mode (CwOn, Ddg, FireAndForget)
+    /// Gate mode names vary across vendors, so the trait accepts a free-form
+    /// string and leaves parsing/validation to each implementor.
     ///
     /// # Returns
     /// - Ok(()) if mode set successfully
     /// - Err if mode not supported or hardware error
-    async fn set_gate_mode(&self, mode: GateMode) -> Result<()>;
+    async fn set_gate_mode(&self, mode: &str) -> Result<()>;
+
+    /// Set trigger mode from a vendor-specific string (e.g. "Internal", "External").
+    ///
+    /// # Returns
+    /// - Ok(()) if mode set successfully
+    /// - Err if mode not supported or hardware error
+    async fn set_trigger_mode(&self, mode: &str) -> Result<()> {
+        anyhow::bail!("set_trigger_mode not supported (mode={mode})")
+    }
 
     /// Set digital delay generator timing
     ///
@@ -1234,7 +1220,7 @@ pub trait GatedCamera: FrameProducer {
     /// Set MCP (micro-channel plate) gain
     ///
     /// # Arguments
-    /// * `gain` - Gain value (device-specific range, typically 0-1000)
+    /// * `gain` - Gain value (device-specific range, typically 0-4095)
     ///
     /// # Safety
     /// High gain with bright light can damage the intensifier.
@@ -1243,7 +1229,7 @@ pub trait GatedCamera: FrameProducer {
     /// # Returns
     /// - Ok(()) if gain set successfully
     /// - Err if gain out of range or hardware error
-    async fn set_mcp_gain(&self, gain: u16) -> Result<()>;
+    async fn set_mcp_gain(&self, gain: u32) -> Result<()>;
 
     /// Enable/disable IntelliGate automatic gain mode
     ///
@@ -1265,6 +1251,25 @@ pub trait GatedCamera: FrameProducer {
     /// - Ok(status) indicating cooling state
     /// - Err if temperature cannot be read or not supported
     async fn get_temperature_status(&self) -> Result<TemperatureStatus>;
+
+    /// Get sensor temperature in degrees Celsius
+    ///
+    /// # Returns
+    /// - Ok(temperature) in Celsius
+    /// - Err if temperature cannot be read
+    async fn get_temperature(&self) -> Result<f64> {
+        anyhow::bail!("get_temperature not supported")
+    }
+
+    /// Whether this camera supports DDG (digital delay generator) output
+    fn supports_ddg(&self) -> bool {
+        false
+    }
+
+    /// Whether this camera supports MCP gain control
+    fn supports_mcp_gain(&self) -> bool {
+        false
+    }
 }
 
 /// Capability: Spectrometer Control
@@ -1291,14 +1296,14 @@ pub trait SpectrometerControl: Send + Sync {
     /// # Returns
     /// - Ok(()) if grating set successfully
     /// - Err if grating number invalid or hardware error
-    async fn set_grating(&self, grating_num: u8) -> Result<()>;
+    async fn set_grating(&self, grating_num: i32) -> Result<()>;
 
     /// Get active grating
     ///
     /// # Returns
     /// - Ok(grating_num) - Current grating number
     /// - Err if grating cannot be read
-    async fn get_grating(&self) -> Result<u8>;
+    async fn get_grating(&self) -> Result<i32>;
 
     /// Set center wavelength
     ///
@@ -1325,12 +1330,12 @@ pub trait SpectrometerControl: Send + Sync {
     ///
     /// # Arguments
     /// * `slit_id` - Slit identifier (1=entrance, 2=exit, device-specific)
-    /// * `width_um` - Slit width in micrometers
+    /// * `width_um` - Slit width in micrometers (sub-micrometer precision allowed)
     ///
     /// # Returns
     /// - Ok(()) if slit width set successfully
     /// - Err if slit_id invalid or width out of range
-    async fn set_slit_width(&self, slit_id: u8, width_um: u16) -> Result<()>;
+    async fn set_slit_width(&self, slit_id: i32, width_um: f64) -> Result<()>;
 
     /// Get wavelength calibration for detector
     ///
@@ -1436,66 +1441,6 @@ pub trait TriggerOnPosition: Movable {
     /// - Ok(false) if TOP is disabled
     /// - Err if state cannot be determined
     async fn is_top_enabled(&self) -> Result<bool>;
-}
-
-/// Capability: Pulse Generator
-///
-/// Devices that can generate pulse trains with precise timing.
-/// Used for triggering cameras, lasers, and other instruments.
-///
-/// # Contract
-/// - Pulse train timing is in seconds (not milliseconds)
-/// - `wait_done()` blocks until pulse train completes
-/// - Trigger source determines when pulse train starts
-#[async_trait]
-pub trait PulseGenerator: Send + Sync {
-    /// Configure pulse train parameters
-    ///
-    /// # Arguments
-    /// * `high_time_s` - Duration of high state in seconds
-    /// * `low_time_s` - Duration of low state in seconds
-    /// * `num_pulses` - Number of pulses to generate (0 = continuous)
-    ///
-    /// # Contract
-    /// - Pulse frequency = 1 / (high_time_s + low_time_s)
-    /// - Timing precision depends on hardware (typically 1-10ns)
-    ///
-    /// # Returns
-    /// - Ok(()) if configuration successful
-    /// - Err if timing values invalid or hardware error
-    async fn configure_pulse_train(
-        &self,
-        high_time_s: f64,
-        low_time_s: f64,
-        num_pulses: u32,
-    ) -> Result<()>;
-
-    /// Wait for pulse train to complete
-    ///
-    /// # Contract
-    /// - Blocks until `num_pulses` have been generated
-    /// - Returns immediately if num_pulses=0 (continuous mode)
-    /// - Should have internal timeout to prevent infinite blocking
-    ///
-    /// # Returns
-    /// - Ok(()) when pulse train completes
-    /// - Err on timeout or hardware error
-    async fn wait_done(&self) -> Result<()>;
-
-    /// Set trigger source for pulse train
-    ///
-    /// # Arguments
-    /// * `source` - Trigger source (Software, External, Position)
-    ///
-    /// # Contract
-    /// - Software: pulse train starts on explicit trigger command
-    /// - External: pulse train starts on hardware trigger signal
-    /// - Position: pulse train synchronized with motion (requires TriggerOnPosition)
-    ///
-    /// # Returns
-    /// - Ok(()) if trigger source set successfully
-    /// - Err if source not supported or hardware error
-    async fn set_trigger_source(&self, source: TriggerSource) -> Result<()>;
 }
 
 /// Interlock status for safety systems
@@ -1670,7 +1615,7 @@ pub enum CounterEdge {
 }
 
 /// Configuration for a DAQ counter/timer channel.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CounterConfig {
     /// Counter operating mode.
     pub mode: CounterMode,
@@ -1800,6 +1745,50 @@ pub trait ReadableWithMetadata: Send + Sync {
 }
 
 // =============================================================================
+// 1D Detector / Spectrum Readable (bd-lncj.1.2)
+// =============================================================================
+
+/// Result of a 1D detector read (spectrum, waveform, or vector data).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpectrumData {
+    /// Raw intensity/signal values along the detector axis.
+    pub values: Vec<f64>,
+    /// Optional wavelength/channel axis (same length as `values`).
+    /// When `None`, the axis is integer pixel indices.
+    pub axis: Option<Vec<f64>>,
+    /// Units of the values (e.g., "counts", "W", "V").
+    pub value_units: String,
+    /// Units of the axis (e.g., "nm", "eV", "cm-1", "channel").
+    pub axis_units: Option<String>,
+}
+
+/// Capability: 1D Detector / Spectrum Readable
+///
+/// Devices that produce vector (1D) data: linear detectors, spectrometers,
+/// multichannel analyzers, waveform digitizers. Fills the gap between
+/// `Readable` (0D scalar) and `FrameProducer` (2D image).
+///
+/// # Contract
+/// - `read_spectrum()` returns a single snapshot of 1D data
+/// - The length of `SpectrumData.values` is device-specific and may change
+///   with configuration (binning, ROI)
+/// - For streaming 1D data, combine with `Triggerable` for triggered reads
+///
+/// # Examples
+/// - CCD line sensor (1D pixel array)
+/// - Echelle spectrometer (extracted 1D spectrum)
+/// - Multichannel DAQ (simultaneous analog channels)
+/// - Waveform digitizer (time-domain trace)
+#[async_trait]
+pub trait SpectrumReadable: Send + Sync {
+    /// Read the current 1D detector data.
+    async fn read_spectrum(&self) -> Result<SpectrumData>;
+
+    /// Number of channels/pixels in the detector.
+    fn spectrum_length(&self) -> usize;
+}
+
+// =============================================================================
 // Composite Capabilities (bd-bog5)
 // =============================================================================
 
@@ -1850,6 +1839,8 @@ pub trait CapabilityProvider: Send + Sync {
     fn get_device_introspection(&self, id: &str) -> Option<Arc<dyn DeviceIntrospection>>;
     /// Get a device's ReadableWithMetadata capability (if supported).
     fn get_readable_with_metadata(&self, id: &str) -> Option<Arc<dyn ReadableWithMetadata>>;
+    /// Get a device's SpectrumReadable capability (if supported).
+    fn get_spectrum_readable(&self, id: &str) -> Option<Arc<dyn SpectrumReadable>>;
 }
 
 #[cfg(test)]

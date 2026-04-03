@@ -8,7 +8,7 @@
 //! - Hierarchical tree view with device grouping by category
 //! - Generic capability-based control panels via [`GenericDevicePanel`]
 //! - Real-time state updates (position, readings, streaming status)
-//! - Pop-out support for device panels
+//! - Docked device panel opening via drag-and-drop or explicit action
 //! - PVCAM-specific features: PP Features reset, Smart Streaming configuration
 //!
 //! ## Device Panel Routing
@@ -36,12 +36,13 @@ mod config_tests;
 pub(crate) mod dispatch;
 mod types;
 
-pub use types::{DeviceCategory, DeviceGroup, ParameterInfo, PopOutRequest};
+pub use types::{DeviceCategory, DeviceDragId, DeviceGroup, OpenDevicePanelRequest, ParameterInfo};
 
 use crate::runtime::Runtime;
 use eframe::egui;
 use egui_extras::{Size, StripBuilder};
-use std::collections::HashMap;
+// egui_ltreeview available but CollapsingHeader works better for grouped params (bd-tzbo)
+use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -189,9 +190,9 @@ pub struct InstrumentManagerPanel {
     /// PVCAM Smart Stream editors (keyed by device_id)
     smart_stream_editors: HashMap<String, SmartStreamEditor>,
 
-    /// Pending pop-out request containing full device info
-    /// Checked by DaqApp after each ui() call
-    pending_pop_out: Option<DeviceInfo>,
+    /// Pending request to open a docked device panel containing full device info
+    /// Checked by DaqApp after each ui() call.
+    pending_open_device_panel: Option<DeviceInfo>,
 
     /// Pending request to navigate to the Image Viewer for a specific device
     /// Checked by DaqApp after each ui() call to switch tabs and start streaming
@@ -204,6 +205,7 @@ enum ContextAction {
     TestConnection,
     ViewParameters,
     Configure,
+    OpenInDock,
 }
 
 /// Control panel actions (collected during UI render, executed after)
@@ -267,7 +269,7 @@ impl Default for InstrumentManagerPanel {
                 cache
             },
             smart_stream_editors: HashMap::new(),
-            pending_pop_out: None,
+            pending_open_device_panel: None,
             pending_image_viewer_device: None,
         }
     }
@@ -281,12 +283,12 @@ impl InstrumentManagerPanel {
         self.pending_image_viewer_device.take()
     }
 
-    /// Take a pending pop-out request (if any).
-    /// Called by DaqApp after each ui() call to handle pop-out actions.
-    pub fn take_pop_out_request(&mut self) -> Option<PopOutRequest> {
-        self.pending_pop_out
+    /// Take a pending dock-open request (if any).
+    /// Called by DaqApp after each ui() call to handle explicit open actions.
+    pub fn take_open_device_panel_request(&mut self) -> Option<OpenDevicePanelRequest> {
+        self.pending_open_device_panel
             .take()
-            .map(|device_info| PopOutRequest { device_info })
+            .map(|device_info| OpenDevicePanelRequest { device_info })
     }
 
     /// Reset the refresh state to trigger a new auto-refresh.
@@ -708,6 +710,17 @@ impl InstrumentManagerPanel {
         // Handle pending context menu actions
         if let Some((device_id, device_name, action)) = self.pending_action.take() {
             match action {
+                ContextAction::OpenInDock => {
+                    if let Some(device_info) = self.get_device_info(&device_id) {
+                        self.status = Some(format!("Opening {} in dock...", device_name));
+                        self.pending_open_device_panel = Some(device_info);
+                    } else {
+                        self.error = Some(format!(
+                            "Could not open {} in dock: device is no longer available",
+                            device_name
+                        ));
+                    }
+                }
                 ContextAction::TestConnection => {
                     self.status = Some(format!("Testing connection to {}...", device_name));
                     self.test_connection(client.as_deref_mut(), runtime, device_id, device_name);
@@ -862,6 +875,7 @@ impl InstrumentManagerPanel {
     fn render_device_row(&mut self, ui: &mut egui::Ui, device: &DeviceInfo) {
         ui.set_max_width(ui.available_width());
         let selected = self.selected_device.as_ref() == Some(&device.id);
+        let drag_id = ui.make_persistent_id(("instrument_device_drag", &device.id));
 
         // Get device state from cache
         let state = self.device_states.get(&device.id);
@@ -874,6 +888,16 @@ impl InstrumentManagerPanel {
                 egui::Color32::GRAY
             };
             ui.colored_label(status_color, "●");
+
+            ui.dnd_drag_source(drag_id, DeviceDragId(device.id.clone()), |ui| {
+                ui.label(
+                    egui::RichText::new("⠿")
+                        .monospace()
+                        .color(ui.visuals().text_color()),
+                );
+            })
+            .response
+            .on_hover_text("Drag into the dock area to open a device panel");
 
             // Build device label with state
             let mut label = device.name.clone();
@@ -948,6 +972,14 @@ impl InstrumentManagerPanel {
                     ));
                     ui.close();
                 }
+                if ui.button("🗂 Open Docked Panel").clicked() {
+                    self.pending_action = Some((
+                        device_id.clone(),
+                        device_name.clone(),
+                        ContextAction::OpenInDock,
+                    ));
+                    ui.close();
+                }
             });
 
             // Show device details on hover
@@ -1002,6 +1034,17 @@ impl InstrumentManagerPanel {
     #[allow(dead_code)]
     pub fn selected_device(&self) -> Option<&str> {
         self.selected_device.as_deref()
+    }
+
+    /// Look up a device by ID from the cached groups.
+    ///
+    /// Used by the drop handler to resolve a [`DeviceDragId`] payload back to
+    /// the full `DeviceInfo` without cloning it on every render frame.
+    pub fn find_device(&self, id: &str) -> Option<&DeviceInfo> {
+        self.groups
+            .iter()
+            .flat_map(|g| &g.devices)
+            .find(|d| d.id == id)
     }
 
     /// Test connection to a device
@@ -1096,6 +1139,7 @@ impl InstrumentManagerPanel {
                     max_value: desc.max_value,
                     enum_values: desc.enum_values,
                     current_value,
+                    group_name: desc.group_name,
                 });
             }
 
@@ -1163,7 +1207,7 @@ impl InstrumentManagerPanel {
         let mut action_to_perform: Option<(String, String)> = None;
         let mut open = self.params_viewer_open;
 
-        egui::Window::new(format!("Parameters: {}", device_name))
+        egui::Window::new(format!("Parameters: {device_name}"))
             .id(egui::Id::new("params_viewer"))
             .open(&mut open)
             .resizable(true)
@@ -1176,7 +1220,7 @@ impl InstrumentManagerPanel {
                 }
 
                 if let Some(ref err) = self.params_viewer_error {
-                    ui.colored_label(egui::Color32::RED, format!("Error: {}", err));
+                    ui.colored_label(egui::Color32::RED, format!("Error: {err}"));
                     return;
                 }
 
@@ -1185,112 +1229,56 @@ impl InstrumentManagerPanel {
                     return;
                 }
 
-                // Parameters table
+                // Group parameters by group_name, sorted alphabetically (bd-tzbo)
+                let mut grouped: BTreeMap<String, Vec<ParameterInfo>> = BTreeMap::new();
+                for param in &self.params_viewer_params {
+                    let group = param.group_name.as_deref().unwrap_or("Other").to_string();
+                    grouped.entry(group).or_default().push(param.clone());
+                }
+                // Sort params within each group by name
+                for params in grouped.values_mut() {
+                    params.sort_by(|a, b| a.name.cmp(&b.name));
+                }
+
+                // Temporarily take edit values out so we can pass mutable refs
+                // into the tree view closures without conflicting borrows on self.
+                let mut edit_values = std::mem::take(&mut self.param_edit_values);
+
+                // Collapsible grouped parameter list (bd-tzbo)
                 egui::ScrollArea::vertical()
                     .id_salt("params_scroll")
                     .show(ui, |ui| {
-                        egui::Grid::new("params_grid")
-                            .num_columns(4)
-                            .striped(true)
-                            .spacing([8.0, 4.0])
+                        for (group_name, params) in &grouped {
+                            egui::CollapsingHeader::new(
+                                egui::RichText::new(format!("▸ {} ({})", group_name, params.len()))
+                                    .strong()
+                                    .size(14.0),
+                            )
+                            .default_open(true)
+                            .id_salt(format!("param_group_{group_name}"))
                             .show(ui, |ui| {
-                                // Header
-                                ui.strong("Parameter");
-                                ui.strong("Value");
-                                ui.strong("Units");
-                                ui.strong("Actions");
-                                ui.end_row();
-
-                                // Parameters - clone to avoid borrow issues
-                                let params = self.params_viewer_params.clone();
-                                for param in params {
-                                    ui.label(&param.name);
-
-                                    // Value display/edit
-                                    if param.writable {
-                                        let edit_value = self
-                                            .param_edit_values
-                                            .entry(param.name.clone())
-                                            .or_insert_with(|| {
-                                                param.current_value.clone().unwrap_or_default()
-                                            });
-
-                                        // Use appropriate widget based on dtype
-                                        if !param.enum_values.is_empty() {
-                                            // Enum: dropdown
-                                            egui::ComboBox::from_id_salt(&param.name)
-                                                .selected_text(edit_value.as_str())
-                                                .show_ui(ui, |ui| {
-                                                    for v in &param.enum_values {
-                                                        ui.selectable_value(
-                                                            edit_value,
-                                                            v.clone(),
-                                                            v,
-                                                        );
-                                                    }
-                                                });
-                                        } else if param.dtype == "bool" {
-                                            // Bool: checkbox
-                                            let mut checked = edit_value == "true";
-                                            if ui.checkbox(&mut checked, "").changed() {
-                                                *edit_value = checked.to_string();
-                                            }
-                                        } else {
-                                            // Text input
-                                            let response = ui.add(
-                                                egui::TextEdit::singleline(edit_value)
-                                                    .desired_width(100.0),
+                                egui::Grid::new(format!("param_grid_{group_name}"))
+                                    .num_columns(4)
+                                    .striped(true)
+                                    .spacing([8.0, 4.0])
+                                    .show(ui, |ui| {
+                                        for param in params {
+                                            Self::render_param_row(
+                                                ui,
+                                                param,
+                                                &mut edit_values,
+                                                &mut action_to_perform,
                                             );
-
-                                            // Show tooltip with range info
-                                            if param.min_value.is_some()
-                                                || param.max_value.is_some()
-                                            {
-                                                response.on_hover_text(format!(
-                                                    "Range: {} to {}",
-                                                    param
-                                                        .min_value
-                                                        .map(|v| v.to_string())
-                                                        .unwrap_or_else(|| "-".to_string()),
-                                                    param
-                                                        .max_value
-                                                        .map(|v| v.to_string())
-                                                        .unwrap_or_else(|| "-".to_string())
-                                                ));
-                                            }
-                                        }
-                                    } else {
-                                        // Read-only
-                                        ui.label(param.current_value.as_deref().unwrap_or("-"));
-                                    }
-
-                                    ui.label(&param.units);
-
-                                    // Action buttons
-                                    ui.horizontal(|ui| {
-                                        if param.writable {
-                                            let current_edit =
-                                                self.param_edit_values.get(&param.name);
-                                            let has_changes = current_edit
-                                                .map(|v| Some(v) != param.current_value.as_ref())
-                                                .unwrap_or(false);
-
-                                            if ui
-                                                .add_enabled(has_changes, egui::Button::new("Set"))
-                                                .clicked()
-                                            {
-                                                if let Some(value) = current_edit.cloned() {
-                                                    action_to_perform =
-                                                        Some((param.name.clone(), value));
-                                                }
-                                            }
+                                            ui.end_row();
                                         }
                                     });
-
-                                    ui.end_row();
-                                }
                             });
+                            ui.add_space(2.0);
+                        }
                     });
+
+                // Restore edit values
+                self.param_edit_values = edit_values;
 
                 ui.separator();
 
@@ -1303,6 +1291,242 @@ impl InstrumentManagerPanel {
 
         self.params_viewer_open = open;
         action_to_perform
+    }
+
+    /// Render a single parameter row inside a tree view leaf node (bd-tzbo).
+    /// Render a single parameter row as Grid columns: Name | Value | Units | Action
+    fn render_param_row(
+        ui: &mut egui::Ui,
+        param: &ParameterInfo,
+        edit_values: &mut HashMap<String, String>,
+        action_to_perform: &mut Option<(String, String)>,
+    ) {
+        // Column 1: Parameter name (strip group prefix for brevity)
+        let short_name = param
+            .name
+            .rsplit_once('.')
+            .map_or(param.name.as_str(), |(_, name)| name);
+        ui.label(short_name).on_hover_text(&param.name);
+
+        // Column 2: Value display/edit
+        if param.writable {
+            let edit_value = edit_values
+                .entry(param.name.clone())
+                .or_insert_with(|| param.current_value.clone().unwrap_or_default());
+
+            if !param.enum_values.is_empty() {
+                egui::ComboBox::from_id_salt(format!("combo_{}", &param.name))
+                    .selected_text(edit_value.as_str())
+                    .width(120.0)
+                    .show_ui(ui, |ui| {
+                        for v in &param.enum_values {
+                            ui.selectable_value(edit_value, v.clone(), v);
+                        }
+                    });
+            } else if param.dtype == "bool" {
+                let mut checked = *edit_value == "true";
+                if ui.checkbox(&mut checked, "").changed() {
+                    *edit_value = checked.to_string();
+                }
+            } else if Self::is_binning_param(param) {
+                Self::render_binning_widget(ui, &param.name, edit_value);
+            } else if Self::is_roi_param(param) {
+                Self::render_roi_widget(ui, edit_value);
+            } else {
+                let response = ui.add(egui::TextEdit::singleline(edit_value).desired_width(100.0));
+                if param.min_value.is_some() || param.max_value.is_some() {
+                    response.on_hover_text(format!(
+                        "Range: {} to {}",
+                        param
+                            .min_value
+                            .map(|v| v.to_string())
+                            .unwrap_or_else(|| "-".to_string()),
+                        param
+                            .max_value
+                            .map(|v| v.to_string())
+                            .unwrap_or_else(|| "-".to_string())
+                    ));
+                }
+            }
+        } else {
+            // Read-only: show friendly display for structured types (bd-ldjy.2)
+            if Self::is_binning_param(param) {
+                Self::render_binning_readonly(ui, param.current_value.as_deref());
+            } else if Self::is_roi_param(param) {
+                Self::render_roi_readonly(ui, param.current_value.as_deref());
+            } else {
+                ui.label(param.current_value.as_deref().unwrap_or("-"));
+            }
+        }
+
+        // Column 3: Units
+        if !param.units.is_empty() {
+            ui.weak(&param.units);
+        } else {
+            ui.label("");
+        }
+
+        // Column 4: Set button
+        if param.writable {
+            let current_edit = edit_values.get(&param.name);
+            let has_changes = current_edit
+                .map(|v| Some(v) != param.current_value.as_ref())
+                .unwrap_or(false);
+            if ui
+                .add_enabled(has_changes, egui::Button::new("Set"))
+                .clicked()
+            {
+                if let Some(value) = current_edit.cloned() {
+                    *action_to_perform = Some((param.name.clone(), value));
+                }
+            }
+        } else {
+            ui.label("");
+        }
+    }
+
+    // =========================================================================
+    // Structured parameter widgets (bd-ldjy.2)
+    // =========================================================================
+
+    /// Detect binning parameters: JSON array `[x,y]` with name containing "binning".
+    fn is_binning_param(param: &ParameterInfo) -> bool {
+        param.name.contains("binning")
+            && (param.dtype == "array"
+                || param
+                    .current_value
+                    .as_ref()
+                    .is_some_and(|v| v.starts_with('[')))
+    }
+
+    /// Detect ROI parameters: JSON object with x/y/width/height fields.
+    fn is_roi_param(param: &ParameterInfo) -> bool {
+        param.name.contains("roi")
+            && (param.dtype == "object"
+                || param
+                    .current_value
+                    .as_ref()
+                    .is_some_and(|v| v.contains("\"width\"")))
+    }
+
+    /// Render binning as two linked spinners with preset dropdown (bd-ldjy.2).
+    fn render_binning_widget(ui: &mut egui::Ui, param_name: &str, edit_value: &mut String) {
+        let (mut bx, mut by) = Self::parse_binning(edit_value);
+
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 4.0;
+
+            // Preset dropdown with common binning values
+            let preset_label = format!("{bx}x{by}");
+            egui::ComboBox::from_id_salt(format!("binning_preset_{param_name}"))
+                .selected_text(preset_label)
+                .width(60.0)
+                .show_ui(ui, |ui| {
+                    for n in [1u16, 2, 4, 8] {
+                        let label = format!("{n}x{n}");
+                        if ui.selectable_label(bx == n && by == n, &label).clicked() {
+                            bx = n;
+                            by = n;
+                        }
+                    }
+                });
+
+            // Individual X/Y spinners for asymmetric binning
+            ui.weak("X:");
+            ui.add(egui::DragValue::new(&mut bx).range(1..=16).speed(0.1));
+            ui.weak("Y:");
+            ui.add(egui::DragValue::new(&mut by).range(1..=16).speed(0.1));
+        });
+
+        *edit_value = format!("[{bx},{by}]");
+    }
+
+    /// Render ROI as four spinners: X, Y, Width, Height (bd-ldjy.2).
+    fn render_roi_widget(ui: &mut egui::Ui, edit_value: &mut String) {
+        let (mut x, mut y, mut w, mut h) = Self::parse_roi(edit_value);
+
+        ui.vertical(|ui| {
+            ui.spacing_mut().item_spacing.y = 2.0;
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 4.0;
+                ui.weak("X:");
+                ui.add(egui::DragValue::new(&mut x).range(0..=u32::MAX).speed(1.0))
+                    .on_hover_text("X offset in pixels");
+                ui.weak("Y:");
+                ui.add(egui::DragValue::new(&mut y).range(0..=u32::MAX).speed(1.0))
+                    .on_hover_text("Y offset in pixels");
+            });
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 4.0;
+                ui.weak("W:");
+                ui.add(egui::DragValue::new(&mut w).range(1..=u32::MAX).speed(1.0))
+                    .on_hover_text("Width in pixels");
+                ui.weak("H:");
+                ui.add(egui::DragValue::new(&mut h).range(1..=u32::MAX).speed(1.0))
+                    .on_hover_text("Height in pixels");
+            });
+
+            // Quick-reset to full sensor
+            if ui
+                .small_button("Full sensor")
+                .on_hover_text(format!("Reset ROI offset to 0,0 (keep {w}x{h})"))
+                .clicked()
+            {
+                x = 0;
+                y = 0;
+            }
+        });
+
+        // Serialize back to the JSON object format the server expects
+        *edit_value = format!("{{\"x\":{x},\"y\":{y},\"width\":{w},\"height\":{h}}}");
+    }
+
+    /// Parse a binning JSON value `[x,y]` into `(u16, u16)`, defaulting to `(1,1)`.
+    fn parse_binning(value: &str) -> (u16, u16) {
+        serde_json::from_str::<Vec<u16>>(value)
+            .ok()
+            .and_then(|v| {
+                if v.len() == 2 {
+                    Some((v[0], v[1]))
+                } else {
+                    None
+                }
+            })
+            .unwrap_or((1, 1))
+    }
+
+    /// Parse an ROI JSON value into `(x, y, width, height)`, defaulting to
+    /// `(0, 0, 2048, 2048)`.
+    fn parse_roi(value: &str) -> (u32, u32, u32, u32) {
+        #[derive(serde::Deserialize)]
+        struct RoiFields {
+            #[serde(default)]
+            x: u32,
+            #[serde(default)]
+            y: u32,
+            #[serde(default = "default_dim")]
+            width: u32,
+            #[serde(default = "default_dim")]
+            height: u32,
+        }
+        fn default_dim() -> u32 {
+            2048
+        }
+        serde_json::from_str::<RoiFields>(value)
+            .map(|r| (r.x, r.y, r.width, r.height))
+            .unwrap_or((0, 0, 2048, 2048))
+    }
+
+    /// Read-only display for binning: "2x2" instead of raw JSON.
+    fn render_binning_readonly(ui: &mut egui::Ui, value: Option<&str>) {
+        let (bx, by) = value.map_or((1, 1), Self::parse_binning);
+        ui.label(format!("{bx}x{by}"));
+    }
+
+    /// Read-only display for ROI: "0,0 2048x2048" instead of raw JSON.
+    fn render_roi_readonly(ui: &mut egui::Ui, value: Option<&str>) {
+        let (x, y, w, h) = value.map_or((0, 0, 2048, 2048), Self::parse_roi);
+        ui.label(format!("{x},{y} {w}x{h}"));
     }
 
     // =========================================================================
@@ -1498,19 +1722,10 @@ impl InstrumentManagerPanel {
             return;
         };
 
-        // Pop Out button header
-        ui.horizontal(|ui| {
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui
-                    .button("⬜ Pop Out")
-                    .on_hover_text("Open in separate dockable panel")
-                    .clicked()
-                {
-                    self.pending_pop_out = Some(device.clone());
-                }
-            });
-        });
-
+        ui.small(
+            "Drag the device handle in the list into the dock area to open this device as a \
+docked tab. Right-click the device row for the fallback dock action.",
+        );
         ui.separator();
 
         // --- Priority 0: gRPC-driven panel from device metadata ---

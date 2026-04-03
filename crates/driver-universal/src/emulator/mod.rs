@@ -95,9 +95,35 @@ pub struct ManifestEmulator {
     device_state: EmulatorDeviceState,
 }
 
+/// Emulator fidelity profile controlling response behavior.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum EmulatorProfile {
+    /// Instant responses, zero noise. Good for fast unit tests.
+    #[default]
+    Fast,
+    /// Simulated transport delays proportional to command type.
+    Realistic,
+    /// Adds gaussian noise to numeric responses.
+    Noisy,
+    /// Deterministically injects timeout/error responses (every 20th call, ~5%).
+    Faulty,
+}
+
+impl EmulatorProfile {
+    pub fn from_str_opt(s: Option<&str>) -> Self {
+        match s {
+            Some("realistic") => Self::Realistic,
+            Some("noisy") => Self::Noisy,
+            Some("faulty") => Self::Faulty,
+            _ => Self::Fast,
+        }
+    }
+}
+
 /// Transport wrapper around `ManifestEmulator`.
 pub struct EmulatorTransport {
     emulator: Mutex<ManifestEmulator>,
+    profile: EmulatorProfile,
 }
 
 impl ManifestEmulator {
@@ -137,6 +163,30 @@ impl ManifestEmulator {
             &manifest.responses,
             &mut setter_routes,
         );
+
+        // 2b. Seed synthetic 1D data for SpectrumReadable devices
+        if let Some(sr) = &manifest.capabilities.spectrum_readable {
+            if let Some(read_cfg) = &sr.read_spectrum {
+                let key = response_key_for(
+                    &read_cfg.command.0,
+                    manifest.commands.get(&read_cfg.command.0).unwrap(),
+                );
+                let entry = state.entry(key).or_default();
+                let n = sr.spectrum_length;
+                #[allow(clippy::cast_precision_loss)]
+                let n_f = n as f64;
+                let synthetic: Vec<String> = (0..n)
+                    .map(|i| {
+                        #[allow(clippy::cast_precision_loss)]
+                        let x = i as f64 / n_f;
+                        let intensity = 100.0 * (-((x - 0.4) * 8.0).powi(2)).exp()
+                            + 50.0 * (-((x - 0.7) * 12.0).powi(2)).exp();
+                        format!("{intensity:.2}")
+                    })
+                    .collect();
+                entry.insert("value".to_string(), json!(synthetic.join(",")));
+            }
+        }
 
         // 3. Add SCPI pairing heuristic for non-capability commands
         add_scpi_pairing_routes(&manifest.commands, &manifest.responses, &mut setter_routes);
@@ -264,6 +314,12 @@ impl ManifestEmulator {
 #[async_trait::async_trait]
 impl Transport for EmulatorTransport {
     async fn send(&self, data: &[u8]) -> Result<()> {
+        if self.profile == EmulatorProfile::Faulty && should_inject_fault() {
+            return Err(anyhow!("EmulatorTransport(faulty): simulated send timeout"));
+        }
+        if self.profile == EmulatorProfile::Realistic {
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
         let cmd = String::from_utf8_lossy(data);
         self.emulator
             .lock()
@@ -273,24 +329,76 @@ impl Transport for EmulatorTransport {
     }
 
     async fn receive(&self, _timeout: Duration) -> Result<String> {
-        self.emulator
+        if self.profile == EmulatorProfile::Faulty && should_inject_fault() {
+            return Err(anyhow!(
+                "EmulatorTransport(faulty): simulated receive timeout"
+            ));
+        }
+        if self.profile == EmulatorProfile::Realistic {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        let mut response = self
+            .emulator
             .lock()
             .map_err(|e| anyhow!("EmulatorTransport lock poisoned: {e}"))?
             .pending_response
             .take()
-            .ok_or_else(|| anyhow!("EmulatorTransport: no pending response"))
+            .ok_or_else(|| anyhow!("EmulatorTransport: no pending response"))?;
+
+        if self.profile == EmulatorProfile::Noisy {
+            response = add_numeric_noise(&response);
+        }
+        Ok(response)
     }
 
     async fn query(&self, data: &[u8], _timeout: Duration) -> Result<String> {
+        if self.profile == EmulatorProfile::Faulty && should_inject_fault() {
+            return Err(anyhow!(
+                "EmulatorTransport(faulty): simulated query timeout"
+            ));
+        }
+        if self.profile == EmulatorProfile::Realistic {
+            tokio::time::sleep(Duration::from_millis(8)).await;
+        }
         let cmd = String::from_utf8_lossy(data);
         let mut emu = self
             .emulator
             .lock()
             .map_err(|e| anyhow!("EmulatorTransport lock poisoned: {e}"))?;
         emu.handle_command(&cmd);
-        emu.pending_response
+        let mut response = emu
+            .pending_response
             .take()
-            .ok_or_else(|| anyhow!("EmulatorTransport: command did not generate a response"))
+            .ok_or_else(|| anyhow!("EmulatorTransport: command did not generate a response"))?;
+
+        if self.profile == EmulatorProfile::Noisy {
+            response = add_numeric_noise(&response);
+        }
+        Ok(response)
+    }
+}
+
+/// ~5% fault injection probability.
+fn should_inject_fault() -> bool {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+    // Simple deterministic pseudo-random: fault on every 20th call
+    n % 20 == 7
+}
+
+/// Add small gaussian-ish noise to the first float found in a response string.
+fn add_numeric_noise(response: &str) -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NOISE_COUNTER: AtomicU64 = AtomicU64::new(0);
+    let n = NOISE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    #[allow(clippy::cast_precision_loss)]
+    let noise = ((n as f64 * 0.618_033_988_749_895).fract() - 0.5) * 0.001;
+
+    if let Ok(val) = response.trim().parse::<f64>() {
+        format!("{}", val + noise)
+    } else {
+        response.to_string()
     }
 }
 
@@ -309,9 +417,19 @@ pub fn create_emulator_transport(
     manifest: &DeviceManifest,
     address: &str,
 ) -> Result<EmulatorTransport> {
+    create_emulator_transport_with_profile(manifest, address, EmulatorProfile::Fast)
+}
+
+/// Create an emulator transport with a specific fidelity profile.
+pub fn create_emulator_transport_with_profile(
+    manifest: &DeviceManifest,
+    address: &str,
+    profile: EmulatorProfile,
+) -> Result<EmulatorTransport> {
     let emulator = ManifestEmulator::from_manifest(manifest, address)?;
     Ok(EmulatorTransport {
         emulator: Mutex::new(emulator),
+        profile,
     })
 }
 
@@ -750,6 +868,77 @@ mod tests {
         assert!(emu.pending_response.is_none());
     }
 
+    #[tokio::test]
+    async fn noisy_profile_perturbs_numeric_response() {
+        let manifest = load_manifest(crate::test_fixtures::SCPI_TCP_TOML);
+        let emu = super::create_emulator_transport_with_profile(
+            &manifest,
+            "",
+            super::EmulatorProfile::Noisy,
+        )
+        .unwrap();
+
+        // Set a known value
+        emu.send(b":SOUR:VOLT 5.0").await.unwrap();
+        let resp = emu
+            .query(b":MEAS:VOLT?", Duration::from_secs(1))
+            .await
+            .unwrap();
+        let val: f64 = resp.trim().parse().expect("should parse as float");
+        // With noise, value should be close to 5.0 but not exactly 5.0
+        assert!(
+            (val - 5.0).abs() < 0.01,
+            "noisy value should be within 0.01 of 5.0, got {val}"
+        );
+    }
+
+    #[tokio::test]
+    async fn realistic_profile_adds_delay() {
+        let manifest = load_manifest(crate::test_fixtures::SCPI_TCP_TOML);
+        let emu = super::create_emulator_transport_with_profile(
+            &manifest,
+            "",
+            super::EmulatorProfile::Realistic,
+        )
+        .unwrap();
+
+        let start = tokio::time::Instant::now();
+        let _resp = emu
+            .query(b":MEAS:VOLT?", Duration::from_secs(1))
+            .await
+            .unwrap();
+        let elapsed = start.elapsed();
+        assert!(
+            elapsed.as_millis() >= 5,
+            "realistic profile should add transport delay, elapsed={:?}",
+            elapsed
+        );
+    }
+
+    #[test]
+    fn faulty_injection_is_deterministic_periodic() {
+        let mut fault_indices: Vec<usize> = Vec::new();
+        for i in 0..80 {
+            if super::should_inject_fault() {
+                fault_indices.push(i);
+            }
+        }
+
+        assert!(
+            fault_indices.len() >= 3,
+            "expected multiple injected faults in 80 calls, got {:?}",
+            fault_indices
+        );
+        for w in fault_indices.windows(2) {
+            assert_eq!(
+                w[1] - w[0],
+                20,
+                "fault injection should repeat every 20 calls, got {:?}",
+                fault_indices
+            );
+        }
+    }
+
     #[test]
     fn unmatched_command_no_response() {
         let manifest = load_manifest(crate::test_fixtures::ELL14_TOML);
@@ -1097,5 +1286,63 @@ mod integration_tests {
         driver.move_abs(45.0).await.expect("move_abs");
         let pos = driver.position().await.expect("position");
         assert!((pos - 45.0).abs() < 0.5, "expected ~45.0, got {pos}");
+    }
+
+    // =====================================================================
+    // Profile fidelity: faulty transport propagates errors through driver
+    // =====================================================================
+
+    #[tokio::test]
+    async fn faulty_profile_propagates_errors_through_driver() {
+        use super::create_emulator_transport_with_profile;
+
+        let manifest = load_manifest(crate::test_fixtures::SCPI_TCP_TOML);
+        let manifest = Arc::new(manifest);
+        let transport = Box::new(
+            create_emulator_transport_with_profile(&manifest, "", super::EmulatorProfile::Faulty)
+                .expect("create faulty emulator"),
+        );
+        let driver = UniversalDriver::new(manifest, transport, "");
+
+        // Issue enough commands to trigger at least one fault (every 20th call).
+        // Faulty profile errors on call index n where n % 20 == 7.
+        let mut error_count = 0;
+        for _ in 0..40 {
+            if driver.read().await.is_err() {
+                error_count += 1;
+            }
+        }
+        assert!(
+            error_count >= 1,
+            "faulty profile should cause at least 1 error in 40 reads, got {error_count}"
+        );
+    }
+
+    // =====================================================================
+    // StateRefreshable: refresh_state round-trips through emulator
+    // =====================================================================
+
+    #[tokio::test]
+    async fn state_refresh_through_emulator() {
+        use common::capabilities::StateRefreshable;
+
+        let manifest = load_manifest(crate::test_fixtures::ELL14_TOML);
+        let driver = build_emulated_driver(manifest, "2");
+
+        // Move to a known position first
+        driver.move_abs(90.0).await.expect("move_abs");
+
+        // Refresh state — should re-query the device and update internal state
+        driver
+            .refresh_state()
+            .await
+            .expect("refresh_state should succeed through emulator");
+
+        // Position should still read correctly after refresh
+        let pos = driver.position().await.expect("position after refresh");
+        assert!(
+            (pos - 90.0).abs() < 0.5,
+            "position should be ~90.0 after refresh, got {pos}"
+        );
     }
 }

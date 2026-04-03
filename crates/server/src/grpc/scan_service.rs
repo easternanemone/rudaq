@@ -541,8 +541,16 @@ impl ScanServiceImpl {
                 buf.extend_from_slice(&(msg_len as u32).to_le_bytes());
                 if let Err(e) = progress.encode(&mut buf) {
                     warn!("Failed to encode scan progress for persistence: {}", e);
-                } else if let Err(e) = rb.write(&buf) {
-                    warn!("Failed to write scan data to ring buffer: {}", e);
+                } else {
+                    let rb = rb.clone();
+                    // Offload blocking mmap write to avoid stalling Tokio
+                    // workers under contention (bd-tvp6).
+                    if let Err(e) = tokio::task::spawn_blocking(move || rb.write(&buf))
+                        .await
+                        .expect("ring buffer write task panicked")
+                    {
+                        warn!("Failed to write scan data to ring buffer: {}", e);
+                    }
                 }
             }
 

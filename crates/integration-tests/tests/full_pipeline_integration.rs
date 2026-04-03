@@ -99,6 +99,7 @@ async fn acquire_camera_image(
             roi_origin: Some((0, 0)),
             frame_number: None,
             sequence_gap_from_previous: None,
+            summing_count: None,
         },
         timestamp: chrono::Utc::now(),
     })

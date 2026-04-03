@@ -8,10 +8,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Agents MUST NOT work directly on `main` in the primary checkout.** Always use a worktree or feature branch to avoid destroying concurrent work. Use `isolation: "worktree"` when spawning sub-agents, or `bd worktree create <name>` for manual work. Never squash-merge large changes directly onto main — use feature branches. See AGENTS.md "Worktree Isolation" section for full rules.
 
+## PR Policy
+
+**Multi-crate refactors and large changes MUST go through PRs**, not direct pushes to main:
+- **Requires PR**: >100 lines changed, >3 files, cross-crate changes, changes to foundational crates (`common`, `hardware`, `pool`, `protocol`)
+- **Direct push OK**: Single-crate fixes <100 lines, documentation-only, config changes, test-only changes
+- When in doubt, open a PR. Use `gh pr create` with a clear summary and test plan.
+
 ## Build / Test / Lint
 
 ```bash
 cargo build                              # Default feature set (see Cargo.toml)
+cargo check --workspace --exclude ui     # Fast compile smoke (developer loop)
 cargo nextest run                        # Parallel test runner (install: cargo install cargo-nextest --locked)
 cargo nextest run test_name              # Single test by name
 cargo nextest run -p common              # Single crate
@@ -20,6 +28,10 @@ cargo nextest run -p integration-tests --no-default-features --features networki
 cargo nextest run --profile ci           # CI profile (3 retries, no fail-fast)
 cargo nextest run --workspace --exclude ui --exclude comedi-sys --exclude driver-comedi --profile ci  # Full CI parity test slice
 cargo check -p ui --lib --target wasm32-unknown-unknown --no-default-features --features web  # UI WASM compile smoke (CI parity)
+cargo nextest run -p daq-modules test_start_module_auto_stages  # Module lifecycle: start() auto-stages
+cargo nextest run -p daq-modules test_stop_module_auto_unstages # Module lifecycle: stop() auto-unstages
+cargo nextest run -p driver-pvcam edge_trigger_mock             # PVCAM trigger/timing parameter coverage
+cargo run -p driver-pvcam --features pvcam_sdk --example list_pvcam_params  # PVCAM parameter discovery (trigger/timing/scan)
 cargo test --doc                         # Doctests (nextest doesn't support these)
 cargo fmt --all                          # Format
 cargo fmt --all -- --check               # Format check (CI/pre-push parity)
@@ -34,6 +46,8 @@ cargo flamegraph --bin rust-daq-daemon       # CPU flamegraph (requires dtrace o
 cargo bloat --release -p ui --target wasm32-unknown-unknown  # WASM binary size breakdown
 cargo deny check                             # License/advisory/ban audit
 cargo machete                                # Find unused dependencies
+bash scripts/ops/fast-check.sh               # Quick smoke (check + nextest + doctests, excludes UI)
+bash scripts/generate-feature-matrix.sh --check  # Detect feature-doc drift from cargo metadata
 ```
 
 ### Maitai Hardware Build (Critical)
@@ -48,7 +62,7 @@ source scripts/ops/env-check.sh && cargo nextest run --profile hardware --featur
 
 ## Architecture
 
-### Crate Dependency Layers (25 workspace crates)
+### Crate Dependency Layers (27 workspace crates)
 
 ```
 Foundation
@@ -71,7 +85,7 @@ Native SDK Drivers (FFI-bound, irreplaceable by manifests)
 Engine
   experiment       ← Bluesky-style RunEngine + Plan trait (PlanCommand yields), AcquisitionCoordinator, FeedbackEvent, adaptive scans
   scripting        ← Rhai engine with hardware bindings, optional PyO3
-  daq-modules      ← PyMoDAQ/DynExp-style module system with Bluesky lifecycle
+  daq-modules      ← PyMoDAQ/DynExp-style module system with Bluesky lifecycle, capability validation, and auto-stage/auto-unstage lifecycle enforcement
 
 Echelle Spectroscopy (in common crate)
   echelle                       ← Profile types, BadPixelMask, calibration schema
@@ -91,7 +105,8 @@ Services & Storage
 
 Applications
   bin              ← CLI daemon (mimalloc allocator), reconciler, safety sentinel, safety heartbeat, snapshot + calibrate subcommands
-  ui               ← Web-based user interface
+  ui               ← Web-based user interface (egui/eframe + WASM)
+  ui-slint         ← [EXPERIMENTAL] Slint evaluation UI (native + WASM)
 
 Testing
   integration-tests ← Cross-crate integration test suite
@@ -101,13 +116,15 @@ Testing
 
 ### Key Abstractions
 
-**Capability traits** (`common/src/capabilities.rs`): `Movable`, `Readable`, `FrameProducer`, `Triggerable`, `ExposureControl`, `ShutterControl`, `WavelengthTunable`, `EmissionControl`, `Stageable`, `Settable`, `Switchable`, `Actionable`, `Loggable`, `Parameterized`, `Camera`, `Commandable`, `GatedCamera`, `SpectrometerControl`, `TriggerOnPosition`, `PulseGenerator`, `SafetyInterlock`, `Reconfigurable`, etc. All are `async_trait + Send + Sync`. Devices are defined by what they *do*, not what they *are*. **`CompositeCapability`** orchestrates multi-device operations (e.g., move+trigger+read); **`CapabilityProvider`** is the trait that supplies typed device lookups for composites (implemented by `DeviceRegistry`).
+**Capability traits** (`common/src/capabilities.rs`): `Movable`, `Readable`, `FrameProducer`, `Triggerable`, `ExposureControl`, `ShutterControl`, `WavelengthTunable`, `EmissionControl`, `Stageable`, `Settable`, `Switchable`, `Actionable`, `Loggable`, `Parameterized`, `Camera`, `Commandable`, `GatedCamera`, `SpectrometerControl`, `SpectrumReadable`, `TriggerOnPosition`, `PulseGenerator`, `SafetyInterlock`, `Reconfigurable`, etc. All are `async_trait + Send + Sync`. Devices are defined by what they *do*, not what they *are*. **`SpectrumReadable`** + **`SpectrumData`** (bd-lncj) provide the 1D detector abstraction for spectrometers and line detectors — `read_spectrum()` returns wavelength/intensity arrays with units. **`CompositeCapability`** orchestrates multi-device operations (e.g., move+trigger+read); **`CapabilityProvider`** is the trait that supplies typed device lookups for composites (implemented by `DeviceRegistry`).
 
 **`DeviceComponents`** (`common/src/driver.rs`): Capability bag returned by `DriverFactory::build()` — one `Option<Arc<dyn Trait>>` per capability. The `DeviceRegistry` stores these and provides typed accessors (`get_movable("stage_1")`).
 
 **`Parameter<T>`** (`common/src/parameter.rs`): Reactive state inspired by QCodes/ScopeFoundry. Wraps `Observable<T>` + hardware callbacks. Flow: `set(value)` → validate constraints → call `hardware_writer` (async BoxFuture) → update internal value (notifies subscribers) → call change listeners. Use `Parameter<T>` for device state, never raw `Arc<Mutex<T>>`.
 
-**`Plan` + `RunEngine`** (`experiment/src/`): Bluesky-inspired. Plans yield `PlanCommand` variants (`MoveTo`, `Read`, `Trigger`, `Wait`, `Checkpoint`, `EmitEvent`, `Set`, `ConditionalBranch`, `WaitSettled`, `RepeatWhile`). RunEngine executes them as a state machine (`Idle → Running → Paused → Aborting`) and emits Bluesky-style documents (`Start`, `Descriptor`, `Event`, `Stop`, `Manifest`). `ConditionalBranch` evaluates an `EvalCondition` (threshold, comparison, expression) and dispatches to then/else command lists. `WaitSettled` blocks until a device reports stable. `RepeatWhile` loops a command body with a safety cap on iterations. `EmitEvent` carries optional `scan_indices: Vec<(String, usize)>` for dimensional scan coordinates (used by `ZarrSink` for chunk placement). **`AcquisitionCoordinator`** (`experiment/src/coordinator.rs`) composes move+trigger+read workflows via `CompositeCapability`. **Feedback system** (`experiment/src/feedback.rs`): `FeedbackEvent` (ThresholdCrossed, StabilityReached, ValueUpdate) feeds adaptive scans; `execute_adaptive()` on RunEngine runs plans with a feedback channel. `FeedbackRouter` (`server/src/grpc/feedback_router.rs`) bridges gRPC streams to the feedback channel.
+**`Plan` + `RunEngine`** (`experiment/src/`): Bluesky-inspired. Plans yield `PlanCommand` variants (`MoveTo`, `Read`, `Trigger`, `Wait`, `Checkpoint`, `EmitEvent`, `Set`, `ConditionalBranch`, `WaitSettled`, `RepeatWhile`). RunEngine executes them as a state machine (`Idle → Running → Paused → Aborting`) and emits Bluesky-style documents (`Start`, `Descriptor`, `Event`, `Stop`, `Manifest`). State is push-based: `subscribe_state()` returns a `broadcast::Receiver<EngineState>` for reactive UIs, and the server exposes a `StreamEngineStatus` streaming RPC (client: `stream_engine_status()`). `ConditionalBranch` evaluates an `EvalCondition` (threshold, comparison, expression) and dispatches to then/else command lists. `WaitSettled` blocks until a device reports stable. `RepeatWhile` loops a command body with a safety cap on iterations. `EmitEvent` carries optional `scan_indices: Vec<(String, usize)>` for dimensional scan coordinates (used by `ZarrSink` for chunk placement). Command dispatch now fails fast when devices are missing required capabilities (Move/Read/Trigger/Set), instead of silently skipping device actions. **Frame metadata pipeline**: `Frame.metadata` (hardware timestamps, bit_depth, roi_count, etc.) flows through RunEngine `Event` documents into HDF5 storage via `ExperimentFrameObserver`. **`AcquisitionCoordinator`** (`experiment/src/coordinator.rs`) composes move+trigger+read workflows via `CompositeCapability`. **Feedback system** (`experiment/src/feedback.rs`): `FeedbackEvent` (ThresholdCrossed, StabilityReached, ValueUpdate) feeds adaptive scans; `execute_adaptive()` on RunEngine runs plans with a feedback channel. `FeedbackRouter` (`server/src/grpc/feedback_router.rs`) bridges gRPC streams to the feedback channel.
+
+**PVCAM trigger/timing parameters** (`driver-pvcam/src/lib.rs`, `driver-pvcam/src/components/features/mod.rs`): Exposes trigger controls for external synchronization through typed parameters: `trigger.expose_out_mode`, `trigger.edge_trigger`, `trigger.pre_delay_us`, and `trigger.post_delay_us`. The SDK-backed implementation maps these through `PARAM_EXPOSE_OUT_MODE`, `PARAM_EDGE_TRIGGER`, `PARAM_PRE_TRIGGER_DELAY`, and `PARAM_POST_TRIGGER_DELAY`; mock state mirrors the same behavior for tests.
 
 **`RingBuffer`** (`storage/src/ring_buffer.rs`): mmap-backed circular buffer with seqlock for lock-free reads. Uses Apache Arrow IPC format. "Tap" consumers receive every Nth frame via async channel for live visualization without blocking writers.
 
@@ -159,13 +176,13 @@ registry.register_from_config(DeviceConfig { id, name, driver: DriverConfig { ty
 
 - **Nextest profiles**: `default` (local, 2 retries), `ci` (3 retries, no fail-fast), `hardware` (single-threaded, 6min timeout), `libs-hardware` (inherits hardware), `coverage` (no retries).
 - **Test groups**: `serial-hardware`, `pvcam-hardware`, `andor-hardware`, `elliptec-hardware`, `daemon-e2e` — each max-threads=1 for shared resource serialization.
-- **Mock devices**: Always available without feature flags. Use `register_mock_factories(&registry)` for integration tests. `MockCameraProfile`/`MockStageProfile` select fidelity (Fast, Realistic, Noisy, Faulty). `ScenarioConfig` groups multiple mock devices with a shared RNG seed for deterministic multi-device tests.
+- **Mock devices**: Always available without feature flags. Use `driver_registry::create_canonical_mock_registry()` for new tests — it registers all mock + universal-manifest factories with correct config paths. (`hardware::registry::create_mock_registry()` is deprecated.) `MockCameraProfile`/`MockStageProfile` select fidelity (Fast, Realistic, Noisy, Faulty). `ScenarioConfig` groups multiple mock devices with a shared RNG seed for deterministic multi-device tests.
 - **Timing tests**: Use `#[tokio::test(start_paused = true)]` with `tokio::time::Instant` for deterministic timing. Wall-clock tests use `TimingTolerance` helpers from `integration-tests/tests/common/`.
 - **Hardware gating**: `#[cfg(feature = "hardware_tests")]` + `#[ignore]` for real-device tests.
 
 ## Tools & Workflow
 
-**Issue tracking**: `bd` (beads) — Run `bd prime` for workflow context (auto-injected at session start). Run `bd onboard` to generate AGENTS.md.
+**Issue tracking**: `bd` (beads) — Run `bd prime` for workflow context (auto-injected at session start). If a worktree cannot resolve the canonical beads DB, use `bash scripts/bd-safe.sh ...` (including `ready`, `where`, and `memories` lookups). If `bd dolt push` reports missing remote `origin`, run `bash scripts/ops/setup-beads-dolt-remote.sh`.
 
 **Advanced features:**
 - `bd query "status=open AND priority<=1"` — compound query language
@@ -191,7 +208,9 @@ registry.register_from_config(DeviceConfig { id, name, driver: DriverConfig { ty
 
 **Structural search**: `sg` (ast-grep) for AST-aware code patterns. E.g., `sg -p '$EXPR.unwrap()' --lang rust`.
 
-**Quality gates**: `bd close` runs lightweight check (fmt + ast-grep). `git push` runs full gate (fmt + clippy + tests). `bd preflight --check` for PR readiness.
+**Quality gates**: `bd close` triggers hook checks (`validate-epic-close` + `quality-gate-on-close`: fmt check + ast-grep error scan). `git push` triggers `.claude/hooks/pre-push-checks.sh` (fmt + clippy + tests, excluding `ui` and `integration-tests`, nextest `--profile ci` when available). `bd preflight --check` for PR readiness.
+
+**Hook dispatch**: `.claude/hooks/pretool-dispatch.sh` routes `bd close` and `git push` to the relevant checks, and blocks `git worktree remove` unless the command starts with an explicit `cd` to a safe directory.
 
 **LSP**: `rust-analyzer` enabled via `.claude/settings.json`.
 
@@ -204,7 +223,7 @@ Claude Code can directly interact with real DAQ hardware through the WASM GUI in
 | **maitai** | `maitai@100.117.5.12` | `http://100.117.5.12:50051` | 12 (PVCAM, Comedi, ELL14 x3, MaiTai, ESP300, Newport PM) |
 | **leabs-dev** | `ssh leabs-dev` | `http://100.109.21.118:50051` | 3 (Andor iStar, IPG YLPP-200, Thorlabs PM400) |
 
-WASM GUI: `http://100.117.5.12:8080` (maitai) or `http://100.109.21.118:8080` (leabs-dev, requires `--wasm-gui` deploy flag). Known reconnect bug (beefcake-48ad): must reload page to change daemon URL.
+WASM GUI: `http://100.117.5.12:8080` (maitai) or `http://100.109.21.118:8080` (leabs-dev, requires `--wasm-gui` deploy flag). Known reconnect bug (bd-0zu5): must reload page to change daemon URL.
 
 **WASM GUI build**: `trunk` (external CLI tool, not a Cargo dependency) is required. `deploy-leabs.sh --wasm-gui` installs a pre-built `trunk` binary to `/usr/local/bin` when missing. To build manually: `cd crates/ui && trunk build --release`, then serve `dist/` with `python3 -m http.server 8080`.
 
@@ -261,7 +280,7 @@ pub fn set_page_title(title: &str) {
 - Keep `web-sys` feature list minimal — each feature increases WASM binary size
 
 **Practical applications for rust-daq:**
-- **URL-based daemon selection**: `?daemon=http://100.117.5.12:50051` — fixes reconnect bug (beefcake-48ad) by allowing bookmarkable daemon URLs
+- **URL-based daemon selection**: `?daemon=http://100.117.5.12:50051` — fixes reconnect bug (bd-0zu5) by allowing bookmarkable daemon URLs
 - **Settings persistence**: Save last daemon URL, panel layout, calibration display preferences to `localStorage`
 - **Tab title**: Show "DAQ Panel — Connected (maitai)" or "DAQ Panel — DISCONNECTED" in browser tab
 
@@ -270,6 +289,7 @@ pub fn set_page_title(title: &str) {
 | Script | Purpose |
 |--------|---------|
 | **deploy/** | |
+| `scripts/deploy/deploy.sh` | Preferred unified deploy entry point (`--target maitai|leabs-dev`); wrapper scripts delegate here |
 | `scripts/deploy/deploy-maitai.sh` | Full deploy to maitai (pull, clean, build, daemon, GUI) |
 | `scripts/deploy/deploy-leabs.sh` | Full deploy to leabs-dev (remote checkout+pull+build, daemon restart, optional GUI). Use `--wasm-gui` to build+serve WASM GUI on leabs-dev:8080 |
 | `scripts/deploy/install-service.sh` | Install daemon as systemd service |
@@ -280,6 +300,8 @@ pub fn set_page_title(title: &str) {
 | `scripts/ops/env-check.sh` | Source before hardware tests |
 | `scripts/ops/install-hooks.sh [quick]` | Pre-commit hooks (full or format-only) |
 | `scripts/ops/calibrate-comedi.sh` | Comedi DAQ calibration |
+| `scripts/ops/fast-check.sh` | Fast local smoke loop (cargo check + nextest + doctests), not a replacement for pre-push gates |
+| `scripts/ops/setup-beads-dolt-remote.sh` | Configure beads Dolt `origin` remote when sync/push fails |
 | `scripts/ops/post-crash-forensics.sh` | Post-crash system forensics (dmesg, coredumps, journal, network) |
 | **ci/** | |
 | `scripts/ci/pre-push-gate.sh` | Pre-push quality gate (fmt, optional mdBook build, clippy, tests) |
@@ -304,6 +326,7 @@ pub fn set_page_title(title: &str) {
 | `scripts/echelle/validate_vs_pypeit.py` | E2E validation: compare rust-daq extraction vs PypeIt reference |
 | **root** | |
 | `scripts/bd-safe.sh` | Worktree-safe beads commands (auto-discovers Dolt/SQLite backend) |
+| `scripts/generate-feature-matrix.sh` | Generate/check feature matrix from Cargo metadata (`--check`, `--output`) |
 
 ### Echelle Calibration CLI
 
@@ -340,6 +363,8 @@ bash scripts/repro/istar-stream-overnight-matrix.sh --hours 10 --batch-size 6   
 
 ## Quick Commands
 
+- `/rust-check` — CI-style Rust gate (`cargo fmt --all -- --check`, workspace clippy gate, nextest `--profile ci`)
+- `/security-audit` — Structural audit via `bash scripts/ci/run-ast-grep.sh`
 - `/test [crate] [--ci|--hardware|--coverage]` — Run nextest with smart defaults
 - `/clippy [crate] [--fix]` — Clippy with CI-parity flags
 - `/check [crate] [--wasm|--all]` — Fast cargo check
@@ -396,7 +421,7 @@ bd close <id>         # Complete work
 4. **PUSH TO REMOTE** - This is MANDATORY:
    ```bash
    git pull --rebase
-   bd dolt push
+   bd dolt push   # if remote 'origin' missing: bash scripts/ops/setup-beads-dolt-remote.sh
    git push
    git status  # MUST show "up to date with origin"
    ```

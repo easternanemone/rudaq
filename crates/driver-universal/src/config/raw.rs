@@ -281,6 +281,9 @@ pub struct RawCapabilityConfig {
     #[serde(default)]
     pub emission_control: Option<RawEmissionControlMapping>,
 
+    #[serde(default)]
+    pub spectrum_readable: Option<RawSpectrumReadableMapping>,
+
     /// Catch-all for future/custom capabilities.
     #[serde(flatten)]
     pub extra: HashMap<String, toml::Value>,
@@ -329,6 +332,22 @@ pub struct RawEmissionControlMapping {
     pub enable: Option<RawMethodMapping>,
     pub disable: Option<RawMethodMapping>,
     pub is_enabled: Option<RawMethodMapping>,
+}
+
+/// Method mappings for the SpectrumReadable capability (1D detectors).
+#[derive(Debug, Deserialize)]
+pub struct RawSpectrumReadableMapping {
+    /// Command that reads the 1D spectrum/waveform data.
+    pub read_spectrum: Option<RawMethodMapping>,
+    /// Number of channels/pixels (static or from a query).
+    #[serde(default)]
+    pub spectrum_length: Option<usize>,
+    /// Units for the value axis (e.g., "counts", "W").
+    #[serde(default)]
+    pub value_units: Option<String>,
+    /// Units for the wavelength/channel axis (e.g., "nm", "eV").
+    #[serde(default)]
+    pub axis_units: Option<String>,
 }
 
 /// A mapping from a trait method to a command + optional conversions.

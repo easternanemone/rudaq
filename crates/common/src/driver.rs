@@ -68,9 +68,9 @@
 
 use crate::capabilities::{
     Commandable, CounterConfigurable, DeviceCategory, DeviceIntrospection, EmissionControl,
-    ExposureControl, FrameProducer, GatedCamera, Movable, Parameterized, PulseGenerator,
-    RangeIntrospectable, Readable, ReadableWithMetadata, Reconfigurable, SafetyInterlock, Settable,
-    ShutterControl, SpectrometerControl, Stageable, StateRefreshable, TriggerOnPosition,
+    ExposureControl, FrameProducer, GatedCamera, Movable, Parameterized, RangeIntrospectable,
+    Readable, ReadableWithMetadata, Reconfigurable, SafetyInterlock, Settable, ShutterControl,
+    SpectrometerControl, SpectrumReadable, Stageable, StateRefreshable, TriggerOnPosition,
     Triggerable, WavelengthTunable,
 };
 use crate::data::Frame;
@@ -163,10 +163,6 @@ pub enum Capability {
     /// Corresponds to [`crate::capabilities::TriggerOnPosition`]
     TriggerOnPosition,
 
-    /// Pulse generator with configurable timing
-    /// Corresponds to [`crate::capabilities::PulseGenerator`]
-    PulseGenerator,
-
     /// Safety interlock monitoring
     /// Corresponds to [`crate::capabilities::SafetyInterlock`]
     SafetyInterlock,
@@ -194,6 +190,10 @@ pub enum Capability {
     /// Reads with raw value, voltage, and timestamp metadata (bd-09ls)
     /// Corresponds to [`crate::capabilities::ReadableWithMetadata`]
     ReadableWithMetadata,
+
+    /// Produces 1D vector/spectrum data (linear detectors, spectrometers, waveform digitizers)
+    /// Corresponds to [`crate::capabilities::SpectrumReadable`]
+    SpectrumReadable,
 }
 
 impl Capability {
@@ -215,7 +215,6 @@ impl Capability {
             Self::GatedCamera => "Gated Camera",
             Self::SpectrometerControl => "Spectrometer Control",
             Self::TriggerOnPosition => "Trigger On Position",
-            Self::PulseGenerator => "Pulse Generator",
             Self::SafetyInterlock => "Safety Interlock",
             Self::Reconfigurable => "Reconfigurable",
             Self::StateRefreshable => "State Refreshable",
@@ -223,6 +222,7 @@ impl Capability {
             Self::RangeIntrospectable => "Range Introspectable",
             Self::DeviceIntrospection => "Device Introspection",
             Self::ReadableWithMetadata => "Readable With Metadata",
+            Self::SpectrumReadable => "Spectrum Readable",
         }
     }
 
@@ -244,7 +244,6 @@ impl Capability {
             Self::GatedCamera => "gated_camera",
             Self::SpectrometerControl => "spectrometer_control",
             Self::TriggerOnPosition => "trigger_on_position",
-            Self::PulseGenerator => "pulse_generator",
             Self::SafetyInterlock => "safety_interlock",
             Self::Reconfigurable => "reconfigurable",
             Self::StateRefreshable => "state_refreshable",
@@ -252,6 +251,7 @@ impl Capability {
             Self::RangeIntrospectable => "range_introspectable",
             Self::DeviceIntrospection => "device_introspection",
             Self::ReadableWithMetadata => "readable_with_metadata",
+            Self::SpectrumReadable => "spectrum_readable",
         }
     }
 }
@@ -340,9 +340,6 @@ pub struct DeviceComponents {
     /// TriggerOnPosition implementation (position-based triggering)
     pub trigger_on_position: Option<Arc<dyn TriggerOnPosition>>,
 
-    /// PulseGenerator implementation (pulse train generation)
-    pub pulse_generator: Option<Arc<dyn PulseGenerator>>,
-
     /// SafetyInterlock implementation (interlock monitoring)
     pub safety_interlock: Option<Arc<dyn SafetyInterlock>>,
 
@@ -363,6 +360,9 @@ pub struct DeviceComponents {
 
     /// ReadableWithMetadata implementation (structured analog reads, bd-09ls)
     pub readable_with_metadata: Option<Arc<dyn ReadableWithMetadata>>,
+
+    /// SpectrumReadable implementation (1D detector/spectrum data, bd-lncj.1.2)
+    pub spectrum_readable: Option<Arc<dyn SpectrumReadable>>,
 
     /// Optional lifecycle hooks for device registration/shutdown
     pub lifecycle: Option<Arc<dyn DeviceLifecycle>>,
@@ -426,9 +426,6 @@ impl DeviceComponents {
         if self.trigger_on_position.is_some() {
             caps.push(Capability::TriggerOnPosition);
         }
-        if self.pulse_generator.is_some() {
-            caps.push(Capability::PulseGenerator);
-        }
         if self.safety_interlock.is_some() {
             caps.push(Capability::SafetyInterlock);
         }
@@ -446,6 +443,9 @@ impl DeviceComponents {
         }
         if self.readable_with_metadata.is_some() {
             caps.push(Capability::ReadableWithMetadata);
+        }
+        if self.spectrum_readable.is_some() {
+            caps.push(Capability::SpectrumReadable);
         }
 
         caps
@@ -559,12 +559,6 @@ impl DeviceComponents {
         self
     }
 
-    /// Set PulseGenerator implementation
-    pub fn with_pulse_generator(mut self, p: Arc<dyn PulseGenerator>) -> Self {
-        self.pulse_generator = Some(p);
-        self
-    }
-
     /// Set SafetyInterlock implementation
     pub fn with_safety_interlock(mut self, s: Arc<dyn SafetyInterlock>) -> Self {
         self.safety_interlock = Some(s);
@@ -604,6 +598,12 @@ impl DeviceComponents {
     /// Set ReadableWithMetadata implementation (bd-09ls)
     pub fn with_readable_with_metadata(mut self, r: Arc<dyn ReadableWithMetadata>) -> Self {
         self.readable_with_metadata = Some(r);
+        self
+    }
+
+    /// Set SpectrumReadable implementation (bd-lncj.1.2)
+    pub fn with_spectrum_readable(mut self, s: Arc<dyn SpectrumReadable>) -> Self {
+        self.spectrum_readable = Some(s);
         self
     }
 
@@ -730,6 +730,7 @@ pub trait DeviceLifecycle: Send + Sync + 'static {
     }
 
     /// Called when a device is unregistered or during shutdown cleanup.
+    #[allow(dead_code)]
     fn on_unregister(&self) -> BoxFuture<'static, Result<()>> {
         Box::pin(async { Ok(()) })
     }

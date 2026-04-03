@@ -11,6 +11,7 @@ impl ImageViewerPanel {
         self.poll_param_results(ui.ctx());
         self.poll_echelle_profile_cache();
         self.poll_remote_profile_load();
+        self.poll_remote_profile_save();
         // Reset terminal load states to Idle — outcomes are already propagated
         // to echelle_cal_ui.status_message/last_error by poll_remote_profile_load.
         // On success, trigger immediate extraction on the last frame (bd-zy7y.3)
@@ -22,6 +23,16 @@ impl ImageViewerPanel {
                 RemoteProfileLoadState::Succeeded { .. }
             );
             self.remote_profile_load = RemoteProfileLoadState::default();
+            if was_success {
+                self.try_immediate_echelle_extraction();
+            }
+        }
+        if self.remote_profile_save.is_terminal() {
+            let was_success = matches!(
+                self.remote_profile_save,
+                RemoteProfileSaveState::Succeeded { .. }
+            );
+            self.remote_profile_save = RemoteProfileSaveState::default();
             if was_success {
                 self.try_immediate_echelle_extraction();
             }
@@ -401,6 +412,10 @@ impl ImageViewerPanel {
                     .clicked()
                 {
                     self.roi_selector.selection_mode = !self.roi_selector.selection_mode;
+                    if self.roi_selector.selection_mode {
+                        self.measurement_tool = MeasurementTool::None;
+                        self.clear_measurement_interaction_state();
+                    }
                 }
 
                 // ROI mode selector (Rectangle/Polygon)
@@ -448,6 +463,63 @@ impl ImageViewerPanel {
                     .clicked()
                 {
                     self.queue_clear_hardware_roi();
+                }
+
+                ui.separator();
+
+                let line_tool_selected = self.measurement_tool == MeasurementTool::Line;
+                if ui
+                    .selectable_label(
+                        line_tool_selected,
+                        if line_tool_selected {
+                            "Line [ON]"
+                        } else {
+                            "Line"
+                        },
+                    )
+                    .on_hover_text("Measure line distance by click-dragging on the image")
+                    .clicked()
+                {
+                    self.measurement_tool = if line_tool_selected {
+                        MeasurementTool::None
+                    } else {
+                        MeasurementTool::Line
+                    };
+                    self.roi_selector.selection_mode = false;
+                    self.clear_measurement_interaction_state();
+                }
+
+                let angle_tool_selected = self.measurement_tool == MeasurementTool::Angle;
+                if ui
+                    .selectable_label(
+                        angle_tool_selected,
+                        if angle_tool_selected {
+                            "Angle [ON]"
+                        } else {
+                            "Angle"
+                        },
+                    )
+                    .on_hover_text("Measure an angle by clicking three points: arm, vertex, arm")
+                    .clicked()
+                {
+                    self.measurement_tool = if angle_tool_selected {
+                        MeasurementTool::None
+                    } else {
+                        MeasurementTool::Angle
+                    };
+                    self.roi_selector.selection_mode = false;
+                    self.clear_measurement_interaction_state();
+                }
+
+                if self.has_measurements()
+                    && ui
+                        .button("Clear Measurements")
+                        .on_hover_text("Remove all saved line and angle measurements")
+                        .clicked()
+                {
+                    self.line_measurements.clear();
+                    self.angle_measurements.clear();
+                    self.clear_measurement_interaction_state();
                 }
 
                 ui.separator();
@@ -610,6 +682,49 @@ impl ImageViewerPanel {
                 });
             }
 
+            // Remote profile save (WASM: SaveCalibrationProfile, bd-qyhh).
+            if let Some((path, content, activate_after, profile)) = match &self.remote_profile_save
+            {
+                RemoteProfileSaveState::Pending {
+                    path,
+                    content,
+                    activate_after,
+                    profile,
+                } => Some((
+                    path.clone(),
+                    content.clone(),
+                    *activate_after,
+                    profile.clone(),
+                )),
+                _ => None,
+            } {
+                let mut client_clone = client_val.clone();
+                let (tx, rx) = std::sync::mpsc::channel();
+                let path_clone = path.clone();
+                self.remote_profile_save = RemoteProfileSaveState::Loading {
+                    path: path.clone(),
+                    activate_after,
+                    profile,
+                    rx,
+                };
+                runtime.spawn(async move {
+                    match client_clone
+                        .save_calibration_profile(&path_clone, &content)
+                        .await
+                    {
+                        Ok(resp) if resp.success => {
+                            let _ = tx.send(Ok(()));
+                        }
+                        Ok(resp) => {
+                            let _ = tx.send(Err(resp.error_message));
+                        }
+                        Err(e) => {
+                            let _ = tx.send(Err(format!("gRPC error: {e}")));
+                        }
+                    }
+                });
+            }
+
             Some(client_val)
         } else {
             // bd-aruo.4: Show per-parameter error when updates are dropped
@@ -626,6 +741,14 @@ impl ImageViewerPanel {
                 }
             }
             self.pending_param_updates.clear();
+            #[cfg(target_arch = "wasm32")]
+            if let RemoteProfileSaveState::Pending { path, .. } = &self.remote_profile_save {
+                let path = path.clone();
+                let error = "Not connected to daemon — cannot save calibration profile remotely"
+                    .to_string();
+                self.echelle_cal_ui.last_error = Some(error.clone());
+                self.remote_profile_save = RemoteProfileSaveState::Failed { path, error };
+            }
             None
         };
 
@@ -703,6 +826,8 @@ impl ImageViewerPanel {
         let has_histogram_panel = matches!(self.histogram_position, HistogramPosition::SidePanel);
         let has_controls_panel = self.show_controls && !self.camera_params.is_empty();
         let has_pixel_stats = self.show_pixel_stats;
+        let has_measurements_panel =
+            self.measurement_tool != MeasurementTool::None || self.has_measurements();
         // Always show the echelle panel so the calibration workspace can be used
         // to create/load the first profile before any preview exists.
         let has_echelle_panel = true;
@@ -711,7 +836,8 @@ impl ImageViewerPanel {
             || has_histogram_panel
             || has_controls_panel
             || has_echelle_panel
-            || has_pixel_stats;
+            || has_pixel_stats
+            || has_measurements_panel;
 
         let side_panel_default_width = if has_controls_panel || has_echelle_panel {
             380.0
@@ -733,6 +859,7 @@ impl ImageViewerPanel {
                         has_histogram_panel,
                         has_echelle_panel,
                         has_pixel_stats,
+                        has_measurements_panel,
                     );
                 });
         }
@@ -863,36 +990,127 @@ impl ImageViewerPanel {
                                             image_size,
                                         );
 
-                                        // Handle ROI selection or pan depending on mode
-                                        if self.roi_selector.selection_mode {
-                                            // ROI selection mode
-                                            let roi_finalized = self.roi_selector.handle_input(
-                                                &response,
-                                                rect,
-                                                (self.width, self.height),
-                                                self.zoom,
-                                                self.pan,
-                                            );
-
-                                            // If ROI was finalized and we have frame data, compute statistics
-                                            if roi_finalized {
-                                                if let (Some(roi), Some(frame_data)) =
-                                                    (self.roi_selector.roi(), &self.last_frame_data)
+                                        match self.measurement_tool {
+                                            MeasurementTool::Line => {
+                                                if response
+                                                    .drag_started_by(egui::PointerButton::Primary)
                                                 {
-                                                    self.roi_selector.set_roi_from_frame(
-                                                        roi.clone(),
-                                                        frame_data,
-                                                        self.width,
-                                                        self.height,
-                                                        self.bit_depth,
-                                                    );
+                                                    if let Some(pos) = response.interact_pointer_pos()
+                                                    {
+                                                        let start = MeasurementPoint::from_screen_pos(
+                                                            pos,
+                                                            rect,
+                                                            offset,
+                                                            zoom,
+                                                            width,
+                                                            height,
+                                                        );
+                                                        self.line_measurement_start = start;
+                                                        self.line_measurement_current = start;
+                                                    }
+                                                }
+
+                                                if response.dragged_by(egui::PointerButton::Primary) {
+                                                    if let Some(pos) = response.interact_pointer_pos()
+                                                    {
+                                                        self.line_measurement_current =
+                                                            MeasurementPoint::from_screen_pos(
+                                                                pos,
+                                                                rect,
+                                                                offset,
+                                                                zoom,
+                                                                width,
+                                                                height,
+                                                            );
+                                                    }
+                                                }
+
+                                                if response.drag_stopped_by(
+                                                    egui::PointerButton::Primary,
+                                                ) {
+                                                    if let (Some(start), Some(end)) = (
+                                                        self.line_measurement_start,
+                                                        self.line_measurement_current,
+                                                    ) {
+                                                        let measurement = LineMeasurement {
+                                                            start,
+                                                            end,
+                                                        };
+                                                        if measurement.pixel_length() > 0.5 {
+                                                            self.line_measurements.push(measurement);
+                                                        }
+                                                    }
+                                                    self.line_measurement_start = None;
+                                                    self.line_measurement_current = None;
                                                 }
                                             }
-                                        } else {
-                                            // Pan mode
-                                            if response.dragged() {
-                                                self.auto_fit = false;
-                                                self.pan += response.drag_delta();
+                                            MeasurementTool::Angle => {
+                                                if response.clicked_by(egui::PointerButton::Primary) {
+                                                    if let Some(pos) = response.interact_pointer_pos()
+                                                    {
+                                                        if let Some(point) =
+                                                            MeasurementPoint::from_screen_pos(
+                                                                pos,
+                                                                rect,
+                                                                offset,
+                                                                zoom,
+                                                                width,
+                                                                height,
+                                                            )
+                                                        {
+                                                            self.angle_measurement_points.push(point);
+                                                            if self.angle_measurement_points.len() == 3 {
+                                                                let measurement = AngleMeasurement {
+                                                                    arm_a: self.angle_measurement_points[0],
+                                                                    vertex: self.angle_measurement_points[1],
+                                                                    arm_b: self.angle_measurement_points[2],
+                                                                };
+                                                                if measurement.degrees() > 0.0 {
+                                                                    self.angle_measurements
+                                                                        .push(measurement);
+                                                                }
+                                                                self.angle_measurement_points.clear();
+                                                            }
+                                                        }
+                                                    }
+                                                }
+
+                                                if response.clicked_by(egui::PointerButton::Secondary)
+                                                    || response
+                                                        .ctx
+                                                        .input(|i| i.key_pressed(egui::Key::Backspace))
+                                                {
+                                                    self.angle_measurement_points.pop();
+                                                }
+                                            }
+                                            MeasurementTool::None if self.roi_selector.selection_mode => {
+                                                let roi_finalized = self.roi_selector.handle_input(
+                                                    &response,
+                                                    rect,
+                                                    (self.width, self.height),
+                                                    self.zoom,
+                                                    self.pan,
+                                                );
+
+                                                if roi_finalized {
+                                                    if let (Some(roi), Some(frame_data)) =
+                                                        (self.roi_selector.roi(), &self.last_frame_data)
+                                                    {
+                                                        self.roi_selector.set_roi_from_frame(
+                                                            roi.clone(),
+                                                            frame_data,
+                                                            self.width,
+                                                            self.height,
+                                                            self.bit_depth,
+                                                        );
+                                                    }
+                                                }
+                                            }
+                                            MeasurementTool::None => {
+                                                if response.dragged() {
+                                                    self.auto_fit = false;
+                                                    self.pan += response.drag_delta();
+                                                }
                                             }
                                         }
 
@@ -926,6 +1144,180 @@ impl ImageViewerPanel {
                                             self.zoom,
                                             self.pan,
                                         );
+
+                                        let measurement_color =
+                                            egui::Color32::from_rgb(80, 220, 255);
+                                        let preview_color =
+                                            egui::Color32::from_rgb(255, 200, 80);
+                                        let measurement_stroke =
+                                            egui::Stroke::new(2.0, measurement_color);
+                                        let preview_stroke =
+                                            egui::Stroke::new(2.0, preview_color);
+                                        let painter = ui.painter();
+
+                                        let draw_measurement_point = |point: MeasurementPoint,
+                                                                      color: egui::Color32| {
+                                            let pos =
+                                                point.to_screen_pos(rect, offset, zoom);
+                                            painter.circle_filled(pos, 4.0, color);
+                                        };
+
+                                        let draw_measurement_label =
+                                            |pos: egui::Pos2, label: String, color: egui::Color32| {
+                                                painter.text(
+                                                    pos + egui::vec2(6.0, -6.0),
+                                                    egui::Align2::LEFT_BOTTOM,
+                                                    label,
+                                                    egui::FontId::monospace(11.0),
+                                                    color,
+                                                );
+                                            };
+
+                                        for measurement in &self.line_measurements {
+                                            let start =
+                                                measurement.start.to_screen_pos(rect, offset, zoom);
+                                            let end =
+                                                measurement.end.to_screen_pos(rect, offset, zoom);
+                                            painter.line_segment(
+                                                [start, end],
+                                                measurement_stroke,
+                                            );
+                                            draw_measurement_point(
+                                                measurement.start,
+                                                measurement_color,
+                                            );
+                                            draw_measurement_point(
+                                                measurement.end,
+                                                measurement_color,
+                                            );
+                                            let midpoint = egui::pos2(
+                                                (start.x + end.x) * 0.5,
+                                                (start.y + end.y) * 0.5,
+                                            );
+                                            draw_measurement_label(
+                                                midpoint,
+                                                measurement.label(
+                                                    pixel_scale_x,
+                                                    pixel_scale_y,
+                                                    &scale_unit,
+                                                ),
+                                                measurement_color,
+                                            );
+                                        }
+
+                                        if let (Some(start), Some(current)) = (
+                                            self.line_measurement_start,
+                                            self.line_measurement_current,
+                                        ) {
+                                            let start_pos =
+                                                start.to_screen_pos(rect, offset, zoom);
+                                            let current_pos =
+                                                current.to_screen_pos(rect, offset, zoom);
+                                            painter.line_segment(
+                                                [start_pos, current_pos],
+                                                preview_stroke,
+                                            );
+                                            draw_measurement_point(start, preview_color);
+                                            draw_measurement_point(current, preview_color);
+                                            let preview = LineMeasurement { start, end: current };
+                                            let midpoint = egui::pos2(
+                                                (start_pos.x + current_pos.x) * 0.5,
+                                                (start_pos.y + current_pos.y) * 0.5,
+                                            );
+                                            draw_measurement_label(
+                                                midpoint,
+                                                preview.label(
+                                                    pixel_scale_x,
+                                                    pixel_scale_y,
+                                                    &scale_unit,
+                                                ),
+                                                preview_color,
+                                            );
+                                        }
+
+                                        for measurement in &self.angle_measurements {
+                                            let arm_a =
+                                                measurement.arm_a.to_screen_pos(rect, offset, zoom);
+                                            let vertex =
+                                                measurement.vertex.to_screen_pos(rect, offset, zoom);
+                                            let arm_b =
+                                                measurement.arm_b.to_screen_pos(rect, offset, zoom);
+                                            painter.line_segment(
+                                                [arm_a, vertex],
+                                                measurement_stroke,
+                                            );
+                                            painter.line_segment(
+                                                [vertex, arm_b],
+                                                measurement_stroke,
+                                            );
+                                            draw_measurement_point(
+                                                measurement.arm_a,
+                                                measurement_color,
+                                            );
+                                            draw_measurement_point(
+                                                measurement.vertex,
+                                                measurement_color,
+                                            );
+                                            draw_measurement_point(
+                                                measurement.arm_b,
+                                                measurement_color,
+                                            );
+                                            draw_measurement_label(
+                                                vertex,
+                                                measurement.label(),
+                                                measurement_color,
+                                            );
+                                        }
+
+                                        if !self.angle_measurement_points.is_empty() {
+                                            for point in &self.angle_measurement_points {
+                                                draw_measurement_point(*point, preview_color);
+                                            }
+                                            for segment in self.angle_measurement_points.windows(2) {
+                                                let start = segment[0].to_screen_pos(
+                                                    rect, offset, zoom,
+                                                );
+                                                let end = segment[1].to_screen_pos(
+                                                    rect, offset, zoom,
+                                                );
+                                                painter.line_segment(
+                                                    [start, end],
+                                                    preview_stroke,
+                                                );
+                                            }
+                                            if self.angle_measurement_points.len() == 2 {
+                                                if let Some(hover_pos) = response.hover_pos() {
+                                                    if let Some(point) =
+                                                        MeasurementPoint::from_screen_pos(
+                                                            hover_pos,
+                                                            rect,
+                                                            offset,
+                                                            zoom,
+                                                            width,
+                                                            height,
+                                                        )
+                                                    {
+                                                        let start = self.angle_measurement_points[1]
+                                                            .to_screen_pos(rect, offset, zoom);
+                                                        let end = point.to_screen_pos(
+                                                            rect, offset, zoom,
+                                                        );
+                                                        painter.line_segment(
+                                                            [start, end],
+                                                            egui::Stroke::new(
+                                                                1.0,
+                                                                egui::Color32::from_rgba_unmultiplied(
+                                                                    preview_color.r(),
+                                                                    preview_color.g(),
+                                                                    preview_color.b(),
+                                                                    160,
+                                                                ),
+                                                            ),
+                                                        );
+                                                    }
+                                                }
+                                            }
+                                        }
 
                                         // bd-6h1c: Draw metadata overlay on the image
                                         if show_metadata_overlay && overlay_frame_count > 0 {
@@ -1240,7 +1632,10 @@ impl ImageViewerPanel {
                                             };
 
                                             // Handle click to lock/unlock crosshair (defer mutation)
-                                            if response.clicked() && !roi_selection_mode {
+                                            if response.clicked()
+                                                && !roi_selection_mode
+                                                && self.measurement_tool == MeasurementTool::None
+                                            {
                                                 if let Some(hover_pos) =
                                                     response.interact_pointer_pos()
                                                 {

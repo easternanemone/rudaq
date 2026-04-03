@@ -546,9 +546,49 @@ impl CommandWidgetPalette {
 #[cfg(target_arch = "wasm32")]
 pub(super) const WASM_SERVER_URL_KEY: &str = "wasm_server_url";
 
-/// Default daemon URL for WASM builds.
+/// Default daemon URL for WASM builds (fallback when no URL param or origin detected).
 #[cfg(target_arch = "wasm32")]
 pub(super) const WASM_DEFAULT_SERVER_URL: &str = "http://localhost:8080";
+
+/// Detect the daemon URL from the browser environment (bd-5k2m).
+///
+/// Priority: `?daemon=` URL param > page origin > hardcoded default.
+/// When served from the daemon via `--web-ui-path`, the page origin IS the
+/// daemon address, so auto-detection eliminates the need for manual input.
+#[cfg(target_arch = "wasm32")]
+pub(super) fn detect_daemon_url() -> String {
+    // 1. Check ?daemon= URL parameter
+    if let Some(window) = web_sys::window() {
+        if let Ok(search) = window.location().search() {
+            if !search.is_empty() {
+                if let Ok(params) = web_sys::UrlSearchParams::new_with_str(&search) {
+                    if let Some(daemon) = params.get("daemon") {
+                        if !daemon.is_empty() {
+                            tracing::info!("Using daemon URL from ?daemon= parameter: {}", daemon);
+                            return daemon;
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Use page origin (works when served via --web-ui-path on daemon port)
+        if let Ok(origin) = window.location().origin() {
+            // Only use origin if it's not a file:// URL and not the default dev server
+            if !origin.is_empty()
+                && !origin.starts_with("file:")
+                && origin != "null"
+                && !origin.contains("localhost:8080")
+            {
+                tracing::info!("Using daemon URL from page origin: {}", origin);
+                return origin;
+            }
+        }
+    }
+
+    // 3. Fallback to hardcoded default
+    WASM_DEFAULT_SERVER_URL.to_string()
+}
 
 /// WASM-only connection state for browser-based GUI.
 /// On native, ConnectionManager handles reconnection with exponential backoff.
@@ -569,7 +609,7 @@ pub(super) struct WasmConnectionState {
 impl Default for WasmConnectionState {
     fn default() -> Self {
         Self {
-            url_input: WASM_DEFAULT_SERVER_URL.to_string(),
+            url_input: detect_daemon_url(),
             status: "Disconnected".to_string(),
             connecting: false,
             connect_rx: None,
@@ -584,6 +624,8 @@ pub(super) enum UiAction {
     OpenDeviceControl {
         /// Full device info with capability flags
         device_info: Box<DeviceInfo>,
+        /// Optional explicit dock destination resolved by the dock crate.
+        dock_target: Option<TabDestination>,
     },
     /// Close a device control panel by ID
     CloseDevicePanel {
@@ -591,7 +633,7 @@ pub(super) enum UiAction {
     },
 }
 
-/// Layout mode for docked pop-out control panels.
+/// Layout mode for docked control panels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
 pub enum ControlPanelLayoutMode {
     /// Compact capability-driven controls.

@@ -290,6 +290,9 @@ bd close bd-123 --reason "Completed"
 4. Close with `bd close bd-123`
 5. Commit `.beads/issues.jsonl` with your changes
 
+If `bd dolt push` fails with `remote 'origin' not found`, run once per machine:
+`bash scripts/ops/setup-beads-dolt-remote.sh` (see `.beads/README.md`).
+
 ## Architecture Overview
 
 ### Crate Structure

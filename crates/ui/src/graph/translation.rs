@@ -482,18 +482,15 @@ fn translate_node_with_snarl(
             // Get body nodes (reuse existing find_loop_body_nodes - same pin 1 convention)
             //
             // ==== ZARR INTEGRATION FOR NESTED SCANS ====
-            // Nested scans produce multi-dimensional data that should be stored in Zarr format
-            // with proper dimensional metadata for scientific analysis tools (xarray, napari).
+            // Nested scans produce multi-dimensional data stored in Zarr V3 format
+            // with proper dimensional metadata for xarray/napari.
             //
-            // Key Zarr V3 attributes required:
-            // - _ARRAY_DIMENSIONS: ["outer_dim_name", "inner_dim_name", ...] for xarray compat
-            // - Each EmitEvent includes dimensional indices for Zarr coordinate assignment
-            //
-            // TODO(bd-p2a1): Implement Zarr writer setup:
-            // 1. Create Zarr V3 store with shape (outer_points, inner_points, ...)
-            // 2. Set _ARRAY_DIMENSIONS attribute with dimension names from config
-            // 3. Create coordinate arrays for each dimension
-            // 4. On EmitEvent, use dimensional indices to write to correct Zarr position
+            // Graph translation does NOT configure storage sinks directly. Instead:
+            // - Each EmitEvent below carries `scan_indices` with dimension names and indices
+            // - ZarrSink (storage::zarr_sink) receives these at runtime and uses them
+            //   as chunk coordinates, writing the `_ARRAY_DIMENSIONS` attribute automatically
+            // - Storage layer configuration (output path, format) is handled by
+            //   StorageService.ConfigureStorage / StartRecording RPCs
             //
             // Dimension naming convention:
             // - config.outer.dimension_name -> outer array dimension (e.g., "wavelength")
@@ -566,28 +563,14 @@ fn translate_node_with_snarl(
                         }
                     }
 
-                    // Emit event with dimensional positions and indices
-                    // The positions map contains actuator -> position for coordinate tracking
+                    // Emit event with dimensional positions and scan_indices.
+                    // - positions: actuator_id -> physical value (coordinate tracking)
+                    // - scan_indices: dimension name -> array index (ZarrSink chunk coords)
                     //
-                    // ==== DIMENSIONAL INDEXING FOR ZARR ====
-                    // For Zarr V3 multi-dimensional storage, the RunEngine needs to know
-                    // which array indices to write data to. We encode this via:
-                    //
-                    // 1. Special position keys: "_outer_idx", "_inner_idx" (f64-encoded indices)
-                    //    These are used by the Zarr writer to determine array position
-                    //
-                    // 2. Dimension names are passed via checkpoint labels earlier:
-                    //    "nested_{node_id}_outer_{idx}_start" -> outer dimension progress
-                    //    Combined with GraphPlan metadata for dimension names
-                    //
-                    // Example: For nested scan with outer=wavelength (10 pts), inner=position (100 pts)
-                    //    positions = {
-                    //      "wavelength": 450.0,  // actual wavelength value
-                    //      "position": 25.5,     // actual position value
-                    //      "_outer_idx": 3.0,    // outer array index (wavelength index 3)
-                    //      "_inner_idx": 45.0,   // inner array index (position index 45)
-                    //    }
-                    //    Zarr writes to array[3, 45, ...]
+                    // Example: outer actuator="mono_1" (10 pts), inner actuator="stage_x" (100 pts)
+                    //    positions = { "mono_1": 450.0, "stage_x": 25.5 }
+                    //    scan_indices = [("wavelength", 3), ("position", 45)]
+                    //    ZarrSink writes to array[3, 45, ...]
                     let mut positions = HashMap::new();
                     if !config.outer.actuator.is_empty() {
                         positions.insert(config.outer.actuator.clone(), outer_pos);
@@ -595,12 +578,6 @@ fn translate_node_with_snarl(
                     if !config.inner.actuator.is_empty() {
                         positions.insert(config.inner.actuator.clone(), inner_pos);
                     }
-
-                    // Include dimensional indices for Zarr coordinate assignment
-                    // Convention: "_outer_idx", "_inner_idx" are reserved keys
-                    // TODO(bd-ih4p): Remove these once all consumers use scan_indices
-                    positions.insert("_outer_idx".to_string(), f64::from(outer_idx));
-                    positions.insert("_inner_idx".to_string(), f64::from(inner_idx));
 
                     // Use dimension names from config, falling back to actuator ID, then "outer"/"inner"
                     let outer_dim = if !config.outer.dimension_name.is_empty() {

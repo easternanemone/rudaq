@@ -297,16 +297,15 @@ impl DoverAxisDriver {
 
 impl Drop for DoverAxisDriver {
     fn drop(&mut self) {
-        // TODO(bd-qude): dover-motion-sys does not yet expose Stop/Shutdown FFI functions
-        // in mock mode (dummy bindings). When the `dover-sdk` feature provides real bindings,
-        // this Drop impl MUST be updated to:
+        // BLOCKED: dover-motion-sys dummy bindings (used without `dover-sdk` feature) only
+        // provide opaque type definitions (MotionSynergyAPI, IAxisDevice) and struct
+        // layouts — no function stubs for Stop() or Shutdown(). The real SDK bindings
+        // (generated via bindgen when `dover-sdk` is enabled) will expose these.
         //
-        // 1. Stop axis motion:
-        //    unsafe { IAxisDevice_Stop(handle) }
-        //    A moving stage that outlives its driver is a collision/damage risk.
-        //
-        // 2. Release the axis handle / shutdown the SDK:
-        //    unsafe { MotionSynergyAPI_Shutdown(api) }
+        // When `dover-sdk` FFI functions are available, this Drop impl MUST:
+        //   1. Stop axis motion:  unsafe { IAxisDevice_Stop(handle) }
+        //      A moving stage that outlives its driver is a collision/damage risk.
+        //   2. Release the handle: unsafe { MotionSynergyAPI_Shutdown(api) }
         //
         // All FFI calls must be wrapped in unsafe blocks with SAFETY comments,
         // errors must be logged (not panicked), and the handle must be nulled.
@@ -370,7 +369,7 @@ impl Drop for DoverAxisDriver {
             axis = %self.axis_name,
             "Dover Motion axis dropped with a live SDK handle but safe-state \
              shutdown is not yet implemented — stage may still be in motion. \
-             See TODO(bd-qude) in DoverAxisDriver::Drop."
+             Blocked on dover-motion-sys FFI extension — see DoverAxisDriver::Drop."
         );
     }
 }

@@ -27,12 +27,14 @@
 
 // Import all public types from the library root
 use driver_pvcam::{
-    CameraInfo, CentroidsConfig, CentroidsMode, ClearMode, ExposeOutMode, ExposureMode, FanSpeed,
-    GainMode, PPFeature, PPParam, ReadoutPort, ShutterMode, ShutterStatus, SmartStreamEntry,
-    SmartStreamMode, SpeedMode,
+    CameraInfo, CentroidsConfig, CentroidsMode, ClearMode, EdgeTrigger, ExposeOutMode,
+    ExposureMode, FanSpeed, GainMode, PPFeature, PPParam, ReadoutPort, ShutterMode, ShutterStatus,
+    SmartStreamEntry, SmartStreamMode, SpeedMode,
 };
 // Import feature functions
 use driver_pvcam::components::features::PvcamFeatures;
+// Import PP name matching utilities (bd-ldjy.1)
+use driver_pvcam::{normalize_pp_name, pp_name_contains, pp_name_matches};
 
 // =============================================================================
 // Unit Tests: Type Conversions (Mock Mode)
@@ -172,6 +174,45 @@ mod type_conversions {
     }
 
     #[test]
+    fn edge_trigger_variants() {
+        let modes = [EdgeTrigger::First, EdgeTrigger::All];
+
+        for (i, mode) in modes.iter().enumerate() {
+            for (j, other) in modes.iter().enumerate() {
+                if i == j {
+                    assert_eq!(mode, other);
+                } else {
+                    assert_ne!(mode, other);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn edge_trigger_round_trip() {
+        for value in 0..=1 {
+            let mode = EdgeTrigger::from_pvcam(value);
+            assert_eq!(mode.to_pvcam(), value);
+        }
+    }
+
+    #[test]
+    fn edge_trigger_str_round_trip() {
+        for name in &["First", "All"] {
+            let mode = EdgeTrigger::from_str(name);
+            assert_eq!(mode.as_str(), *name);
+        }
+    }
+
+    #[test]
+    fn edge_trigger_all_choices() {
+        let choices = EdgeTrigger::all_choices();
+        assert_eq!(choices.len(), 2);
+        assert_eq!(choices[0], "First");
+        assert_eq!(choices[1], "All");
+    }
+
+    #[test]
     fn centroids_mode_variants() {
         let modes = [
             CentroidsMode::Locate,
@@ -252,6 +293,7 @@ mod type_conversions {
             index: 0,
             id: 1,
             name: "PrimeEnhance".to_string(),
+            params: vec![],
         };
         assert_eq!(feature.id, 1);
         assert_eq!(feature.name, "PrimeEnhance");
@@ -264,6 +306,8 @@ mod type_conversions {
             id: 1,
             name: "Enabled".to_string(),
             value: 1,
+            min: 0,
+            max: 1,
         };
         assert_eq!(param.value, 1);
     }
@@ -566,6 +610,50 @@ mod mock_features {
         assert!(result.is_ok());
     }
 
+    // =========================================================================
+    // PP Name Matching (bd-ldjy.1)
+    // =========================================================================
+
+    #[test]
+    fn pp_name_normalize_strips_separators() {
+        assert_eq!(normalize_pp_name("PrimeEnhance"), "primeenhance");
+        assert_eq!(normalize_pp_name("PRIME ENHANCE"), "primeenhance");
+        assert_eq!(normalize_pp_name("Prime_Enhance"), "primeenhance");
+        assert_eq!(normalize_pp_name("prime-enhance"), "primeenhance");
+        assert_eq!(normalize_pp_name("PRIME_ENHANCE"), "primeenhance");
+        assert_eq!(normalize_pp_name("Prime Locate"), "primelocate");
+    }
+
+    #[test]
+    fn pp_name_matches_all_variants() {
+        // PrimeEnhance variants
+        assert!(pp_name_matches("PrimeEnhance", "PrimeEnhance"));
+        assert!(pp_name_matches("PRIME ENHANCE", "PrimeEnhance"));
+        assert!(pp_name_matches("Prime_Enhance", "PrimeEnhance"));
+        assert!(pp_name_matches("prime-enhance", "PrimeEnhance"));
+        assert!(pp_name_matches("PRIME_ENHANCE", "PrimeEnhance"));
+        assert!(pp_name_matches("primeenhance", "PrimeEnhance"));
+
+        // PrimeLocate variants
+        assert!(pp_name_matches("PrimeLocate", "PrimeLocate"));
+        assert!(pp_name_matches("PRIME LOCATE", "PrimeLocate"));
+        assert!(pp_name_matches("Prime_Locate", "PrimeLocate"));
+
+        // Negative cases
+        assert!(!pp_name_matches("PrimeEnhance", "PrimeLocate"));
+        assert!(!pp_name_matches("Despeckle", "PrimeEnhance"));
+        assert!(!pp_name_matches("DENOISING", "PrimeLocate"));
+    }
+
+    #[test]
+    fn pp_name_contains_substring() {
+        assert!(pp_name_contains("PrimeEnhance", "enhance"));
+        assert!(pp_name_contains("PRIME ENHANCE", "enhance"));
+        assert!(pp_name_contains("PrimeLocate", "locate"));
+        assert!(pp_name_contains("PRIME LOCATE", "prime"));
+        assert!(!pp_name_contains("Despeckle", "enhance"));
+    }
+
     #[test]
     fn binning_mock() {
         let conn = mock_connection();
@@ -742,6 +830,56 @@ mod mock_features {
             modes.iter().any(|(v, _)| *v == 0),
             "First Row mode (value 0) should be in the list"
         );
+    }
+
+    // =========================================================================
+    // Edge Trigger & Trigger Delay Tests (bd-oqo7.5)
+    // =========================================================================
+
+    #[test]
+    fn edge_trigger_mock() {
+        let conn = mock_connection();
+
+        let mode = PvcamFeatures::get_edge_trigger(&conn).unwrap();
+        assert_eq!(mode, EdgeTrigger::First, "Default should be First");
+
+        let result = PvcamFeatures::set_edge_trigger(&conn, EdgeTrigger::All);
+        assert!(result.is_ok(), "Setting edge trigger should succeed");
+
+        let mode = PvcamFeatures::get_edge_trigger(&conn).unwrap();
+        assert_eq!(
+            mode,
+            EdgeTrigger::All,
+            "Edge trigger should be All after set"
+        );
+    }
+
+    #[test]
+    fn pre_trigger_delay_set_get_mock() {
+        let conn = mock_connection();
+
+        let delay = PvcamFeatures::get_pre_trigger_delay_us(&conn).unwrap();
+        assert_eq!(delay, 0, "Default pre-trigger delay should be 0");
+
+        let result = PvcamFeatures::set_pre_trigger_delay_us(&conn, 500);
+        assert!(result.is_ok(), "Setting pre-trigger delay should succeed");
+
+        let delay = PvcamFeatures::get_pre_trigger_delay_us(&conn).unwrap();
+        assert_eq!(delay, 500, "Pre-trigger delay should be 500 after set");
+    }
+
+    #[test]
+    fn post_trigger_delay_set_get_mock() {
+        let conn = mock_connection();
+
+        let delay = PvcamFeatures::get_post_trigger_delay_us(&conn).unwrap();
+        assert_eq!(delay, 0, "Default post-trigger delay should be 0");
+
+        let result = PvcamFeatures::set_post_trigger_delay_us(&conn, 1000);
+        assert!(result.is_ok(), "Setting post-trigger delay should succeed");
+
+        let delay = PvcamFeatures::get_post_trigger_delay_us(&conn).unwrap();
+        assert_eq!(delay, 1000, "Post-trigger delay should be 1000 after set");
     }
 }
 

@@ -1,40 +1,36 @@
-# Demo Hardware Configuration for rust-daq
+# Demo Hardware Configuration (canonical mock runtime policy)
 #
-# This configuration uses mock devices for demonstration and testing.
-# No physical hardware required - perfect for trying out rust-daq!
+# Universal-eligible instruments run through driver-universal with `mock = true`.
+# Camera remains a native mock exception by design.
 #
 # Usage:
 #   rust-daq-daemon daemon --hardware-config config/demo.toml
-#
-# Or use programmatically:
-#   cargo run --bin rust-daq-daemon -- daemon --hardware-config config/demo.toml
 
 # ============================================================================
-# Mock Stage (simulates a linear translation stage)
+# Universal stage (mock transport)
 # ============================================================================
 
 [[devices]]
 id = "mock_stage"
-name = "Demo Stage (Mock)"
+name = "Demo Stage (Universal Mock)"
 [devices.driver]
-type = "mock_stage"
-# Simulates starting at 0mm position
-initial_position = 0.0
+type = "universal_newport_esp300"
+mock = true
+address = "1"
 
 # ============================================================================
-# Mock Power Meter (simulates an optical power sensor)
+# Universal power meter (mock transport)
 # ============================================================================
 
 [[devices]]
 id = "mock_power_meter"
-name = "Demo Power Meter (Mock)"
+name = "Demo Power Meter (Universal Mock)"
 [devices.driver]
-type = "mock_power_meter"
-# Simulates 1 µW reading
-reading = 1.0e-6
+type = "universal_newport_1830-c"
+mock = true
 
 # ============================================================================
-# Mock Camera (simulates a scientific camera)
+# Camera native exception
 # ============================================================================
 
 [[devices]]
@@ -42,27 +38,5 @@ id = "mock_camera"
 name = "Demo Camera (Mock)"
 [devices.driver]
 type = "mock_camera"
-# Resolution optimized for smooth demo performance (85% faster than 1920x1080)
 width = 640
 height = 480
-
-# ============================================================================
-# About Mock Devices
-# ============================================================================
-#
-# Mock devices simulate real hardware behavior without requiring physical
-# equipment. They're perfect for:
-#
-# - Learning the rust-daq API
-# - Testing scripts before deploying to hardware
-# - Demonstrating capabilities to stakeholders
-# - Developing features without hardware access
-#
-# Each mock device implements the same capability traits as real hardware:
-#
-# - mock_stage:       Movable (move_abs, move_rel, get_position)
-# - mock_power_meter: Readable (read_value)
-# - mock_camera:      FrameProducer, Triggerable, ExposureControl
-#
-# Scripts written for mock devices work identically with real hardware after
-# updating the configuration.

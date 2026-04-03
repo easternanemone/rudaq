@@ -3,10 +3,14 @@
 //! Loads an arc lamp frame from TIFF (or raw), reads instrument parameters from
 //! a TOML config, invokes `run_calibration_pipeline()`, and writes the resulting
 //! `EchelleCalibrationProfile` as TOML.
+//!
+//! Optional `[hdr]` lists extra arc exposures (same geometry as the primary `--frame`);
+//! line detections are merged before atlas matching (see `merge_arc_lines_hdr`).
 
 use anyhow::{Context, Result};
 use serde::Deserialize;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use echelle::calibration_pipeline::{CalibrationPipelineConfig, WavelengthSeed};
 use echelle::wavelength_fitting::{load_hg_atlas, load_hgar_atlas};
@@ -22,6 +26,9 @@ pub struct CalibrateFileConfig {
     pub orientation: EchelleOrientation,
     #[serde(default)]
     pub tuning: TuningSection,
+    /// Optional multi-exposure arc merge for line detection (empty = single-frame path).
+    #[serde(default)]
+    pub hdr: HdrSection,
 }
 
 /// Echelle spectrograph parameters.
@@ -100,11 +107,50 @@ impl Default for TuningSection {
     }
 }
 
+/// HDR-style multi-exposure arc handling: extra frames merged at line-detection stage.
+#[derive(Debug, Deserialize)]
+#[serde(default)]
+pub struct HdrSection {
+    /// Additional arc lamp files (TIFF/PNG/raw), same width×height as `[detector]`.
+    /// Relative paths are resolved from the calibration config file's directory.
+    pub extra_arc_paths: Vec<PathBuf>,
+    /// Pixel chaining tolerance for `merge_arc_lines_hdr` (default 1.0).
+    pub merge_tol_px: f64,
+    /// Prefer unsaturated centroids when picking a merged line (default true).
+    pub prefer_unsaturated: bool,
+}
+
+impl Default for HdrSection {
+    fn default() -> Self {
+        Self {
+            extra_arc_paths: Vec::new(),
+            merge_tol_px: 1.0,
+            prefer_unsaturated: true,
+        }
+    }
+}
+
+fn resolve_config_relative_path(config_path: &Path, p: &Path) -> PathBuf {
+    if p.is_absolute() {
+        p.to_path_buf()
+    } else {
+        config_path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join(p)
+    }
+}
+
 // ─── Config conversion ──────────────────────────────────────────────────────
 
 impl CalibrateFileConfig {
     /// Convert the file config into a full `CalibrationPipelineConfig`.
-    fn into_pipeline_config(self) -> CalibrationPipelineConfig {
+    ///
+    /// `hdr_extra_arc_frames` must match `[detector]` pixel count per frame; primary arc is still `--frame`.
+    fn into_pipeline_config(
+        self,
+        hdr_extra_arc_frames: Vec<Vec<f32>>,
+    ) -> CalibrationPipelineConfig {
         let d = CalibrationPipelineConfig::default();
 
         let mut trace_config = d.trace_config;
@@ -121,6 +167,7 @@ impl CalibrateFileConfig {
 
         CalibrationPipelineConfig {
             trace_config,
+            trace_validation: Default::default(),
             arc_config,
             wl_config,
             scatter_config: d.scatter_config,
@@ -155,6 +202,9 @@ impl CalibrateFileConfig {
             orientation: self.orientation,
             profile_name: self.instrument.name,
             min_lines_per_order: self.tuning.min_lines_per_order,
+            hdr_extra_arc_frames: hdr_extra_arc_frames.into_iter().map(Arc::new).collect(),
+            hdr_merge_tol_px: self.hdr.merge_tol_px,
+            hdr_prefer_unsaturated: self.hdr.prefer_unsaturated,
         }
     }
 }
@@ -177,28 +227,60 @@ pub async fn handle_calibrate(
 
     let detector_width = file_config.detector.width;
     let detector_height = file_config.detector.height;
-    let pipeline_config = file_config.into_pipeline_config();
+    let expected_pixels = detector_width as usize * detector_height as usize;
+
+    let hdr_resolved_paths: Vec<PathBuf> = file_config
+        .hdr
+        .extra_arc_paths
+        .iter()
+        .map(|p| resolve_config_relative_path(&config_path, p))
+        .collect();
 
     // 2. Load arc frame
     let f32_pixels = load_frame(&frame_path, detector_width, detector_height).await?;
 
-    let (width, height) =
-        if f32_pixels.len() == (detector_width as usize) * (detector_height as usize) {
-            (detector_width, detector_height)
-        } else {
-            return Err(anyhow::anyhow!(
-                "Frame pixel count ({}) doesn't match config dimensions {}x{} ({})",
-                f32_pixels.len(),
-                detector_width,
-                detector_height,
-                detector_width as usize * detector_height as usize,
-            ));
-        };
+    let (width, height) = if f32_pixels.len() == expected_pixels {
+        (detector_width, detector_height)
+    } else {
+        return Err(anyhow::anyhow!(
+            "Frame pixel count ({}) doesn't match config dimensions {}x{} ({})",
+            f32_pixels.len(),
+            detector_width,
+            detector_height,
+            expected_pixels,
+        ));
+    };
 
     println!(
         "Loaded {width}x{height} arc frame from {}",
         frame_path.display()
     );
+
+    let mut hdr_extra_arc_frames: Vec<Vec<f32>> = Vec::with_capacity(hdr_resolved_paths.len());
+    for (i, path) in hdr_resolved_paths.iter().enumerate() {
+        let px = load_frame(path, detector_width, detector_height)
+            .await
+            .with_context(|| format!("HDR extra arc frame {i}: {}", path.display()))?;
+        if px.len() != expected_pixels {
+            return Err(anyhow::anyhow!(
+                "HDR extra arc frame {} pixel count ({}) doesn't match config {}x{} ({})",
+                path.display(),
+                px.len(),
+                detector_width,
+                detector_height,
+                expected_pixels,
+            ));
+        }
+        hdr_extra_arc_frames.push(px);
+    }
+    if !hdr_extra_arc_frames.is_empty() {
+        println!(
+            "Loaded {} HDR extra arc frame(s) for merged line detection",
+            hdr_extra_arc_frames.len()
+        );
+    }
+
+    let pipeline_config = file_config.into_pipeline_config(hdr_extra_arc_frames);
 
     // 3. Optionally load flat frame for trace detection
     let flat_pixels = if let Some(ref flat) = flat_path {
@@ -322,5 +404,67 @@ async fn load_frame(path: &PathBuf, expected_width: u32, expected_height: u32) -
 
             Ok(gray.pixels().map(|p| f32::from(p[0])).collect())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_calibrate_toml_with_hdr_defaults() {
+        let toml = r#"
+[instrument]
+name = "Test"
+grating_constant_nm = 2800.0
+first_physical_order = 10
+order_step = 1
+
+[detector]
+width = 100
+height = 100
+bit_depth = 16
+
+[orientation]
+dispersion_axis = "x"
+cross_dispersion_axis = "y"
+order_number_increase_direction = "positive"
+wavelength_increase_with_dispersion_positive = true
+"#;
+        let cfg: CalibrateFileConfig =
+            toml::from_str(toml).expect("minimal calibrate TOML should parse");
+        assert!(cfg.hdr.extra_arc_paths.is_empty());
+        assert!((cfg.hdr.merge_tol_px - 1.0).abs() < f64::EPSILON);
+        assert!(cfg.hdr.prefer_unsaturated);
+    }
+
+    #[test]
+    fn parse_calibrate_toml_hdr_section() {
+        let toml = r#"
+[instrument]
+name = "Test"
+grating_constant_nm = 2800.0
+first_physical_order = 10
+order_step = 1
+
+[detector]
+width = 100
+height = 100
+
+[orientation]
+dispersion_axis = "x"
+cross_dispersion_axis = "y"
+order_number_increase_direction = "positive"
+wavelength_increase_with_dispersion_positive = true
+
+[hdr]
+extra_arc_paths = ["short.tif", "/abs/other.tif"]
+merge_tol_px = 1.5
+prefer_unsaturated = false
+"#;
+        let cfg: CalibrateFileConfig = toml::from_str(toml).expect("hdr TOML should parse");
+        assert_eq!(cfg.hdr.extra_arc_paths.len(), 2);
+        assert!((cfg.hdr.merge_tol_px - 1.5).abs() < 1e-9);
+        assert!(!cfg.hdr.prefer_unsaturated);
     }
 }

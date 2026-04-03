@@ -220,7 +220,7 @@ impl ExperimentDesignerPanel {
             ui.separator();
 
             // Show editor (safe borrow after button logic)
-            editor.ui(ui);
+            editor.ui(ui, client, runtime);
 
             // Handle return to graph mode
             if return_to_graph {
@@ -446,22 +446,25 @@ impl ExperimentDesignerPanel {
 
             match response {
                 AdaptiveAlertResponse::Approved => {
-                    // Resume execution with approved action
-                    self.confirm_adaptive_action();
-                    self.adaptive_alert = None;
-                    self.adaptive_alert_auto_proceed_at = None;
+                    // Resume execution with approved action; keep modal open on failure
+                    if self.confirm_adaptive_action(client_clone.as_ref(), runtime) {
+                        self.adaptive_alert = None;
+                        self.adaptive_alert_auto_proceed_at = None;
+                    }
                 }
                 AdaptiveAlertResponse::Cancelled => {
-                    // Cancel adaptive action and abort or continue
-                    self.cancel_adaptive_action();
-                    self.adaptive_alert = None;
-                    self.adaptive_alert_auto_proceed_at = None;
+                    // Cancel adaptive action and abort the plan; keep modal open on failure
+                    if self.cancel_adaptive_action(client_clone.as_ref(), runtime) {
+                        self.adaptive_alert = None;
+                        self.adaptive_alert_auto_proceed_at = None;
+                    }
                 }
                 AdaptiveAlertResponse::Pending => {
                     // Check auto-proceed timeout for non-approval alerts
                     if let Some(auto_time) = self.adaptive_alert_auto_proceed_at {
-                        if crate::time::Instant::now() >= auto_time {
-                            self.confirm_adaptive_action();
+                        if crate::time::Instant::now() >= auto_time
+                            && self.confirm_adaptive_action(client_clone.as_ref(), runtime)
+                        {
                             self.adaptive_alert = None;
                             self.adaptive_alert_auto_proceed_at = None;
                         }
@@ -560,7 +563,7 @@ impl ExperimentDesignerPanel {
                 let node_clone = node.clone();
 
                 // Show inspector and check for modifications
-                // TODO(bd-p2a1): fetch and cache device list from DaqClient for autocomplete
+                // TODO(bd-wev5): fetch and cache device list from DaqClient for autocomplete
                 let device_ids: Vec<String> = Vec::new(); // Empty for now, falls back to text field
                 if let Some(modified_node) = PropertyInspector::show(ui, &node_clone, &device_ids) {
                     // Create undo-tracked modification
@@ -2062,17 +2065,60 @@ impl ExperimentDesignerPanel {
     }
 
     /// Confirm adaptive action and resume execution.
-    fn confirm_adaptive_action(&mut self) {
-        // TODO(bd-p2a1): send gRPC signal to RunEngine to proceed with adaptive action
+    ///
+    /// Sends `ResumeEngine` to the daemon so the `RunEngine` proceeds with the
+    /// adaptive action that triggered the pause.  Returns `true` when the RPC
+    /// was successfully dispatched.
+    fn confirm_adaptive_action(
+        &mut self,
+        client: Option<&DaqClient>,
+        runtime: Option<&Runtime>,
+    ) -> bool {
+        if self.require_connected(client, runtime, "confirm").is_none() {
+            return false;
+        }
         tracing::info!("Adaptive action approved");
         self.set_status("Adaptive action approved - proceeding");
+        self.resume_experiment(client, runtime);
+        true
     }
 
     /// Cancel adaptive action.
-    fn cancel_adaptive_action(&mut self) {
-        // TODO(bd-p2a1): send gRPC signal to RunEngine to skip adaptive action
-        // May need to abort scan or continue without action
+    ///
+    /// Sends `AbortPlan` to the daemon so the `RunEngine` stops the current
+    /// plan instead of executing the adaptive action.  Returns `true` when the
+    /// RPC was successfully dispatched.
+    fn cancel_adaptive_action(
+        &mut self,
+        client: Option<&DaqClient>,
+        runtime: Option<&Runtime>,
+    ) -> bool {
+        if self.require_connected(client, runtime, "cancel").is_none() {
+            return false;
+        }
         tracing::info!("Adaptive action cancelled");
         self.set_status("Adaptive action cancelled");
+        self.abort_experiment(client, runtime);
+        true
+    }
+
+    /// Check that both client and runtime are available. Sets `last_error` and
+    /// returns `None` if either is missing. `action` is used in the error
+    /// message (e.g. "confirm", "cancel").
+    fn require_connected<'a>(
+        &mut self,
+        client: Option<&'a DaqClient>,
+        runtime: Option<&'a Runtime>,
+        action: &str,
+    ) -> Option<(&'a DaqClient, &'a Runtime)> {
+        let Some(c) = client else {
+            self.last_error = Some(format!("Cannot {action}: not connected to daemon"));
+            return None;
+        };
+        let Some(r) = runtime else {
+            self.last_error = Some(format!("Cannot {action}: async runtime unavailable"));
+            return None;
+        };
+        Some((c, r))
     }
 }

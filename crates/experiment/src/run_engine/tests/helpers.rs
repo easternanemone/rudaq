@@ -7,7 +7,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 
 use common::capabilities::{
-    DeviceCategory, FrameProducer, GateMode, GatedCamera, Parameterized, SpectrometerControl,
+    DeviceCategory, FrameProducer, GatedCamera, Parameterized, SpectrometerControl,
     TemperatureStatus,
 };
 use common::driver::{Capability as DeviceCapability, DeviceComponents, DriverFactory};
@@ -17,17 +17,17 @@ use hardware::registry::DeviceRegistry;
 // ---- MockSpectrometer ----
 
 pub(super) struct MockSpectrometer {
-    pub grating: u8,
+    pub grating: i32,
     pub wavelength_nm: f64,
 }
 
 #[async_trait]
 impl SpectrometerControl for MockSpectrometer {
-    async fn set_grating(&self, _grating_num: u8) -> anyhow::Result<()> {
+    async fn set_grating(&self, _grating_num: i32) -> anyhow::Result<()> {
         Ok(())
     }
 
-    async fn get_grating(&self) -> anyhow::Result<u8> {
+    async fn get_grating(&self) -> anyhow::Result<i32> {
         Ok(self.grating)
     }
 
@@ -39,7 +39,7 @@ impl SpectrometerControl for MockSpectrometer {
         Ok(self.wavelength_nm)
     }
 
-    async fn set_slit_width(&self, _slit_id: u8, _width_um: u16) -> anyhow::Result<()> {
+    async fn set_slit_width(&self, _slit_id: i32, _width_um: f64) -> anyhow::Result<()> {
         Ok(())
     }
 
@@ -58,7 +58,7 @@ impl SpectrometerControl for MockSpectrometer {
 }
 
 pub(super) struct MockSpectrometerFactory {
-    pub grating: u8,
+    pub grating: i32,
     pub wavelength_nm: f64,
 }
 
@@ -101,7 +101,7 @@ pub(super) async fn make_spectroscopy_registry() -> Arc<DeviceRegistry> {
 }
 
 pub(super) async fn make_spectroscopy_registry_with_spectrometer(
-    grating: u8,
+    grating: i32,
     wavelength_nm: f64,
 ) -> Arc<DeviceRegistry> {
     let registry = Arc::new(DeviceRegistry::new());
@@ -196,7 +196,7 @@ impl FrameProducer for MockGatedCamera {
 
 #[async_trait]
 impl GatedCamera for MockGatedCamera {
-    async fn set_gate_mode(&self, _mode: GateMode) -> anyhow::Result<()> {
+    async fn set_gate_mode(&self, _mode: &str) -> anyhow::Result<()> {
         Ok(())
     }
 
@@ -204,7 +204,7 @@ impl GatedCamera for MockGatedCamera {
         Ok(())
     }
 
-    async fn set_mcp_gain(&self, _gain: u16) -> anyhow::Result<()> {
+    async fn set_mcp_gain(&self, _gain: u32) -> anyhow::Result<()> {
         Ok(())
     }
 

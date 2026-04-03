@@ -193,6 +193,12 @@ pub struct ImageMetadata {
     ///
     /// `None` if no gap was observed or the source does not provide frame numbers.
     pub sequence_gap_from_previous: Option<u64>,
+    /// Number of raw frames summed into this output frame (host-side summing).
+    ///
+    /// `None` or `Some(1)` means no summing was applied. `Some(N)` where N > 1 means
+    /// N raw frames were accumulated on the host before emission. Downstream consumers
+    /// should divide pixel values by this count to recover per-frame intensity.
+    pub summing_count: Option<u32>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -215,6 +221,8 @@ struct HumanReadableImageMetadata {
     frame_number: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     sequence_gap_from_previous: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    summing_count: Option<u32>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -228,6 +236,7 @@ struct BinaryImageMetadata {
     roi_origin: Option<(u32, u32)>,
     frame_number: Option<u64>,
     sequence_gap_from_previous: Option<u64>,
+    summing_count: Option<u32>,
 }
 
 impl From<&ImageMetadata> for HumanReadableImageMetadata {
@@ -242,6 +251,7 @@ impl From<&ImageMetadata> for HumanReadableImageMetadata {
             roi_origin: value.roi_origin,
             frame_number: value.frame_number,
             sequence_gap_from_previous: value.sequence_gap_from_previous,
+            summing_count: value.summing_count,
         }
     }
 }
@@ -258,6 +268,7 @@ impl From<&ImageMetadata> for BinaryImageMetadata {
             roi_origin: value.roi_origin,
             frame_number: value.frame_number,
             sequence_gap_from_previous: value.sequence_gap_from_previous,
+            summing_count: value.summing_count,
         }
     }
 }
@@ -274,6 +285,7 @@ impl From<HumanReadableImageMetadata> for ImageMetadata {
             roi_origin: value.roi_origin,
             frame_number: value.frame_number,
             sequence_gap_from_previous: value.sequence_gap_from_previous,
+            summing_count: value.summing_count,
         }
     }
 }
@@ -290,6 +302,7 @@ impl From<BinaryImageMetadata> for ImageMetadata {
             roi_origin: value.roi_origin,
             frame_number: value.frame_number,
             sequence_gap_from_previous: value.sequence_gap_from_previous,
+            summing_count: value.summing_count,
         }
     }
 }
@@ -1045,6 +1058,7 @@ mod tests {
                 roi_origin: None,
                 frame_number: None,
                 sequence_gap_from_previous: None,
+                summing_count: None,
             },
             timestamp: Utc::now(),
         };
@@ -1066,6 +1080,7 @@ mod tests {
                 roi_origin: None,
                 frame_number: None,
                 sequence_gap_from_previous: None,
+                summing_count: None,
             },
             timestamp: Utc::now(),
         };
@@ -1087,6 +1102,7 @@ mod tests {
                 roi_origin: None,
                 frame_number: None,
                 sequence_gap_from_previous: None,
+                summing_count: None,
             },
             timestamp: Utc::now(),
         };
@@ -1140,6 +1156,7 @@ mod tests {
                     roi_origin: None,
                     frame_number: None,
                     sequence_gap_from_previous: None,
+                    summing_count: None,
                 },
                 timestamp: Utc::now(),
             },
@@ -1161,5 +1178,61 @@ mod tests {
         assert_eq!(batches.vectors.unwrap().num_rows(), 1);
         assert_eq!(batches.images.unwrap().num_rows(), 1);
         Ok(())
+    }
+
+    // === Summing count in ImageMetadata (bd-oqo7.7) ===
+
+    #[test]
+    fn image_metadata_summing_count_default_is_none() {
+        let meta = ImageMetadata::default();
+        assert_eq!(meta.summing_count, None);
+    }
+
+    #[test]
+    fn image_metadata_summing_count_json_roundtrip() {
+        let meta = ImageMetadata {
+            summing_count: Some(16),
+            exposure_ms: Some(100.0),
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&meta).unwrap();
+        let decoded: ImageMetadata = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.summing_count, Some(16));
+        assert_eq!(decoded.exposure_ms, Some(100.0));
+    }
+
+    #[test]
+    fn image_metadata_summing_count_none_omitted_in_json() {
+        let meta = ImageMetadata {
+            summing_count: None,
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&meta).unwrap();
+        assert!(
+            !json.contains("summing_count"),
+            "None fields should be omitted from JSON"
+        );
+    }
+
+    #[test]
+    fn image_metadata_summing_count_survives_serde_proxy_roundtrip() {
+        // Verify summing_count survives through the Human/Binary proxy structs
+        let meta = ImageMetadata {
+            summing_count: Some(32),
+            frame_number: Some(42),
+            ..Default::default()
+        };
+
+        // Human-readable path
+        let human: HumanReadableImageMetadata = (&meta).into();
+        let roundtripped: ImageMetadata = human.into();
+        assert_eq!(roundtripped.summing_count, Some(32));
+        assert_eq!(roundtripped.frame_number, Some(42));
+
+        // Binary path
+        let binary: BinaryImageMetadata = (&meta).into();
+        let roundtripped: ImageMetadata = binary.into();
+        assert_eq!(roundtripped.summing_count, Some(32));
+        assert_eq!(roundtripped.frame_number, Some(42));
     }
 }

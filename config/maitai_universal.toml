@@ -199,3 +199,33 @@ name = "NI DAQ Counter 1"
 type = "comedi_counter"
 device = "/dev/comedi0"
 channel = 1
+
+# ============================================================================
+# Siglent SDG1025 Function Generator (Galvo Drive)
+# ============================================================================
+# Drives galvo mirrors for beam steering. Two channels: X (CH1) and Y (CH2).
+# Adjust DC offset to center the laser spot on the camera sensor.
+# Connection: USB rear panel → /dev/ttyUSB* (RS-232 at 115200)
+#   or USB-TMC front panel → /dev/usbtmc0
+
+[[devices]]
+id = "galvo_driver"
+name = "Siglent SDG1025 (Galvo Drive)"
+[devices.driver]
+type = "universal"
+manifest = "config/devices/siglent_sdg1025.toml"
+port = "/dev/ttyUSB7"              # Adjust when connected
+
+# ============================================================================
+# Thorlabs SC10 Shutter Controller
+# ============================================================================
+# Solenoid-driven beam shutter for laser safety and experiment gating.
+# Connection: USB-to-serial cable → /dev/ttyUSB*
+
+[[devices]]
+id = "beam_shutter"
+name = "Thorlabs SC10 Beam Shutter"
+[devices.driver]
+type = "universal"
+manifest = "config/devices/thorlabs_sc10.toml"
+port = "/dev/ttyUSB8"              # Adjust when connected

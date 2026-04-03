@@ -23,6 +23,13 @@ pub struct FrameMetadata {
     /// Trigger mode (e.g., "Timed", "Trigger First")
     pub trigger_mode: Option<String>,
 
+    /// Number of frames summed into this single output frame (host-side summing).
+    ///
+    /// `None` or `Some(1)` means no summing was applied. `Some(N)` where N > 1 means
+    /// N raw frames were accumulated on the host before emission. Downstream consumers
+    /// should divide pixel values by this count to recover per-frame intensity.
+    pub summing_count: Option<u32>,
+
     /// Extensible key-value metadata for driver-specific properties
     pub extra: HashMap<String, String>,
 }
@@ -429,6 +436,24 @@ pub struct FrameView<'a> {
 
     /// Binning (x, y)
     pub binning: Option<(u16, u16)>,
+
+    /// Number of frames summed into this output frame (host-side summing).
+    ///
+    /// `None` or `Some(1)` means no summing. `Some(N)` where N > 1 means N raw frames
+    /// were accumulated before emission.
+    pub summing_count: Option<u32>,
+
+    /// Driver-specific metadata (hardware timestamps, SMART stream index, etc.).
+    /// Empty HashMap reference when no metadata available (bd-p6r4).
+    pub extra: &'a HashMap<String, String>,
+}
+
+/// Static empty HashMap for FrameView default extra field.
+static EMPTY_EXTRA: std::sync::OnceLock<HashMap<String, String>> = std::sync::OnceLock::new();
+
+/// Returns a static reference to an empty `HashMap<String, String>`.
+fn empty_extra() -> &'static HashMap<String, String> {
+    EMPTY_EXTRA.get_or_init(HashMap::new)
 }
 
 impl<'a> FrameView<'a> {
@@ -454,6 +479,8 @@ impl<'a> FrameView<'a> {
             roi_y: 0,
             temperature_c: None,
             binning: None,
+            summing_count: None,
+            extra: empty_extra(),
         }
     }
 
@@ -472,7 +499,20 @@ impl<'a> FrameView<'a> {
             roi_y: frame.roi_y,
             temperature_c: frame.metadata.as_ref().and_then(|m| m.temperature_c),
             binning: frame.metadata.as_ref().and_then(|m| m.binning),
+            summing_count: frame.metadata.as_ref().and_then(|m| m.summing_count),
+            extra: frame
+                .metadata
+                .as_ref()
+                .map(|m| &m.extra)
+                .unwrap_or_else(|| empty_extra()),
         }
+    }
+
+    /// Set extra metadata (builder pattern, bd-p6r4).
+    #[must_use]
+    pub fn with_extra(mut self, extra: &'a HashMap<String, String>) -> Self {
+        self.extra = extra;
+        self
     }
 
     /// Set exposure time (builder pattern).
@@ -501,6 +541,13 @@ impl<'a> FrameView<'a> {
     #[must_use]
     pub fn with_binning(mut self, binning: (u16, u16)) -> Self {
         self.binning = Some(binning);
+        self
+    }
+
+    /// Set summing count (builder pattern).
+    #[must_use]
+    pub fn with_summing_count(mut self, count: u32) -> Self {
+        self.summing_count = Some(count);
         self
     }
 
@@ -612,5 +659,111 @@ impl<'a> FrameView<'a> {
             }
             _ => 0.0,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // === Summing count metadata tests (bd-oqo7.7) ===
+
+    #[test]
+    fn frame_metadata_summing_count_default_is_none() {
+        let metadata = FrameMetadata::default();
+        assert_eq!(metadata.summing_count, None);
+    }
+
+    #[test]
+    fn frame_metadata_summing_count_set() {
+        let metadata = FrameMetadata {
+            summing_count: Some(10),
+            ..Default::default()
+        };
+        assert_eq!(metadata.summing_count, Some(10));
+    }
+
+    #[test]
+    fn frame_summing_count_propagates_to_frame_view() {
+        let frame = Frame::from_u16(2, 2, &[1, 2, 3, 4]).with_metadata(FrameMetadata {
+            summing_count: Some(5),
+            ..Default::default()
+        });
+        let view = FrameView::from_frame(&frame);
+        assert_eq!(view.summing_count, Some(5));
+    }
+
+    #[test]
+    fn frame_no_summing_metadata_yields_none_in_view() {
+        let frame = Frame::from_u16(2, 2, &[1, 2, 3, 4]);
+        let view = FrameView::from_frame(&frame);
+        assert_eq!(view.summing_count, None);
+    }
+
+    #[test]
+    fn frame_summing_disabled_yields_none_in_view() {
+        let frame = Frame::from_u16(2, 2, &[1, 2, 3, 4]).with_metadata(FrameMetadata {
+            summing_count: None,
+            ..Default::default()
+        });
+        let view = FrameView::from_frame(&frame);
+        assert_eq!(view.summing_count, None);
+    }
+
+    #[test]
+    fn frame_view_with_summing_count_builder() {
+        let view = FrameView::new(2, 2, 16, &[0; 8], 1, 0).with_summing_count(8);
+        assert_eq!(view.summing_count, Some(8));
+    }
+
+    #[test]
+    fn frame_summing_count_one_is_no_summing() {
+        let frame = Frame::from_u16(2, 2, &[1, 2, 3, 4]).with_metadata(FrameMetadata {
+            summing_count: Some(1),
+            ..Default::default()
+        });
+        let view = FrameView::from_frame(&frame);
+        assert_eq!(view.summing_count, Some(1));
+    }
+
+    // === Extra metadata propagation tests (bd-p6r4) ===
+
+    #[test]
+    fn frame_view_from_frame_preserves_extra_metadata() {
+        let mut extra = HashMap::new();
+        extra.insert("timestamp_bof_ns".into(), "123456789".into());
+        extra.insert("smart_stream_index".into(), "3".into());
+
+        let frame = Frame::from_u16(2, 2, &[1, 2, 3, 4]).with_metadata(FrameMetadata {
+            extra,
+            ..Default::default()
+        });
+
+        let view = FrameView::from_frame(&frame);
+        assert_eq!(view.extra.len(), 2);
+        assert_eq!(view.extra.get("timestamp_bof_ns").unwrap(), "123456789");
+        assert_eq!(view.extra.get("smart_stream_index").unwrap(), "3");
+    }
+
+    #[test]
+    fn frame_view_from_frame_no_metadata_has_empty_extra() {
+        let frame = Frame::from_u16(2, 2, &[1, 2, 3, 4]);
+        let view = FrameView::from_frame(&frame);
+        assert!(view.extra.is_empty());
+    }
+
+    #[test]
+    fn frame_view_new_defaults_to_empty_extra() {
+        let view = FrameView::new(2, 2, 16, &[0; 8], 1, 0);
+        assert!(view.extra.is_empty());
+    }
+
+    #[test]
+    fn frame_view_with_extra_builder() {
+        let mut extra = HashMap::new();
+        extra.insert("hw_key".into(), "hw_val".into());
+
+        let view = FrameView::new(2, 2, 16, &[0; 8], 1, 0).with_extra(&extra);
+        assert_eq!(view.extra.get("hw_key").unwrap(), "hw_val");
     }
 }

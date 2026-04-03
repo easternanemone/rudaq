@@ -128,6 +128,8 @@ impl RunEngine {
                 seq_num: 0,
                 collected_data: HashMap::new(),
                 collected_frames: HashMap::new(),
+                collected_summing_counts: HashMap::new(),
+                collected_metadata: HashMap::new(),
                 current_positions: HashMap::new(),
                 frame_observers,
                 frame_channels,
@@ -283,7 +285,8 @@ impl RunEngine {
 
         // Clear run context
         *self.run_context.lock().await = None;
-        *self.state.write().await = super::state_machine::EngineState::Idle;
+        self.set_state(super::state_machine::EngineState::Idle)
+            .await;
 
         info!(
             run_uid = %run_uid,
@@ -336,11 +339,20 @@ impl RunEngine {
                                 Some(capture) => {
                                     let data_len = capture.data.len();
                                     let frame_num = capture.frame_number;
+                                    let summing_count = capture.summing_count;
                                     ctx.collected_frames.insert(device_id.clone(), capture.data);
+                                    ctx.collected_summing_counts
+                                        .insert(device_id.clone(), summing_count);
+                                    // bd-p6r4: Collect frame metadata for EventDoc propagation
+                                    if !capture.metadata.is_empty() {
+                                        ctx.collected_metadata
+                                            .insert(device_id.clone(), capture.metadata);
+                                    }
                                     debug!(
                                         device = %device_id,
                                         size = %data_len,
                                         frame_num = %frame_num,
+                                        ?summing_count,
                                         "Captured frame"
                                     );
                                 }
@@ -400,7 +412,8 @@ impl RunEngine {
 
                 if *self.pause_requested.read().await {
                     info!("Pausing at checkpoint");
-                    *self.state.write().await = super::state_machine::EngineState::Paused;
+                    self.set_state(super::state_machine::EngineState::Paused)
+                        .await;
                 }
                 Ok(false)
             }
@@ -429,6 +442,11 @@ impl RunEngine {
                     HashMap::new()
                 };
 
+                // bd-oqo7.7: Propagate summing counts into EventDoc metadata
+                // so downstream consumers can normalize summed pixel data.
+                let summing_metadata: HashMap<String, Option<u32>> =
+                    ctx.collected_summing_counts.drain().collect();
+
                 let mut all_positions = ctx.current_positions.clone();
                 all_positions.extend(positions);
 
@@ -437,6 +455,24 @@ impl RunEngine {
                 event.arrays = collected_arrays;
                 event.positions = all_positions;
                 event.scan_indices = scan_indices;
+
+                // bd-oqo7.7: Add summing_count to event metadata for each detector
+                for (device_id, count) in &summing_metadata {
+                    if let Some(n) = count {
+                        if *n > 1 {
+                            event
+                                .metadata
+                                .insert(format!("{device_id}.summing_count"), n.to_string());
+                        }
+                    }
+                }
+
+                // bd-p6r4: Propagate frame metadata into EventDoc
+                for (device_id, frame_md) in ctx.collected_metadata.drain() {
+                    for (key, value) in frame_md {
+                        event.metadata.insert(format!("{device_id}.{key}"), value);
+                    }
+                }
 
                 ctx.seq_num += 1;
 

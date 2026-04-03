@@ -444,14 +444,18 @@ impl SettingsWindow {
                 ui.label("Log File Path:");
                 ui.horizontal(|ui| {
                     ui.text_edit_singleline(&mut self.working_settings.logging.log_file_path);
-                    // TODO(bd-p2a1): integrate native file picker (rfd crate)
-                    if ui
-                        .add_enabled(false, egui::Button::new("Browse..."))
+                    #[cfg(all(not(target_arch = "wasm32"), feature = "standalone"))]
+                    if ui.button("Browse...").clicked() {
+                        if let Some(path) = rfd::FileDialog::new().save_file() {
+                            self.working_settings.logging.log_file_path =
+                                path.display().to_string();
+                        }
+                    }
+                    #[cfg(any(target_arch = "wasm32", not(feature = "standalone")))]
+                    ui.add_enabled(false, egui::Button::new("Browse..."))
                         .on_disabled_hover_text(
-                            "File picker not yet available — enter the path manually",
-                        )
-                        .clicked()
-                    {}
+                            "File picker not available in this build — enter the path manually",
+                        );
                 });
                 ui.end_row();
 
@@ -480,14 +484,18 @@ impl SettingsWindow {
                 ui.label("Default Save Directory:");
                 ui.horizontal(|ui| {
                     ui.text_edit_singleline(&mut self.working_settings.storage.default_save_dir);
-                    // TODO(bd-p2a1): integrate native directory picker (rfd crate)
-                    if ui
-                        .add_enabled(false, egui::Button::new("Browse..."))
+                    #[cfg(all(not(target_arch = "wasm32"), feature = "standalone"))]
+                    if ui.button("Browse...").clicked() {
+                        if let Some(path) = rfd::FileDialog::new().pick_folder() {
+                            self.working_settings.storage.default_save_dir =
+                                path.display().to_string();
+                        }
+                    }
+                    #[cfg(any(target_arch = "wasm32", not(feature = "standalone")))]
+                    ui.add_enabled(false, egui::Button::new("Browse..."))
                         .on_disabled_hover_text(
-                            "Directory picker not yet available — enter the path manually",
-                        )
-                        .clicked()
-                    {}
+                            "File picker not available in this build — enter the path manually",
+                        );
                 });
                 ui.end_row();
 

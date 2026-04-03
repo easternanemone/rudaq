@@ -275,6 +275,18 @@ pub struct ImageViewerPanel {
     // -- Scale Bar Overlay (bd-0tcg) --
     /// Show scale bar overlay on the image
     pub(super) show_scale_bar: bool,
+    /// Active interactive measurement tool
+    pub(in crate::panels::image_viewer) measurement_tool: MeasurementTool,
+    /// Persistent line measurements in image-pixel coordinates
+    pub(in crate::panels::image_viewer) line_measurements: Vec<LineMeasurement>,
+    /// Persistent angle measurements in image-pixel coordinates
+    pub(in crate::panels::image_viewer) angle_measurements: Vec<AngleMeasurement>,
+    /// In-progress drag origin for line measurements
+    pub(in crate::panels::image_viewer) line_measurement_start: Option<MeasurementPoint>,
+    /// In-progress drag endpoint for line measurements
+    pub(in crate::panels::image_viewer) line_measurement_current: Option<MeasurementPoint>,
+    /// In-progress click sequence for angle measurements
+    pub(in crate::panels::image_viewer) angle_measurement_points: Vec<MeasurementPoint>,
     /// Last frame timestamp in nanoseconds (for overlay display)
     pub(super) last_frame_timestamp_ns: u64,
 
@@ -326,6 +338,8 @@ pub struct ImageViewerPanel {
     /// Remote profile load state machine (bd-zy7y.1).
     /// Tracks the full lifecycle: Idle → Pending → Loading → Succeeded/Failed → Idle.
     pub(in crate::panels::image_viewer) remote_profile_load: RemoteProfileLoadState,
+    /// WASM remote save via `SaveCalibrationProfile` (bd-qyhh).
+    pub(in crate::panels::image_viewer) remote_profile_save: RemoteProfileSaveState,
     /// True when the active echelle profile snapshot should be resynced into RunEngine state.
     pub(super) echelle_run_engine_sync_dirty: bool,
     /// True while an async echelle snapshot sync request is in flight.
@@ -448,6 +462,12 @@ impl Default for ImageViewerPanel {
 
             // Scale bar overlay (bd-0tcg)
             show_scale_bar: false,
+            measurement_tool: MeasurementTool::None,
+            line_measurements: Vec::new(),
+            angle_measurements: Vec::new(),
+            line_measurement_start: None,
+            line_measurement_current: None,
+            angle_measurement_points: Vec::new(),
             last_frame_timestamp_ns: 0,
 
             echelle_profile_cache: EchelleProfileCache::default(),
@@ -473,6 +493,7 @@ impl Default for ImageViewerPanel {
             echelle_plot_hover_link: None,
             echelle_cal_ui: EchelleCalibrationUiState::with_defaults(),
             remote_profile_load: RemoteProfileLoadState::default(),
+            remote_profile_save: RemoteProfileSaveState::default(),
             echelle_run_engine_sync_dirty: false,
             echelle_run_engine_sync_in_flight: false,
 
@@ -488,12 +509,24 @@ impl ImageViewerPanel {
         Self::default()
     }
 
+    pub(super) fn clear_measurement_interaction_state(&mut self) {
+        self.line_measurement_start = None;
+        self.line_measurement_current = None;
+        self.angle_measurement_points.clear();
+    }
+
+    pub(super) fn has_measurements(&self) -> bool {
+        !self.line_measurements.is_empty() || !self.angle_measurements.is_empty()
+    }
+
     /// Set the echelle calibration profile path used for extraction preview features.
     ///
     /// The profile is loaded lazily and reloaded on modification while preserving
     /// the last-good profile if a subsequent reload fails.
     pub fn set_echelle_profile_path(&mut self, path: std::path::PathBuf) {
-        self.echelle_cal_ui.save_as_path_text = path.display().to_string();
+        let display = path.display().to_string();
+        self.echelle_cal_ui.save_as_path_text.clone_from(&display);
+        self.echelle_cal_ui.record_recent_profile_path(&display);
         self.echelle_profile_cache.set_path(path);
     }
 
@@ -525,6 +558,14 @@ impl ImageViewerPanel {
         if !self.remote_profile_load.is_busy() {
             self.remote_profile_load = RemoteProfileLoadState::Pending { path };
         }
+    }
+
+    pub(crate) fn restore_echelle_recent_profile_paths(&mut self, paths: Vec<String>) {
+        self.echelle_cal_ui.recent_profile_paths = paths
+            .into_iter()
+            .filter(|p| !p.trim().is_empty())
+            .take(echelle_calibration::EchelleCalibrationUiState::RECENT_PROFILE_PATHS_MAX)
+            .collect();
     }
 
     /// Expose the last echelle profile loader error for future UI presentation.

@@ -16,6 +16,8 @@ use crate::config::validated::{DeviceManifest, MethodConfig, ValidatedFormula, W
 use crate::response;
 use crate::template;
 use crate::transport::Transport;
+use common::observable::ParameterSet;
+use common::parameter::Parameter;
 
 /// A config-driven universal device driver.
 ///
@@ -27,6 +29,8 @@ pub struct UniversalDriver {
     transport: Arc<Mutex<Box<dyn Transport>>>,
     /// Device address for bus protocols (e.g., RS-485 hex address).
     address: String,
+    /// Runtime parameter registry exposed via `Parameterized`.
+    parameters: ParameterSet,
 }
 
 impl UniversalDriver {
@@ -41,10 +45,12 @@ impl UniversalDriver {
         transport: Box<dyn Transport>,
         address: &str,
     ) -> Self {
+        let parameters = Self::build_parameter_set(&manifest);
         Self {
             manifest,
             transport: Arc::new(Mutex::new(transport)),
             address: address.to_string(),
+            parameters,
         }
     }
 
@@ -58,11 +64,42 @@ impl UniversalDriver {
         transport: Arc<Mutex<Box<dyn Transport>>>,
         address: &str,
     ) -> Self {
+        let parameters = Self::build_parameter_set(&manifest);
         Self {
             manifest,
             transport,
             address: address.to_string(),
+            parameters,
         }
+    }
+
+    /// Build runtime parameters from manifest metadata/defaults.
+    fn build_parameter_set(manifest: &DeviceManifest) -> ParameterSet {
+        let mut params = ParameterSet::new();
+        for meta in &manifest.parameter_metadata {
+            let value = manifest
+                .parameters
+                .get(&meta.name)
+                .copied()
+                .or(meta.default_value)
+                .unwrap_or_default();
+
+            let mut param = Parameter::new(meta.name.clone(), value).with_dtype(meta.dtype.clone());
+            if let Some(desc) = &meta.description {
+                param = param.with_description(desc.clone());
+            }
+            if let Some(unit) = &meta.unit {
+                param = param.with_unit(unit.clone());
+            }
+            if let (Some(min), Some(max)) = (meta.min_value, meta.max_value) {
+                param = param.with_range(min, max);
+            }
+            if meta.read_only {
+                param = param.read_only();
+            }
+            params.register(param);
+        }
+        params
     }
 
     /// Build a base parameter map containing only the device address.
@@ -505,6 +542,12 @@ impl common::capabilities::Commandable for UniversalDriver {
     }
 }
 
+impl common::capabilities::Parameterized for UniversalDriver {
+    fn parameters(&self) -> &ParameterSet {
+        &self.parameters
+    }
+}
+
 #[async_trait]
 impl common::capabilities::Movable for UniversalDriver {
     async fn move_abs(&self, position: f64) -> Result<()> {
@@ -559,6 +602,88 @@ impl common::capabilities::Readable for UniversalDriver {
     async fn read(&self) -> Result<f64> {
         let mapping = capability_method!(self, readable, read, "Readable", "read");
         self.execute_read(mapping).await
+    }
+}
+
+#[async_trait]
+impl common::capabilities::SpectrumReadable for UniversalDriver {
+    async fn read_spectrum(&self) -> Result<common::capabilities::SpectrumData> {
+        let mapping = capability_method!(
+            self,
+            spectrum_readable,
+            read_spectrum,
+            "SpectrumReadable",
+            "read_spectrum"
+        );
+        let fields = self.execute_method(mapping, None).await?;
+        let raw_value = Self::extract_response_value(&fields, mapping.output_field.as_ref())?;
+
+        let values: Vec<f64> = match raw_value {
+            serde_json::Value::Array(arr) => {
+                let mut vals = Vec::with_capacity(arr.len());
+                for (idx, v) in arr.iter().enumerate() {
+                    let num = v.as_f64().ok_or_else(|| {
+                        anyhow!(
+                            "expected numeric spectrum array element at index {}, got: {}",
+                            idx,
+                            v
+                        )
+                    })?;
+                    vals.push(num);
+                }
+                vals
+            }
+            serde_json::Value::String(s) => {
+                let mut vals = Vec::new();
+                for (idx, token) in s
+                    .split([',', ' ', '\t'])
+                    .filter(|s| !s.is_empty())
+                    .enumerate()
+                {
+                    let num = token.parse::<f64>().map_err(|e| {
+                        anyhow!(
+                            "failed to parse spectrum token '{}' at position {}: {}",
+                            token,
+                            idx,
+                            e
+                        )
+                    })?;
+                    vals.push(num);
+                }
+                vals
+            }
+            other => {
+                let num = other.as_f64().ok_or_else(|| {
+                    anyhow!(
+                        "expected numeric spectrum value or numeric vector/string, got: {}",
+                        other
+                    )
+                })?;
+                vec![num]
+            }
+        };
+
+        let sr_config = self
+            .manifest
+            .capabilities
+            .spectrum_readable
+            .as_ref()
+            .expect("SpectrumReadable config must exist");
+
+        Ok(common::capabilities::SpectrumData {
+            values,
+            axis: None,
+            value_units: sr_config.value_units.clone(),
+            axis_units: sr_config.axis_units.clone(),
+        })
+    }
+
+    fn spectrum_length(&self) -> usize {
+        self.manifest
+            .capabilities
+            .spectrum_readable
+            .as_ref()
+            .map_or(0, |sr| sr.spectrum_length)
     }
 }
 
@@ -619,6 +744,13 @@ impl common::capabilities::Settable for UniversalDriver {
             transport.send(command_str.as_bytes()).await?;
         }
         drop(transport);
+
+        // Keep runtime parameter values in sync for manifest-defined params.
+        if let Some(v) = f_val {
+            if let Some(param) = self.parameters.get_typed::<Parameter<f64>>(name) {
+                let _ = param.set_from_hardware(v).await;
+            }
+        }
 
         Ok(())
     }
@@ -824,6 +956,13 @@ impl common::capabilities::StateRefreshable for UniversalDriver {
             }
         }
 
+        if let Some(sr_cfg) = &self.manifest.capabilities.spectrum_readable {
+            state.insert(
+                "spectrum_length".to_string(),
+                serde_json::json!(sr_cfg.spectrum_length),
+            );
+        }
+
         tracing::debug!(
             device = %self.manifest.device.name,
             address = %self.address,
@@ -848,6 +987,7 @@ mod tests {
     use crate::test_fixtures;
     use crate::transport::MockTransport;
     use common::capabilities::Movable;
+    use common::parameter::Parameter;
 
     fn parse_ell14() -> DeviceManifest {
         let raw: RawManifest = toml::from_str(test_fixtures::ELL14_TOML).unwrap();
@@ -856,6 +996,41 @@ mod tests {
 
     fn parse_scpi_tcp() -> DeviceManifest {
         let raw: RawManifest = toml::from_str(test_fixtures::SCPI_TCP_TOML).unwrap();
+        parse_manifest(raw).unwrap()
+    }
+
+    fn parse_parameterized_settable() -> DeviceManifest {
+        let raw: RawManifest = toml::from_str(
+            r#"
+schema_version = 3
+
+[device]
+name = "Parameterized Settable Device"
+capabilities = ["Settable", "Parameterized"]
+
+[connection]
+type = "tcp"
+host = "127.0.0.1"
+port = 5025
+timeout_ms = 1000
+
+[commands.set_gain]
+template = ":SOUR:GAIN {{ value }}"
+expects_response = false
+
+[capabilities.settable]
+set = { command = "set_gain", from_param = "value" }
+
+[parameters.gain]
+default = 1.0
+type = "float"
+description = "Gain factor"
+unit = "x"
+min = 0.0
+max = 10.0
+"#,
+        )
+        .unwrap();
         parse_manifest(raw).unwrap()
     }
 
@@ -973,6 +1148,45 @@ mod tests {
         let sent = mock.sent_strings();
         assert_eq!(sent.len(), 1);
         assert_eq!(sent[0], ":SOUR:VOLT 2.5");
+    }
+
+    #[tokio::test]
+    async fn test_parameterized_exposes_manifest_parameters() {
+        let manifest = Arc::new(parse_parameterized_settable());
+        let driver = UniversalDriver::new(manifest, Box::new(MockTransport::new(vec![])), "0");
+
+        let params = common::capabilities::Parameterized::parameters(&driver);
+        assert!(params.get("gain").is_some(), "gain parameter should exist");
+
+        let gain = params
+            .get_typed::<Parameter<f64>>("gain")
+            .expect("gain should be typed as Parameter<f64>");
+        assert_eq!(gain.get(), 1.0);
+
+        let meta = params.get("gain").unwrap().metadata();
+        assert_eq!(meta.dtype, "float");
+        assert_eq!(meta.units.as_deref(), Some("x"));
+        assert_eq!(meta.description.as_deref(), Some("Gain factor"));
+    }
+
+    #[tokio::test]
+    async fn test_settable_updates_parameterized_runtime_value() {
+        let manifest = Arc::new(parse_parameterized_settable());
+        let mock = MockTransport::new(vec![]);
+        let driver = UniversalDriver::new(manifest, Box::new(mock.clone()), "0");
+
+        common::capabilities::Settable::set_value(&driver, "gain", serde_json::json!(2.5))
+            .await
+            .expect("set_value should succeed");
+
+        let gain = common::capabilities::Parameterized::parameters(&driver)
+            .get_typed::<Parameter<f64>>("gain")
+            .expect("gain should be typed as Parameter<f64>");
+        assert_eq!(gain.get(), 2.5);
+
+        let sent = mock.sent_strings();
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0], ":SOUR:GAIN 2.5");
     }
 
     #[tokio::test]

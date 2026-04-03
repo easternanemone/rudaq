@@ -6,11 +6,13 @@ use super::callback_context::SEQUENCE_BATCH_SIZE;
 use super::AcquisitionError;
 use super::PvcamAcquisition;
 use super::PvcamConnection;
+use super::StreamConfig;
 #[cfg(feature = "pvcam_sdk")]
 use super::{get_pvcam_error, PvcamFeatures};
 use anyhow::{anyhow, bail, Result};
 use common::core::Roi;
 use common::data::Frame;
+use common::parameter::Parameter;
 use pool::{FrameData, Pool};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -37,29 +39,40 @@ impl PvcamAcquisition {
     ///
     /// Resets frame loss metrics at the start of each acquisition. During streaming,
     /// the poll loop tracks hardware frame numbers to detect and count dropped frames.
-    pub async fn start_stream(
-        &self,
-        conn: &PvcamConnection,
-        roi: Roi,
-        binning: (u16, u16),
-        exposure_ms: f64,
-        buffer_mode: String,
-    ) -> Result<()> {
+    pub async fn start_stream(&self, conn: &PvcamConnection, config: StreamConfig) -> Result<()> {
         tracing::info!(
             "start_stream: roi=({},{} {}x{}), binning=({},{}), exposure={:.1}ms, mode={}",
-            roi.x,
-            roi.y,
-            roi.width,
-            roi.height,
-            binning.0,
-            binning.1,
-            exposure_ms,
-            buffer_mode
+            config.roi.x,
+            config.roi.y,
+            config.roi.width,
+            config.roi.height,
+            config.binning.0,
+            config.binning.1,
+            config.exposure_ms,
+            config.buffer_mode
         );
+
+        // Destructure config for local use
+        let StreamConfig {
+            roi,
+            binning,
+            exposure_ms,
+            buffer_mode,
+            host_summing_enabled,
+            host_summing_count,
+            smart_stream_enabled,
+            smart_stream_exposures,
+            prime_locate_enabled,
+        } = config;
 
         // Avoid unused parameter warnings when hardware feature is disabled.
         let _ = conn;
-        let _ = buffer_mode;
+        let _ = &buffer_mode;
+        let _ = &host_summing_enabled;
+        let _ = &host_summing_count;
+        let _ = &smart_stream_enabled;
+        let _ = &smart_stream_exposures;
+        let _ = &prime_locate_enabled;
         if self.streaming.get() {
             tracing::warn!("start_stream: already streaming");
             bail!("Already streaming");
@@ -88,32 +101,78 @@ impl PvcamAcquisition {
             tracing::info!("Hardware path: hcam={}", h);
             // Hardware path
 
-            // Check if metadata decoding is enabled (via enable_metadata() call)
-            let use_metadata = self.metadata_enabled.load(Ordering::Acquire);
-
-            // Configure PVCAM metadata based on whether decoding is enabled (Gemini SDK review).
-            // When metadata is enabled, frame buffers contain header data before pixels.
-            // We only enable it when pl_md_frame_decode will be used to parse the data.
+            // Auto-enable metadata for all acquisitions (bd-oqo7.2).
+            // Hardware timestamps are essential for data provenance and timing.
+            // The metadata_enabled atomic controls whether decoded metadata is sent
+            // through the metadata channel, but SDK-level PARAM_METADATA_ENABLED
+            // should always be true when the camera supports it.
             let current_metadata = PvcamFeatures::is_metadata_enabled(conn).unwrap_or(false);
-            if use_metadata && !current_metadata {
-                tracing::info!("Enabling PVCAM metadata for hardware timestamp decoding");
+            if !current_metadata {
+                tracing::info!(
+                    "Auto-enabling PVCAM metadata for hardware timestamp decoding (bd-oqo7.2)"
+                );
                 if let Err(e) = PvcamFeatures::set_metadata_enabled(conn, true) {
                     tracing::error!(
-                        "Failed to enable metadata: {}. Falling back to no metadata",
-                        e
-                    );
-                    self.metadata_enabled.store(false, Ordering::Release);
-                }
-            } else if !use_metadata && current_metadata {
-                // Disable metadata to prevent data corruption when not decoding
-                tracing::debug!("Disabling PVCAM metadata (no decoder configured)");
-                if let Err(e) = PvcamFeatures::set_metadata_enabled(conn, false) {
-                    tracing::warn!(
-                        "Failed to disable metadata: {}. Data may include headers",
+                        "Failed to enable metadata: {}. Hardware timestamps unavailable",
                         e
                     );
                 }
             }
+            // Always decode metadata in the frame loop for Frame.timestamp accuracy.
+            // Note: the driver's `processing.metadata_enabled` Parameter defaults to true
+            // and is synced at creation time. If a client sets it to false, the write
+            // callback toggles this atomic, which is overridden here. This is intentional:
+            // disabling metadata mid-acquisition risks data corruption.
+            self.metadata_enabled.store(true, Ordering::Release);
+            let use_metadata = true;
+
+            // bd-oqo7.1: Configure SMART Streaming before acquisition setup.
+            // SMART Streaming lets the FPGA cycle through pre-programmed exposures,
+            // eliminating host communication latency between exposure changes.
+            let use_smart_stream = smart_stream_enabled.get();
+            let use_prime_locate = prime_locate_enabled.get();
+            let smart_exposures: Vec<u32> = if use_smart_stream {
+                let json_str = smart_stream_exposures.get();
+                match serde_json::from_str(&json_str) {
+                    Ok(exposures) => exposures,
+                    Err(e) => {
+                        tracing::error!(
+                            "Failed to parse SMART stream exposures JSON '{}': {}",
+                            json_str,
+                            e
+                        );
+                        vec![]
+                    }
+                }
+            } else {
+                vec![]
+            };
+            let smart_stream_count: usize = if use_smart_stream && !smart_exposures.is_empty() {
+                tracing::info!(
+                    "SMART Streaming enabled: {} exposures {:?}ms",
+                    smart_exposures.len(),
+                    smart_exposures
+                );
+                PvcamFeatures::set_smart_stream_enabled(conn, true)?;
+                if let Err(err) = PvcamFeatures::upload_smart_stream(conn, &smart_exposures) {
+                    // Rollback: disable SMART streaming to keep camera in known state
+                    if let Err(disable_err) = PvcamFeatures::set_smart_stream_enabled(conn, false) {
+                        tracing::warn!(
+                            "Failed to disable SMART Streaming after upload error: {}",
+                            disable_err
+                        );
+                    }
+                    return Err(err.into());
+                }
+                smart_exposures.len()
+            } else if use_smart_stream {
+                tracing::warn!(
+                    "SMART streaming enabled but no exposures configured - using standard mode"
+                );
+                0
+            } else {
+                0
+            };
 
             let (x_bin, y_bin) = binning;
             let start_span = tracing::info_span!(
@@ -246,6 +305,9 @@ impl PvcamAcquisition {
                         roi,
                         reliable_tx,
                         use_metadata,
+                        host_summing_enabled,
+                        host_summing_count,
+                        smart_stream_count, // bd-oqo7.1
                     )
                     .await;
             }
@@ -261,8 +323,12 @@ impl PvcamAcquisition {
             // after unlock, causing a data race on frame_ptr. Until the frame loop
             // is restructured to copy-then-unlock, CIRC_OVERWRITE is unsafe.
             //
-            // TODO(bd-g3ap): Restructure frame loop to copy data before unlock,
-            // then re-enable CIRC_OVERWRITE for better throughput.
+            // The current unlock-before-copy pattern is safe ONLY in CIRC_NO_OVERWRITE
+            // mode: the SDK won't reuse a buffer slot until all 20 slots are filled,
+            // so frame_ptr remains valid for the copy that follows. Restructuring
+            // to copy-then-unlock would allow re-enabling CIRC_OVERWRITE for ~10-15%
+            // higher throughput, but risks subtle regressions in the frame pipeline.
+            // Deferring until profiling shows CIRC_NO_OVERWRITE is the bottleneck.
             let mut circ_overwrite = false;
             if matches!(buffer_mode.as_str(), "Overwrite") {
                 tracing::warn!(
@@ -778,8 +844,6 @@ impl PvcamAcquisition {
 
             // Gemini SDK review: Metadata channel for hardware timestamps
             let metadata_tx = self.metadata_tx.lock().await.clone();
-            // Re-check use_metadata after potential error during enable
-            let use_metadata = self.metadata_enabled.load(Ordering::Acquire);
 
             // Gemini SDK review: Create error channel for involuntary stop signaling.
             // Fatal errors (READOUT_FAILED, etc.) are sent from frame loop to update streaming state.
@@ -805,6 +869,10 @@ impl PvcamAcquisition {
 
             // bd-0dax.4: Clone tap registry for frame observers
             let tap_registry = self.tap_registry.clone();
+
+            // bd-oqo7.7: Clone summing parameters for frame loop
+            let host_summing_enabled = host_summing_enabled.clone();
+            let host_summing_count = host_summing_count.clone();
 
             // bd-r8ux: Capture primary_tx for LoanedFrame delivery in hardware path
             let primary_tx = self.primary_tx.lock().await.clone();
@@ -880,6 +948,10 @@ impl PvcamAcquisition {
                     tap_registry,       // bd-0dax.4: For synchronous tap observers
                     primary_tx,         // bd-r8ux: Primary output for LoanedFrame delivery
                     primary_frame_pool, // bd-r8ux: Pool<FrameData> for primary_tx
+                    host_summing_enabled, // bd-oqo7.7
+                    host_summing_count, // bd-oqo7.7
+                    smart_stream_count, // bd-oqo7.1: SMART Streaming exposure cycle length
+                    use_prime_locate,   // bd-ldjy.4: PrimeLocate event-buffer metadata bridge
                 );
             });
 
@@ -958,10 +1030,32 @@ impl PvcamAcquisition {
         roi: Roi,
         binning: (u16, u16),
         exposure_ms: f64,
+        host_summing_enabled: Parameter<bool>, // bd-oqo7.7
+        host_summing_count: Parameter<u32>,    // bd-oqo7.7
     ) -> Result<Frame> {
         let mut rx = self.frame_tx.subscribe();
-        self.start_stream(conn, roi, binning, exposure_ms, self.buffer_mode.get())
-            .await?;
+        // Single-frame acquisition doesn't use SMART streaming; pass disabled defaults.
+        let smart_disabled = Parameter::new("_single_frame_smart_disabled", false);
+        let smart_empty = Parameter::new("_single_frame_smart_exposures", "[]".to_string());
+        #[cfg(feature = "pvcam_sdk")]
+        let prime_locate_enabled = Parameter::new(
+            "_single_frame_prime_locate",
+            PvcamFeatures::get_prime_locate_enabled(conn).unwrap_or(false),
+        );
+        #[cfg(not(feature = "pvcam_sdk"))]
+        let prime_locate_enabled = Parameter::new("_single_frame_prime_locate", false);
+        let config = StreamConfig {
+            roi,
+            binning,
+            exposure_ms,
+            buffer_mode: self.buffer_mode.get(),
+            host_summing_enabled,
+            host_summing_count,
+            smart_stream_enabled: smart_disabled,
+            smart_stream_exposures: smart_empty,
+            prime_locate_enabled,
+        };
+        self.start_stream(conn, config).await?;
 
         let frame = tokio::time::timeout(Duration::from_secs(5), rx.recv())
             .await
@@ -1177,6 +1271,11 @@ impl PvcamAcquisition {
                         "PVCAM stop_stream: EOF callback deregistered, global ctx cleared"
                     );
                 }
+                // bd-oqo7.1: Disable SMART streaming on stop to return camera to normal mode.
+                // Best-effort: we don't fail the stop if this doesn't succeed.
+                if let Err(e) = PvcamFeatures::set_smart_stream_enabled(conn, false) {
+                    tracing::debug!("SMART streaming disable on stop (non-fatal): {}", e);
+                }
             } else {
                 tracing::debug!("PVCAM stop_stream: no camera handle, skipping SDK cleanup");
             }
@@ -1215,6 +1314,9 @@ impl PvcamAcquisition {
         roi: Roi,
         reliable_tx: Option<tokio::sync::mpsc::Sender<Arc<Frame>>>,
         _use_metadata: bool,
+        host_summing_enabled: Parameter<bool>, // bd-oqo7.7
+        host_summing_count: Parameter<u32>,    // bd-oqo7.7
+        smart_stream_count: usize,             // bd-oqo7.1
     ) -> Result<()> {
         let (x_bin, y_bin) = binning;
         let binned_width = roi.width / x_bin as u32;
@@ -1306,7 +1408,10 @@ impl PvcamAcquisition {
                 roi_y,
                 binning,
                 done_tx,
-                tap_registry, // bd-0dax.4: For tap observers
+                tap_registry,         // bd-0dax.4: For tap observers
+                host_summing_enabled, // bd-oqo7.7
+                host_summing_count,   // bd-oqo7.7
+                smart_stream_count,   // bd-oqo7.1
             );
         });
 

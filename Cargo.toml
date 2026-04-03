@@ -150,3 +150,4 @@ panic = "unwind"  # GUI may benefit from panic recovery
 # Remove this patch once hdf5-metno publishes a version with the fix.
 [patch.crates-io]
 hdf5-metno-sys = { git = "https://github.com/JulianDicken/hdf5-rust.git", branch = "hdf5_v2.1" }
+egui_dock = { path = "vendor/egui_dock" }

@@ -16,6 +16,15 @@
           }
         ],
         "matcher": ".*"
+      },
+      {
+        "hooks": [
+          {
+            "command": ".claude/hooks/worktree-auto-commit.sh",
+            "type": "command"
+          }
+        ],
+        "matcher": "Edit|Write"
       }
     ],
     "PreToolUse": [

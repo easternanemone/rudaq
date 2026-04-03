@@ -8,6 +8,7 @@
 use crate::runtime::Runtime;
 use client::DaqClient;
 use eframe::egui;
+use protocol::daq::EngineState;
 use tokio::sync::mpsc;
 
 /// Result of an async action
@@ -34,6 +35,14 @@ enum ActionResult {
         success: bool,
         error: Option<String>,
     },
+    EngineStatus {
+        state: String,
+        queued_plans: u32,
+        current_run_uid: Option<String>,
+        current_plan_type: Option<String>,
+        current_event: Option<u32>,
+        total_events: Option<u32>,
+    },
 }
 
 /// Pending action to execute
@@ -52,6 +61,7 @@ enum PendingAction {
     AbortPlan {
         run_uid: Option<String>,
     },
+    PollStatus,
 }
 
 /// Plan Runner panel state
@@ -66,15 +76,35 @@ pub struct PlanRunnerPanel {
     motor_name: String,
     detector_name: String,
 
+    /// Grid scan parameters
+    grid_x_motor: String,
+    grid_y_motor: String,
+    grid_x_start: String,
+    grid_x_end: String,
+    grid_x_points: String,
+    grid_y_start: String,
+    grid_y_end: String,
+    grid_y_points: String,
+    grid_detector: String,
+
     /// Engine state display
     engine_state: String,
     queue_length: usize,
     current_run_uid: String,
+    /// Current plan type (from status polling)
+    current_plan_type: String,
+    /// Current event / total events for progress display
+    current_event: Option<u32>,
+    total_events: Option<u32>,
 
     /// Status message
     status: Option<String>,
     /// Error message
     error: Option<String>,
+    /// Validation errors for the current plan form
+    validation_errors: Vec<String>,
+    /// Whether plan parameters have changed and need re-validation
+    validation_dirty: bool,
 
     /// Pending action
     pending_action: Option<PendingAction>,
@@ -84,6 +114,9 @@ pub struct PlanRunnerPanel {
     action_rx: mpsc::Receiver<ActionResult>,
     /// Number of in-flight async actions
     action_in_flight: usize,
+
+    /// Last time we polled engine status
+    last_status_poll: Option<std::time::Instant>,
 }
 
 #[derive(Default, PartialEq)]
@@ -104,15 +137,30 @@ impl Default for PlanRunnerPanel {
             end_pos: "10.0".to_string(),
             motor_name: "motor".to_string(),
             detector_name: "detector".to_string(),
+            grid_x_motor: "x_motor".to_string(),
+            grid_y_motor: "y_motor".to_string(),
+            grid_x_start: "0.0".to_string(),
+            grid_x_end: "10.0".to_string(),
+            grid_x_points: "10".to_string(),
+            grid_y_start: "0.0".to_string(),
+            grid_y_end: "10.0".to_string(),
+            grid_y_points: "10".to_string(),
+            grid_detector: "detector".to_string(),
             engine_state: "Idle".to_string(),
             queue_length: 0,
             current_run_uid: String::new(),
+            current_plan_type: String::new(),
+            current_event: None,
+            total_events: None,
             status: None,
             error: None,
+            validation_errors: Vec::new(),
+            validation_dirty: true,
             pending_action: None,
             action_tx,
             action_rx,
             action_in_flight: 0,
+            last_status_poll: None,
         }
     }
 }
@@ -181,6 +229,29 @@ impl PlanRunnerPanel {
                                 self.error = error;
                             }
                         }
+                        ActionResult::EngineStatus {
+                            state,
+                            queued_plans,
+                            current_run_uid,
+                            current_plan_type,
+                            current_event,
+                            total_events,
+                        } => {
+                            self.engine_state = state;
+                            self.queue_length = queued_plans as usize;
+                            if let Some(uid) = current_run_uid {
+                                self.current_run_uid = uid;
+                            } else {
+                                self.current_run_uid.clear();
+                            }
+                            if let Some(pt) = current_plan_type {
+                                self.current_plan_type = pt;
+                            } else {
+                                self.current_plan_type.clear();
+                            }
+                            self.current_event = current_event;
+                            self.total_events = total_events;
+                        }
                     }
                     updated = true;
                 }
@@ -220,7 +291,13 @@ impl PlanRunnerPanel {
 
             ui.horizontal(|ui| {
                 ui.label("State:");
-                ui.label(&self.engine_state);
+                let state_color = match self.engine_state.as_str() {
+                    "Running" => egui::Color32::GREEN,
+                    "Paused" => egui::Color32::YELLOW,
+                    "Aborting" | "Halted" => egui::Color32::RED,
+                    _ => ui.visuals().text_color(),
+                };
+                ui.colored_label(state_color, &self.engine_state);
             });
 
             ui.horizontal(|ui| {
@@ -232,6 +309,33 @@ impl PlanRunnerPanel {
                 ui.horizontal(|ui| {
                     ui.label("Current Run:");
                     ui.monospace(&self.current_run_uid);
+                });
+            }
+
+            if !self.current_plan_type.is_empty() {
+                ui.horizontal(|ui| {
+                    ui.label("Plan Type:");
+                    ui.label(&self.current_plan_type);
+                });
+            }
+
+            if let (Some(current), Some(total)) = (self.current_event, self.total_events) {
+                ui.horizontal(|ui| {
+                    ui.label("Progress:");
+                    let progress = if total > 0 {
+                        #[allow(clippy::cast_precision_loss)]
+                        // SAFETY: precision loss acceptable for progress bar display
+                        {
+                            current as f32 / total as f32
+                        }
+                    } else {
+                        0.0
+                    };
+                    ui.add(
+                        egui::ProgressBar::new(progress)
+                            .text(format!("{}/{}", current, total))
+                            .animate(self.engine_state == "Running"),
+                    );
                 });
             }
         });
@@ -246,98 +350,171 @@ impl PlanRunnerPanel {
             // Plan type selector
             ui.horizontal(|ui| {
                 ui.label("Plan Type:");
+                let prev = match self.selected_plan_type {
+                    PlanType::Count => 0,
+                    PlanType::LineScan => 1,
+                    PlanType::GridScan => 2,
+                };
                 ui.selectable_value(&mut self.selected_plan_type, PlanType::Count, "Count");
                 ui.selectable_value(
                     &mut self.selected_plan_type,
                     PlanType::LineScan,
                     "Line Scan",
                 );
-                ui.add_enabled_ui(false, |ui| {
-                    ui.selectable_value(
-                        &mut self.selected_plan_type,
-                        PlanType::GridScan,
-                        "Grid Scan",
-                    )
-                    .on_disabled_hover_text("Grid scan parameter form not yet implemented");
-                });
+                ui.selectable_value(
+                    &mut self.selected_plan_type,
+                    PlanType::GridScan,
+                    "Grid Scan",
+                );
+                let now = match self.selected_plan_type {
+                    PlanType::Count => 0,
+                    PlanType::LineScan => 1,
+                    PlanType::GridScan => 2,
+                };
+                if prev != now {
+                    self.validation_dirty = true;
+                }
             });
 
             ui.add_space(8.0);
+
+            // Helper: render a text field and mark validation dirty on change
+            fn text_field(ui: &mut egui::Ui, value: &mut String, dirty: &mut bool) {
+                let r = ui.text_edit_singleline(value);
+                if r.changed() {
+                    *dirty = true;
+                }
+            }
 
             // Parameters based on plan type
             match self.selected_plan_type {
                 PlanType::Count => {
                     ui.horizontal(|ui| {
                         ui.label("Number of Points:");
-                        ui.text_edit_singleline(&mut self.num_points);
+                        text_field(ui, &mut self.num_points, &mut self.validation_dirty);
                     });
 
                     ui.horizontal(|ui| {
                         ui.label("Detector:");
-                        ui.text_edit_singleline(&mut self.detector_name);
+                        text_field(ui, &mut self.detector_name, &mut self.validation_dirty);
                     });
                 }
                 PlanType::LineScan => {
                     ui.horizontal(|ui| {
                         ui.label("Motor:");
-                        ui.text_edit_singleline(&mut self.motor_name);
+                        text_field(ui, &mut self.motor_name, &mut self.validation_dirty);
                     });
 
                     ui.horizontal(|ui| {
                         ui.label("Start:");
-                        ui.text_edit_singleline(&mut self.start_pos);
+                        text_field(ui, &mut self.start_pos, &mut self.validation_dirty);
                         ui.label("End:");
-                        ui.text_edit_singleline(&mut self.end_pos);
+                        text_field(ui, &mut self.end_pos, &mut self.validation_dirty);
                         ui.label("Points:");
-                        ui.text_edit_singleline(&mut self.num_points);
+                        text_field(ui, &mut self.num_points, &mut self.validation_dirty);
                     });
 
                     ui.horizontal(|ui| {
                         ui.label("Detector:");
-                        ui.text_edit_singleline(&mut self.detector_name);
+                        text_field(ui, &mut self.detector_name, &mut self.validation_dirty);
                     });
                 }
                 PlanType::GridScan => {
-                    // TODO(bd-p2a1): implement 2D grid scan parameter form
-                    ui.label(
-                        egui::RichText::new("Grid scan parameter form not yet available.").weak(),
-                    );
+                    ui.label(egui::RichText::new("X Axis (fast)").strong());
+                    ui.horizontal(|ui| {
+                        ui.label("Motor:");
+                        text_field(ui, &mut self.grid_x_motor, &mut self.validation_dirty);
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Start:");
+                        text_field(ui, &mut self.grid_x_start, &mut self.validation_dirty);
+                        ui.label("End:");
+                        text_field(ui, &mut self.grid_x_end, &mut self.validation_dirty);
+                        ui.label("Points:");
+                        text_field(ui, &mut self.grid_x_points, &mut self.validation_dirty);
+                    });
+
+                    ui.add_space(4.0);
+                    ui.label(egui::RichText::new("Y Axis (slow)").strong());
+                    ui.horizontal(|ui| {
+                        ui.label("Motor:");
+                        text_field(ui, &mut self.grid_y_motor, &mut self.validation_dirty);
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Start:");
+                        text_field(ui, &mut self.grid_y_start, &mut self.validation_dirty);
+                        ui.label("End:");
+                        text_field(ui, &mut self.grid_y_end, &mut self.validation_dirty);
+                        ui.label("Points:");
+                        text_field(ui, &mut self.grid_y_points, &mut self.validation_dirty);
+                    });
+
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        ui.label("Detector:");
+                        text_field(ui, &mut self.grid_detector, &mut self.validation_dirty);
+                    });
                 }
             }
 
             ui.add_space(8.0);
 
-            if ui.button("Queue Plan").clicked() {
-                let mut parameters = std::collections::HashMap::new();
-                let mut device_mapping = std::collections::HashMap::new();
-
-                let plan_type_str = match self.selected_plan_type {
-                    PlanType::Count => {
-                        parameters.insert("num_points".to_string(), self.num_points.clone());
-                        device_mapping.insert("detector".to_string(), self.detector_name.clone());
-                        "count".to_string()
-                    }
-                    PlanType::LineScan => {
-                        parameters.insert("start_position".to_string(), self.start_pos.clone());
-                        parameters.insert("stop_position".to_string(), self.end_pos.clone());
-                        parameters.insert("num_points".to_string(), self.num_points.clone());
-                        device_mapping.insert("motor".to_string(), self.motor_name.clone());
-                        device_mapping.insert("detector".to_string(), self.detector_name.clone());
-                        "line_scan".to_string()
-                    }
-                    PlanType::GridScan => {
-                        // TODO(bd-p2a1): add grid scan parameters to QueuePlan request
-                        "grid_scan".to_string()
-                    }
-                };
-
-                self.pending_action = Some(PendingAction::QueuePlan {
-                    plan_type: plan_type_str,
-                    parameters,
-                    device_mapping,
-                    metadata: std::collections::HashMap::new(),
-                });
+            // Validate parameters only when inputs have changed
+            if self.validation_dirty {
+                self.validation_errors = self.validate_plan_parameters();
+                self.validation_dirty = false;
             }
+
+            // Show validation errors
+            for err in &self.validation_errors {
+                ui.colored_label(egui::Color32::from_rgb(255, 140, 0), err);
+            }
+
+            let can_queue = self.validation_errors.is_empty();
+            ui.add_enabled_ui(can_queue, |ui| {
+                if ui.button("Queue Plan").clicked() {
+                    let mut parameters = std::collections::HashMap::new();
+                    let mut device_mapping = std::collections::HashMap::new();
+
+                    let plan_type_str = match self.selected_plan_type {
+                        PlanType::Count => {
+                            parameters.insert("num_points".to_string(), self.num_points.clone());
+                            device_mapping
+                                .insert("detector".to_string(), self.detector_name.clone());
+                            "count".to_string()
+                        }
+                        PlanType::LineScan => {
+                            parameters.insert("start".to_string(), self.start_pos.clone());
+                            parameters.insert("end".to_string(), self.end_pos.clone());
+                            parameters.insert("num_points".to_string(), self.num_points.clone());
+                            device_mapping.insert("motor".to_string(), self.motor_name.clone());
+                            device_mapping
+                                .insert("detector".to_string(), self.detector_name.clone());
+                            "line_scan".to_string()
+                        }
+                        PlanType::GridScan => {
+                            parameters.insert("x_start".to_string(), self.grid_x_start.clone());
+                            parameters.insert("x_end".to_string(), self.grid_x_end.clone());
+                            parameters.insert("x_points".to_string(), self.grid_x_points.clone());
+                            parameters.insert("y_start".to_string(), self.grid_y_start.clone());
+                            parameters.insert("y_end".to_string(), self.grid_y_end.clone());
+                            parameters.insert("y_points".to_string(), self.grid_y_points.clone());
+                            device_mapping.insert("x_motor".to_string(), self.grid_x_motor.clone());
+                            device_mapping.insert("y_motor".to_string(), self.grid_y_motor.clone());
+                            device_mapping
+                                .insert("detector".to_string(), self.grid_detector.clone());
+                            "grid_scan".to_string()
+                        }
+                    };
+
+                    self.pending_action = Some(PendingAction::QueuePlan {
+                        plan_type: plan_type_str,
+                        parameters,
+                        device_mapping,
+                        metadata: std::collections::HashMap::new(),
+                    });
+                }
+            });
         });
 
         ui.add_space(12.0);
@@ -368,8 +545,17 @@ impl PlanRunnerPanel {
 
         ui.add_space(12.0);
 
-        // TODO(bd-p2a1): poll get_engine_status for live status updates
-        // TODO(bd-p2a1): validate plan parameters before queueing
+        // Poll engine status every 2 seconds when connected
+        if client.is_some() {
+            let should_poll = match self.last_status_poll {
+                Some(last) => last.elapsed() > std::time::Duration::from_secs(2),
+                None => true,
+            };
+            if should_poll && self.pending_action.is_none() && self.action_in_flight == 0 {
+                self.pending_action = Some(PendingAction::PollStatus);
+                self.last_status_poll = Some(std::time::Instant::now());
+            }
+        }
 
         // Execute pending action
         if let Some(action) = self.pending_action.take() {
@@ -509,6 +695,154 @@ impl PlanRunnerPanel {
                     let _ = tx.send(action_result).await;
                 });
             }
+            PendingAction::PollStatus => {
+                runtime.spawn(async move {
+                    let action_result = match client.get_engine_status().await {
+                        Ok(status) => {
+                            let state_str = match status.state {
+                                s if s == EngineState::EngineIdle as i32 => "Idle",
+                                s if s == EngineState::EngineRunning as i32 => "Running",
+                                s if s == EngineState::EnginePaused as i32 => "Paused",
+                                s if s == EngineState::EngineAborting as i32 => "Aborting",
+                                s if s == EngineState::EngineHalted as i32 => "Halted",
+                                _ => "Unknown",
+                            }
+                            .to_string();
+                            ActionResult::EngineStatus {
+                                state: state_str,
+                                queued_plans: status.queued_plans,
+                                current_run_uid: status.current_run_uid,
+                                current_plan_type: status.current_plan_type,
+                                current_event: status.current_event_number,
+                                total_events: status.total_events_expected,
+                            }
+                        }
+                        Err(_) => {
+                            // Return current-state placeholder so action_in_flight
+                            // is always decremented (avoids counter leak).
+                            ActionResult::EngineStatus {
+                                state: "Unknown".to_string(),
+                                queued_plans: 0,
+                                current_run_uid: None,
+                                current_plan_type: None,
+                                current_event: None,
+                                total_events: None,
+                            }
+                        }
+                    };
+                    let _ = tx.send(action_result).await;
+                });
+            }
         }
     }
+
+    /// Validate plan parameters and return a list of error messages.
+    /// Returns an empty vec if all parameters are valid.
+    fn validate_plan_parameters(&self) -> Vec<String> {
+        let mut errors = Vec::new();
+
+        match self.selected_plan_type {
+            PlanType::Count => {
+                if self.num_points.parse::<usize>().map_or(true, |n| n == 0) {
+                    errors.push("Number of points must be a positive integer".to_string());
+                }
+                if self.detector_name.trim().is_empty() {
+                    errors.push("Detector name cannot be empty".to_string());
+                }
+            }
+            PlanType::LineScan => {
+                if self.motor_name.trim().is_empty() {
+                    errors.push("Motor name cannot be empty".to_string());
+                }
+                errors.extend(validate_axis(
+                    "Scan ",
+                    &self.start_pos,
+                    &self.end_pos,
+                    &self.num_points,
+                    10_000_000,
+                ));
+                if self.detector_name.trim().is_empty() {
+                    errors.push("Detector name cannot be empty".to_string());
+                }
+            }
+            PlanType::GridScan => {
+                if self.grid_x_motor.trim().is_empty() {
+                    errors.push("X motor name cannot be empty".to_string());
+                }
+                errors.extend(validate_axis(
+                    "X ",
+                    &self.grid_x_start,
+                    &self.grid_x_end,
+                    &self.grid_x_points,
+                    100_000,
+                ));
+
+                if self.grid_y_motor.trim().is_empty() {
+                    errors.push("Y motor name cannot be empty".to_string());
+                }
+                errors.extend(validate_axis(
+                    "Y ",
+                    &self.grid_y_start,
+                    &self.grid_y_end,
+                    &self.grid_y_points,
+                    100_000,
+                ));
+
+                // Cross-axis validation
+                let x_motor_trimmed = self.grid_x_motor.trim();
+                let y_motor_trimmed = self.grid_y_motor.trim();
+                if !x_motor_trimmed.is_empty()
+                    && !y_motor_trimmed.is_empty()
+                    && x_motor_trimmed == y_motor_trimmed
+                {
+                    errors.push("X and Y motors must be different".to_string());
+                }
+
+                if self.grid_detector.trim().is_empty() {
+                    errors.push("Detector name cannot be empty".to_string());
+                }
+            }
+        }
+
+        errors
+    }
+}
+
+/// Validate a scan axis: parse start/end as f64, check finite, check different,
+/// and verify point count is a positive integer within `max_points`.
+/// `label` is a prefix like `"X "` or `""` for error messages.
+fn validate_axis(
+    label: &str,
+    start: &str,
+    end: &str,
+    points: &str,
+    max_points: usize,
+) -> Vec<String> {
+    let mut errors = Vec::new();
+
+    let start_ok = start.parse::<f64>().ok().filter(|v| v.is_finite());
+    let end_ok = end.parse::<f64>().ok().filter(|v| v.is_finite());
+
+    if start_ok.is_none() {
+        errors.push(format!("{label}start must be a valid number"));
+    }
+    if end_ok.is_none() {
+        errors.push(format!("{label}end must be a valid number"));
+    }
+    if let (Some(s), Some(e)) = (start_ok, end_ok) {
+        if (s - e).abs() < f64::EPSILON {
+            errors.push(format!("{label}start and end must be different"));
+        }
+    }
+    match points.parse::<usize>() {
+        Ok(0) | Err(_) => {
+            errors.push(format!("{label}points must be a positive integer"));
+        }
+        Ok(n) if n > max_points => {
+            errors.push(format!("{label}points must be <= {max_points}"));
+        }
+        _ => {}
+    }
+
+    errors
 }

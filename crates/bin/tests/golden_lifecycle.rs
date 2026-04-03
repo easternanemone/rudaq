@@ -68,15 +68,18 @@ macro_rules! require_binary {
 // Normal Path: Startup and Shutdown
 // =============================================================================
 
-/// Golden test: daemon starts with mock hardware (no config file), binds to an
+/// Golden test: daemon starts with canonical mock profile, binds to an
 /// ephemeral port, and shuts down cleanly when the process is killed.
 #[test]
 fn test_golden_startup_shutdown_mock() {
     let binary = daemon_binary_path();
     require_binary!(binary);
+    let workspace = workspace_root();
 
-    // Use port 0 to let the OS assign an ephemeral port
+    // Use port 0 to let the OS assign an ephemeral port.
+    // Run from workspace root so the daemon can find config/profiles/mock_maitai_lab.toml.
     let child = Command::new(&binary)
+        .current_dir(&workspace)
         .args(["daemon", "--runtime-mode", "mock", "--port", "0"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -318,9 +321,8 @@ fn test_golden_invalid_hardware_config_syntax() {
     assert!(
         combined.contains("parse")
             || combined.contains("TOML")
-            || combined.contains("Failed")
-            || combined.contains("Error")
-            || combined.contains("error"),
+            || combined.contains("syntax")
+            || combined.contains("expected"),
         "Output should indicate a config parse error, got:\nstdout: {}\nstderr: {}",
         stdout,
         stderr
@@ -407,14 +409,16 @@ fn test_golden_missing_hardware_config_file() {
 // Normal Path: Verify Device Registration
 // =============================================================================
 
-/// Golden test: daemon with mock hardware registers expected devices and
-/// reports them in stdout.
+/// Golden test: daemon with canonical mock profile registers expected devices
+/// and reports them in stdout.
 #[test]
 fn test_golden_mock_devices_registered() {
     let binary = daemon_binary_path();
     require_binary!(binary);
+    let workspace = workspace_root();
 
     let child = Command::new(&binary)
+        .current_dir(&workspace)
         .args(["daemon", "--runtime-mode", "mock", "--port", "0"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -430,12 +434,13 @@ fn test_golden_mock_devices_registered() {
     let output = child.wait_with_output().expect("Failed to wait for daemon");
     let stdout = String::from_utf8_lossy(&output.stdout);
 
-    // Mock registry should register devices
+    // Canonical mock profile should register devices (mock_maitai_lab.toml)
     assert!(
         stdout.contains("device")
             || stdout.contains("Device")
             || stdout.contains("Registered")
-            || stdout.contains("mock"),
+            || stdout.contains("mock")
+            || stdout.contains("Using mock profile bootstrap"),
         "Daemon should report registered mock devices in stdout.\nGot: {}",
         stdout
     );

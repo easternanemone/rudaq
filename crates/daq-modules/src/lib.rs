@@ -27,6 +27,7 @@
 pub mod document;
 pub mod power_monitor;
 pub mod run_engine;
+pub mod virtual_confocal_slit;
 
 #[cfg(feature = "scripting")]
 pub mod plugins;
@@ -36,7 +37,7 @@ use common::error::{DaqError, DriverError, DriverErrorKind};
 use common::modules::{
     ModuleDataPoint, ModuleEvent, ModuleEventSeverity, ModuleState, ModuleTypeInfo,
 };
-use hardware::capabilities::Readable;
+use hardware::capabilities::{ExposureControl, FrameProducer, Movable, Parameterized, Readable};
 use hardware::registry::DeviceRegistry;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -44,11 +45,49 @@ use tokio::sync::{broadcast, mpsc};
 use tracing::{info, warn};
 use uuid::Uuid;
 
+// =============================================================================
+// Capability Validation Helper
+// =============================================================================
+
+/// Check whether a device in the registry has the named capability.
+///
+/// Known capability strings are mapped to the corresponding
+/// `DeviceRegistry::get_*` accessor.  Unknown capabilities produce a
+/// warning but are allowed so that new capability strings introduced in
+/// the future don't break older module code.
+fn device_has_capability(registry: &DeviceRegistry, device_id: &str, capability: &str) -> bool {
+    match capability {
+        "readable" => registry.get_readable(device_id).is_some(),
+        "movable" => registry.get_movable(device_id).is_some(),
+        "frame_producer" => registry.get_frame_producer(device_id).is_some(),
+        "triggerable" => registry.get_triggerable(device_id).is_some(),
+        "exposure_control" => registry.get_exposure_control(device_id).is_some(),
+        "parameterized" => registry.get_parameterized(device_id).is_some(),
+        "stageable" => registry.get_stageable(device_id).is_some(),
+        "shutter_control" => registry.get_shutter_control(device_id).is_some(),
+        "emission_control" => registry.get_emission_control(device_id).is_some(),
+        "wavelength_tunable" => registry.get_wavelength_tunable(device_id).is_some(),
+        "spectrometer_control" => registry.get_spectrometer_control(device_id).is_some(),
+        "settable" => registry.get_settable(device_id).is_some(),
+        "commandable" => registry.get_commandable(device_id).is_some(),
+        "reconfigurable" => registry.get_reconfigurable(device_id).is_some(),
+        "spectrum_readable" => registry.get_spectrum_readable(device_id).is_some(),
+        _ => {
+            warn!(
+                capability,
+                device_id, "Unknown capability, allowing assignment"
+            );
+            true // Forward-compatible: allow unknown capabilities
+        }
+    }
+}
+
 // Re-export for convenience
 pub use common::observable::{Observable, ObservableMetadata, ParameterSet};
 pub use document::{DataKey, Document, StopReason};
 pub use power_monitor::PowerMonitor;
 pub use run_engine::{RunConfig, RunEngine, RunReport};
+pub use virtual_confocal_slit::VirtualConfocalSlit;
 
 // =============================================================================
 // Module Trait
@@ -194,6 +233,30 @@ impl ModuleContext {
     pub fn get_readable(&self, role_id: &str) -> Option<Arc<dyn Readable>> {
         let device_id = self.assignments.get(role_id)?;
         self.registry.get_readable(device_id)
+    }
+
+    /// Get a Movable device assigned to a role
+    pub fn get_movable(&self, role_id: &str) -> Option<Arc<dyn Movable>> {
+        let device_id = self.assignments.get(role_id)?;
+        self.registry.get_movable(device_id)
+    }
+
+    /// Get a FrameProducer device assigned to a role
+    pub fn get_frame_producer(&self, role_id: &str) -> Option<Arc<dyn FrameProducer>> {
+        let device_id = self.assignments.get(role_id)?;
+        self.registry.get_frame_producer(device_id)
+    }
+
+    /// Get an ExposureControl device assigned to a role
+    pub fn get_exposure_control(&self, role_id: &str) -> Option<Arc<dyn ExposureControl>> {
+        let device_id = self.assignments.get(role_id)?;
+        self.registry.get_exposure_control(device_id)
+    }
+
+    /// Get a Parameterized device assigned to a role
+    pub fn get_parameterized(&self, role_id: &str) -> Option<Arc<dyn Parameterized>> {
+        let device_id = self.assignments.get(role_id)?;
+        self.registry.get_parameterized(device_id)
     }
 
     /// Emit an event
@@ -521,6 +584,7 @@ impl ModuleRegistry {
     /// Register built-in module types
     fn register_builtin_modules(&mut self) {
         self.register_type::<PowerMonitor>();
+        self.register_type::<VirtualConfocalSlit>();
     }
 
     /// Register a module type
@@ -570,6 +634,9 @@ impl ModuleRegistry {
     }
 
     /// Delete a module instance
+    ///
+    /// Automatically stops and unstages the module before removal to
+    /// ensure resources are properly released.
     pub async fn delete_module(&mut self, module_id: &str, force: bool) -> Result<()> {
         if let Some(instance) = self.instances.get(module_id) {
             let state = instance.state();
@@ -585,10 +652,18 @@ impl ModuleRegistry {
             .into());
         }
 
-        // Stop if running
+        let registry = Arc::clone(&self.device_registry);
+
+        // Stop if running, then unstage to release resources
         if let Some(instance) = self.instances.get_mut(module_id) {
             if instance.state() == ModuleState::Running {
                 instance.stop().await?;
+            }
+            // Unstage if the module was staged (Staged or Stopped states)
+            let state = instance.state();
+            if state == ModuleState::Staged || state == ModuleState::Stopped {
+                info!(module_id, "Auto-unstaging module before deletion");
+                instance.unstage(registry).await?;
             }
         }
 
@@ -664,14 +739,14 @@ impl ModuleRegistry {
             ))
         })?;
 
-        // Check if role exists in required or optional roles
-        let role_exists = type_info
+        // Find the matching role definition (required or optional)
+        let matched_role = type_info
             .required_roles
             .iter()
             .chain(type_info.optional_roles.iter())
-            .any(|role| role.role_id == role_id);
+            .find(|role| role.role_id == role_id);
 
-        if !role_exists {
+        let Some(role) = matched_role else {
             // Build helpful error message listing valid roles
             let mut valid_roles = Vec::new();
             for role in &type_info.required_roles {
@@ -690,6 +765,18 @@ impl ModuleRegistry {
             return Err(DaqError::Configuration(format!(
                 "Invalid role '{}' for module type '{}'. Valid roles: {}",
                 role_id, type_id, valid_roles_str
+            ))
+            .into());
+        };
+
+        // Validate that the device has the capability required by this role
+        let required_cap = &role.required_capability;
+        if !required_cap.is_empty()
+            && !device_has_capability(&self.device_registry, device_id, required_cap)
+        {
+            return Err(DaqError::Configuration(format!(
+                "Device '{}' does not have the '{}' capability required by role '{}'",
+                device_id, required_cap, role_id
             ))
             .into());
         }
@@ -721,12 +808,22 @@ impl ModuleRegistry {
     }
 
     /// Start a module
+    ///
+    /// If the module has not been staged yet (state is `Created` or
+    /// `Configured`), it is auto-staged before starting.
     pub async fn start_module(&mut self, module_id: &str) -> Result<u64> {
         let registry = Arc::clone(&self.device_registry);
         let instance = self
             .instances
             .get_mut(module_id)
             .ok_or_else(|| module_not_found(module_id))?;
+
+        // Auto-stage if the module hasn't been staged yet
+        let state = instance.state();
+        if state == ModuleState::Created || state == ModuleState::Configured {
+            info!(module_id, "Auto-staging module before start");
+            instance.stage(Arc::clone(&registry)).await?;
+        }
 
         instance.start(registry).await?;
         Ok(instance.start_time_ns.unwrap_or(0))
@@ -753,7 +850,10 @@ impl ModuleRegistry {
     }
 
     /// Stop a module
+    ///
+    /// After stopping, the module is auto-unstaged to release resources.
     pub async fn stop_module(&mut self, module_id: &str) -> Result<(u64, u64)> {
+        let registry = Arc::clone(&self.device_registry);
         let instance = self
             .instances
             .get_mut(module_id)
@@ -764,8 +864,13 @@ impl ModuleRegistry {
         let uptime = instance
             .start_time_ns
             .map_or(0, |start| current_time_ns().saturating_sub(start));
+        let events = instance.events_emitted;
 
-        Ok((uptime, instance.events_emitted))
+        // Auto-unstage to release resources
+        info!(module_id, "Auto-unstaging module after stop");
+        instance.unstage(registry).await?;
+
+        Ok((uptime, events))
     }
 
     /// Get the device registry
@@ -881,5 +986,141 @@ mod tests {
 
         registry.delete_module(&module_id, false).await.unwrap();
         assert!(registry.get_module(&module_id).is_none());
+    }
+
+    /// Helper: build a `DeviceRegistry` with mock devices for lifecycle tests.
+    async fn mock_device_registry() -> Arc<DeviceRegistry> {
+        use driver_mock::{MockCameraFactory, MockPowerMeterFactory, MockStageFactory};
+
+        let registry = DeviceRegistry::new();
+        registry.register_factory(Box::new(MockStageFactory));
+        registry.register_factory(Box::new(MockCameraFactory));
+        registry.register_factory(Box::new(MockPowerMeterFactory));
+
+        registry
+            .register_from_toml(
+                "mock_stage",
+                "Mock Stage",
+                "mock_stage",
+                toml::toml! { initial_position = 0.0 }.into(),
+            )
+            .await
+            .expect("register mock_stage");
+
+        registry
+            .register_from_toml(
+                "mock_power_meter",
+                "Mock Power Meter",
+                "mock_power_meter",
+                toml::toml! { base_power = 1e-6 }.into(),
+            )
+            .await
+            .expect("register mock_power_meter");
+
+        registry
+            .register_from_toml(
+                "mock_camera",
+                "Mock Camera",
+                "mock_camera",
+                toml::toml! { width = 640 height = 480 }.into(),
+            )
+            .await
+            .expect("register mock_camera");
+
+        Arc::new(registry)
+    }
+
+    #[tokio::test]
+    async fn test_assign_device_rejects_wrong_capability() {
+        let device_registry = mock_device_registry().await;
+        let mut registry = ModuleRegistry::new(device_registry);
+
+        // PowerMonitor requires "readable" for its "power_meter" role.
+        // mock_stage is Movable, NOT Readable — assignment must fail.
+        let module_id = registry
+            .create_module("power_monitor", "Test Monitor")
+            .expect("create module");
+
+        let err = registry
+            .assign_device(&module_id, "power_meter", "mock_stage")
+            .expect_err("should reject stage assigned to readable role");
+
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("readable"),
+            "error should mention the missing capability: {msg}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_assign_device_accepts_correct_capability() {
+        let device_registry = mock_device_registry().await;
+        let mut registry = ModuleRegistry::new(device_registry);
+
+        // mock_power_meter has Readable — should succeed for power_meter role
+        let module_id = registry
+            .create_module("power_monitor", "Test Monitor")
+            .expect("create module");
+
+        registry
+            .assign_device(&module_id, "power_meter", "mock_power_meter")
+            .expect("should accept readable device for readable role");
+    }
+
+    #[tokio::test]
+    async fn test_start_module_auto_stages() {
+        let device_registry = mock_device_registry().await;
+        let mut registry = ModuleRegistry::new(device_registry);
+
+        let module_id = registry
+            .create_module("power_monitor", "Test Monitor")
+            .expect("create module");
+
+        registry
+            .assign_device(&module_id, "power_meter", "mock_power_meter")
+            .expect("assign device");
+
+        // Module is in Created state — start should auto-stage first
+        let instance = registry.get_module(&module_id).expect("module exists");
+        assert_eq!(instance.state(), ModuleState::Created);
+
+        registry
+            .start_module(&module_id)
+            .await
+            .expect("start with auto-stage");
+
+        let instance = registry.get_module(&module_id).expect("module exists");
+        assert_eq!(instance.state(), ModuleState::Running);
+    }
+
+    #[tokio::test]
+    async fn test_stop_module_auto_unstages() {
+        let device_registry = mock_device_registry().await;
+        let mut registry = ModuleRegistry::new(device_registry);
+
+        // Use VirtualConfocalSlit because it has a real unstage() that
+        // transitions state back to Created.
+        let module_id = registry
+            .create_module("virtual_confocal_slit", "Test VCS")
+            .expect("create module");
+
+        registry
+            .assign_device(&module_id, "camera", "mock_camera")
+            .expect("assign camera");
+        registry
+            .assign_device(&module_id, "scanner", "mock_stage")
+            .expect("assign scanner");
+
+        registry
+            .start_module(&module_id)
+            .await
+            .expect("start module");
+
+        registry.stop_module(&module_id).await.expect("stop module");
+
+        // VirtualConfocalSlit.unstage() sets state back to Created,
+        // confirming auto-unstage ran.
+        let instance = registry.get_module(&module_id).expect("module exists");
+        assert_eq!(instance.state(), ModuleState::Created);
     }
 }

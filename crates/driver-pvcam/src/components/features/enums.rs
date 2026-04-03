@@ -1,3 +1,81 @@
+// =============================================================================
+// Device Lifecycle State (bd-oqo7.9)
+// =============================================================================
+
+/// PVCAM camera lifecycle state for SurrealDB persistence and health monitoring.
+///
+/// Derived from `get_controller_alive()` and `get_ccs_status()` polling.
+/// State transitions are logged and persisted to the `device_runtime_state` table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum PvcamDeviceState {
+    /// Camera not connected or controller not responding.
+    Offline,
+    /// `pl_cam_open` in progress (SDK initialization).
+    Initializing,
+    /// Camera initialized and idle (controller alive, CCS idle).
+    Ready,
+    /// Acquisition active (CCS running or continuously clearing).
+    Streaming,
+    /// Controller alive but CCS reports a fault condition.
+    Error,
+    /// `pl_cam_close` in progress (graceful shutdown).
+    ShuttingDown,
+}
+
+impl PvcamDeviceState {
+    /// Derive the device state from controller_alive and CCS status values.
+    ///
+    /// CCS status values (from PVCAM SDK):
+    /// - 0: idle
+    /// - 1: initializing
+    /// - 2: running
+    /// - 3: continuously clearing
+    pub fn from_health_check(controller_alive: bool, ccs_status: i16) -> Self {
+        if !controller_alive {
+            return Self::Offline;
+        }
+        match ccs_status {
+            0 => Self::Ready,
+            1 => Self::Initializing,
+            2 | 3 => Self::Streaming,
+            _ => Self::Error,
+        }
+    }
+}
+
+impl std::fmt::Display for PvcamDeviceState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Offline => write!(f, "offline"),
+            Self::Initializing => write!(f, "initializing"),
+            Self::Ready => write!(f, "ready"),
+            Self::Streaming => write!(f, "streaming"),
+            Self::Error => write!(f, "error"),
+            Self::ShuttingDown => write!(f, "shutting_down"),
+        }
+    }
+}
+
+impl TryFrom<&str> for PvcamDeviceState {
+    type Error = String;
+
+    fn try_from(s: &str) -> Result<Self, <Self as TryFrom<&str>>::Error> {
+        match s {
+            "offline" => Ok(Self::Offline),
+            "initializing" => Ok(Self::Initializing),
+            "ready" => Ok(Self::Ready),
+            "streaming" => Ok(Self::Streaming),
+            "error" => Ok(Self::Error),
+            "shutting_down" | "ShuttingDown" => Ok(Self::ShuttingDown),
+            _ => Err(format!("Invalid PVCAM device state: {s}")),
+        }
+    }
+}
+
+// =============================================================================
+// Fan Speed
+// =============================================================================
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FanSpeed {
     High,
@@ -56,6 +134,7 @@ pub struct PPFeature {
     pub index: u16,
     pub id: u16,
     pub name: String,
+    pub params: Vec<PPParam>,
 }
 
 #[derive(Debug, Clone)]
@@ -64,6 +143,8 @@ pub struct PPParam {
     pub id: u16,
     pub name: String,
     pub value: u32,
+    pub min: u32,
+    pub max: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,6 +170,28 @@ impl CentroidsMode {
             CentroidsMode::Track => 1,
             CentroidsMode::Blob => 2,
         }
+    }
+
+    #[allow(clippy::should_implement_trait)]
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "Locate" => Self::Locate,
+            "Track" => Self::Track,
+            "Blob" => Self::Blob,
+            _ => Self::Locate,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Locate => "Locate",
+            Self::Track => "Track",
+            Self::Blob => "Blob",
+        }
+    }
+
+    pub fn all_choices() -> Vec<String> {
+        vec!["Locate".into(), "Track".into(), "Blob".into()]
     }
 }
 
@@ -465,6 +568,32 @@ impl ExposureResolution {
             ExposureResolution::Seconds => 2,
         }
     }
+
+    #[allow(clippy::should_implement_trait)]
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "Milliseconds" => Self::Milliseconds,
+            "Microseconds" => Self::Microseconds,
+            "Seconds" => Self::Seconds,
+            _ => Self::Milliseconds,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Milliseconds => "Milliseconds",
+            Self::Microseconds => "Microseconds",
+            Self::Seconds => "Seconds",
+        }
+    }
+
+    pub fn all_choices() -> Vec<String> {
+        vec![
+            "Milliseconds".into(),
+            "Microseconds".into(),
+            "Seconds".into(),
+        ]
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -619,10 +748,15 @@ impl ExposeOutMode {
     pub fn from_str(s: &str) -> Self {
         match s {
             "FirstRow" => ExposeOutMode::FirstRow,
+            "First Row" => ExposeOutMode::FirstRow,
             "AllRows" => ExposeOutMode::AllRows,
+            "All Rows" => ExposeOutMode::AllRows,
             "AnyRow" => ExposeOutMode::AnyRow,
+            "Any Row" => ExposeOutMode::AnyRow,
             "RollingShutter" => ExposeOutMode::RollingShutter,
+            "Rolling Shutter" => ExposeOutMode::RollingShutter,
             "LineOutput" => ExposeOutMode::LineOutput,
+            "Line Output" => ExposeOutMode::LineOutput,
             _ => ExposeOutMode::FirstRow,
         }
     }
@@ -645,5 +779,371 @@ impl ExposeOutMode {
             "RollingShutter".into(),
             "LineOutput".into(),
         ]
+    }
+}
+
+// ─── Edge Trigger (bd-oqo7.5) ──────────────────────────────────────────────
+
+/// Edge trigger mode — selects which trigger edge initiates acquisition.
+///
+/// Maps to `PARAM_EDGE_TRIGGER` SDK values. Used for external laser
+/// synchronization in LIBS experiments.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EdgeTrigger {
+    /// Trigger on the first edge only
+    First,
+    /// Trigger on all edges
+    All,
+}
+
+impl EdgeTrigger {
+    pub fn from_pvcam(value: i32) -> Self {
+        match value {
+            0 => EdgeTrigger::First,
+            1 => EdgeTrigger::All,
+            _ => EdgeTrigger::First,
+        }
+    }
+
+    pub fn to_pvcam(self) -> i32 {
+        match self {
+            EdgeTrigger::First => 0,
+            EdgeTrigger::All => 1,
+        }
+    }
+
+    #[allow(clippy::should_implement_trait)]
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "First" => EdgeTrigger::First,
+            "All" => EdgeTrigger::All,
+            _ => EdgeTrigger::First,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            EdgeTrigger::First => "First",
+            EdgeTrigger::All => "All",
+        }
+    }
+
+    pub fn all_choices() -> Vec<String> {
+        vec!["First".into(), "All".into()]
+    }
+}
+
+// ─── I/O & Diagnostics enums (bd-oqo7.6) ──────────────────────────────────
+
+/// I/O port type — identifies the kind of I/O port at the current address.
+///
+/// Maps to `PARAM_IO_TYPE` SDK values. Read-only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IoType {
+    /// TTL digital I/O
+    Ttl,
+    /// DAC analog output
+    Dac,
+}
+
+impl IoType {
+    pub fn from_pvcam(value: i32) -> Self {
+        match value {
+            1 => IoType::Dac,
+            _ => IoType::Ttl,
+        }
+    }
+
+    pub fn to_pvcam(self) -> i32 {
+        match self {
+            IoType::Ttl => 0,
+            IoType::Dac => 1,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Ttl => "TTL",
+            Self::Dac => "DAC",
+        }
+    }
+}
+
+impl std::fmt::Display for IoType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Ttl => write!(f, "TTL"),
+            Self::Dac => write!(f, "DAC"),
+        }
+    }
+}
+
+/// Logic output mode — which internal camera signal is routed to the
+/// programmable logic output connector.
+///
+/// Maps to `PARAM_LOGIC_OUTPUT` SDK values (13 modes). Read-write.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LogicOutput {
+    NotScan,
+    Shutter,
+    NotReady,
+    Logic0,
+    Clearing,
+    NotFtImageShift,
+    Reserved,
+    ExposeProg,
+    Expose,
+    ImageShift,
+    Readout,
+    Acquiring,
+    WaitForTrig,
+}
+
+impl LogicOutput {
+    pub fn from_pvcam(value: i32) -> Self {
+        match value {
+            0 => LogicOutput::NotScan,
+            1 => LogicOutput::Shutter,
+            2 => LogicOutput::NotReady,
+            3 => LogicOutput::Logic0,
+            4 => LogicOutput::Clearing,
+            5 => LogicOutput::NotFtImageShift,
+            6 => LogicOutput::Reserved,
+            7 => LogicOutput::ExposeProg,
+            8 => LogicOutput::Expose,
+            9 => LogicOutput::ImageShift,
+            10 => LogicOutput::Readout,
+            11 => LogicOutput::Acquiring,
+            12 => LogicOutput::WaitForTrig,
+            _ => LogicOutput::NotScan,
+        }
+    }
+
+    pub fn to_pvcam(self) -> i32 {
+        match self {
+            LogicOutput::NotScan => 0,
+            LogicOutput::Shutter => 1,
+            LogicOutput::NotReady => 2,
+            LogicOutput::Logic0 => 3,
+            LogicOutput::Clearing => 4,
+            LogicOutput::NotFtImageShift => 5,
+            LogicOutput::Reserved => 6,
+            LogicOutput::ExposeProg => 7,
+            LogicOutput::Expose => 8,
+            LogicOutput::ImageShift => 9,
+            LogicOutput::Readout => 10,
+            LogicOutput::Acquiring => 11,
+            LogicOutput::WaitForTrig => 12,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::NotScan => "NotScan",
+            Self::Shutter => "Shutter",
+            Self::NotReady => "NotReady",
+            Self::Logic0 => "Logic0",
+            Self::Clearing => "Clearing",
+            Self::NotFtImageShift => "NotFtImageShift",
+            Self::Reserved => "Reserved",
+            Self::ExposeProg => "ExposeProg",
+            Self::Expose => "Expose",
+            Self::ImageShift => "ImageShift",
+            Self::Readout => "Readout",
+            Self::Acquiring => "Acquiring",
+            Self::WaitForTrig => "WaitForTrig",
+        }
+    }
+
+    #[allow(clippy::should_implement_trait)]
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "NotScan" => Self::NotScan,
+            "Shutter" => Self::Shutter,
+            "NotReady" => Self::NotReady,
+            "Logic0" => Self::Logic0,
+            "Clearing" => Self::Clearing,
+            "NotFtImageShift" => Self::NotFtImageShift,
+            "Reserved" => Self::Reserved,
+            "ExposeProg" => Self::ExposeProg,
+            "Expose" => Self::Expose,
+            "ImageShift" => Self::ImageShift,
+            "Readout" => Self::Readout,
+            "Acquiring" => Self::Acquiring,
+            "WaitForTrig" => Self::WaitForTrig,
+            _ => Self::NotScan,
+        }
+    }
+
+    pub fn all_choices() -> Vec<String> {
+        vec![
+            "NotScan".into(),
+            "Shutter".into(),
+            "NotReady".into(),
+            "Logic0".into(),
+            "Clearing".into(),
+            "NotFtImageShift".into(),
+            "Reserved".into(),
+            "ExposeProg".into(),
+            "Expose".into(),
+            "ImageShift".into(),
+            "Readout".into(),
+            "Acquiring".into(),
+            "WaitForTrig".into(),
+        ]
+    }
+}
+
+impl std::fmt::Display for LogicOutput {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotScan => write!(f, "Not Scan"),
+            Self::Shutter => write!(f, "Shutter"),
+            Self::NotReady => write!(f, "Not Ready"),
+            Self::Logic0 => write!(f, "Logic 0"),
+            Self::Clearing => write!(f, "Clearing"),
+            Self::NotFtImageShift => write!(f, "Not FT Image Shift"),
+            Self::Reserved => write!(f, "Reserved"),
+            Self::ExposeProg => write!(f, "Expose Prog"),
+            Self::Expose => write!(f, "Expose"),
+            Self::ImageShift => write!(f, "Image Shift"),
+            Self::Readout => write!(f, "Readout"),
+            Self::Acquiring => write!(f, "Acquiring"),
+            Self::WaitForTrig => write!(f, "Wait For Trigger"),
+        }
+    }
+}
+
+// ─── PrimeLocate (bd-oqo7.10) ─────────────────────────────────────────────
+
+/// A single localization event from PrimeLocate FPGA processing.
+///
+/// When PrimeLocate is active, the camera FPGA evaluates each frame on-chip
+/// and outputs only the coordinates and intensity of detected spots. This
+/// reduces data bandwidth by orders of magnitude compared to full-frame readout,
+/// enabling high-throughput single-molecule tracking.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct LocalizationEvent {
+    /// X coordinate of the localized spot (sub-pixel, sensor coordinates).
+    pub x: f32,
+    /// Y coordinate of the localized spot (sub-pixel, sensor coordinates).
+    pub y: f32,
+    /// Integrated intensity of the localized spot (ADU).
+    pub intensity: f32,
+}
+
+// =============================================================================
+// Scan Mode (Programmable Scan Mode)
+// =============================================================================
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScanMode {
+    Auto,
+    ProgrammableLineDelay,
+    ProgrammableScanWidth,
+}
+
+impl ScanMode {
+    pub fn from_pvcam(val: i32) -> Option<Self> {
+        match val {
+            0 => Some(Self::Auto),
+            1 => Some(Self::ProgrammableLineDelay),
+            2 => Some(Self::ProgrammableScanWidth),
+            _ => None,
+        }
+    }
+
+    pub fn to_pvcam(self) -> i32 {
+        match self {
+            Self::Auto => 0,
+            Self::ProgrammableLineDelay => 1,
+            Self::ProgrammableScanWidth => 2,
+        }
+    }
+
+    #[allow(clippy::should_implement_trait)]
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "auto" => Some(Self::Auto),
+            "line_delay" | "programmable_line_delay" => Some(Self::ProgrammableLineDelay),
+            "scan_width" | "programmable_scan_width" => Some(Self::ProgrammableScanWidth),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Auto => "Auto",
+            Self::ProgrammableLineDelay => "ProgrammableLineDelay",
+            Self::ProgrammableScanWidth => "ProgrammableScanWidth",
+        }
+    }
+
+    pub fn all_choices() -> &'static [&'static str] {
+        &["Auto", "ProgrammableLineDelay", "ProgrammableScanWidth"]
+    }
+}
+
+impl std::fmt::Display for ScanMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+// =============================================================================
+// Scan Direction (Programmable Scan Mode)
+// =============================================================================
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScanDirection {
+    Down,
+    Up,
+    DownUpAlternate,
+}
+
+impl ScanDirection {
+    pub fn from_pvcam(val: i32) -> Option<Self> {
+        match val {
+            0 => Some(Self::Down),
+            1 => Some(Self::Up),
+            2 => Some(Self::DownUpAlternate),
+            _ => None,
+        }
+    }
+
+    pub fn to_pvcam(self) -> i32 {
+        match self {
+            Self::Down => 0,
+            Self::Up => 1,
+            Self::DownUpAlternate => 2,
+        }
+    }
+
+    #[allow(clippy::should_implement_trait)]
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "down" => Some(Self::Down),
+            "up" => Some(Self::Up),
+            "down_up" | "down_up_alternate" | "alternate" => Some(Self::DownUpAlternate),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Down => "Down",
+            Self::Up => "Up",
+            Self::DownUpAlternate => "DownUpAlternate",
+        }
+    }
+
+    pub fn all_choices() -> &'static [&'static str] {
+        &["Down", "Up", "DownUpAlternate"]
+    }
+}
+
+impl std::fmt::Display for ScanDirection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
     }
 }

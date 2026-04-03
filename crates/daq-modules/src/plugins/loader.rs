@@ -195,11 +195,12 @@ impl ScriptPluginLoader {
             ScriptLanguage::Rhai => {
                 let module = ScriptModule::from_source(source, path.to_path_buf()).await?;
 
+                let info = module.type_info();
                 Ok(ScriptModuleInfo {
-                    type_id: module.type_id().to_string(),
-                    display_name: module.type_id().to_string(), // TODO(bd-p2a1): extract display_name from ScriptModule type_info metadata
-                    description: String::new(),
-                    version: "1.0.0".to_string(),
+                    type_id: info.type_id.clone(),
+                    display_name: info.display_name.clone(),
+                    description: info.description.clone(),
+                    version: info.version.clone(),
                     script_path: path.to_path_buf(),
                     language,
                 })

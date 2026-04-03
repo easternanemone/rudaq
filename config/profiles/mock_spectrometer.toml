@@ -1,0 +1,11 @@
+# Mock spectrometer profile for 1D detector integration tests.
+#
+# Uses the generic_spectrometer manifest with mock=true to exercise
+# the SpectrumReadable capability through the universal emulator.
+
+[[devices]]
+id = "spectrometer"
+name = "Test Spectrometer (Universal Mock)"
+[devices.driver]
+type = "universal_generic_spectrometer"
+mock = true

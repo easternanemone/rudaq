@@ -110,6 +110,22 @@ pub struct DeviceParamState {
     pub is_favorite: bool,
 }
 
+/// A device lifecycle state transition event (bd-oqo7.9).
+///
+/// Stored in the `device_lifecycle_event` table for post-mortem analysis
+/// of camera health during long experiments.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeviceLifecycleEvent {
+    /// Device ID that transitioned (e.g., "pvcam_0").
+    pub device_id: String,
+    /// State before the transition.
+    pub from_state: String,
+    /// State after the transition.
+    pub to_state: String,
+    /// Human-readable reason for the transition (e.g., "controller dead").
+    pub reason: Option<String>,
+}
+
 /// Summary of a config import operation.
 #[derive(Debug, Clone, Default)]
 pub struct ImportReport {
@@ -525,6 +541,90 @@ impl DaqDb {
         let count = deleted.len();
         if count > 0 {
             info!(device_id, count, "deleted device runtime state");
+        }
+        Ok(count)
+    }
+
+    // -------------------------------------------------------------------
+    // Device Lifecycle Events (bd-oqo7.9)
+    // -------------------------------------------------------------------
+
+    /// Record a device lifecycle state transition.
+    ///
+    /// Also updates the `_lifecycle_state` pseudo-parameter in
+    /// `device_runtime_state` so the current state is queryable for
+    /// restart recovery.
+    pub async fn record_lifecycle_event(&self, event: &DeviceLifecycleEvent) -> Result<()> {
+        self.client()
+            .query(
+                "CREATE device_lifecycle_event SET \
+                 device_id = $device_id, \
+                 from_state = $from_state, \
+                 to_state = $to_state, \
+                 reason = $reason, \
+                 timestamp = time::now()",
+            )
+            .bind(("device_id", event.device_id.clone()))
+            .bind(("from_state", event.from_state.clone()))
+            .bind(("to_state", event.to_state.clone()))
+            .bind(("reason", event.reason.clone()))
+            .await?;
+
+        // Also persist the current state for restart recovery.
+        self.upsert_device_state(
+            &event.device_id,
+            "_lifecycle_state",
+            &serde_json::json!(event.to_state),
+        )
+        .await?;
+
+        Ok(())
+    }
+
+    /// Get the most recent lifecycle events for a device, newest first.
+    ///
+    /// Returns up to `limit` events. Use for post-mortem analysis.
+    pub async fn get_lifecycle_events(
+        &self,
+        device_id: &str,
+        limit: u32,
+    ) -> Result<Vec<DeviceLifecycleEvent>> {
+        // SurrealDB requires ORDER BY fields to appear in SELECT.
+        // We select timestamp for ordering but ignore it in deserialization
+        // (DeviceLifecycleEvent uses #[serde(default)] behavior — extra fields
+        // are simply discarded by serde).
+        let mut response = self
+            .client()
+            .query(
+                "SELECT device_id, from_state, to_state, reason, timestamp \
+                 FROM device_lifecycle_event \
+                 WHERE device_id = $device_id \
+                 ORDER BY timestamp DESC \
+                 LIMIT $limit",
+            )
+            .bind(("device_id", device_id.to_owned()))
+            .bind(("limit", limit))
+            .await?;
+        let rows: Vec<DeviceLifecycleEvent> = response.take(0)?;
+        Ok(rows)
+    }
+
+    /// Delete all lifecycle events for a device.
+    ///
+    /// Called when a device is unregistered to clean up stale history.
+    pub async fn delete_lifecycle_events(&self, device_id: &str) -> Result<usize> {
+        let mut response = self
+            .client()
+            .query(
+                "DELETE FROM device_lifecycle_event \
+                 WHERE device_id = $device_id RETURN BEFORE",
+            )
+            .bind(("device_id", device_id.to_owned()))
+            .await?;
+        let deleted: Vec<DeviceLifecycleEvent> = response.take(0)?;
+        let count = deleted.len();
+        if count > 0 {
+            info!(device_id, count, "deleted device lifecycle events");
         }
         Ok(count)
     }
@@ -1299,5 +1399,110 @@ mod tests {
 
         assert_eq!(states[3].param_name, "string_param");
         assert_eq!(states[3].param_value, serde_json::json!("Internal"));
+    }
+
+    // -------------------------------------------------------------------
+    // Device Lifecycle Event tests (bd-oqo7.9)
+    // -------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_record_and_get_lifecycle_events() {
+        let db = DaqDb::init(DbConfig::in_memory()).await.unwrap();
+
+        let event1 = DeviceLifecycleEvent {
+            device_id: "pvcam_0".into(),
+            from_state: "initializing".into(),
+            to_state: "ready".into(),
+            reason: None,
+        };
+        db.record_lifecycle_event(&event1).await.unwrap();
+
+        let event2 = DeviceLifecycleEvent {
+            device_id: "pvcam_0".into(),
+            from_state: "ready".into(),
+            to_state: "streaming".into(),
+            reason: Some("acquisition started".into()),
+        };
+        db.record_lifecycle_event(&event2).await.unwrap();
+
+        let events = db.get_lifecycle_events("pvcam_0", 10).await.unwrap();
+        assert_eq!(events.len(), 2);
+
+        // Newest first (ORDER BY timestamp DESC).
+        assert_eq!(events[0].from_state, "ready");
+        assert_eq!(events[0].to_state, "streaming");
+        assert_eq!(events[0].reason, Some("acquisition started".into()));
+
+        assert_eq!(events[1].from_state, "initializing");
+        assert_eq!(events[1].to_state, "ready");
+        assert!(events[1].reason.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_lifecycle_event_persists_current_state() {
+        let db = DaqDb::init(DbConfig::in_memory()).await.unwrap();
+
+        let event = DeviceLifecycleEvent {
+            device_id: "pvcam_0".into(),
+            from_state: "initializing".into(),
+            to_state: "ready".into(),
+            reason: None,
+        };
+        db.record_lifecycle_event(&event).await.unwrap();
+
+        // Should also update device_runtime_state with _lifecycle_state.
+        let states = db.get_device_state("pvcam_0").await.unwrap();
+        assert_eq!(states.len(), 1);
+        assert_eq!(states[0].param_name, "_lifecycle_state");
+        assert_eq!(states[0].param_value, serde_json::json!("ready"));
+    }
+
+    #[tokio::test]
+    async fn test_lifecycle_event_limit() {
+        let db = DaqDb::init(DbConfig::in_memory()).await.unwrap();
+
+        for i in 0..5 {
+            let event = DeviceLifecycleEvent {
+                device_id: "cam".into(),
+                from_state: format!("state_{i}"),
+                to_state: format!("state_{}", i + 1),
+                reason: None,
+            };
+            db.record_lifecycle_event(&event).await.unwrap();
+        }
+
+        let events = db.get_lifecycle_events("cam", 3).await.unwrap();
+        assert_eq!(events.len(), 3, "should respect limit");
+    }
+
+    #[tokio::test]
+    async fn test_delete_lifecycle_events() {
+        let db = DaqDb::init(DbConfig::in_memory()).await.unwrap();
+
+        let event = DeviceLifecycleEvent {
+            device_id: "pvcam_0".into(),
+            from_state: "ready".into(),
+            to_state: "error".into(),
+            reason: Some("controller dead".into()),
+        };
+        db.record_lifecycle_event(&event).await.unwrap();
+
+        let deleted = db.delete_lifecycle_events("pvcam_0").await.unwrap();
+        assert_eq!(deleted, 1);
+
+        let events = db.get_lifecycle_events("pvcam_0", 10).await.unwrap();
+        assert!(events.is_empty());
+
+        // Deleting again returns 0.
+        let deleted_again = db.delete_lifecycle_events("pvcam_0").await.unwrap();
+        assert_eq!(deleted_again, 0);
+    }
+
+    #[tokio::test]
+    async fn test_lifecycle_events_empty_for_unknown_device() {
+        let db = DaqDb::init(DbConfig::in_memory()).await.unwrap();
+
+        let events = db.get_lifecycle_events("nonexistent", 10).await.unwrap();
+        assert!(events.is_empty());
     }
 }

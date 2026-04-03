@@ -246,7 +246,7 @@ mod tests {
 
         let config = HeartbeatLogConfig {
             path: log_path.clone(),
-            interval: Duration::from_millis(50),
+            interval: Duration::from_millis(100),
             storage_path: dir.path().to_path_buf(),
         };
 
@@ -257,8 +257,20 @@ mod tests {
             run_heartbeat_log(registry, run_engine, config, cancel_clone).await;
         });
 
-        // Let a few entries be written
-        tokio::time::sleep(Duration::from_millis(180)).await;
+        // Poll for the file to appear rather than sleeping a fixed duration.
+        // The first sysinfo refresh can take several seconds under parallel
+        // test load on macOS, so a fixed sleep is inherently flaky.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        loop {
+            if log_path.exists() && std::fs::metadata(&log_path).is_ok_and(|m| m.len() > 0) {
+                break;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "heartbeat log file was not created within 10s"
+            );
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
         cancel.cancel();
         task.await.expect("heartbeat task should not panic");
 
