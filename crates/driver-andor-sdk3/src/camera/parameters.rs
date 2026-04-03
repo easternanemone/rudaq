@@ -99,14 +99,10 @@ impl AndorCamera {
                             param.connect_to_hardware_write(move |val: i64| {
                                 let fname = fname.clone();
                                 Box::pin(async move {
-                                    tokio::task::spawn_blocking(move || {
+                                    crate::ffi_timeout::ffi_call_daq(move || {
                                         AndorCamera::set_int_feature(handle, &fname, val)
-                                    })
+                                    }, crate::ffi_timeout::FFI_CONFIG_TIMEOUT, "dynamic:set_int")
                                     .await
-                                    .map_err(|e| {
-                                        DaqError::Instrument(format!("spawn_blocking: {e}"))
-                                    })?
-                                    .map_err(|e| DaqError::Instrument(e.to_string()))
                                 })
                             });
                         }
