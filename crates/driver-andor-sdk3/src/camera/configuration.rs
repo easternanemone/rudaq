@@ -180,14 +180,14 @@ impl AndorCamera {
         {
             let handle = self.inner.handle;
             let fan = fan_speed.to_string();
-            match tokio::task::spawn_blocking(move || {
+            match crate::ffi_timeout::ffi_call(move || {
                 Self::set_enum_feature(handle, "FanSpeed", &fan)
-            })
+            }, crate::ffi_timeout::FFI_CONFIG_TIMEOUT, "configure_cooling:fan_speed")
             .await
             {
                 Ok(Ok(())) => tracing::info!(fan_speed, "Fan speed configured"),
                 Ok(Err(e)) => tracing::warn!(error = %e, fan_speed, "Failed to set fan speed"),
-                Err(e) => tracing::warn!(error = %e, "spawn_blocking failed for FanSpeed"),
+                Err(e) => tracing::warn!(error = %e, "FFI call failed for FanSpeed"),
             }
         }
 
