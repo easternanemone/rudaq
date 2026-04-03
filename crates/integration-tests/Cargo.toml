@@ -45,7 +45,7 @@ tracing-subscriber = { version = "0.3", features = ["registry"] }
 
 
 [features]
-default = ["networking", "server", "scripting", "storage_hdf5", "storage_arrow", "serial", "modules", "pvcam", "universal", "db-surreal-mem"]
+default = ["server", "scripting", "storage_hdf5", "storage_arrow", "serial", "modules", "pvcam", "universal", "db-surreal-mem"]
 
 # ============================================================================
 # CRATE-LOCAL ONLY (no downstream forwarding, gate test code only)
