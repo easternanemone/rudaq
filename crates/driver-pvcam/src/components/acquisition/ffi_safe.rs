@@ -686,10 +686,7 @@ pub fn setup_multi_roi_cont(
         return Err("At least one region required".to_string());
     }
     if regions.len() > 16 {
-        return Err(format!(
-            "Maximum 16 ROIs supported, got {}",
-            regions.len()
-        ));
+        return Err(format!("Maximum 16 ROIs supported, got {}", regions.len()));
     }
 
     let rgn_count = regions.len() as u16;
