@@ -241,6 +241,12 @@ impl GenericDriver {
             frame_broadcaster: frame_tx,
             frame_counter: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
             is_streaming: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            // TODO(bd-plb6): Populate this ParameterSet from the manifest config.
+            // Each parameter declared in `config.parameters` should be constructed
+            // as a `Parameter<T>`, optionally attached to a `hardware_writer` callback
+            // that sends the appropriate command string over `self.connection`, and
+            // then registered via `params.register(param)`. See the canonical pattern
+            // documented in `crates/driver-andor-sdk3/src/camera/parameters.rs`.
             parameters: std::sync::Arc::new(ParameterSet::new()),
             on_connect_executed: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             observers: std::sync::Arc::new(RwLock::new(Vec::new())),

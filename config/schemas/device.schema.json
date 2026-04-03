@@ -1,13 +1,30 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "DeviceConfig",
-  "description": "Complete device configuration loaded from TOML.\n\nThis is the top-level struct that contains all device protocol definitions.",
+  "description": "Complete device configuration loaded from TOML.\n\nThis is the top-level struct that contains all device protocol definitions.\n\n**Deprecated:** New drivers should use `driver_universal::config` instead. This type is retained for compatibility with the `scripting` and `ui` crates.",
+  "deprecated": true,
   "type": "object",
   "required": [
     "connection",
     "device"
   ],
   "properties": {
+    "binary_commands": {
+      "description": "Binary command definitions for protocols like Modbus RTU",
+      "default": {},
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/BinaryCommandConfig"
+      }
+    },
+    "binary_responses": {
+      "description": "Binary response parsing definitions",
+      "default": {},
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/BinaryResponseConfig"
+      }
+    },
     "commands": {
       "description": "Command definitions",
       "default": {},
@@ -32,6 +49,18 @@
         "$ref": "#/definitions/ConversionConfig"
       }
     },
+    "default_retry": {
+      "description": "Default retry configuration (applies to all commands without explicit retry)",
+      "default": null,
+      "anyOf": [
+        {
+          "$ref": "#/definitions/RetryConfig"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "device": {
       "description": "Device identity and metadata",
       "allOf": [
@@ -46,6 +75,14 @@
       "type": "object",
       "additionalProperties": {
         "$ref": "#/definitions/ErrorCodeConfig"
+      }
+    },
+    "init_sequence": {
+      "description": "Initialization sequence (run on device connect)",
+      "default": [],
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/InitStep"
       }
     },
     "parameters": {
@@ -64,6 +101,14 @@
         "$ref": "#/definitions/ResponseConfig"
       }
     },
+    "scripts": {
+      "description": "Rhai script definitions for complex logic that can't be expressed declaratively",
+      "default": {},
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/ScriptDefinition"
+      }
+    },
     "trait_mapping": {
       "description": "Trait method to command mapping",
       "default": {},
@@ -71,6 +116,18 @@
       "additionalProperties": {
         "$ref": "#/definitions/TraitMappingConfig"
       }
+    },
+    "ui": {
+      "description": "UI configuration for control panels and visualization",
+      "default": null,
+      "anyOf": [
+        {
+          "$ref": "#/definitions/UiConfig"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "validation": {
       "description": "Validation rules for parameters",
@@ -108,6 +165,379 @@
           ]
         }
       ]
+    },
+    "BinaryCommandConfig": {
+      "description": "Binary command configuration for protocols like Modbus RTU.\n\nDefines how to build a binary frame from fields with explicit types and endianness.\n\n# Example\n\n```toml [binary_commands.read_registers] description = \"Read holding registers (Modbus function 0x03)\" fields = [ { name = \"address\", type = \"u8\", value = \"${device_address}\" }, { name = \"function\", type = \"u8\", value = \"0x03\" }, { name = \"start_register\", type = \"u16_be\", value = \"${start_register}\" }, { name = \"count\", type = \"u16_be\", value = \"${count}\" }, ] crc = { algorithm = \"crc16_modbus\", append = true } ```",
+      "type": "object",
+      "required": [
+        "fields"
+      ],
+      "properties": {
+        "crc": {
+          "description": "CRC configuration (optional)",
+          "default": null,
+          "anyOf": [
+            {
+              "$ref": "#/definitions/CrcConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "description": {
+          "description": "Human-readable description",
+          "default": "",
+          "type": "string"
+        },
+        "expects_response": {
+          "description": "Whether this command expects a response",
+          "default": true,
+          "type": "boolean"
+        },
+        "fields": {
+          "description": "Ordered list of fields to build the frame",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/BinaryFieldConfig"
+          }
+        },
+        "response": {
+          "description": "Name of the binary response definition to use for parsing",
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "retry": {
+          "description": "Retry configuration for this command",
+          "default": null,
+          "anyOf": [
+            {
+              "$ref": "#/definitions/RetryConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "timeout_ms": {
+          "description": "Per-command timeout override (milliseconds)",
+          "default": null,
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0.0
+        }
+      },
+      "additionalProperties": false
+    },
+    "BinaryFieldConfig": {
+      "description": "Binary field configuration for frame building.",
+      "type": "object",
+      "required": [
+        "name",
+        "type"
+      ],
+      "properties": {
+        "bytes": {
+          "description": "Fixed byte array value (alternative to value template)",
+          "default": null,
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "integer",
+            "format": "uint8",
+            "minimum": 0.0
+          }
+        },
+        "length": {
+          "description": "For variable-length fields: expression for length (e.g., \"${count} * 2\")",
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "description": "Field name (for documentation and debugging)",
+          "type": "string"
+        },
+        "type": {
+          "description": "Field data type (includes endianness)",
+          "allOf": [
+            {
+              "$ref": "#/definitions/BinaryFieldType"
+            }
+          ]
+        },
+        "value": {
+          "description": "Value template (can include `${param}` substitutions or hex literals like `0x03`)",
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "BinaryFieldType": {
+      "description": "Binary field types with explicit endianness.",
+      "oneOf": [
+        {
+          "description": "8-bit unsigned integer",
+          "type": "string",
+          "enum": [
+            "u8"
+          ]
+        },
+        {
+          "description": "8-bit signed integer",
+          "type": "string",
+          "enum": [
+            "i8"
+          ]
+        },
+        {
+          "description": "16-bit unsigned, big-endian (network byte order)",
+          "type": "string",
+          "enum": [
+            "u16_be"
+          ]
+        },
+        {
+          "description": "16-bit unsigned, little-endian",
+          "type": "string",
+          "enum": [
+            "u16_le"
+          ]
+        },
+        {
+          "description": "16-bit signed, big-endian",
+          "type": "string",
+          "enum": [
+            "i16_be"
+          ]
+        },
+        {
+          "description": "16-bit signed, little-endian",
+          "type": "string",
+          "enum": [
+            "i16_le"
+          ]
+        },
+        {
+          "description": "32-bit unsigned, big-endian",
+          "type": "string",
+          "enum": [
+            "u32_be"
+          ]
+        },
+        {
+          "description": "32-bit unsigned, little-endian",
+          "type": "string",
+          "enum": [
+            "u32_le"
+          ]
+        },
+        {
+          "description": "32-bit signed, big-endian",
+          "type": "string",
+          "enum": [
+            "i32_be"
+          ]
+        },
+        {
+          "description": "32-bit signed, little-endian",
+          "type": "string",
+          "enum": [
+            "i32_le"
+          ]
+        },
+        {
+          "description": "32-bit float, big-endian (IEEE 754)",
+          "type": "string",
+          "enum": [
+            "f32_be"
+          ]
+        },
+        {
+          "description": "32-bit float, little-endian (IEEE 754)",
+          "type": "string",
+          "enum": [
+            "f32_le"
+          ]
+        },
+        {
+          "description": "64-bit unsigned, big-endian",
+          "type": "string",
+          "enum": [
+            "u64_be"
+          ]
+        },
+        {
+          "description": "64-bit unsigned, little-endian",
+          "type": "string",
+          "enum": [
+            "u64_le"
+          ]
+        },
+        {
+          "description": "Fixed-length byte array",
+          "type": "string",
+          "enum": [
+            "bytes"
+          ]
+        },
+        {
+          "description": "ASCII string (no null terminator)",
+          "type": "string",
+          "enum": [
+            "ascii_string"
+          ]
+        },
+        {
+          "description": "Null-terminated ASCII string",
+          "type": "string",
+          "enum": [
+            "ascii_string_z"
+          ]
+        }
+      ]
+    },
+    "BinaryResponseConfig": {
+      "description": "Binary response configuration for parsing binary frames.\n\n# Example\n\n```toml [binary_responses.read_registers_response] fields = [ { name = \"address\", type = \"u8\", position = 0 }, { name = \"function\", type = \"u8\", position = 1 }, { name = \"byte_count\", type = \"u8\", position = 2 }, { name = \"data\", type = \"bytes\", start = 3, length_field = \"byte_count\" }, ] crc = { algorithm = \"crc16_modbus\", validate = true } ```",
+      "type": "object",
+      "required": [
+        "fields"
+      ],
+      "properties": {
+        "crc": {
+          "description": "CRC configuration for validation",
+          "default": null,
+          "anyOf": [
+            {
+              "$ref": "#/definitions/CrcConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "description": {
+          "description": "Human-readable description",
+          "default": "",
+          "type": "string"
+        },
+        "fields": {
+          "description": "Field definitions for parsing (in order)",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/BinaryResponseFieldConfig"
+          }
+        },
+        "max_length": {
+          "description": "Maximum expected response length (bytes)",
+          "default": null,
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint16",
+          "minimum": 0.0
+        },
+        "min_length": {
+          "description": "Minimum expected response length (bytes)",
+          "default": null,
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint16",
+          "minimum": 0.0
+        }
+      },
+      "additionalProperties": false
+    },
+    "BinaryResponseFieldConfig": {
+      "description": "Binary response field configuration for parsing.",
+      "type": "object",
+      "required": [
+        "name",
+        "type"
+      ],
+      "properties": {
+        "expected": {
+          "description": "Expected value (for validation, hex string like \"0x03\")",
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "is_error_code": {
+          "description": "Whether this field is the error code indicator",
+          "default": false,
+          "type": "boolean"
+        },
+        "length": {
+          "description": "Fixed length for variable-length fields",
+          "default": null,
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "length_field": {
+          "description": "Name of another field that contains the length",
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "description": "Field name (used for extracting values)",
+          "type": "string"
+        },
+        "position": {
+          "description": "Fixed position in the frame (0-based byte offset)",
+          "default": null,
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "start": {
+          "description": "Start position for variable-length fields",
+          "default": null,
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "type": {
+          "description": "Field data type",
+          "allOf": [
+            {
+              "$ref": "#/definitions/BinaryFieldType"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
     },
     "BusConfig": {
       "description": "Bus configuration for multidrop protocols.",
@@ -148,6 +578,79 @@
         "rs485",
         "gpib",
         "can"
+      ]
+    },
+    "ButtonStyle": {
+      "description": "Button style hints.",
+      "oneOf": [
+        {
+          "description": "Default button style",
+          "type": "string",
+          "enum": [
+            "default"
+          ]
+        },
+        {
+          "description": "Primary action button (highlighted)",
+          "type": "string",
+          "enum": [
+            "primary"
+          ]
+        },
+        {
+          "description": "Secondary/subtle button",
+          "type": "string",
+          "enum": [
+            "secondary"
+          ]
+        },
+        {
+          "description": "Danger/destructive action (red)",
+          "type": "string",
+          "enum": [
+            "danger"
+          ]
+        },
+        {
+          "description": "Success/positive action (green)",
+          "type": "string",
+          "enum": [
+            "success"
+          ]
+        },
+        {
+          "description": "Warning action (amber/orange)",
+          "type": "string",
+          "enum": [
+            "warning"
+          ]
+        },
+        {
+          "description": "Informational action (blue/teal)",
+          "type": "string",
+          "enum": [
+            "info"
+          ]
+        }
+      ]
+    },
+    "ByteOrder": {
+      "description": "Byte order for multi-byte values.",
+      "oneOf": [
+        {
+          "description": "Big-endian (most significant byte first)",
+          "type": "string",
+          "enum": [
+            "big_endian"
+          ]
+        },
+        {
+          "description": "Little-endian (least significant byte first)",
+          "type": "string",
+          "enum": [
+            "little_endian"
+          ]
+        }
       ]
     },
     "CapabilityType": {
@@ -279,9 +782,31 @@
             "null"
           ]
         },
+        "retry": {
+          "description": "Retry configuration for this command",
+          "default": null,
+          "anyOf": [
+            {
+              "$ref": "#/definitions/RetryConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "template": {
           "description": "Command template with parameter placeholders.\n\nUse `${param_name}` for substitution. Use `${param_name:format}` for formatted output (e.g., `${value:08X}` for hex).",
           "type": "string"
+        },
+        "timeout_ms": {
+          "description": "Per-command timeout override (milliseconds). If not specified, uses the connection-level timeout.",
+          "default": null,
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0.0
         }
       },
       "additionalProperties": false
@@ -467,6 +992,511 @@
         }
       ]
     },
+    "ControlPanelConfig": {
+      "description": "Control panel layout configuration.\n\nDefines the sections and layout of the device control panel in the GUI.",
+      "type": "object",
+      "properties": {
+        "collapsible": {
+          "description": "Whether to allow collapsing sections",
+          "default": false,
+          "type": "boolean"
+        },
+        "layout": {
+          "description": "Layout direction for sections",
+          "default": "vertical",
+          "allOf": [
+            {
+              "$ref": "#/definitions/PanelLayout"
+            }
+          ]
+        },
+        "sections": {
+          "description": "Ordered list of control sections to display",
+          "default": [],
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ControlSection"
+          }
+        },
+        "show_header": {
+          "description": "Whether to show the device header with name/status",
+          "default": true,
+          "type": "boolean"
+        },
+        "width": {
+          "description": "Width hint for the panel (pixels, 0 = auto)",
+          "default": 0,
+          "type": "integer",
+          "format": "uint16",
+          "minimum": 0.0
+        }
+      },
+      "additionalProperties": false
+    },
+    "ControlSection": {
+      "description": "A control section in the device control panel.\n\nUses tagged union for different section types.",
+      "oneOf": [
+        {
+          "description": "Motion control section with position display and jog buttons",
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "jog_steps": {
+              "description": "Jog step sizes available (e.g., [0.1, 1.0, 10.0])",
+              "default": [
+                0.1,
+                1.0,
+                10.0
+              ],
+              "type": "array",
+              "items": {
+                "type": "number",
+                "format": "double"
+              }
+            },
+            "label": {
+              "description": "Section label",
+              "default": "Position",
+              "type": "string"
+            },
+            "precision": {
+              "description": "Position display precision (decimal places)",
+              "default": 3,
+              "type": "integer",
+              "format": "uint8",
+              "minimum": 0.0
+            },
+            "show_home": {
+              "description": "Show home button",
+              "default": false,
+              "type": "boolean"
+            },
+            "show_jog": {
+              "description": "Show jog buttons (+/- step movement)",
+              "default": true,
+              "type": "boolean"
+            },
+            "show_stop": {
+              "description": "Show stop button",
+              "default": true,
+              "type": "boolean"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "motion"
+              ]
+            },
+            "unit": {
+              "description": "Unit label for position display",
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        {
+          "description": "Preset position buttons",
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "label": {
+              "description": "Section label",
+              "default": "Presets",
+              "type": "string"
+            },
+            "presets": {
+              "description": "Preset values (position or parameter value)",
+              "default": [],
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/PresetValue"
+              }
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "preset_buttons"
+              ]
+            },
+            "vertical": {
+              "description": "Arrange buttons vertically instead of horizontally",
+              "default": false,
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "description": "Custom action button (triggers a command)",
+          "type": "object",
+          "required": [
+            "command",
+            "label",
+            "type"
+          ],
+          "properties": {
+            "command": {
+              "description": "Command to execute when clicked",
+              "type": "string"
+            },
+            "confirm": {
+              "description": "Confirmation message (if set, prompts before executing)",
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "label": {
+              "description": "Button label",
+              "type": "string"
+            },
+            "params": {
+              "description": "Optional parameters to pass to the command",
+              "default": {},
+              "type": "object",
+              "additionalProperties": true
+            },
+            "style": {
+              "description": "Button style/color hint",
+              "default": "default",
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ButtonStyle"
+                }
+              ]
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "custom_action"
+              ]
+            }
+          }
+        },
+        {
+          "description": "Camera/frame producer controls",
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "label": {
+              "description": "Section label",
+              "default": "Camera",
+              "type": "string"
+            },
+            "show_binning": {
+              "description": "Show binning control",
+              "default": false,
+              "type": "boolean"
+            },
+            "show_exposure": {
+              "description": "Show exposure control",
+              "default": true,
+              "type": "boolean"
+            },
+            "show_gain": {
+              "description": "Show gain control",
+              "default": false,
+              "type": "boolean"
+            },
+            "show_histogram": {
+              "description": "Show histogram",
+              "default": false,
+              "type": "boolean"
+            },
+            "show_roi": {
+              "description": "Show ROI controls",
+              "default": false,
+              "type": "boolean"
+            },
+            "show_stats": {
+              "description": "Show frame statistics (min/max/mean)",
+              "default": true,
+              "type": "boolean"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "camera"
+              ]
+            }
+          }
+        },
+        {
+          "description": "Shutter control toggle",
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "label": {
+              "description": "Section label",
+              "default": "Shutter",
+              "type": "string"
+            },
+            "toggle_style": {
+              "description": "Show as toggle switch instead of buttons",
+              "default": false,
+              "type": "boolean"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "shutter"
+              ]
+            }
+          }
+        },
+        {
+          "description": "Wavelength tuning control",
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "label": {
+              "description": "Section label",
+              "default": "Wavelength",
+              "type": "string"
+            },
+            "presets": {
+              "description": "Wavelength presets (nm)",
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "number",
+                "format": "double"
+              }
+            },
+            "show_color": {
+              "description": "Show color indicator based on wavelength",
+              "default": true,
+              "type": "boolean"
+            },
+            "show_slider": {
+              "description": "Show wavelength slider",
+              "default": true,
+              "type": "boolean"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "wavelength"
+              ]
+            }
+          }
+        },
+        {
+          "description": "Generic parameter display/edit",
+          "type": "object",
+          "required": [
+            "parameter",
+            "type"
+          ],
+          "properties": {
+            "label": {
+              "description": "Section label",
+              "default": "",
+              "type": "string"
+            },
+            "parameter": {
+              "description": "Parameter name to display/edit",
+              "type": "string"
+            },
+            "read_command": {
+              "description": "Command name to read the parameter value (uses `ExecuteDeviceCommand` RPC). When set, bypasses `GetParameter` and reads via the device's command manifest.",
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "read_only": {
+              "description": "Read-only display (no editing)",
+              "default": false,
+              "type": "boolean"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "parameter"
+              ]
+            },
+            "widget": {
+              "description": "Widget type for editing",
+              "default": "auto",
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ParameterWidget"
+                }
+              ]
+            },
+            "write_command": {
+              "description": "Command name to write the parameter value (uses `ExecuteDeviceCommand` RPC). When set, bypasses `SetParameter` and writes via the device's command manifest.",
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "write_param": {
+              "description": "Parameter name in the write command template (default: \"value\").",
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        {
+          "description": "Read-only status display",
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "compact": {
+              "description": "Show as compact inline display",
+              "default": false,
+              "type": "boolean"
+            },
+            "label": {
+              "description": "Section label",
+              "default": "",
+              "type": "string"
+            },
+            "parameters": {
+              "description": "Parameters to display as status",
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "status_display"
+              ]
+            }
+          }
+        },
+        {
+          "description": "Power meter / sensor reading display",
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "label": {
+              "description": "Section label",
+              "default": "Reading",
+              "type": "string"
+            },
+            "precision": {
+              "description": "Display precision (decimal places)",
+              "default": 3,
+              "type": "integer",
+              "format": "uint8",
+              "minimum": 0.0
+            },
+            "refresh_ms": {
+              "description": "Auto-refresh interval (milliseconds, 0 = manual)",
+              "default": 0,
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            "show_trend": {
+              "description": "Show trend graph",
+              "default": false,
+              "type": "boolean"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "sensor"
+              ]
+            },
+            "unit": {
+              "description": "Unit label",
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        {
+          "description": "Separator/spacer between sections",
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "height": {
+              "description": "Height in pixels (0 = default)",
+              "default": 0,
+              "type": "integer",
+              "format": "uint8",
+              "minimum": 0.0
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "separator"
+              ]
+            },
+            "visible": {
+              "description": "Show visible line",
+              "default": true,
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "description": "Custom section with user-defined widgets",
+          "type": "object",
+          "required": [
+            "type",
+            "widget"
+          ],
+          "properties": {
+            "config": {
+              "description": "Widget-specific configuration",
+              "default": {},
+              "type": "object",
+              "additionalProperties": true
+            },
+            "label": {
+              "description": "Section label",
+              "default": "",
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "custom"
+              ]
+            },
+            "widget": {
+              "description": "Custom widget identifier",
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
     "ConversionConfig": {
       "description": "Unit conversion formula configuration.\n\nUses `evalexpr` syntax for expression evaluation.",
       "type": "object",
@@ -482,6 +1512,111 @@
         "formula": {
           "description": "Conversion formula expression.\n\nSupports arithmetic: `+`, `-`, `*`, `/`, `%` Supports functions: `round()`, `floor()`, `ceil()`, `abs()` Supports variables from parameters.\n\nExample: `round(degrees * pulses_per_degree)`",
           "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "CrcAlgorithm": {
+      "description": "Supported CRC algorithms.",
+      "oneOf": [
+        {
+          "description": "CRC-16 Modbus (polynomial 0x8005, init 0xFFFF, reflect in/out)",
+          "type": "string",
+          "enum": [
+            "crc16_modbus"
+          ]
+        },
+        {
+          "description": "CRC-16 CCITT (polynomial 0x1021, init 0xFFFF)",
+          "type": "string",
+          "enum": [
+            "crc16_ccitt"
+          ]
+        },
+        {
+          "description": "CRC-16 CCITT with init 0x0000 (X.25)",
+          "type": "string",
+          "enum": [
+            "crc16_ccitt_false"
+          ]
+        },
+        {
+          "description": "CRC-16 XMODEM (polynomial 0x1021, init 0x0000)",
+          "type": "string",
+          "enum": [
+            "crc16_xmodem"
+          ]
+        },
+        {
+          "description": "CRC-32 (Ethernet, ZIP)",
+          "type": "string",
+          "enum": [
+            "crc32"
+          ]
+        },
+        {
+          "description": "CRC-32C (Castagnoli, iSCSI)",
+          "type": "string",
+          "enum": [
+            "crc32_c"
+          ]
+        },
+        {
+          "description": "Simple 8-bit checksum (sum of bytes mod 256)",
+          "type": "string",
+          "enum": [
+            "checksum8"
+          ]
+        },
+        {
+          "description": "XOR of all bytes",
+          "type": "string",
+          "enum": [
+            "xor8"
+          ]
+        },
+        {
+          "description": "Longitudinal Redundancy Check (XOR of all bytes)",
+          "type": "string",
+          "enum": [
+            "lrc"
+          ]
+        }
+      ]
+    },
+    "CrcConfig": {
+      "description": "CRC configuration for binary protocols.",
+      "type": "object",
+      "required": [
+        "algorithm"
+      ],
+      "properties": {
+        "algorithm": {
+          "description": "CRC algorithm to use",
+          "allOf": [
+            {
+              "$ref": "#/definitions/CrcAlgorithm"
+            }
+          ]
+        },
+        "append": {
+          "description": "Whether to append CRC to outgoing frames",
+          "default": true,
+          "type": "boolean"
+        },
+        "byte_order": {
+          "description": "Byte order for multi-byte CRC values",
+          "default": "little_endian",
+          "allOf": [
+            {
+              "$ref": "#/definitions/ByteOrder"
+            }
+          ]
+        },
+        "validate": {
+          "description": "Whether to validate CRC on incoming frames",
+          "default": true,
+          "type": "boolean"
         }
       },
       "additionalProperties": false
@@ -618,9 +1753,70 @@
           "description": "Whether this error is recoverable",
           "default": false,
           "type": "boolean"
+        },
+        "recovery_action": {
+          "description": "Suggested recovery action",
+          "default": null,
+          "anyOf": [
+            {
+              "$ref": "#/definitions/RecoveryAction"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "severity": {
+          "description": "Error severity level",
+          "default": "error",
+          "allOf": [
+            {
+              "$ref": "#/definitions/ErrorSeverity"
+            }
+          ]
         }
       },
       "additionalProperties": false
+    },
+    "ErrorSeverity": {
+      "description": "Error severity levels.",
+      "oneOf": [
+        {
+          "description": "Informational - operation may still succeed",
+          "type": "string",
+          "enum": [
+            "info"
+          ]
+        },
+        {
+          "description": "Warning - operation succeeded with caveats",
+          "type": "string",
+          "enum": [
+            "warning"
+          ]
+        },
+        {
+          "description": "Error - operation failed but device is OK",
+          "type": "string",
+          "enum": [
+            "error"
+          ]
+        },
+        {
+          "description": "Critical - device may be in bad state, requires attention",
+          "type": "string",
+          "enum": [
+            "critical"
+          ]
+        },
+        {
+          "description": "Fatal - device unusable until power cycle/reset",
+          "type": "string",
+          "enum": [
+            "fatal"
+          ]
+        }
+      ]
     },
     "FieldType": {
       "description": "Data types for response fields.",
@@ -758,6 +1954,77 @@
         "hardware"
       ]
     },
+    "InitStep": {
+      "description": "A single step in the device initialization sequence.",
+      "type": "object",
+      "required": [
+        "command"
+      ],
+      "properties": {
+        "command": {
+          "description": "Name of the command to execute",
+          "type": "string"
+        },
+        "delay_ms": {
+          "description": "Delay after this step (milliseconds)",
+          "default": 0,
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "description": {
+          "description": "Human-readable description",
+          "default": "",
+          "type": "string"
+        },
+        "expect": {
+          "description": "Expected response pattern for validation (optional)",
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "params": {
+          "description": "Optional parameters for the command",
+          "default": {},
+          "type": "object",
+          "additionalProperties": true
+        },
+        "required": {
+          "description": "Whether to fail initialization if this step fails",
+          "default": true,
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "PanelLayout": {
+      "description": "Panel layout direction.",
+      "oneOf": [
+        {
+          "description": "Sections stacked vertically (default)",
+          "type": "string",
+          "enum": [
+            "vertical"
+          ]
+        },
+        {
+          "description": "Sections arranged horizontally",
+          "type": "string",
+          "enum": [
+            "horizontal"
+          ]
+        },
+        {
+          "description": "Grid layout with configurable columns",
+          "type": "string",
+          "enum": [
+            "grid"
+          ]
+        }
+      ]
+    },
     "ParameterConfig": {
       "description": "Device parameter definition.",
       "type": "object",
@@ -890,6 +2157,53 @@
         }
       ]
     },
+    "ParameterWidget": {
+      "description": "Widget type for parameter editing.",
+      "oneOf": [
+        {
+          "description": "Automatic based on parameter type",
+          "type": "string",
+          "enum": [
+            "auto"
+          ]
+        },
+        {
+          "description": "Text input field",
+          "type": "string",
+          "enum": [
+            "text_input"
+          ]
+        },
+        {
+          "description": "Numeric slider",
+          "type": "string",
+          "enum": [
+            "slider"
+          ]
+        },
+        {
+          "description": "Numeric spinner with +/- buttons",
+          "type": "string",
+          "enum": [
+            "spinner"
+          ]
+        },
+        {
+          "description": "Toggle switch (for booleans)",
+          "type": "string",
+          "enum": [
+            "toggle"
+          ]
+        },
+        {
+          "description": "Dropdown/combo box (for enums/choices)",
+          "type": "string",
+          "enum": [
+            "dropdown"
+          ]
+        }
+      ]
+    },
     "ParitySetting": {
       "description": "Parity bit setting.",
       "type": "string",
@@ -898,6 +2212,68 @@
         "odd",
         "even"
       ]
+    },
+    "PresetValue": {
+      "description": "A preset button value with optional label.",
+      "anyOf": [
+        {
+          "description": "Simple numeric preset",
+          "type": "number",
+          "format": "double"
+        },
+        {
+          "description": "Labeled preset with value",
+          "type": "object",
+          "required": [
+            "label",
+            "value"
+          ],
+          "properties": {
+            "label": {
+              "type": "string"
+            },
+            "value": {
+              "type": "number",
+              "format": "double"
+            }
+          }
+        }
+      ]
+    },
+    "RecoveryAction": {
+      "description": "Recovery actions for errors.",
+      "type": "object",
+      "properties": {
+        "auto_recover": {
+          "description": "Whether to attempt automatic recovery",
+          "default": false,
+          "type": "boolean"
+        },
+        "command": {
+          "description": "Command to execute for recovery (optional)",
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "delay_ms": {
+          "description": "Delay before attempting recovery (milliseconds)",
+          "default": 0,
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "manual_instructions": {
+          "description": "Human-readable instructions for manual recovery",
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
     },
     "ResponseConfig": {
       "description": "Definition of a response parsing pattern.",
@@ -979,6 +2355,167 @@
       },
       "additionalProperties": false
     },
+    "RetryConfig": {
+      "description": "Retry configuration for commands.\n\nDefines how failed commands should be retried with exponential backoff.",
+      "type": "object",
+      "properties": {
+        "backoff_multiplier": {
+          "description": "Multiplier for exponential backoff (e.g., 2.0 = double delay each retry)",
+          "default": 2.0,
+          "type": "number",
+          "format": "double"
+        },
+        "initial_delay_ms": {
+          "description": "Initial delay before first retry (milliseconds)",
+          "default": 100,
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "max_delay_ms": {
+          "description": "Maximum delay between retries (milliseconds)",
+          "default": 5000,
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "max_retries": {
+          "description": "Maximum number of retry attempts (0 = no retries)",
+          "default": 3,
+          "type": "integer",
+          "format": "uint8",
+          "minimum": 0.0
+        },
+        "no_retry_on_errors": {
+          "description": "Error codes that should NOT trigger a retry (takes precedence over retry_on_errors)",
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "retry_on_errors": {
+          "description": "Error codes that should trigger a retry (if empty, retries on any error)",
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "ScriptDefinition": {
+      "description": "Rhai script definition for complex device operations.\n\nScripts extend the declarative config system for edge cases that can't be expressed as simple command/response patterns. Use sparingly - prefer declarative definitions when possible.\n\n# Example\n\n```toml [scripts.safe_move_with_correction] description = \"Move with automatic overshoot correction\" timeout_ms = 15000 script = \"\"\" let target = input; driver.move_abs(target); driver.wait_settled(); let actual = driver.position(); if abs(actual - target) > 1.0 { driver.move_abs(target);  // Correction move } actual \"\"\" ```",
+      "type": "object",
+      "required": [
+        "script"
+      ],
+      "properties": {
+        "description": {
+          "description": "Human-readable description of what the script does",
+          "default": "",
+          "type": "string"
+        },
+        "inputs": {
+          "description": "Names of input parameters the script expects (for documentation/validation)",
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "returns": {
+          "description": "Expected return type for documentation (string, float, bool, none)",
+          "default": "none",
+          "allOf": [
+            {
+              "$ref": "#/definitions/ScriptReturnType"
+            }
+          ]
+        },
+        "script": {
+          "description": "Rhai script source code",
+          "type": "string"
+        },
+        "timeout_ms": {
+          "description": "Execution timeout in milliseconds (default: 30000 = 30 seconds)",
+          "default": 30000,
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        }
+      },
+      "additionalProperties": false
+    },
+    "ScriptReturnType": {
+      "description": "Expected return type of a script.",
+      "oneOf": [
+        {
+          "description": "Script returns nothing (unit type)",
+          "type": "string",
+          "enum": [
+            "none"
+          ]
+        },
+        {
+          "description": "Script returns a string",
+          "type": "string",
+          "enum": [
+            "string"
+          ]
+        },
+        {
+          "description": "Script returns a floating-point number",
+          "type": "string",
+          "enum": [
+            "float"
+          ]
+        },
+        {
+          "description": "Script returns a boolean",
+          "type": "string",
+          "enum": [
+            "bool"
+          ]
+        },
+        {
+          "description": "Script returns an integer",
+          "type": "string",
+          "enum": [
+            "int"
+          ]
+        }
+      ]
+    },
+    "StatusDisplayConfig": {
+      "description": "Status display configuration (outside control panel).",
+      "type": "object",
+      "properties": {
+        "show_connection": {
+          "description": "Show connection status indicator",
+          "default": true,
+          "type": "boolean"
+        },
+        "summary_format": {
+          "description": "Format string for summary (uses parameter names)",
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "summary_params": {
+          "description": "Parameters to show in device tree summary",
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
     "TraitMappingConfig": {
       "description": "Mapping from capability trait methods to device commands.\n\nThis struct uses `#[serde(flatten)]` to capture trait method mappings, so we cannot use `deny_unknown_fields`.",
       "type": "object"
@@ -986,13 +2523,14 @@
     "TraitMethodMapping": {
       "description": "Mapping for a single trait method.",
       "type": "object",
-      "required": [
-        "command"
-      ],
       "properties": {
         "command": {
-          "description": "Name of the command to execute",
-          "type": "string"
+          "description": "Name of the command to execute (optional for polling-only or script-based methods)",
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "from_param": {
           "description": "Name of the trait method parameter (input)",
@@ -1052,6 +2590,14 @@
           "format": "uint32",
           "minimum": 0.0
         },
+        "script": {
+          "description": "Name of the script to execute (alternative to command for complex logic)\n\nWhen set, the script is executed instead of the command. The script receives `input` as the input parameter and should return the result.",
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "success_condition": {
           "description": "For polling: success condition expression",
           "default": null,
@@ -1069,6 +2615,61 @@
           ],
           "format": "uint32",
           "minimum": 0.0
+        }
+      },
+      "additionalProperties": false
+    },
+    "UiConfig": {
+      "description": "Top-level UI configuration for a device.\n\nDefines how the device should be displayed and controlled in the GUI.\n\n# Example\n\n```toml [ui] icon = \"laser\" color = \"#FF5733\"\n\n[ui.control_panel] layout = \"vertical\" sections = [ { type = \"motion\", label = \"Position\", show_jog = true }, { type = \"preset_buttons\", label = \"Presets\", presets = [0.0, 45.0, 90.0] }, ] ```",
+      "type": "object",
+      "properties": {
+        "color": {
+          "description": "Color for the device in hex format (e.g., \"#FF5733\")",
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "control_panel": {
+          "description": "Control panel configuration",
+          "default": null,
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ControlPanelConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "icon": {
+          "description": "Icon identifier for the device (e.g., \"laser\", \"motor\", \"camera\")",
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "panel_kind": {
+          "description": "Explicit panel routing hint for the UI (see `common::panel_kind` constants).\n\nWhen set, the UI dispatches directly to the named panel without capability heuristics. Recognized values: \"pvcam\", \"andor_camera\", \"andor_shamrock\", \"comedi\", \"dover_stage\", \"maitai\", \"power_meter\", \"rotator\", \"stage\", \"generic\".",
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status_display": {
+          "description": "Status display configuration",
+          "default": null,
+          "anyOf": [
+            {
+              "$ref": "#/definitions/StatusDisplayConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "additionalProperties": false
