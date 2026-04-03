@@ -422,7 +422,10 @@ pub fn release_oldest_frame(hcam: i16) -> bool {
 /// - `Some(ptr)` - valid md_frame pointer (must be released with `release_md_frame`)
 /// - `None` if creation failed
 pub fn create_md_frame(roi_count: u16) -> Option<*mut md_frame> {
-    debug_assert!(roi_count > 0, "ROI count must be positive");
+    if roi_count == 0 {
+        tracing::error!("create_md_frame called with roi_count=0");
+        return None;
+    }
     let mut ptr: *mut md_frame = std::ptr::null_mut();
 
     // SAFETY: ptr is a valid stack allocation, roi_count is validated
