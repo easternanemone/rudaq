@@ -31,7 +31,6 @@ impl<T> Tee<T> {
     }
 }
 
-#[async_trait]
 impl<T> MeasurementSink for Tee<T>
 where
     T: Send + Clone + 'static,
