@@ -948,21 +948,17 @@ impl AndorSpectrograph {
         param.connect_to_hardware_write(move |grating: Grating| {
             Box::pin(async move {
                 let grating_index = grating as i32;
-                tokio::task::spawn_blocking(move || {
+                crate::ffi_timeout::ffi_call_daq(move || {
                     use crate::error::sdk_result;
                     // SAFETY: handle is valid from initialization.
                     // grating_index is a valid Grating enum value cast to i32.
-                    // spawn_blocking moves the FFI call off the async runtime to avoid blocking.
-                    // It does not serialize concurrent calls.
                     unsafe {
                         let ret = ShamrockSetGrating(handle, grating_index);
                         sdk_result(ret)?;
-                        Ok::<(), anyhow::Error>(())
+                        Ok(())
                     }
-                })
+                }, crate::ffi_timeout::FFI_MOTION_TIMEOUT, "set_grating")
                 .await
-                .map_err(|e| DaqError::Instrument(format!("spawn_blocking: {e}")))?
-                .map_err(|e| DaqError::Instrument(e.to_string()))
             })
         });
     }
