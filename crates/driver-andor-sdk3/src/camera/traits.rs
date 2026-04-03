@@ -482,7 +482,7 @@ impl AndorCamera {
                 }
             }
 
-            let requeue_result = tokio::task::spawn_blocking({
+            let requeue_result = crate::ffi_timeout::ffi_call({
                 let sdk_buffers = sdk_buffers.clone();
                 move || -> Result<()> {
                     use crate::error::sdk_result;
@@ -503,7 +503,7 @@ impl AndorCamera {
                     }
                     Ok(())
                 }
-            })
+            }, crate::ffi_timeout::FFI_QUERY_TIMEOUT, "acq_loop:requeue_buffer")
             .await;
 
             if let Err(e) = requeue_result {
