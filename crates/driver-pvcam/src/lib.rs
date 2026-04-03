@@ -1383,17 +1383,20 @@ impl PvcamDriver {
                                     let conn = conn.clone();
                                     Box::pin(async move {
                                         let conn_guard = conn.lock_owned().await;
-                                        tokio::task::spawn_blocking(move || {
-                                            PvcamFeatures::set_pp_param(
-                                                &conn_guard,
-                                                feature_index,
-                                                param_index,
-                                                u32::from(val),
-                                            )
-                                            .map_err(|e| DaqError::Instrument(e.to_string()))
-                                        })
+                                        ffi_timeout::ffi_with_timeout_daq(
+                                            "set_pp_param(bool)",
+                                            ffi_timeout::CONFIG_TIMEOUT,
+                                            move || {
+                                                PvcamFeatures::set_pp_param(
+                                                    &conn_guard,
+                                                    feature_index,
+                                                    param_index,
+                                                    u32::from(val),
+                                                )
+                                                .map_err(|e| DaqError::Instrument(e.to_string()))
+                                            },
+                                        )
                                         .await
-                                        .map_err(|e| DaqError::Instrument(e.to_string()))?
                                     })
                                 }
                             });
@@ -1411,17 +1414,20 @@ impl PvcamDriver {
                                     let conn = conn.clone();
                                     Box::pin(async move {
                                         let conn_guard = conn.lock_owned().await;
-                                        tokio::task::spawn_blocking(move || {
-                                            PvcamFeatures::set_pp_param(
-                                                &conn_guard,
-                                                feature_index,
-                                                param_index,
-                                                val,
-                                            )
-                                            .map_err(|e| DaqError::Instrument(e.to_string()))
-                                        })
+                                        ffi_timeout::ffi_with_timeout_daq(
+                                            "set_pp_param(u32)",
+                                            ffi_timeout::CONFIG_TIMEOUT,
+                                            move || {
+                                                PvcamFeatures::set_pp_param(
+                                                    &conn_guard,
+                                                    feature_index,
+                                                    param_index,
+                                                    val,
+                                                )
+                                                .map_err(|e| DaqError::Instrument(e.to_string()))
+                                            },
+                                        )
                                         .await
-                                        .map_err(|e| DaqError::Instrument(e.to_string()))?
                                     })
                                 }
                             });
