@@ -63,7 +63,7 @@ fn generate_demo_frame(n: u64) -> FrameData {
                 * (fy * 3.0 * std::f64::consts::PI + t * 0.7).cos()
                 + 1.0)
                 * 0.5;
-            let noise = rng.gen::<f64>() * 0.03;
+            let noise = rng.r#gen::<f64>() * 0.03;
             data.push(((v + noise) * 65535.0).clamp(0.0, 65535.0) as u16);
         }
     }
