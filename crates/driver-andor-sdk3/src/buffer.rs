@@ -79,7 +79,9 @@ impl AlignedBuffer {
     /// (i.e., this buffer is not queued or has been returned by WaitBuffer).
     #[inline]
     pub unsafe fn as_slice(&self) -> &[u8] {
-        std::slice::from_raw_parts(self.ptr.as_ptr(), self.size)
+        // SAFETY: ptr is valid for `size` bytes (allocated in new()), properly aligned,
+        // and caller ensures SDK is not writing to this buffer.
+        unsafe { std::slice::from_raw_parts(self.ptr.as_ptr(), self.size) }
     }
 }
 
