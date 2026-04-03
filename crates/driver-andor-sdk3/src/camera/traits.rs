@@ -269,7 +269,7 @@ impl FrameProducer for AndorCamera {
         #[cfg(feature = "camera")]
         {
             let handle = self.inner.handle;
-            tokio::task::spawn_blocking(move || -> Result<()> {
+            crate::ffi_timeout::ffi_call(move || -> Result<()> {
                 use crate::error::sdk_result;
                 unsafe {
                     tracing::debug!(sdk_handle = handle, "Issuing AT_Command(AcquisitionStop)");
@@ -285,7 +285,7 @@ impl FrameProducer for AndorCamera {
                     sdk_result(ret)?;
                 }
                 Ok(())
-            })
+            }, crate::ffi_timeout::FFI_ACQ_TIMEOUT, "stop_stream:stop_and_flush")
             .await??;
 
             // Clear stored buffer set (bd-71sq)
