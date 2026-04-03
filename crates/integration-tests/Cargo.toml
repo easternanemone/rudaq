@@ -59,7 +59,7 @@ libs_spirit_driver = []  # Nextest group marker (no cfg usage)
 #
 # In integration-tests, most features serve triple duty:
 #   1. Activate an optional dependency (dep:server, dep:scripting, etc.)
-#   2. Forward feature flags to downstream crates (server/networking, storage/storage_hdf5, etc.)
+#   2. Forward feature flags to downstream crates (storage/storage_hdf5, etc.)
 #   3. Gate #[cfg(feature = "...")] in test files to skip tests when disabled
 # ============================================================================
 server = ["dep:server"]                   # gRPC tests (grpc_server_test, grpc_roundtrip, grpc_config_service_e2e)
