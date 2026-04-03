@@ -114,14 +114,14 @@ impl FrameProducer for AndorCamera {
                         0
                     }
                 }
-            })
+            }, crate::ffi_timeout::FFI_ACQ_TIMEOUT, "start_stream:configure")
             .await
             .unwrap_or(0);
             inner.hw_timestamp_freq.store(hw_ts_freq, Ordering::Relaxed);
 
             // ── Step 2: Read frame dimensions AFTER all configuration is complete.
             let (image_size, aoi_width, aoi_height, aoi_stride, pixel_encoding) =
-                tokio::task::spawn_blocking(move || -> Result<(usize, u32, u32, usize, String)> {
+                crate::ffi_timeout::ffi_call(move || -> Result<(usize, u32, u32, usize, String)> {
                     let img_bytes = Self::get_int_feature(handle, "ImageSizeBytes")? as usize;
                     let w = Self::get_int_feature(handle, "AOIWidth")? as u32;
                     let h = Self::get_int_feature(handle, "AOIHeight")? as u32;
