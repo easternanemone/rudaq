@@ -38,9 +38,15 @@ pub fn restart_acquisition(
     circ_ptr: *mut u8,
     circ_size_bytes: u32,
 ) -> Result<(), String> {
-    debug_assert!(hcam >= 0, "Invalid camera handle: {}", hcam);
-    debug_assert!(!circ_ptr.is_null(), "Circular buffer pointer is null");
-    debug_assert!(circ_size_bytes > 0, "Circular buffer size must be > 0");
+    if hcam < 0 {
+        return Err(format!("Invalid camera handle: {hcam}"));
+    }
+    if circ_ptr.is_null() {
+        return Err("Circular buffer pointer is null".to_string());
+    }
+    if circ_size_bytes == 0 {
+        return Err("Circular buffer size must be > 0".to_string());
+    }
 
     // SAFETY: Caller guarantees hcam is valid, circ_ptr is valid page-aligned buffer
     let result = unsafe { pl_exp_start_cont(hcam, circ_ptr as *mut _, circ_size_bytes) };
