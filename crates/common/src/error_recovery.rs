@@ -347,13 +347,14 @@ pub trait Resettable<E> {
 /// # Example
 ///
 /// ```rust,ignore
-/// use common::error_recovery::{handle_recoverable_error, RetryPolicy};
+/// use common::error_recovery::{handle_recoverable_error, RetryPolicy, BackoffStrategy};
 /// use std::time::Duration;
 ///
 /// let mut connection = SerialConnection::new();
 /// let policy = RetryPolicy {
 ///     max_attempts: 5,
 ///     backoff_delay: Duration::from_millis(500),
+///     backoff_strategy: BackoffStrategy::Constant,
 /// };
 ///
 /// handle_recoverable_error(&mut connection, &policy).await?;
