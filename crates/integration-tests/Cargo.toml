@@ -66,7 +66,6 @@ server = ["dep:server"]                   # gRPC tests (grpc_server_test, grpc_r
 scripting = ["dep:scripting"]             # e2e_script_execution, grpc tests with scripting
 universal = ["dep:driver-universal"]      # hardware_universal_driver_validation tests
 gui_egui = ["ui/standalone"]              # gui_logic_test, gui_visual_test, gui_camera_test
-networking = ["server/networking"]        # grpc_api_test, grpc_server_smoke
 storage_hdf5 = ["dep:hdf5", "storage/storage_hdf5", "server/storage_hdf5"]  # data_pipeline/hdf5_tests, full_pipeline
 storage_arrow = ["storage/storage_arrow", "server/storage_arrow", "common/storage_arrow"]  # data_pipeline, full_pipeline
 pvcam = ["dep:driver-pvcam", "driver-registry/pvcam"]   # pvcam_integration, end_to_end_frames, grpc_camera_test
