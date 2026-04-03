@@ -59,7 +59,7 @@ hyper = { version = "0.14", features = ["server", "http1", "tcp"], optional = tr
 
 [features]
 # Simplified feature flags (bd-0aqw)
-default = ["modules", "server", "networking", "scripting", "alerting"]
+default = ["modules", "server", "scripting", "alerting"]
 
 # ============================================================================
 # CRATE-SPECIFIC (activate optional deps or gate code within server itself)
