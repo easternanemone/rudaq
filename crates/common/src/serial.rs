@@ -191,8 +191,7 @@ pub fn open_serial_sync(
     use anyhow::Context;
 
     let port = serial2_tokio::SerialPort::open(port_path, baud_rate).context(format!(
-        "Failed to open {} serial port: {}",
-        device_name, port_path
+        "Failed to open {device_name} serial port: {port_path}"
     ))?;
 
     Ok(Box::new(port))
@@ -238,8 +237,7 @@ pub async fn open_serial_async(
 
     let port = spawn_blocking(move || {
         serial2_tokio::SerialPort::open(&port_path_owned, baud_rate).context(format!(
-            "Failed to open {} serial port: {}",
-            device_name_owned, port_path_owned
+            "Failed to open {device_name_owned} serial port: {port_path_owned}"
         ))
     })
     .await
@@ -265,11 +263,9 @@ pub async fn open_serial_async_with_flow_control(
     let device_name_owned = device_name.to_string();
 
     let port = spawn_blocking(move || {
-        let mut port =
-            serial2_tokio::SerialPort::open(&port_path_owned, baud_rate).context(format!(
-                "Failed to open {} serial port: {}",
-                device_name_owned, port_path_owned
-            ))?;
+        let mut port = serial2_tokio::SerialPort::open(&port_path_owned, baud_rate).context(
+            format!("Failed to open {device_name_owned} serial port: {port_path_owned}"),
+        )?;
         let mut settings = port
             .get_configuration()
             .context("Failed to read serial settings")?;
@@ -450,7 +446,7 @@ mod tests {
             Ok(Ok(_)) => panic!("Expected no data, but read some"),
             Err(_) => {} // Timeout is expected
             Ok(Err(e)) if e.kind() == std::io::ErrorKind::WouldBlock => {} // No data available
-            Ok(Err(e)) => panic!("Unexpected error: {}", e),
+            Ok(Err(e)) => panic!("Unexpected error: {e}"),
         }
     }
 }

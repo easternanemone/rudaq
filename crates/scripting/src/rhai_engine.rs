@@ -161,11 +161,7 @@ impl RhaiEngine {
         engine.on_progress(move |count| {
             if count > max_operations {
                 return Some(
-                    format!(
-                        "Safety limit exceeded: maximum {} operations",
-                        max_operations
-                    )
-                    .into(),
+                    format!("Safety limit exceeded: maximum {max_operations} operations").into(),
                 );
             }
 
@@ -347,11 +343,7 @@ impl RhaiEngine {
         engine.on_progress(move |count| {
             if count > max_operations {
                 return Some(
-                    format!(
-                        "Safety limit exceeded: maximum {} operations",
-                        max_operations
-                    )
-                    .into(),
+                    format!("Safety limit exceeded: maximum {max_operations} operations").into(),
                 );
             }
 
@@ -575,14 +567,14 @@ impl RhaiEngine {
     fn convert_rhai_error(err: Box<EvalAltResult>) -> ScriptError {
         match *err {
             EvalAltResult::ErrorParsing(parse_error, pos) => ScriptError::SyntaxError {
-                message: format!("{} at position {}", parse_error, pos),
+                message: format!("{parse_error} at position {pos}"),
             },
             EvalAltResult::ErrorRuntime(msg, pos) => ScriptError::RuntimeError {
-                message: format!("{} at position {}", msg, pos),
+                message: format!("{msg} at position {pos}"),
                 backtrace: None,
             },
             EvalAltResult::ErrorVariableNotFound(name, pos) => ScriptError::VariableNotFound {
-                name: format!("{} at position {}", name, pos),
+                name: format!("{name} at position {pos}"),
             },
             other => ScriptError::RuntimeError {
                 message: other.to_string(),
@@ -610,7 +602,7 @@ impl ScriptEngine for RhaiEngine {
         })
         .await
         .map_err(|e| ScriptError::AsyncError {
-            message: format!("Task join error: {}", e),
+            message: format!("Task join error: {e}"),
         })?
     }
 
@@ -622,13 +614,13 @@ impl ScriptEngine for RhaiEngine {
             engine
                 .compile(&script)
                 .map_err(|parse_error| ScriptError::SyntaxError {
-                    message: format!("Parse error: {}", parse_error),
+                    message: format!("Parse error: {parse_error}"),
                 })?;
             Ok(())
         })
         .await
         .map_err(|e| ScriptError::AsyncError {
-            message: format!("Task join error: {}", e),
+            message: format!("Task join error: {e}"),
         })?
     }
 
@@ -652,7 +644,7 @@ impl ScriptEngine for RhaiEngine {
         // that calls Engine::register_fn() before wrapping in Arc.
         Err(ScriptError::FunctionRegistrationError {
             message: format!(
-                "Cannot register Rhai function '{}' via generic interface. \n\
+                "Cannot register Rhai function '{name}' via generic interface. \n\
                  \n\
                  Rhai requires compile-time type information for function registration.\n\
                  \n\
@@ -668,8 +660,7 @@ impl ScriptEngine for RhaiEngine {
                      engine.register_fn(\"my_function\", |x: i64| x * 2);\n\
                      Ok(Self {{ engine: Arc::new(engine), scope: Arc::new(Mutex::new(Scope::new())) }})\n\
                  }}\n\
-                 ```",
-                name
+                 ```"
             ),
         })
     }
@@ -812,8 +803,7 @@ mod tests {
         let result = engine.execute_script(script).await;
         assert!(
             result.is_err(),
-            "Expected safety limit error, got: {:?}",
-            result
+            "Expected safety limit error, got: {result:?}"
         );
 
         if let Err(e) = result {
@@ -824,8 +814,7 @@ mod tests {
                     || err_msg.contains("10,000")
                     || err_msg.contains("progress")
                     || err_msg.contains("terminated"), // Rhai's safety callback message
-                "Error message should mention safety limit, progress, or terminated, got: {}",
-                err_msg
+                "Error message should mention safety limit, progress, or terminated, got: {err_msg}"
             );
         }
     }
@@ -850,8 +839,7 @@ mod tests {
         let err_msg = result.unwrap_err().to_string();
         assert!(
             err_msg.contains("timed out") || err_msg.contains("terminated"),
-            "Error should mention timeout: {}",
-            err_msg
+            "Error should mention timeout: {err_msg}"
         );
     }
 

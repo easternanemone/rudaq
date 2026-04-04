@@ -493,7 +493,7 @@ impl Module for VirtualConfocalSlit {
                 Ok(Err(e)) => {
                     warn!("VirtualConfocalSlit task panicked: {}", e);
                     self.state = ModuleState::Error;
-                    return Err(anyhow!("Acquisition task panicked: {}", e));
+                    return Err(anyhow!("Acquisition task panicked: {e}"));
                 }
                 Err(_) => {
                     warn!("VirtualConfocalSlit task did not stop within 5s");

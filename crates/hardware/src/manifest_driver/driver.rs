@@ -226,7 +226,7 @@ impl GenericDriver {
             .iter()
             .map(|pattern| Regex::new(pattern))
             .collect::<Result<Vec<Regex>, regex::Error>>()
-            .map_err(|e| anyhow!("Failed to compile error regex: {}", e))?;
+            .map_err(|e| anyhow!("Failed to compile error regex: {e}"))?;
 
         let termination_bytes = config.protocol.termination.as_bytes().to_vec();
 
@@ -332,7 +332,7 @@ impl GenericDriver {
         // Check for error patterns
         for pattern in &self.error_patterns {
             if pattern.is_match(&response_str) {
-                return Err(anyhow!("Instrument reported error: {}", response_str));
+                return Err(anyhow!("Instrument reported error: {response_str}"));
             }
         }
 
@@ -455,32 +455,20 @@ impl GenericDriver {
             .replace("\x00INT\x00", "(?P<val>[+-]?\\d+)")
             .replace("\x00VAL\x00", "(?P<val>.*?)");
 
-        let full_regex_pattern = format!("^{}$", regex_pattern_str); // Ensure full string match
-        let regex = Regex::new(&full_regex_pattern).map_err(|e| {
-            anyhow!(
-                "Failed to compile parsing regex '{}': {}",
-                full_regex_pattern,
-                e
-            )
-        })?;
+        let full_regex_pattern = format!("^{regex_pattern_str}$"); // Ensure full string match
+        let regex = Regex::new(&full_regex_pattern)
+            .map_err(|e| anyhow!("Failed to compile parsing regex '{full_regex_pattern}': {e}"))?;
 
         let captures = regex.captures(response).ok_or_else(|| {
             anyhow!(
-                "Response '{}' did not match pattern '{}' (regex: {})",
-                response,
-                pattern,
-                full_regex_pattern
+                "Response '{response}' did not match pattern '{pattern}' (regex: {full_regex_pattern})"
             )
         })?;
 
         let captured_val_str = captures
             .name("val")
             .ok_or_else(|| {
-                anyhow!(
-                    "Pattern '{}' did not capture 'val' group in response '{}'",
-                    pattern,
-                    response
-                )
+                anyhow!("Pattern '{pattern}' did not capture 'val' group in response '{response}'")
             })?
             .as_str();
 
@@ -530,16 +518,13 @@ impl GenericDriver {
             .iter()
             .find(|cap| cap.name == capability_name)
             .ok_or_else(|| {
-                anyhow!(
-                    "Readable capability '{}' not found in config",
-                    capability_name
-                )
+                anyhow!("Readable capability '{capability_name}' not found in config")
             })?;
 
         if is_mocking {
             return GenericDriver::get_mock_value(readable_cap.mock.as_ref())?
                 .as_f64()
-                .ok_or_else(|| anyhow!("Mock value for '{}' is not a float", capability_name));
+                .ok_or_else(|| anyhow!("Mock value for '{capability_name}' is not a float"));
         }
 
         let response = self.execute_command(&readable_cap.command).await?;
@@ -548,7 +533,7 @@ impl GenericDriver {
 
         parsed_value
             .as_f64()
-            .ok_or_else(|| anyhow!("Parsed value for '{}' is not a float", capability_name))
+            .ok_or_else(|| anyhow!("Parsed value for '{capability_name}' is not a float"))
     }
 
     /// Sets a specific named settable capability, optionally for mocking.
@@ -565,10 +550,7 @@ impl GenericDriver {
             .iter()
             .find(|cap| cap.name == capability_name)
             .ok_or_else(|| {
-                anyhow!(
-                    "Settable capability '{}' not found in config",
-                    capability_name
-                )
+                anyhow!("Settable capability '{capability_name}' not found in config")
             })?;
 
         if is_mocking {
@@ -584,7 +566,7 @@ impl GenericDriver {
         fmt_context.insert("val".to_string(), value.to_string());
 
         let command = render_command(&settable_cap.set_cmd, &fmt_context)
-            .map_err(|e| anyhow!("Failed to format command for '{}': {}", capability_name, e))?;
+            .map_err(|e| anyhow!("Failed to format command for '{capability_name}': {e}"))?;
 
         self.execute_command(&command).await?;
         self.state
@@ -603,10 +585,7 @@ impl GenericDriver {
             .iter()
             .find(|cap| cap.name == capability_name)
             .ok_or_else(|| {
-                anyhow!(
-                    "Settable capability '{}' not found in config",
-                    capability_name
-                )
+                anyhow!("Settable capability '{capability_name}' not found in config")
             })?;
 
         if is_mocking {
@@ -618,8 +597,7 @@ impl GenericDriver {
                     return Ok(val.clone());
                 }
                 return Err(anyhow!(
-                    "No mock data or current state for settable '{}'",
-                    capability_name
+                    "No mock data or current state for settable '{capability_name}'"
                 ));
             }
         }
@@ -639,10 +617,7 @@ impl GenericDriver {
         } else {
             let state_read = self.state.read().await;
             state_read.get(capability_name).cloned().ok_or_else(|| {
-                anyhow!(
-                    "Settable '{}' has no get_cmd and no current state.",
-                    capability_name
-                )
+                anyhow!("Settable '{capability_name}' has no get_cmd and no current state.")
             })
         }
     }
@@ -656,10 +631,7 @@ impl GenericDriver {
             .iter()
             .find(|cap| cap.name == capability_name)
             .ok_or_else(|| {
-                anyhow!(
-                    "Switchable capability '{}' not found in config",
-                    capability_name
-                )
+                anyhow!("Switchable capability '{capability_name}' not found in config")
             })?;
 
         if is_mocking {
@@ -687,10 +659,7 @@ impl GenericDriver {
             .iter()
             .find(|cap| cap.name == capability_name)
             .ok_or_else(|| {
-                anyhow!(
-                    "Switchable capability '{}' not found in config",
-                    capability_name
-                )
+                anyhow!("Switchable capability '{capability_name}' not found in config")
             })?;
 
         if is_mocking {
@@ -718,10 +687,7 @@ impl GenericDriver {
             .iter()
             .find(|cap| cap.name == capability_name)
             .ok_or_else(|| {
-                anyhow!(
-                    "Switchable capability '{}' not found in config",
-                    capability_name
-                )
+                anyhow!("Switchable capability '{capability_name}' not found in config")
             })?;
 
         if is_mocking {
@@ -729,7 +695,7 @@ impl GenericDriver {
             return state_read
                 .get(capability_name)
                 .and_then(|v| v.as_bool())
-                .ok_or_else(|| anyhow!("No mock state for switchable '{}'", capability_name));
+                .ok_or_else(|| anyhow!("No mock state for switchable '{capability_name}'"));
         }
 
         if let Some(status_cmd) = &switchable_cap.status_cmd {
@@ -745,11 +711,10 @@ impl GenericDriver {
                 .insert(capability_name.to_string(), parsed_value.clone());
             parsed_value
                 .as_bool()
-                .ok_or_else(|| anyhow!("Parsed status for '{}' is not a boolean", capability_name))
+                .ok_or_else(|| anyhow!("Parsed status for '{capability_name}' is not a boolean"))
         } else {
             Err(anyhow!(
-                "Switchable '{}' has no status_cmd to query state",
-                capability_name
+                "Switchable '{capability_name}' has no status_cmd to query state"
             ))
         }
     }
@@ -767,10 +732,7 @@ impl GenericDriver {
             .iter()
             .find(|cap| cap.name == capability_name)
             .ok_or_else(|| {
-                anyhow!(
-                    "Actionable capability '{}' not found in config",
-                    capability_name
-                )
+                anyhow!("Actionable capability '{capability_name}' not found in config")
             })?;
 
         if is_mocking {
@@ -798,10 +760,7 @@ impl GenericDriver {
             .iter()
             .find(|cap| cap.name == capability_name)
             .ok_or_else(|| {
-                anyhow!(
-                    "Loggable capability '{}' not found in config",
-                    capability_name
-                )
+                anyhow!("Loggable capability '{capability_name}' not found in config")
             })?;
 
         // Try to get from state first (assume cached after first read)
@@ -818,7 +777,7 @@ impl GenericDriver {
             return GenericDriver::get_mock_value(loggable_cap.mock.as_ref())?
                 .as_str()
                 .map(|s| s.to_string())
-                .ok_or_else(|| anyhow!("Mock value for '{}' is not a string", capability_name));
+                .ok_or_else(|| anyhow!("Mock value for '{capability_name}' is not a string"));
         }
 
         let response = self.execute_command(&loggable_cap.cmd).await?;
@@ -832,7 +791,7 @@ impl GenericDriver {
         parsed_value
             .as_str()
             .map(|s| s.to_string())
-            .ok_or_else(|| anyhow!("Parsed value for '{}' is not a string", capability_name))
+            .ok_or_else(|| anyhow!("Parsed value for '{capability_name}' is not a string"))
     }
 
     // =========================================================================
@@ -863,13 +822,13 @@ impl GenericDriver {
             .axes
             .iter()
             .find(|a| a.name == axis_name)
-            .ok_or_else(|| anyhow!("Axis '{}' not found in movable config", axis_name))?;
+            .ok_or_else(|| anyhow!("Axis '{axis_name}' not found in movable config"))?;
 
         if is_mocking {
-            self.state.write().await.insert(
-                format!("axis_{}_position", axis_name),
-                Value::from(position),
-            );
+            self.state
+                .write()
+                .await
+                .insert(format!("axis_{axis_name}_position"), Value::from(position));
             return Ok(());
         }
 
@@ -879,13 +838,13 @@ impl GenericDriver {
         fmt_context.insert("val".to_string(), position.to_string());
 
         let command = render_command(&movable.set_cmd, &fmt_context)
-            .map_err(|e| anyhow!("Failed to format move command: {}", e))?;
+            .map_err(|e| anyhow!("Failed to format move command: {e}"))?;
 
         self.execute_command(&command).await?;
-        self.state.write().await.insert(
-            format!("axis_{}_position", axis_name),
-            Value::from(position),
-        );
+        self.state
+            .write()
+            .await
+            .insert(format!("axis_{axis_name}_position"), Value::from(position));
         Ok(())
     }
 
@@ -924,14 +883,14 @@ impl GenericDriver {
             .axes
             .iter()
             .find(|a| a.name == axis_name)
-            .ok_or_else(|| anyhow!("Axis '{}' not found in movable config", axis_name))?;
+            .ok_or_else(|| anyhow!("Axis '{axis_name}' not found in movable config"))?;
 
         if is_mocking {
             let state_read = self.state.read().await;
             return state_read
-                .get(&format!("axis_{}_position", axis_name))
+                .get(&format!("axis_{axis_name}_position"))
                 .and_then(|v| v.as_f64())
-                .ok_or_else(|| anyhow!("No mock position state for axis '{}'", axis_name));
+                .ok_or_else(|| anyhow!("No mock position state for axis '{axis_name}'"));
         }
 
         // Format and send get command
@@ -939,7 +898,7 @@ impl GenericDriver {
         fmt_context.insert("axis".to_string(), axis_name.to_string());
 
         let command = render_command(&movable.get_cmd, &fmt_context)
-            .map_err(|e| anyhow!("Failed to format get position command: {}", e))?;
+            .map_err(|e| anyhow!("Failed to format get position command: {e}"))?;
 
         let response = self.execute_command(&command).await?;
         let parsed_value =
@@ -947,12 +906,12 @@ impl GenericDriver {
 
         let position = parsed_value
             .as_f64()
-            .ok_or_else(|| anyhow!("Parsed position for axis '{}' is not a float", axis_name))?;
+            .ok_or_else(|| anyhow!("Parsed position for axis '{axis_name}' is not a float"))?;
 
-        self.state.write().await.insert(
-            format!("axis_{}_position", axis_name),
-            Value::from(position),
-        );
+        self.state
+            .write()
+            .await
+            .insert(format!("axis_{axis_name}_position"), Value::from(position));
         Ok(position)
     }
 
@@ -984,10 +943,7 @@ impl GenericDriver {
             tokio::time::sleep(poll_interval).await;
 
             if tokio::time::Instant::now() > deadline {
-                return Err(anyhow!(
-                    "Timeout waiting for axis '{}' to settle",
-                    axis_name
-                ));
+                return Err(anyhow!("Timeout waiting for axis '{axis_name}' to settle"));
             }
 
             let current_position = self.get_axis_position(axis_name, false).await?;
@@ -1040,7 +996,7 @@ impl GenericDriver {
         fmt_context.insert("val".to_string(), seconds.to_string());
 
         let command = render_command(&exposure_cap.set_cmd, &fmt_context)
-            .map_err(|e| anyhow!("Failed to format exposure set command: {}", e))?;
+            .map_err(|e| anyhow!("Failed to format exposure set command: {e}"))?;
 
         self.execute_command(&command).await?;
         self.state
@@ -1239,12 +1195,7 @@ impl GenericDriver {
             .scriptable
             .iter()
             .find(|s| s.name == script_name)
-            .ok_or_else(|| {
-                anyhow!(
-                    "Scriptable capability '{}' not found in config",
-                    script_name
-                )
-            })
+            .ok_or_else(|| anyhow!("Scriptable capability '{script_name}' not found in config"))
     }
 
     /// Lists all available scriptable capability names.

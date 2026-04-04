@@ -181,7 +181,7 @@ impl PluginFactory {
             Err(e) => {
                 errors.push(PluginLoadError {
                     file_path: path.to_path_buf(),
-                    message: format!("Failed to read directory: {}", e),
+                    message: format!("Failed to read directory: {e}"),
                     validation_errors: vec![],
                 });
                 return errors;
@@ -216,7 +216,7 @@ impl PluginFactory {
             .await
             .map_err(|e| PluginLoadError {
                 file_path: path.to_path_buf(),
-                message: format!("Failed to read file: {}", e),
+                message: format!("Failed to read file: {e}"),
                 validation_errors: vec![],
             })?;
 
@@ -224,7 +224,7 @@ impl PluginFactory {
         let config: InstrumentConfig =
             serde_yaml::from_str(&content).map_err(|e| PluginLoadError {
                 file_path: path.to_path_buf(),
-                message: format!("Failed to parse YAML: {}", e),
+                message: format!("Failed to parse YAML: {e}"),
                 validation_errors: vec![],
             })?;
 
@@ -370,7 +370,7 @@ impl PluginFactory {
         let entry = self
             .templates
             .get(driver_id)
-            .ok_or_else(|| anyhow!("Plugin with ID '{}' not found", driver_id))?;
+            .ok_or_else(|| anyhow!("Plugin with ID '{driver_id}' not found"))?;
 
         let config = entry.config.clone();
 
@@ -409,7 +409,7 @@ impl PluginFactory {
         let entry = self
             .templates
             .get(driver_id)
-            .ok_or_else(|| anyhow!("Plugin with ID '{}' not found", driver_id))?;
+            .ok_or_else(|| anyhow!("Plugin with ID '{driver_id}' not found"))?;
 
         let config = entry.config.clone();
 
@@ -434,7 +434,7 @@ impl PluginFactory {
         // Open serial port with configured settings (common::serial uses serial2-tokio)
         let port = open_serial_async(port_path, baud_rate, device_name)
             .await
-            .map_err(|e| anyhow!("Failed to open serial port {}: {}", port_path, e))?;
+            .map_err(|e| anyhow!("Failed to open serial port {port_path}: {e}"))?;
 
         GenericDriver::new_serial(config, port)
     }
@@ -464,7 +464,7 @@ impl PluginFactory {
                     config.metadata.id
                 )
             })?;
-            format!("{}:{}", host, port)
+            format!("{host}:{port}")
         } else {
             address.to_string()
         };
@@ -475,8 +475,8 @@ impl PluginFactory {
             TcpStream::connect(&connect_addr),
         )
         .await
-        .map_err(|_| anyhow!("Timeout connecting to {}", connect_addr))?
-        .map_err(|e| anyhow!("Failed to connect to {}: {}", connect_addr, e))?;
+        .map_err(|_| anyhow!("Timeout connecting to {connect_addr}"))?
+        .map_err(|e| anyhow!("Failed to connect to {connect_addr}: {e}"))?;
 
         tracing::info!("Connected to TCP instrument at {}", connect_addr);
 
@@ -676,7 +676,7 @@ pub fn validate_plugin_config(config: &InstrumentConfig) -> Vec<ValidationError>
         for (i, axis) in movable.axes.iter().enumerate() {
             if axis.name.is_empty() {
                 errors.push(ValidationError {
-                    path: format!("capabilities.movable.axes[{}].name", i),
+                    path: format!("capabilities.movable.axes[{i}].name"),
                     message: "Axis name cannot be empty".to_string(),
                 });
             }
@@ -697,21 +697,21 @@ pub fn validate_plugin_config(config: &InstrumentConfig) -> Vec<ValidationError>
     for (i, readable) in config.capabilities.readable.iter().enumerate() {
         if readable.name.is_empty() {
             errors.push(ValidationError {
-                path: format!("capabilities.readable[{}].name", i),
+                path: format!("capabilities.readable[{i}].name"),
                 message: "Readable name cannot be empty".to_string(),
             });
         }
 
         if readable.command.is_empty() {
             errors.push(ValidationError {
-                path: format!("capabilities.readable[{}].command", i),
+                path: format!("capabilities.readable[{i}].command"),
                 message: "Readable command cannot be empty".to_string(),
             });
         }
 
         if readable.pattern.is_empty() {
             errors.push(ValidationError {
-                path: format!("capabilities.readable[{}].pattern", i),
+                path: format!("capabilities.readable[{i}].pattern"),
                 message: "Readable pattern cannot be empty".to_string(),
             });
         }
@@ -721,14 +721,14 @@ pub fn validate_plugin_config(config: &InstrumentConfig) -> Vec<ValidationError>
     for (i, settable) in config.capabilities.settable.iter().enumerate() {
         if settable.name.is_empty() {
             errors.push(ValidationError {
-                path: format!("capabilities.settable[{}].name", i),
+                path: format!("capabilities.settable[{i}].name"),
                 message: "Settable name cannot be empty".to_string(),
             });
         }
 
         if settable.set_cmd.is_empty() {
             errors.push(ValidationError {
-                path: format!("capabilities.settable[{}].set_cmd", i),
+                path: format!("capabilities.settable[{i}].set_cmd"),
                 message: "Settable set_cmd cannot be empty".to_string(),
             });
         }
@@ -736,7 +736,7 @@ pub fn validate_plugin_config(config: &InstrumentConfig) -> Vec<ValidationError>
         // Validate that set_cmd contains value placeholder
         if !settable.set_cmd.contains("{value}") && !settable.set_cmd.contains("{val}") {
             errors.push(ValidationError {
-                path: format!("capabilities.settable[{}].set_cmd", i),
+                path: format!("capabilities.settable[{i}].set_cmd"),
                 message: "set_cmd should contain {value} or {val} placeholder".to_string(),
             });
         }
@@ -756,21 +756,21 @@ pub fn validate_plugin_config(config: &InstrumentConfig) -> Vec<ValidationError>
     for (i, switchable) in config.capabilities.switchable.iter().enumerate() {
         if switchable.name.is_empty() {
             errors.push(ValidationError {
-                path: format!("capabilities.switchable[{}].name", i),
+                path: format!("capabilities.switchable[{i}].name"),
                 message: "Switchable name cannot be empty".to_string(),
             });
         }
 
         if switchable.on_cmd.is_empty() {
             errors.push(ValidationError {
-                path: format!("capabilities.switchable[{}].on_cmd", i),
+                path: format!("capabilities.switchable[{i}].on_cmd"),
                 message: "Switchable on_cmd cannot be empty".to_string(),
             });
         }
 
         if switchable.off_cmd.is_empty() {
             errors.push(ValidationError {
-                path: format!("capabilities.switchable[{}].off_cmd", i),
+                path: format!("capabilities.switchable[{i}].off_cmd"),
                 message: "Switchable off_cmd cannot be empty".to_string(),
             });
         }
@@ -780,14 +780,14 @@ pub fn validate_plugin_config(config: &InstrumentConfig) -> Vec<ValidationError>
     for (i, actionable) in config.capabilities.actionable.iter().enumerate() {
         if actionable.name.is_empty() {
             errors.push(ValidationError {
-                path: format!("capabilities.actionable[{}].name", i),
+                path: format!("capabilities.actionable[{i}].name"),
                 message: "Actionable name cannot be empty".to_string(),
             });
         }
 
         if actionable.cmd.is_empty() {
             errors.push(ValidationError {
-                path: format!("capabilities.actionable[{}].cmd", i),
+                path: format!("capabilities.actionable[{i}].cmd"),
                 message: "Actionable cmd cannot be empty".to_string(),
             });
         }
@@ -879,14 +879,14 @@ pub fn validate_plugin_config(config: &InstrumentConfig) -> Vec<ValidationError>
     for (i, scriptable) in config.capabilities.scriptable.iter().enumerate() {
         if scriptable.name.is_empty() {
             errors.push(ValidationError {
-                path: format!("capabilities.scriptable[{}].name", i),
+                path: format!("capabilities.scriptable[{i}].name"),
                 message: "Scriptable name cannot be empty".to_string(),
             });
         }
 
         if scriptable.script.is_empty() {
             errors.push(ValidationError {
-                path: format!("capabilities.scriptable[{}].script", i),
+                path: format!("capabilities.scriptable[{i}].script"),
                 message: "Scriptable script cannot be empty".to_string(),
             });
         }
@@ -925,7 +925,7 @@ mod tests {
     fn test_validate_minimal_valid_config() {
         let config = create_minimal_valid_config();
         let errors = validate_plugin_config(&config);
-        assert!(errors.is_empty(), "Expected no errors, got: {:?}", errors);
+        assert!(errors.is_empty(), "Expected no errors, got: {errors:?}");
     }
 
     #[test]

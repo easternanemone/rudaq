@@ -178,7 +178,7 @@ impl StagedModules {
             if reg.get_module(&module_id).is_none() {
                 drop(reg);
                 guard.unstage_all().await;
-                return Err(anyhow!("Module not found: {}", module_id));
+                return Err(anyhow!("Module not found: {module_id}"));
             }
 
             // Stage the module
@@ -302,7 +302,7 @@ impl RunEngine {
                 if let Err(e) = registry.start_module(module_id).await {
                     error!("Failed to start module {}: {}", module_id, e);
                     stop_reason =
-                        StopReason::Fail(format!("Module {} failed to start: {}", module_id, e));
+                        StopReason::Fail(format!("Module {module_id} failed to start: {e}"));
 
                     // Record failure
                     if let Some(instance) = registry.get_module(module_id) {

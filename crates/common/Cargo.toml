@@ -21,7 +21,7 @@ futures.workspace = true
 tracing.workspace = true
 schemars = { version = "0.8", optional = true } # If needed for schema generation
 arrow = { version = "57", optional = true, features = ["ipc"] }
-hdf5 = { package = "hdf5-metno", version = "0.12.3", optional = true }
+hdf5 = { package = "hdf5-metno", version = "0.12.4", optional = true }
 fitsio = { version = "0.21", optional = true }
 pool = { path = "../pool" }
 sha2 = "0.10"  # For graph file hashing

@@ -233,7 +233,7 @@ async fn test_full_pipeline_to_csv() {
                 unit,
                 timestamp,
             } => {
-                writeln!(file, "{},{},{},{}", name, value, unit, timestamp).unwrap();
+                writeln!(file, "{name},{value},{unit},{timestamp}").unwrap();
             }
             _ => {}
         }
@@ -547,15 +547,13 @@ async fn test_pipeline_high_throughput() {
     let throughput = f64::from(num_iterations) / elapsed.as_secs_f64();
 
     println!(
-        "Pipeline throughput: {:.1} acquisitions/sec ({} acquisitions in {:?})",
-        throughput, num_iterations, elapsed
+        "Pipeline throughput: {throughput:.1} acquisitions/sec ({num_iterations} acquisitions in {elapsed:?})"
     );
 
     // Should achieve reasonable throughput (at least 50 acquisitions/sec)
     assert!(
         throughput > 50.0,
-        "Throughput too low: {:.1} acquisitions/sec",
-        throughput
+        "Throughput too low: {throughput:.1} acquisitions/sec"
     );
 
     // Verify all data was written
@@ -622,9 +620,7 @@ async fn test_pipeline_data_integrity() {
                 let expected = expected_positions[position_count];
                 assert!(
                     (*value - expected).abs() < 0.001,
-                    "Position mismatch: expected {}, got {}",
-                    expected,
-                    value
+                    "Position mismatch: expected {expected}, got {value}"
                 );
                 position_count += 1;
             }

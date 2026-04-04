@@ -156,8 +156,7 @@ impl HardwareServiceImpl {
             Ok(Ok(value)) => Ok(value),
             Ok(Err(err)) => Err(map_anyhow_error_to_status(err)),
             Err(_) => Err(Status::deadline_exceeded(format!(
-                "{} timed out after {:?}",
-                operation, RPC_TIMEOUT
+                "{operation} timed out after {RPC_TIMEOUT:?}"
             ))),
         }
     }
@@ -744,7 +743,7 @@ impl HardwareService for HardwareServiceImpl {
             Err(e) => Ok(Response::new(LoadCalibrationProfileResponse {
                 success: false,
                 content: String::new(),
-                error_message: format!("Failed to read {}: {}", path, e),
+                error_message: format!("Failed to read {path}: {e}"),
             })),
         }
     }
@@ -1482,8 +1481,7 @@ mod tests {
         for i in 0..common::limits::MAX_STREAMS_PER_CLIENT {
             assert!(
                 limiter.try_acquire(client_ip).is_ok(),
-                "Failed to acquire stream slot {}",
-                i
+                "Failed to acquire stream slot {i}"
             );
         }
 

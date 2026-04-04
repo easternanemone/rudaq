@@ -670,7 +670,7 @@ impl Triggerable for AndorCamera {
 impl ExposureControl for AndorCamera {
     async fn set_exposure(&self, seconds: f64) -> Result<()> {
         if seconds <= 0.0 {
-            anyhow::bail!("Exposure must be positive, got {}", seconds);
+            anyhow::bail!("Exposure must be positive, got {seconds}");
         }
 
         self.inner.exposure_s.set(seconds).await?;

@@ -14,7 +14,7 @@ serde_json.workspace = true
 prost.workspace = true
 
 # Data Handling
-hdf5 = { package = "hdf5-metno", version = "0.12.3", optional = true }
+hdf5 = { package = "hdf5-metno", version = "0.12.4", optional = true }
 arrow = { version = "57", optional = true, features = ["ipc"] }
 parquet = { version = "57", optional = true, default-features = false, features = ["arrow", "async", "snap", "zstd"] }
 memmap2 = "0.9"

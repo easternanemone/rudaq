@@ -529,12 +529,7 @@ impl PooledBuffer {
     /// Panics if `len` exceeds the buffer capacity.
     pub fn set_len(&mut self, len: usize) {
         let cap = self.capacity();
-        assert!(
-            len <= cap,
-            "set_len({}) exceeds buffer capacity ({})",
-            len,
-            cap
-        );
+        assert!(len <= cap, "set_len({len}) exceeds buffer capacity ({cap})");
         self.actual_len = len;
     }
 
@@ -957,8 +952,7 @@ mod tests {
         assert_eq!(
             pool.available(),
             pool_size,
-            "Pool should start with all {} buffers available",
-            pool_size
+            "Pool should start with all {pool_size} buffers available"
         );
         assert_eq!(
             pool.total_acquires(),
@@ -971,8 +965,7 @@ mod tests {
         let buf1 = pool.try_acquire();
         assert!(
             buf1.is_some(),
-            "First acquire should succeed when pool has {} available",
-            pool_size
+            "First acquire should succeed when pool has {pool_size} available"
         );
         assert_eq!(
             pool.available(),
@@ -1095,8 +1088,7 @@ mod tests {
         assert_eq!(
             pool.available(),
             pool_size,
-            "All {} buffers should be available after dropping all",
-            pool_size
+            "All {pool_size} buffers should be available after dropping all"
         );
         assert_eq!(
             pool.total_acquires(),

@@ -402,8 +402,7 @@ impl ReadinessManager {
                 "calibration_config_mismatch",
                 format!(
                     "CalibrationConfigGate: {device_id} is on grating {current_grating}, \
-                     but the loaded calibration only covers gratings {:?}",
-                    loaded_gratings
+                     but the loaded calibration only covers gratings {loaded_gratings:?}"
                 ),
                 device_type,
                 device_id,
@@ -553,12 +552,10 @@ impl ReadinessManager {
             match bit_depth {
                 Some(actual_bit_depth) if actual_bit_depth == expected_bit_depth => {}
                 Some(actual_bit_depth) => mismatches.push(format!(
-                    "bit_depth expected {} got {}",
-                    expected_bit_depth, actual_bit_depth
+                    "bit_depth expected {expected_bit_depth} got {actual_bit_depth}"
                 )),
                 None => mismatches.push(format!(
-                    "bit_depth expected {} but device did not expose BitDepth",
-                    expected_bit_depth
+                    "bit_depth expected {expected_bit_depth} but device did not expose BitDepth"
                 )),
             }
         }

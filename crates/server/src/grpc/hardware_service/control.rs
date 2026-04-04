@@ -147,7 +147,7 @@ pub(super) async fn get_exposure(
             }))
         }
         Err(e) => {
-            let err_msg = format!("Failed to get exposure: {}", e);
+            let err_msg = format!("Failed to get exposure: {e}");
             svc.registry.report_device_failure(&req.device_id, &err_msg);
             Err(map_hardware_error_to_status(&err_msg))
         }
@@ -182,7 +182,7 @@ pub(super) async fn set_shutter(
             }))
         }
         Err(e) => {
-            let err_msg = format!("Failed to set shutter: {}", e);
+            let err_msg = format!("Failed to set shutter: {e}");
             svc.registry.report_device_failure(&req.device_id, &err_msg);
             Err(map_hardware_error_to_status(&err_msg))
         }
@@ -208,7 +208,7 @@ pub(super) async fn get_shutter(
             Ok(Response::new(GetShutterResponse { is_open }))
         }
         Err(e) => {
-            let err_msg = format!("Failed to get shutter state: {}", e);
+            let err_msg = format!("Failed to get shutter state: {e}");
             svc.registry.report_device_failure(&req.device_id, &err_msg);
             Err(map_hardware_error_to_status(&err_msg))
         }
@@ -239,7 +239,7 @@ pub(super) async fn set_wavelength(
             }))
         }
         Err(e) => {
-            let err_msg = format!("Failed to set wavelength: {}", e);
+            let err_msg = format!("Failed to set wavelength: {e}");
             svc.registry.report_device_failure(&req.device_id, &err_msg);
             Err(map_hardware_error_to_status(&err_msg))
         }
@@ -265,7 +265,7 @@ pub(super) async fn get_wavelength(
             Ok(Response::new(GetWavelengthResponse { wavelength_nm: nm }))
         }
         Err(e) => {
-            let err_msg = format!("Failed to get wavelength: {}", e);
+            let err_msg = format!("Failed to get wavelength: {e}");
             svc.registry.report_device_failure(&req.device_id, &err_msg);
             Err(map_hardware_error_to_status(&err_msg))
         }
@@ -305,7 +305,7 @@ pub(super) async fn set_emission(
             }))
         }
         Err(e) => {
-            let err_msg = format!("Failed to set emission: {}", e);
+            let err_msg = format!("Failed to set emission: {e}");
             svc.registry.report_device_failure(&req.device_id, &err_msg);
             Err(map_hardware_error_to_status(&err_msg))
         }
@@ -330,11 +330,11 @@ pub(super) async fn get_emission(
     match emission_ctrl.is_emission_enabled().await {
         Ok(is_enabled) => {
             svc.registry.report_device_success(&req.device_id);
-            log::info!(">>> get_emission: is_enabled={}", is_enabled);
+            log::info!(">>> get_emission: is_enabled={is_enabled}");
             Ok(Response::new(GetEmissionResponse { is_enabled }))
         }
         Err(e) => {
-            let err_msg = format!("Failed to get emission state: {}", e);
+            let err_msg = format!("Failed to get emission state: {e}");
             svc.registry.report_device_failure(&req.device_id, &err_msg);
             Err(map_hardware_error_to_status(&err_msg))
         }
@@ -411,7 +411,7 @@ pub(super) async fn stop_stream(
             }))
         }
         Err(e) => {
-            let err_msg = format!("Failed to stop stream: {}", e);
+            let err_msg = format!("Failed to stop stream: {e}");
             svc.registry.report_device_failure(&req.device_id, &err_msg);
             Err(map_hardware_error_to_status(&err_msg))
         }
@@ -460,9 +460,8 @@ pub(super) async fn stream_frames(
     // Check if device supports observers (bd-0dax.6.3)
     if !frame_producer.supports_observers() {
         return Err(Status::unavailable(format!(
-            "Device '{}' does not support frame observers. \
-             The driver must implement register_observer() for tap-based streaming.",
-            device_id
+            "Device '{device_id}' does not support frame observers. \
+             The driver must implement register_observer() for tap-based streaming."
         )));
     }
 
@@ -487,8 +486,7 @@ pub(super) async fn stream_frames(
         .await
         .map_err(|e| {
             Status::internal(format!(
-                "Failed to register frame observer for device '{}': {}",
-                device_id, e
+                "Failed to register frame observer for device '{device_id}': {e}"
             ))
         })?;
 
@@ -1056,7 +1054,7 @@ pub(super) async fn execute_device_command(
             serde_json::json!({})
         } else {
             serde_json::from_str(&req.args).map_err(|e| {
-                Status::invalid_argument(format!("Failed to parse command arguments: {}", e))
+                Status::invalid_argument(format!("Failed to parse command arguments: {e}"))
             })?
         };
 
@@ -1064,7 +1062,7 @@ pub(super) async fn execute_device_command(
             .execute_command(&req.command, args)
             .await
             .map_err(|e| {
-                let err_msg = format!("Command execution failed: {}", e);
+                let err_msg = format!("Command execution failed: {e}");
                 svc.registry.report_device_failure(&req.device_id, &err_msg);
                 map_hardware_error_to_status(&err_msg)
             })?;

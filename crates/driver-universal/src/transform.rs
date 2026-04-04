@@ -111,7 +111,7 @@ impl TransformOp {
                         .ok_or_else(|| anyhow!("Regex pattern did not match input"))?;
                     let captured = captures
                         .get(*group)
-                        .ok_or_else(|| anyhow!("Capture group {} not found", group))?
+                        .ok_or_else(|| anyhow!("Capture group {group} not found"))?
                         .as_str();
                     Ok(TransformValue::String(captured.to_string()))
                 }
@@ -271,7 +271,7 @@ impl TransformOp {
             return Ok(TransformOp::Map { from, to });
         }
 
-        Err(anyhow!("Unknown transform operation: {}", s))
+        Err(anyhow!("Unknown transform operation: {s}"))
     }
 }
 
@@ -424,9 +424,7 @@ impl TransformPipeline {
     pub fn execute(&self, input: &str) -> Result<TransformValue> {
         let mut value = TransformValue::String(input.to_string());
         for op in &self.ops {
-            value = op
-                .apply(value)
-                .context(format!("Failed to apply {:?}", op))?;
+            value = op.apply(value).context(format!("Failed to apply {op:?}"))?;
         }
         Ok(value)
     }

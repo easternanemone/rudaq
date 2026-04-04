@@ -510,7 +510,7 @@ impl RunEngineService for RunEngineServiceImpl {
         self.engine
             .start()
             .await
-            .map_err(|e| Status::internal(format!("Failed to start engine: {}", e)))?;
+            .map_err(|e| Status::internal(format!("Failed to start engine: {e}")))?;
 
         Ok(Response::new(StartEngineResponse {
             success: true,
@@ -581,7 +581,7 @@ impl RunEngineService for RunEngineServiceImpl {
                 success: true,
                 paused_at: "checkpoint".to_string(),
             })),
-            Err(e) => Err(Status::internal(format!("Failed to pause engine: {}", e))),
+            Err(e) => Err(Status::internal(format!("Failed to pause engine: {e}"))),
         }
     }
 
@@ -595,7 +595,7 @@ impl RunEngineService for RunEngineServiceImpl {
         self.engine
             .resume()
             .await
-            .map_err(|e| Status::internal(format!("Failed to resume engine: {}", e)))?;
+            .map_err(|e| Status::internal(format!("Failed to resume engine: {e}")))?;
 
         Ok(Response::new(ResumeEngineResponse {
             success: true,
@@ -619,7 +619,7 @@ impl RunEngineService for RunEngineServiceImpl {
         self.engine
             .abort_run(run_uid, "user requested abort via gRPC")
             .await
-            .map_err(|e| Status::internal(format!("Failed to abort plan: {}", e)))?;
+            .map_err(|e| Status::internal(format!("Failed to abort plan: {e}")))?;
 
         Ok(Response::new(AbortPlanResponse {
             success: true,
@@ -634,7 +634,7 @@ impl RunEngineService for RunEngineServiceImpl {
         self.engine
             .halt()
             .await
-            .map_err(|e| Status::internal(format!("Failed to halt engine: {}", e)))?;
+            .map_err(|e| Status::internal(format!("Failed to halt engine: {e}")))?;
 
         Ok(Response::new(HaltEngineResponse {
             halted: true,

@@ -57,8 +57,7 @@ fn test_fast_observer_completes_quickly() {
     // Use 5ms bound (not 100µs) to avoid flaking under CI load.
     assert!(
         elapsed < Duration::from_millis(5),
-        "Fast observer took {:?}, expected < 5ms",
-        elapsed
+        "Fast observer took {elapsed:?}, expected < 5ms"
     );
 
     // Verify the frame was processed
@@ -81,8 +80,7 @@ fn test_slow_observer_exceeds_threshold() {
     // Slow observer should exceed 500µs (it sleeps for 1ms)
     assert!(
         elapsed > Duration::from_micros(500),
-        "Slow observer took {:?}, expected > 500µs",
-        elapsed
+        "Slow observer took {elapsed:?}, expected > 500µs"
     );
 }
 
@@ -129,8 +127,7 @@ fn test_channel_based_observer_pattern() {
     // Use 10ms bound to avoid flaking under CI load.
     assert!(
         elapsed < Duration::from_millis(10),
-        "Channel-based observer took {:?} for 10 frames, expected < 10ms",
-        elapsed
+        "Channel-based observer took {elapsed:?} for 10 frames, expected < 10ms"
     );
 
     // Verify frames were sent to channel

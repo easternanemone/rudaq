@@ -835,11 +835,7 @@ mod tests {
         // Verify all pixel values are within 12-bit range
         for chunk in frame.data.chunks_exact(2) {
             let val = u16::from_le_bytes([chunk[0], chunk[1]]);
-            assert!(
-                val < 4096,
-                "Mono12 pixel value {} exceeds 12-bit range",
-                val
-            );
+            assert!(val < 4096, "Mono12 pixel value {val} exceeds 12-bit range");
         }
     }
 
@@ -886,8 +882,8 @@ mod tests {
             let b2 = u16::from(frame.data[base + 2]);
             let pix_a = b0 | ((b1 & 0x0F) << 8);
             let pix_b = (b1 >> 4) | (b2 << 4);
-            assert!(pix_a < 4096, "Packed pixel A {} out of range", pix_a);
-            assert!(pix_b < 4096, "Packed pixel B {} out of range", pix_b);
+            assert!(pix_a < 4096, "Packed pixel A {pix_a} out of range");
+            assert!(pix_b < 4096, "Packed pixel B {pix_b} out of range");
         }
     }
 

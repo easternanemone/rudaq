@@ -117,9 +117,9 @@ async fn test_grpc_camera_control_stream() -> Result<()> {
                 }
                 println!("Received frame {} with ts: {}", i, frame.timestamp_ns);
             }
-            Ok(Some(Err(e))) => panic!("Stream error: {}", e),
+            Ok(Some(Err(e))) => panic!("Stream error: {e}"),
             Ok(None) => panic!("Stream ended prematurely"),
-            Err(err) => panic!("Timeout waiting for frame {}: {}", i, err),
+            Err(err) => panic!("Timeout waiting for frame {i}: {err}"),
         }
     }
 

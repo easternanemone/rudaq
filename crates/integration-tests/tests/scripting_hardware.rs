@@ -255,8 +255,8 @@ async fn test_sleep_function_in_script() {
     let elapsed = start.elapsed();
     // Rhai sleep(0.05) = 50ms. Lower bound is generous; upper bound must
     // accommodate CI runner scheduling jitter.
-    assert!(elapsed.as_millis() >= 40, "sleep too short: {:?}", elapsed);
-    assert!(elapsed.as_millis() <= 500, "sleep too long: {:?}", elapsed);
+    assert!(elapsed.as_millis() >= 40, "sleep too short: {elapsed:?}");
+    assert!(elapsed.as_millis() <= 500, "sleep too long: {elapsed:?}");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -414,7 +414,6 @@ async fn test_safety_limit_respected() {
     let err_msg = err.to_string();
     assert!(
         err_msg.contains("Safety limit exceeded") || err_msg.contains("terminated"),
-        "Expected 'Safety limit exceeded' or 'terminated' in error, got: {}",
-        err_msg
+        "Expected 'Safety limit exceeded' or 'terminated' in error, got: {err_msg}"
     );
 }

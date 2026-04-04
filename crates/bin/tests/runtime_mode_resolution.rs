@@ -84,8 +84,7 @@ fn test_runtime_mode_cli_overrides_env() {
 
     assert!(
         combined.contains("Runtime mode: mock"),
-        "CLI flag should override env var. Output: {}",
-        combined
+        "CLI flag should override env var. Output: {combined}"
     );
 }
 
@@ -115,8 +114,7 @@ fn test_runtime_mode_env_override_applies_when_cli_absent() {
 
     assert!(
         combined.contains("Runtime mode: universal"),
-        "Env var should apply when CLI absent. Output: {}",
-        combined
+        "Env var should apply when CLI absent. Output: {combined}"
     );
 }
 
@@ -155,8 +153,7 @@ fn test_runtime_mode_hardware_config_implies_custom_without_cli_or_env() {
 
     assert!(
         combined.contains("Runtime mode: custom"),
-        "Hardware config should imply custom mode. Output: {}",
-        combined
+        "Hardware config should imply custom mode. Output: {combined}"
     );
 }
 
@@ -186,13 +183,11 @@ fn test_runtime_mode_invalid_env_falls_back_to_default() {
 
     assert!(
         combined.contains("Invalid runtime mode \"invalid-mode\" in env var"),
-        "Should warn about invalid env var. Output: {}",
-        combined
+        "Should warn about invalid env var. Output: {combined}"
     );
     assert!(
         combined.contains("Runtime mode: hybrid-db"),
-        "Should fall back to hybrid-db. Output: {}",
-        combined
+        "Should fall back to hybrid-db. Output: {combined}"
     );
 }
 
@@ -225,8 +220,7 @@ fn test_runtime_mode_default_hybrid_db_starts_from_workspace_root() {
 
     assert!(
         combined.contains("Runtime mode: hybrid-db"),
-        "Default should be hybrid-db. Output: {}",
-        combined
+        "Default should be hybrid-db. Output: {combined}"
     );
     assert!(
         combined.contains("Starting Headless DAQ Daemon"),

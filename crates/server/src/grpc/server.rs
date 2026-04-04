@@ -121,7 +121,7 @@ fn build_cors_layer(settings: &GrpcSettings) -> Result<CorsLayer, Box<dyn std::e
             .iter()
             .map(|origin| HeaderValue::from_str(origin))
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| format!("Invalid origin in grpc.allowed_origins: {}", e))?;
+            .map_err(|e| format!("Invalid origin in grpc.allowed_origins: {e}"))?;
         cors = cors.allow_origin(AllowOrigin::list(origins));
     }
 
@@ -331,7 +331,7 @@ impl DaqServer {
         #[cfg(feature = "scripting")]
         let script_journal = Arc::new(
             crate::script_journal::ScriptJournal::default_dir()
-                .map_err(|e| format!("failed to initialize script journal: {}", e))?,
+                .map_err(|e| format!("failed to initialize script journal: {e}"))?,
         );
 
         // Check for interrupted scripts from previous daemon runs
@@ -382,10 +382,7 @@ impl DaqServer {
         Ok(Self {
             #[cfg(feature = "scripting")]
             script_engine: Arc::new(RwLock::new(RhaiEngine::with_hardware().map_err(|e| {
-                format!(
-                    "failed to initialize RhaiEngine with hardware bindings: {}",
-                    e
-                )
+                format!("failed to initialize RhaiEngine with hardware bindings: {e}")
             })?)),
             #[cfg(feature = "scripting")]
             scripts: Arc::new(RwLock::new(HashMap::new())),
@@ -876,7 +873,7 @@ impl ControlService for DaqServer {
             return Ok(Response::new(UploadResponse {
                 script_id: String::new(),
                 success: false,
-                error_message: format!("Validation failed: {}", e),
+                error_message: format!("Validation failed: {e}"),
             }));
         }
 
@@ -1273,7 +1270,7 @@ impl ControlService for DaqServer {
                         // SAFETY: precision loss acceptable for metrics/display
                         let len_f64 = values.len() as f64;
                         // For vectors, we can emit the length or first value
-                        (format!("{}_len", name), len_f64, ts_ns)
+                        (format!("{name}_len"), len_f64, ts_ns)
                     }
                     Measurement::Image {
                         name,
@@ -1299,7 +1296,7 @@ impl ControlService for DaqServer {
                         #[allow(clippy::cast_precision_loss)]
                         // SAFETY: precision loss acceptable for metrics/display
                         let len_f64 = amplitudes.len() as f64;
-                        (format!("{}_spectrum", name), len_f64, ts_ns)
+                        (format!("{name}_spectrum"), len_f64, ts_ns)
                     }
                 };
 
@@ -1601,7 +1598,7 @@ pub async fn start_server(addr: std::net::SocketAddr) -> Result<(), Box<dyn std:
     health_service.set_serving_status("daq.ControlService", ServingStatus::Serving);
     health_service.set_serving_status("daq.RunEngineService", ServingStatus::Serving);
 
-    println!("DAQ gRPC server listening on {}", bind_addr);
+    println!("DAQ gRPC server listening on {bind_addr}");
 
     if !grpc_settings.auth_enabled {
         // SECURITY (bd-qa36.8.2): Script upload/execution endpoints accept arbitrary
@@ -1733,16 +1730,12 @@ pub async fn start_server_with_hardware(
         }
         Ok(Err(e)) => {
             eprintln!(
-                "Warning: Failed to create ring buffer: {}. Scan data will not be persisted.",
-                e
+                "Warning: Failed to create ring buffer: {e}. Scan data will not be persisted."
             );
             None
         }
         Err(e) => {
-            eprintln!(
-                "Warning: Ring buffer creation task panicked or was cancelled: {}",
-                e
-            );
+            eprintln!("Warning: Ring buffer creation task panicked or was cancelled: {e}");
             None
         }
     };
@@ -1822,7 +1815,7 @@ pub async fn start_server_with_hardware(
 
         // Phase 2: Perform async registration (no lock held)
         for (device_id, source) in devices_to_wire {
-            println!("  - Wiring pipeline for device: {}", device_id);
+            println!("  - Wiring pipeline for device: {device_id}");
 
             // 1. Create channel for Source output (Arc<Frame>)
             let frame_chan = std::env::var("DAQ_PIPELINE_FRAME_CH")
@@ -1833,7 +1826,7 @@ pub async fn start_server_with_hardware(
 
             // 2. Register source output (ASYNC - safe now, no lock held)
             if let Err(e) = source.register_output(frame_tx).await {
-                eprintln!("Failed to register output for {}: {}", device_id, e);
+                eprintln!("Failed to register output for {device_id}: {e}");
                 continue;
             }
 
@@ -1924,7 +1917,7 @@ pub async fn start_server_with_hardware(
 
             // 7. Start Tee (Consume Measurement Stream)
             if let Err(e) = tee.register_input(meas_rx) {
-                eprintln!("Failed to register Tee input for {}: {}", device_id, e);
+                eprintln!("Failed to register Tee input for {device_id}: {e}");
             }
         }
     }
@@ -2189,7 +2182,7 @@ pub async fn start_server_with_hardware(
         standard_health_service.set_serving_status("daq.ConfigService", ServingStatus::NotServing);
     }
 
-    println!("DAQ gRPC server (with hardware) listening on {}", bind_addr);
+    println!("DAQ gRPC server (with hardware) listening on {bind_addr}");
     println!("  - ControlService: script management");
     println!("  - HardwareService: direct device control");
     println!("  - HealthService: system health monitoring (bd-ergo)");
@@ -2793,13 +2786,11 @@ mod tests {
         // (first is immediate, then 4 x 100ms intervals)
         assert!(
             elapsed.as_millis() >= 400,
-            "Rate limiting not working: took {:?}",
-            elapsed
+            "Rate limiting not working: took {elapsed:?}"
         );
         assert!(
             elapsed.as_millis() < 700,
-            "Rate limiting too slow: took {:?}",
-            elapsed
+            "Rate limiting too slow: took {elapsed:?}"
         );
     }
 

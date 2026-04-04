@@ -2096,9 +2096,7 @@ mod tests {
         let expected = 400.0 + 0.05 * 500.0;
         assert!(
             (wl_at_500 - expected).abs() < 1e-8,
-            "eval at px=500: {} expected {}",
-            wl_at_500,
-            expected
+            "eval at px=500: {wl_at_500} expected {expected}"
         );
     }
 

@@ -546,10 +546,7 @@ impl DeviceRegistry {
                 DaqError::Driver(common::error::DriverError::new(
                     driver_type,
                     common::error::DriverErrorKind::Initialization,
-                    format!(
-                        "Lifecycle on_register failed for device '{}': {}",
-                        device_id, e
-                    ),
+                    format!("Lifecycle on_register failed for device '{device_id}': {e}"),
                 ))
             })?;
         }
@@ -567,10 +564,7 @@ impl DeviceRegistry {
                 DaqError::Driver(common::error::DriverError::new(
                     driver_type,
                     common::error::DriverErrorKind::Shutdown,
-                    format!(
-                        "Lifecycle on_unregister failed for device '{}': {}",
-                        device_id, e
-                    ),
+                    format!("Lifecycle on_unregister failed for device '{device_id}': {e}"),
                 ))
             })?;
         }
@@ -785,8 +779,7 @@ impl DeviceRegistry {
     ) -> Result<(), DaqError> {
         if self.devices.contains_key(device_id) {
             return Err(DaqError::Configuration(format!(
-                "Device '{}' is already registered",
-                device_id
+                "Device '{device_id}' is already registered"
             )));
         }
 
@@ -829,8 +822,7 @@ impl DeviceRegistry {
                 driver_type,
                 common::error::DriverErrorKind::Configuration,
                 format!(
-                    "Configuration validation failed for device '{}' ({}): {}",
-                    device_id, driver_type, e
+                    "Configuration validation failed for device '{device_id}' ({driver_type}): {e}"
                 ),
             ))
         })?;
@@ -857,8 +849,7 @@ impl DeviceRegistry {
                     driver_type,
                     common::error::DriverErrorKind::Initialization,
                     format!(
-                        "Factory build task panicked for device '{}' ({}): {}",
-                        device_id, driver_type, join_err
+                        "Factory build task panicked for device '{device_id}' ({driver_type}): {join_err}"
                     ),
                 ))
             })?
@@ -867,8 +858,7 @@ impl DeviceRegistry {
                     driver_type,
                     common::error::DriverErrorKind::Initialization,
                     format!(
-                        "Factory build failed for device '{}' ({}): {}",
-                        device_id, driver_type, e
+                        "Factory build failed for device '{device_id}' ({driver_type}): {e}"
                     ),
                 ))
             })?;
@@ -1779,7 +1769,7 @@ impl DeviceRegistry {
         // Introspect capabilities from the plugin configuration
         let factory = self.plugin_factory.read().await;
         let plugin_config = factory.get_config(&plugin_id).ok_or_else(|| {
-            DaqError::Configuration(format!("Plugin '{}' not found in factory", plugin_id))
+            DaqError::Configuration(format!("Plugin '{plugin_id}' not found in factory"))
         })?;
 
         let mut metadata = DeviceMetadata::default();
@@ -2060,10 +2050,10 @@ impl HardwareConfig {
     /// Load hardware configuration from a TOML file
     pub fn from_file(path: &std::path::Path) -> Result<Self, DaqError> {
         let content = std::fs::read_to_string(path).map_err(|e| {
-            DaqError::Configuration(format!("Failed to read hardware config file: {}", e))
+            DaqError::Configuration(format!("Failed to read hardware config file: {e}"))
         })?;
         toml::from_str(&content).map_err(|e| {
-            DaqError::Configuration(format!("Failed to parse hardware config file: {}", e))
+            DaqError::Configuration(format!("Failed to parse hardware config file: {e}"))
         })
     }
 }
@@ -2306,15 +2296,13 @@ fn resolve_universal_factory_name(config: &toml::Value) -> Result<String, DaqErr
 
     let content = std::fs::read_to_string(manifest_path).map_err(|e| {
         DaqError::Configuration(format!(
-            "Failed to read universal manifest '{}': {}",
-            manifest_path, e
+            "Failed to read universal manifest '{manifest_path}': {e}"
         ))
     })?;
 
     let table: toml::Value = toml::from_str(&content).map_err(|e| {
         DaqError::Configuration(format!(
-            "Failed to parse universal manifest '{}': {}",
-            manifest_path, e
+            "Failed to parse universal manifest '{manifest_path}': {e}"
         ))
     })?;
 
@@ -2324,8 +2312,7 @@ fn resolve_universal_factory_name(config: &toml::Value) -> Result<String, DaqErr
         .and_then(toml::Value::as_str)
         .ok_or_else(|| {
             DaqError::Configuration(format!(
-                "Universal manifest '{}' is missing [device].name",
-                manifest_path
+                "Universal manifest '{manifest_path}' is missing [device].name"
             ))
         })?;
 
@@ -2811,8 +2798,7 @@ initial_position = 0.0
         let reading = readable.read().await.unwrap();
         assert!(
             (reading - 1e-6).abs() < 1.5e-5,
-            "Reading {} deviates more than 1.5e-5 from base 1e-6",
-            reading
+            "Reading {reading} deviates more than 1.5e-5 from base 1e-6"
         );
     }
 
@@ -2836,8 +2822,7 @@ initial_position = 0.0
         for (device_id, params) in &snapshot {
             assert!(
                 !params.is_empty(),
-                "Device {} should have parameters",
-                device_id
+                "Device {device_id} should have parameters"
             );
             for (param_name, value) in params {
                 assert!(
@@ -2845,9 +2830,7 @@ initial_position = 0.0
                         || value.is_string()
                         || value.is_boolean()
                         || value.is_object(),
-                    "Parameter {}.{} should be a valid JSON value",
-                    device_id,
-                    param_name
+                    "Parameter {device_id}.{param_name} should be a valid JSON value"
                 );
             }
         }

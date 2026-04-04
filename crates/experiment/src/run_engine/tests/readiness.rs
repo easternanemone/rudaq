@@ -163,8 +163,7 @@ async fn test_next_plan_readiness_issues_reports_spectrometer_wavelength_mismatc
         issues[0]
             .message
             .contains("outside the loaded calibration range"),
-        "unexpected issue: {:?}",
-        issues
+        "unexpected issue: {issues:?}"
     );
 }
 
@@ -205,8 +204,7 @@ async fn test_next_plan_readiness_issues_reports_echelle_frame_mismatch() {
     assert!(issues[0].blocking);
     assert!(
         issues[0].message.contains("roi_x expected 0 got 10"),
-        "unexpected issue: {:?}",
-        issues
+        "unexpected issue: {issues:?}"
     );
 }
 

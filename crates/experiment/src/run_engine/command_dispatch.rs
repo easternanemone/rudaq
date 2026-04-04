@@ -30,10 +30,7 @@ impl CommandDispatcher<'_> {
         debug!(device = %device_id, position = %position, "Moving");
 
         let Some(device) = self.registry.get_movable(device_id) else {
-            anyhow::bail!(
-                "Device '{}' not found or does not support Movable capability",
-                device_id
-            );
+            anyhow::bail!("Device '{device_id}' not found or does not support Movable capability");
         };
         device.move_abs(position).await?;
 
@@ -45,10 +42,7 @@ impl CommandDispatcher<'_> {
         debug!(device = %device_id, "Reading");
 
         let Some(device) = self.registry.get_readable(device_id) else {
-            anyhow::bail!(
-                "Device '{}' not found or does not support Readable capability",
-                device_id
-            );
+            anyhow::bail!("Device '{device_id}' not found or does not support Readable capability");
         };
         let value = device.read().await?;
         Ok(value)
@@ -60,8 +54,7 @@ impl CommandDispatcher<'_> {
 
         let Some(device) = self.registry.get_triggerable(device_id) else {
             anyhow::bail!(
-                "Device '{}' not found or does not support Triggerable capability",
-                device_id
+                "Device '{device_id}' not found or does not support Triggerable capability"
             );
         };
         device.trigger().await?;
@@ -87,7 +80,7 @@ impl CommandDispatcher<'_> {
                 .or_else(|_| {
                     Ok::<_, serde_json::Error>(serde_json::Value::String(value.to_string()))
                 })
-                .map_err(|e| anyhow::anyhow!("Invalid value format: {}", e))?;
+                .map_err(|e| anyhow::anyhow!("Invalid value format: {e}"))?;
 
             settable.set_value(parameter, json_value).await?;
             return Ok(());
@@ -96,25 +89,17 @@ impl CommandDispatcher<'_> {
         // New path - use Parameterized trait and Parameter<T> system
         let json_value: serde_json::Value = serde_json::from_str(value)
             .or_else(|_| Ok::<_, serde_json::Error>(serde_json::Value::String(value.to_string())))
-            .map_err(|e| anyhow::anyhow!("Invalid value format: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Invalid value format: {e}"))?;
 
-        if let Some(parameterized) = self.registry.get_parameterized(device_id) {
-            let params = parameterized.parameters();
-            if let Some(param) = params.get(parameter) {
-                param.set_json(json_value)?;
-                return Ok(());
-            }
-            anyhow::bail!(
-                "Parameter '{}' not found on device '{}'",
-                parameter,
-                device_id
-            );
-        }
-
-        anyhow::bail!(
-            "Device '{}' not found or does not support parameter setting",
-            device_id
-        );
+        let Some(parameterized) = self.registry.get_parameterized(device_id) else {
+            anyhow::bail!("Device '{device_id}' not found or does not support parameter setting");
+        };
+        let params = parameterized.parameters();
+        let Some(param) = params.get(parameter) else {
+            anyhow::bail!("Parameter '{parameter}' not found on device '{device_id}'");
+        };
+        param.set_json(json_value)?;
+        Ok(())
     }
 
     /// Evaluate an `EvalCondition` by reading from the device registry.

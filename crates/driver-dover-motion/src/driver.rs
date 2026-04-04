@@ -500,22 +500,19 @@ impl TriggerOnPosition for DoverAxisDriver {
         // Validate parameters
         if increment <= 0.0 {
             return Err(anyhow!(
-                "Trigger increment must be positive, got {}",
-                increment
+                "Trigger increment must be positive, got {increment}"
             ));
         }
 
         if pulse_width_ns < 50 || pulse_width_ns > 204800 {
             return Err(anyhow!(
-                "Pulse width must be 50-204,800 ns, got {}",
-                pulse_width_ns
+                "Pulse width must be 50-204,800 ns, got {pulse_width_ns}"
             ));
         }
 
         if pulse_width_ns % 50 != 0 {
             return Err(anyhow!(
-                "Pulse width must be a multiple of 50ns, got {}",
-                pulse_width_ns
+                "Pulse width must be a multiple of 50ns, got {pulse_width_ns}"
             ));
         }
 

@@ -44,8 +44,7 @@ mod plugin_tests {
         let plugins = factory.available_plugins();
         assert!(
             plugins.contains(&"test-device-mock".to_string()),
-            "Expected 'test-device-mock' in plugins: {:?}",
-            plugins
+            "Expected 'test-device-mock' in plugins: {plugins:?}"
         );
 
         // Verify display name

@@ -350,8 +350,7 @@ bad_pattern = { pattern = "[" }
         let err = result.unwrap_err().to_string();
         assert!(
             err.contains("regex") || err.contains("pattern"),
-            "Error should mention regex issue: {}",
-            err
+            "Error should mention regex issue: {err}"
         );
     }
 
@@ -374,8 +373,7 @@ bad_formula = { formula = "round(" }
         let err = result.unwrap_err().to_string();
         assert!(
             err.contains("formula") || err.contains("Invalid") || err.contains("round("),
-            "Error should mention formula issue: {}",
-            err
+            "Error should mention formula issue: {err}"
         );
     }
 
@@ -393,14 +391,12 @@ baud_rate = 2000000
         let result = load_device_config_from_str(invalid_config);
         assert!(
             result.is_err(),
-            "Should reject baud rate > 921600, got: {:?}",
-            result
+            "Should reject baud rate > 921600, got: {result:?}"
         );
         let err = result.unwrap_err().to_string();
         assert!(
             err.contains("baud") || err.contains("921600") || err.contains("maximum"),
-            "Error should mention baud rate issue: {}",
-            err
+            "Error should mention baud rate issue: {err}"
         );
     }
 
@@ -418,14 +414,12 @@ timeout_ms = 100000
         let result = load_device_config_from_str(invalid_config);
         assert!(
             result.is_err(),
-            "Should reject timeout > 60000, got: {:?}",
-            result
+            "Should reject timeout > 60000, got: {result:?}"
         );
         let err = result.unwrap_err().to_string();
         assert!(
             err.contains("timeout") || err.contains("60000") || err.contains("maximum"),
-            "Error should mention timeout issue: {}",
-            err
+            "Error should mention timeout issue: {err}"
         );
     }
 
@@ -442,8 +436,7 @@ type = "serial"
         let result = load_device_config_from_str(invalid_config);
         assert!(
             result.is_err(),
-            "Should reject missing 'name' field: {:?}",
-            result
+            "Should reject missing 'name' field: {result:?}"
         );
         // The error should be from TOML parsing - just verify we get an error
         // The exact error message format varies by toml version
@@ -467,8 +460,7 @@ get_value = { template = "GV", response = "nonexistent_response" }
         let err = result.unwrap_err().to_string();
         assert!(
             err.contains("nonexistent_response"),
-            "Error should mention missing response: {}",
-            err
+            "Error should mention missing response: {err}"
         );
     }
 

@@ -682,19 +682,19 @@ impl PlanBuilder for VoltageScanBuilder {
             .get("start_v")
             .ok_or("Missing parameter: start_v")?
             .parse::<f64>()
-            .map_err(|e| format!("Invalid start_v: {}", e))?;
+            .map_err(|e| format!("Invalid start_v: {e}"))?;
 
         let stop_v = parameters
             .get("stop_v")
             .ok_or("Missing parameter: stop_v")?
             .parse::<f64>()
-            .map_err(|e| format!("Invalid stop_v: {}", e))?;
+            .map_err(|e| format!("Invalid stop_v: {e}"))?;
 
         let num_points = parameters
             .get("num_points")
             .ok_or("Missing parameter: num_points")?
             .parse::<usize>()
-            .map_err(|e| format!("Invalid num_points: {}", e))?;
+            .map_err(|e| format!("Invalid num_points: {e}"))?;
 
         // Validation
         if !start_v.is_finite() {
@@ -715,7 +715,7 @@ impl PlanBuilder for VoltageScanBuilder {
         if let Some(settle) = parameters.get("settle_time") {
             let settle = settle
                 .parse::<f64>()
-                .map_err(|e| format!("Invalid settle_time: {}", e))?;
+                .map_err(|e| format!("Invalid settle_time: {e}"))?;
             plan = plan.with_settle_time(settle);
         }
 
@@ -748,13 +748,13 @@ impl PlanBuilder for TimeSeriesBuilder {
             .get("sample_rate")
             .ok_or("Missing parameter: sample_rate")?
             .parse::<f64>()
-            .map_err(|e| format!("Invalid sample_rate: {}", e))?;
+            .map_err(|e| format!("Invalid sample_rate: {e}"))?;
 
         let duration = parameters
             .get("duration")
             .ok_or("Missing parameter: duration")?
             .parse::<f64>()
-            .map_err(|e| format!("Invalid duration: {}", e))?;
+            .map_err(|e| format!("Invalid duration: {e}"))?;
 
         // Validation
         if sample_rate <= 0.0 {
@@ -818,7 +818,7 @@ impl PlanBuilder for TriggeredAcquisitionBuilder {
         if let Some(n) = parameters.get("num_triggers") {
             let n = n
                 .parse::<usize>()
-                .map_err(|e| format!("Invalid num_triggers: {}", e))?;
+                .map_err(|e| format!("Invalid num_triggers: {e}"))?;
             if n == 0 {
                 return Err("num_triggers must be > 0".to_string());
             }
@@ -832,7 +832,7 @@ impl PlanBuilder for TriggeredAcquisitionBuilder {
         if let Some(timeout) = parameters.get("trigger_timeout") {
             let timeout = timeout
                 .parse::<f64>()
-                .map_err(|e| format!("Invalid trigger_timeout: {}", e))?;
+                .map_err(|e| format!("Invalid trigger_timeout: {e}"))?;
             plan = plan.with_timeout(timeout);
         }
 

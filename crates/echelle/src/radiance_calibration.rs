@@ -245,9 +245,7 @@ fn resolve_calibration_device_type(
         match &resolved {
             Some(existing) if existing != &candidate => {
                 return Err(anyhow!(
-                    "calibration file device_type mismatch: '{}' vs '{}'",
-                    existing,
-                    candidate
+                    "calibration file device_type mismatch: '{existing}' vs '{candidate}'"
                 ));
             }
             Some(_) => {}

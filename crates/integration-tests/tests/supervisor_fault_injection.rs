@@ -377,8 +377,7 @@ async fn test_supervisor_restarts_faulted_device() {
     assert_eq!(
         health.health,
         DeviceHealth::Faulted,
-        "Device should be faulted after {} failures",
-        fault_threshold
+        "Device should be faulted after {fault_threshold} failures"
     );
 
     // Start supervisor with fast check interval
@@ -808,9 +807,7 @@ async fn test_supervisor_exponential_backoff() {
 
     assert!(
         attempts_later > attempts_early,
-        "Should have more restart attempts after waiting ({} vs {})",
-        attempts_later,
-        attempts_early
+        "Should have more restart attempts after waiting ({attempts_later} vs {attempts_early})"
     );
 
     // With 100ms base backoff and exponential growth (100, 200, 400, 800, 1600, 3200...),
@@ -818,8 +815,7 @@ async fn test_supervisor_exponential_backoff() {
     // have a bounded number of attempts.
     assert!(
         attempts_later <= 15,
-        "Exponential backoff should limit attempts, got {}",
-        attempts_later
+        "Exponential backoff should limit attempts, got {attempts_later}"
     );
 
     cancel.cancel();

@@ -186,7 +186,7 @@ fn parse_args() -> Result<HarnessConfig> {
                 usage();
                 std::process::exit(0);
             }
-            _ => return Err(anyhow::anyhow!("Unknown argument: {}", arg)),
+            _ => return Err(anyhow::anyhow!("Unknown argument: {arg}")),
         }
     }
 
@@ -253,7 +253,7 @@ fn apply_scenario_defaults(
             *exposure_ms = 100.0;
             *param_churn = true;
         }
-        _ => return Err(anyhow::anyhow!("Unknown scenario '{}'", scenario)),
+        _ => return Err(anyhow::anyhow!("Unknown scenario '{scenario}'")),
     }
 
     if binning.is_none() {
@@ -478,7 +478,7 @@ async fn run_stream(
                         stats.last_frame_number = Some(frame.frame_number);
                     }
                     Some(Err(err)) => {
-                        notes.push(format!("Stream error: {}", err));
+                        notes.push(format!("Stream error: {err}"));
                         ended_due_to_error = true;
                         break;
                     }
@@ -585,7 +585,7 @@ async fn run_param_churn(config: &HarnessConfig) -> Vec<ParamUpdateResult> {
                 &mut client,
                 &config.camera_id,
                 "acquisition.exposure_ms",
-                &format!("{}", exposure),
+                &format!("{exposure}"),
             )
             .await,
         );
@@ -638,7 +638,7 @@ async fn run_param_churn(config: &HarnessConfig) -> Vec<ParamUpdateResult> {
                 &mut client,
                 &config.camera_id,
                 "acquisition.binning",
-                &format!("[{},{}]", churn_bx, churn_by),
+                &format!("[{churn_bx},{churn_by}]"),
             )
             .await,
         );
@@ -650,7 +650,7 @@ async fn run_param_churn(config: &HarnessConfig) -> Vec<ParamUpdateResult> {
                 &mut client,
                 &config.camera_id,
                 "acquisition.binning",
-                &format!("[{},{}]", bx, by),
+                &format!("[{bx},{by}]"),
             )
             .await,
         );
@@ -677,7 +677,7 @@ async fn run_secondary_client(config: &HarnessConfig, duration: Duration) -> Sec
         let mut client = match HardwareServiceClient::connect(addr).await {
             Ok(client) => client,
             Err(err) => {
-                status.push(format!("{} connect failed: {}", label, err));
+                status.push(format!("{label} connect failed: {err}"));
                 break;
             }
         };
@@ -691,7 +691,7 @@ async fn run_secondary_client(config: &HarnessConfig, duration: Duration) -> Sec
         let mut stream = match client.stream_frames(request).await {
             Ok(resp) => resp.into_inner(),
             Err(err) => {
-                status.push(format!("{} stream failed: {}", label, err));
+                status.push(format!("{label} stream failed: {err}"));
                 break;
             }
         };
@@ -703,7 +703,7 @@ async fn run_secondary_client(config: &HarnessConfig, duration: Duration) -> Sec
             }
         }
 
-        status.push(format!("{} phase complete", label));
+        status.push(format!("{label} phase complete"));
         tokio::time::sleep(Duration::from_secs(5)).await;
     }
 
@@ -832,7 +832,7 @@ async fn spawn_server(addr: &str) -> Result<()> {
         )
         .await
         {
-            eprintln!("Server error: {}", err);
+            eprintln!("Server error: {err}");
         }
     });
 
@@ -896,7 +896,7 @@ async fn main() -> Result<()> {
                 &mut client,
                 &config.camera_id,
                 "acquisition.binning",
-                &format!("[{},{}]", bx, by),
+                &format!("[{bx},{by}]"),
             )
             .await,
         );
@@ -933,7 +933,7 @@ async fn main() -> Result<()> {
     if let Some(path) = &config.output_path {
         let json = serde_json::to_string_pretty(&summary)?;
         fs::write(path, json)?;
-        println!("Summary written to {}", path);
+        println!("Summary written to {path}");
     }
 
     if summary.success {

@@ -5691,7 +5691,7 @@ dependencies = [
  "libc",
  "log",
  "rustversion",
- "windows-link 0.1.3",
+ "windows-link 0.2.1",
  "windows-result 0.4.1",
 ]
 
@@ -18931,8 +18931,3 @@ dependencies = [
  "syn 2.0.117",
  "winnow 0.7.15",
 ]
-
-[[patch.unused]]
-name = "hdf5-metno-sys"
-version = "0.11.2"
-source = "git+https://github.com/JulianDicken/hdf5-rust.git?branch=hdf5_v2.1#e3c6cfed8c618a821e10715fc1d580d98649773b"

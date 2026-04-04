@@ -607,7 +607,7 @@ type = "usbtmc"
     #[test]
     fn load_all_config_files_as_raw_manifest() {
         let dir = config_devices_dir();
-        assert!(dir.exists(), "config/devices dir should exist at {:?}", dir);
+        assert!(dir.exists(), "config/devices dir should exist at {dir:?}");
 
         let mut count = 0;
         let mut failures: Vec<String> = Vec::new();

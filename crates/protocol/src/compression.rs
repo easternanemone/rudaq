@@ -157,8 +157,7 @@ pub fn decompress_frame_into(frame: &mut FrameData, buffer: &mut Vec<u8>) -> Res
 
             if decompressed_len != expected_size {
                 return Err(format!(
-                    "Decompressed size mismatch: got {} bytes, expected {}",
-                    decompressed_len, expected_size
+                    "Decompressed size mismatch: got {decompressed_len} bytes, expected {expected_size}"
                 ));
             }
 
@@ -236,8 +235,7 @@ mod tests {
         );
 
         println!(
-            "Compression test: {} -> {} bytes (ratio: {:.2}x)",
-            original_size, compressed_size, ratio
+            "Compression test: {original_size} -> {compressed_size} bytes (ratio: {ratio:.2}x)"
         );
     }
 

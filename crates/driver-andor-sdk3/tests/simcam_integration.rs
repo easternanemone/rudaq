@@ -95,8 +95,7 @@ mod pooled_delivery {
         for (i, frame) in received.iter().enumerate() {
             assert_eq!(
                 frame.frame_number, i as u64,
-                "frame {} should have frame_number {}",
-                i, i
+                "frame {i} should have frame_number {i}"
             );
         }
 
@@ -428,9 +427,7 @@ mod observer_notification {
         // if there was a race between unregister and notification)
         assert!(
             count_after <= count_before + 1,
-            "observer should stop receiving after unregister: before={}, after={}",
-            count_before,
-            count_after
+            "observer should stop receiving after unregister: before={count_before}, after={count_after}"
         );
     }
 

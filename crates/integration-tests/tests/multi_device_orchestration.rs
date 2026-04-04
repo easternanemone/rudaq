@@ -123,8 +123,7 @@ async fn test_gridscan_two_stages() {
 
     assert!(
         result.is_ok(),
-        "Engine should complete successfully: {:?}",
-        result
+        "Engine should complete successfully: {result:?}"
     );
 
     // Verify document structure
@@ -261,8 +260,7 @@ async fn test_pause_resume_multi_device() {
             } else {
                 assert!(
                     state == EngineState::Paused || state == EngineState::Idle,
-                    "Should be in Paused or Idle state after pause(), got {:?}",
-                    state
+                    "Should be in Paused or Idle state after pause(), got {state:?}"
                 );
             }
 
@@ -280,8 +278,7 @@ async fn test_pause_resume_multi_device() {
                 let state = engine_for_control.state().await;
                 assert!(
                     state == EngineState::Running || state == EngineState::Idle,
-                    "Should be Running or Idle after resume, got {:?}",
-                    state
+                    "Should be Running or Idle after resume, got {state:?}"
                 );
             }
         }
@@ -350,8 +347,7 @@ async fn test_abort_multi_device_scan() {
         let state = engine_for_control.state().await;
         assert!(
             state == EngineState::Idle || state == EngineState::Aborting,
-            "Should be Idle or Aborting after abort, got {:?}",
-            state
+            "Should be Idle or Aborting after abort, got {state:?}"
         );
     }
 
@@ -477,7 +473,7 @@ async fn test_document_fields() {
         .collect();
 
     for (i, event) in events.iter().enumerate() {
-        assert!(!event.data.is_empty(), "Event {} should have data", i);
+        assert!(!event.data.is_empty(), "Event {i} should have data");
         // seq_num starts at 0 and increments
         assert!(
             event.seq_num == i as u32,
@@ -584,8 +580,7 @@ async fn test_engine_state_transitions() {
     let state = engine_for_check.state().await;
     assert!(
         state == EngineState::Running || state == EngineState::Idle,
-        "Should be Running or Idle, got {:?}",
-        state
+        "Should be Running or Idle, got {state:?}"
     );
 
     // Wait for completion

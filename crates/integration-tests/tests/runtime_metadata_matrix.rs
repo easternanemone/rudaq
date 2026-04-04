@@ -483,8 +483,7 @@ async fn matrix_same_driver_type_yields_identical_capabilities() {
             for (i, caps) in instances.iter().enumerate().skip(1) {
                 assert_eq!(
                     &instances[0], caps,
-                    "driver '{}' instance 0 vs {} has capability mismatch",
-                    driver, i
+                    "driver '{driver}' instance 0 vs {i} has capability mismatch"
                 );
             }
         }
@@ -510,8 +509,7 @@ async fn matrix_same_driver_type_yields_identical_commands() {
             for (i, cmds) in instances.iter().enumerate().skip(1) {
                 assert_eq!(
                     &instances[0], cmds,
-                    "driver '{}' instance 0 vs {} has command catalog mismatch",
-                    driver, i
+                    "driver '{driver}' instance 0 vs {i} has command catalog mismatch"
                 );
             }
         }
@@ -680,8 +678,7 @@ async fn matrix_comedi_and_dover_driver_types_remain_native_exceptions() {
         native_driver_types
             .iter()
             .all(|t| !t.starts_with("universal_")),
-        "comedi/dover driver types must remain native exceptions, found: {:?}",
-        native_driver_types
+        "comedi/dover driver types must remain native exceptions, found: {native_driver_types:?}"
     );
 }
 
@@ -779,8 +776,7 @@ async fn matrix_universal_spectrometer_has_spectrum_readable() {
     let cap_strs: Vec<&str> = spec.capabilities.iter().map(|c| c.as_str()).collect();
     assert!(
         cap_strs.contains(&"spectrum_readable"),
-        "spectrometer should advertise SpectrumReadable capability, got: {:?}",
-        cap_strs
+        "spectrometer should advertise SpectrumReadable capability, got: {cap_strs:?}"
     );
     assert!(
         cap_strs.contains(&"readable"),

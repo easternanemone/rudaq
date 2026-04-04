@@ -148,7 +148,7 @@ fn error_code_to_string(code: i32) -> String {
         20201 => "Shamrock communication error".to_string(),
         20275 => "Shamrock not initialized".to_string(),
         20292 => "Shamrock not available".to_string(),
-        _ => format!("Unknown error code: {}", code),
+        _ => format!("Unknown error code: {code}"),
     }
 }
 

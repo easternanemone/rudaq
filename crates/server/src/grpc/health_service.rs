@@ -60,7 +60,7 @@ impl Health for HealthServiceImpl {
             } else {
                 // Service not found in our map
                 // Standard behavior is to return NOT_FOUND status code
-                return Err(Status::not_found(format!("Unknown service: {}", service)));
+                return Err(Status::not_found(format!("Unknown service: {service}")));
             }
         };
 

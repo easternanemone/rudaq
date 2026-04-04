@@ -431,8 +431,7 @@ impl std::fmt::Display for CompatibilityWarning {
                 actual_height,
             } => write!(
                 f,
-                "frame size mismatch: profile expects {}x{}, got {}x{}",
-                expected_width, expected_height, actual_width, actual_height
+                "frame size mismatch: profile expects {expected_width}x{expected_height}, got {actual_width}x{actual_height}"
             ),
             Self::RoiMismatch {
                 axis,
@@ -440,8 +439,7 @@ impl std::fmt::Display for CompatibilityWarning {
                 actual,
             } => write!(
                 f,
-                "ROI {} mismatch: profile expects {}, got {}",
-                axis, expected, actual
+                "ROI {axis} mismatch: profile expects {expected}, got {actual}"
             ),
             Self::BinningMismatch {
                 axis,
@@ -449,13 +447,11 @@ impl std::fmt::Display for CompatibilityWarning {
                 actual,
             } => write!(
                 f,
-                "binning {} mismatch: profile expects {}, got {}",
-                axis, expected, actual
+                "binning {axis} mismatch: profile expects {expected}, got {actual}"
             ),
             Self::BitDepthMismatch { expected, actual } => write!(
                 f,
-                "bit depth mismatch: profile expects {}-bit, got {}-bit",
-                expected, actual
+                "bit depth mismatch: profile expects {expected}-bit, got {actual}-bit"
             ),
         }
     }
@@ -852,26 +848,22 @@ fn validate_trace_model(
         } => {
             if coefficients.is_empty() {
                 return Err(invalid(format!(
-                    "order {} trace polynomial coefficients must not be empty",
-                    relative_index
+                    "order {relative_index} trace polynomial coefficients must not be empty"
                 )));
             }
             if !all_finite(coefficients) {
                 return Err(invalid(format!(
-                    "order {} trace polynomial coefficients must be finite",
-                    relative_index
+                    "order {relative_index} trace polynomial coefficients must be finite"
                 )));
             }
             if !domain_start.is_finite() || !domain_end.is_finite() || domain_start >= domain_end {
                 return Err(invalid(format!(
-                    "order {} trace domain must be finite and increasing",
-                    relative_index
+                    "order {relative_index} trace domain must be finite and increasing"
                 )));
             }
             if *domain_start > f64::from(sample_start) || *domain_end < f64::from(sample_end) {
                 return Err(invalid(format!(
-                    "order {} trace domain [{}, {}] does not cover sample range [{}..={}]",
-                    relative_index, domain_start, domain_end, sample_start, sample_end
+                    "order {relative_index} trace domain [{domain_start}, {domain_end}] does not cover sample range [{sample_start}..={sample_end}]"
                 )));
             }
         }
@@ -896,40 +888,34 @@ fn validate_wavelength_model(
         } => {
             if unit.trim().is_empty() {
                 return Err(invalid(format!(
-                    "order {} wavelength polynomial unit must not be empty",
-                    relative_index
+                    "order {relative_index} wavelength polynomial unit must not be empty"
                 )));
             }
             if coefficients.is_empty() {
                 return Err(invalid(format!(
-                    "order {} wavelength polynomial coefficients must not be empty",
-                    relative_index
+                    "order {relative_index} wavelength polynomial coefficients must not be empty"
                 )));
             }
             if !all_finite(coefficients) {
                 return Err(invalid(format!(
-                    "order {} wavelength polynomial coefficients must be finite",
-                    relative_index
+                    "order {relative_index} wavelength polynomial coefficients must be finite"
                 )));
             }
             if !domain_start.is_finite() || !domain_end.is_finite() || domain_start >= domain_end {
                 return Err(invalid(format!(
-                    "order {} wavelength domain must be finite and increasing",
-                    relative_index
+                    "order {relative_index} wavelength domain must be finite and increasing"
                 )));
             }
             if *domain_start > f64::from(sample_start) || *domain_end < f64::from(sample_end) {
                 return Err(invalid(format!(
-                    "order {} wavelength domain [{}, {}] does not cover sample range [{}..={}]",
-                    relative_index, domain_start, domain_end, sample_start, sample_end
+                    "order {relative_index} wavelength domain [{domain_start}, {domain_end}] does not cover sample range [{sample_start}..={sample_end}]"
                 )));
             }
         }
         EchelleWavelengthModel::Sampled { wavelengths, unit } => {
             if unit.trim().is_empty() {
                 return Err(invalid(format!(
-                    "order {} sampled wavelength unit must not be empty",
-                    relative_index
+                    "order {relative_index} sampled wavelength unit must not be empty"
                 )));
             }
             if wavelengths.len() != sample_count {
@@ -942,14 +928,12 @@ fn validate_wavelength_model(
             }
             if !all_finite(wavelengths) {
                 return Err(invalid(format!(
-                    "order {} sampled wavelengths must be finite",
-                    relative_index
+                    "order {relative_index} sampled wavelengths must be finite"
                 )));
             }
             if is_constant_or_nan(wavelengths) {
                 return Err(invalid(format!(
-                    "order {} sampled wavelengths must vary",
-                    relative_index
+                    "order {relative_index} sampled wavelengths must vary"
                 )));
             }
         }
@@ -1197,8 +1181,7 @@ impl<'a> DecodedIntensityFrame<'a> {
             }
             _ => {
                 return Err(format!(
-                    "unsupported bit depth {} for echelle extraction (expected 8/12/16)",
-                    bit_depth
+                    "unsupported bit depth {bit_depth} for echelle extraction (expected 8/12/16)"
                 ));
             }
         };
@@ -2812,8 +2795,7 @@ mod tests {
         let err = profile.validate_for_frame(frame).unwrap_err();
         assert!(
             err.to_string().contains("bit depth mismatch"),
-            "expected bit depth mismatch error, got: {}",
-            err
+            "expected bit depth mismatch error, got: {err}"
         );
     }
 
@@ -2924,8 +2906,7 @@ mod tests {
         for val in &simple_preview.orders[0].flux {
             assert!(
                 (*val - 1020.0).abs() < 1e-6,
-                "SimpleSum flux should be 1020, got {}",
-                val
+                "SimpleSum flux should be 1020, got {val}"
             );
         }
 
@@ -2936,9 +2917,7 @@ mod tests {
         assert!(
             (sqrt_flux_0 - simple_flux_0).abs() > 1.0,
             "SqrtWeightedSum should produce different flux than SimpleSum \
-             on non-uniform data: sqrt={}, simple={}",
-            sqrt_flux_0,
-            simple_flux_0
+             on non-uniform data: sqrt={sqrt_flux_0}, simple={simple_flux_0}"
         );
     }
 
@@ -2992,8 +2971,7 @@ mod tests {
         for &frac in &order.valid_fraction {
             assert!(
                 (frac - 1.0).abs() < 1e-6,
-                "expected valid_fraction=1.0, got {}",
-                frac
+                "expected valid_fraction=1.0, got {frac}"
             );
         }
     }

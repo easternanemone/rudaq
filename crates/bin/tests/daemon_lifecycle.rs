@@ -24,8 +24,7 @@ fn test_daemon_rejects_conflicting_args() {
     let binary = daemon_binary_path();
     if !binary.exists() {
         eprintln!(
-            "Skipping test: daemon binary not found at {:?} (run `cargo build -p bin` first)",
-            binary
+            "Skipping test: daemon binary not found at {binary:?} (run `cargo build -p bin` first)"
         );
         return;
     }
@@ -45,8 +44,7 @@ fn test_daemon_rejects_conflicting_args() {
         stderr.contains("cannot be used with")
             || stderr.contains("conflict")
             || stderr.contains("error"),
-        "stderr should mention the argument conflict, got: {}",
-        stderr
+        "stderr should mention the argument conflict, got: {stderr}"
     );
 }
 
@@ -58,8 +56,7 @@ fn test_daemon_missing_config_file() {
     let binary = daemon_binary_path();
     if !binary.exists() {
         eprintln!(
-            "Skipping test: daemon binary not found at {:?} (run `cargo build -p bin` first)",
-            binary
+            "Skipping test: daemon binary not found at {binary:?} (run `cargo build -p bin` first)"
         );
         return;
     }

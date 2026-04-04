@@ -29,7 +29,7 @@ tempfile.workspace = true
 chrono.workspace = true
 tonic = { workspace = true, features = ["transport"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
-hdf5 = { package = "hdf5-metno", version = "0.12.3", optional = true }
+hdf5 = { package = "hdf5-metno", version = "0.12.4", optional = true }
 arrow = { version = "57", features = ["ipc"] }
 nix = { version = "0.29", features = ["term"] }
 driver-pvcam = { path = "../driver-pvcam", optional = true }

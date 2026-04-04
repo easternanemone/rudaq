@@ -1408,8 +1408,7 @@ mod tests {
         let received = frames_received.load(Ordering::Relaxed);
         assert!(
             received > 0,
-            "Observer should have received at least one frame, got {}",
-            received
+            "Observer should have received at least one frame, got {received}"
         );
 
         // Verify frame dimensions were correct
@@ -1456,9 +1455,7 @@ mod tests {
         let final_count = frames_received.load(Ordering::Relaxed);
         assert!(
             final_count <= count_after_unregister + 1,
-            "Frames should not be delivered after unregister: before={}, after={}",
-            count_after_unregister,
-            final_count
+            "Frames should not be delivered after unregister: before={count_after_unregister}, after={final_count}"
         );
     }
 
@@ -1686,9 +1683,7 @@ mod tests {
         // Temperature should have drifted toward setpoint
         assert!(
             final_temp > initial_temp,
-            "Temperature should increase toward setpoint (got {}, started at {})",
-            final_temp,
-            initial_temp
+            "Temperature should increase toward setpoint (got {final_temp}, started at {initial_temp})"
         );
     }
 
@@ -1712,8 +1707,7 @@ mod tests {
         // Over 700ms that's ~7 frames. Allow 4-9 for timing jitter.
         assert!(
             (4..=9).contains(&frame_count),
-            "Expected 4-9 frames with 0.1s exposure in 700ms, got {}",
-            frame_count
+            "Expected 4-9 frames with 0.1s exposure in 700ms, got {frame_count}"
         );
     }
 
@@ -1729,8 +1723,7 @@ mod tests {
         let frame_count = camera.get_frame_count();
         assert!(
             frame_count > 5,
-            "Instant mode should produce many frames quickly (>5), got {}",
-            frame_count
+            "Instant mode should produce many frames quickly (>5), got {frame_count}"
         );
     }
 
@@ -1751,8 +1744,7 @@ mod tests {
         // Allow very wide tolerance for timing jitter, async delays, and startup latency
         assert!(
             (1..=15).contains(&frame_count),
-            "Expected 1-15 frames at 30fps in 300ms, got {}",
-            frame_count
+            "Expected 1-15 frames at 30fps in 300ms, got {frame_count}"
         );
     }
 
@@ -1800,8 +1792,7 @@ mod tests {
         // At 10fps, should get 2-3 frames in 250ms
         assert!(
             frame_count <= 4,
-            "Max FPS should limit frame rate, got {} frames",
-            frame_count
+            "Max FPS should limit frame rate, got {frame_count} frames"
         );
     }
 
@@ -1876,8 +1867,7 @@ mod tests {
         // Temperature should have drifted toward 30.0 from 20.0
         assert!(
             param_value > 20.5,
-            "Temperature parameter should update from stream (got {}, started at 20.0)",
-            param_value
+            "Temperature parameter should update from stream (got {param_value}, started at 20.0)"
         );
 
         handle.abort();

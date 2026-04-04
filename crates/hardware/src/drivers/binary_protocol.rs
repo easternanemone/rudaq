@@ -302,7 +302,7 @@ impl BinaryFrameBuilder {
         if template.starts_with("0x") || template.starts_with("0X") {
             let hex_str = template.trim_start_matches("0x").trim_start_matches("0X");
             let value = u64::from_str_radix(hex_str, 16)
-                .with_context(|| format!("Invalid hex literal: {}", template))?;
+                .with_context(|| format!("Invalid hex literal: {template}"))?;
             return Ok(value as f64);
         }
 
@@ -311,14 +311,14 @@ impl BinaryFrameBuilder {
             let param_name = &template[2..template.len() - 1];
             let value = params
                 .get(param_name)
-                .ok_or_else(|| anyhow!("Parameter '{}' not found", param_name))?;
+                .ok_or_else(|| anyhow!("Parameter '{param_name}' not found"))?;
             return Ok(*value);
         }
 
         // Decimal literal
         template
             .parse::<f64>()
-            .with_context(|| format!("Invalid numeric value: {}", template))
+            .with_context(|| format!("Invalid numeric value: {template}"))
     }
 
     /// Get the current frame contents.
@@ -487,12 +487,12 @@ impl BinaryResponseParser {
         } else if let Some(ref len_field) = field.length_field {
             let len_value = parsed_so_far
                 .get(len_field)
-                .ok_or_else(|| anyhow!("Length field '{}' not found", len_field))?;
+                .ok_or_else(|| anyhow!("Length field '{len_field}' not found"))?;
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             {
                 len_value
                     .as_i64()
-                    .ok_or_else(|| anyhow!("Length field '{}' is not numeric", len_field))?
+                    .ok_or_else(|| anyhow!("Length field '{len_field}' is not numeric"))?
                     as usize
             }
         } else {

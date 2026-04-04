@@ -183,18 +183,18 @@ impl ScriptModule {
     pub async fn from_source(script_source: String, script_path: PathBuf) -> Result<Self> {
         // Create engine with hardware support
         let mut engine = RhaiEngine::with_hardware()
-            .map_err(|e| anyhow!("Failed to create script engine: {}", e))?;
+            .map_err(|e| anyhow!("Failed to create script engine: {e}"))?;
 
         // In Rhai, functions defined with `fn` are only available during
         // the script's execution. So we need to combine the script with
         // the call to module_type_info() in a single execution.
-        let combined_script = format!("{}\nmodule_type_info()", script_source);
+        let combined_script = format!("{script_source}\nmodule_type_info()");
 
         // Execute the combined script to get type info
         let result = engine
             .execute_script(&combined_script)
             .await
-            .map_err(|e| anyhow!("Script must define module_type_info() function: {}", e))?;
+            .map_err(|e| anyhow!("Script must define module_type_info() function: {e}"))?;
 
         let type_info = Self::parse_type_info_from_dynamic(result)?;
 
@@ -220,7 +220,7 @@ impl ScriptModule {
         script_source: &str,
         function_call: &str,
     ) -> Result<ScriptValue, ScriptError> {
-        let combined = format!("{}\n{}", script_source, function_call);
+        let combined = format!("{script_source}\n{function_call}");
         engine.execute_script(&combined).await
     }
 
@@ -361,11 +361,11 @@ impl Module for ScriptModule {
         // Convert params to Rhai map format
         let params_str = params
             .iter()
-            .map(|(k, v)| format!("\"{}\": \"{}\"", k, v))
+            .map(|(k, v)| format!("\"{k}\": \"{v}\""))
             .collect::<Vec<_>>()
             .join(", ");
 
-        let function_call = format!("configure(#{{ {} }})", params_str);
+        let function_call = format!("configure(#{{ {params_str} }})");
 
         // Run configure in blocking context
         let engine = self.engine.clone();
@@ -422,7 +422,7 @@ impl Module for ScriptModule {
                 self.state = ModuleState::Staged;
                 Ok(())
             }
-            Err(e) => Err(anyhow!("Script stage() failed: {}", e)),
+            Err(e) => Err(anyhow!("Script stage() failed: {e}")),
         }
     }
 
@@ -436,7 +436,7 @@ impl Module for ScriptModule {
             Err(e) if e.to_string().contains("not found") => {
                 Ok(()) // unstage() is optional
             }
-            Err(e) => Err(anyhow!("Script unstage() failed: {}", e)),
+            Err(e) => Err(anyhow!("Script unstage() failed: {e}")),
         }
     }
 
@@ -457,8 +457,7 @@ impl Module for ScriptModule {
         // Spawn the script execution task
         let handle = tokio::spawn(async move {
             let mut engine = engine.lock().await;
-            let function_call =
-                format!("start(#{{ module_id: \"{}\", running: true }})", module_id);
+            let function_call = format!("start(#{{ module_id: \"{module_id}\", running: true }})");
 
             // Call start function
             match Self::call_script_fn(&mut engine, &script_source, &function_call).await {

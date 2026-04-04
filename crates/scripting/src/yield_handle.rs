@@ -42,9 +42,9 @@ impl std::fmt::Debug for YieldedValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             YieldedValue::Plan(_) => write!(f, "YieldedValue::Plan(...)"),
-            YieldedValue::Command(cmd) => write!(f, "YieldedValue::Command({:?})", cmd),
+            YieldedValue::Command(cmd) => write!(f, "YieldedValue::Command({cmd:?})"),
             YieldedValue::Done => write!(f, "YieldedValue::Done"),
-            YieldedValue::Error(e) => write!(f, "YieldedValue::Error({})", e),
+            YieldedValue::Error(e) => write!(f, "YieldedValue::Error({e})"),
         }
     }
 }
@@ -175,7 +175,7 @@ impl YieldHandle {
         // Send the yielded value to the runner
         self.plan_tx
             .blocking_send(value)
-            .map_err(|e| format!("Failed to send yielded value: {}", e))?;
+            .map_err(|e| format!("Failed to send yielded value: {e}"))?;
 
         // Block waiting for result
         // This is called from spawn_blocking, so blocking is OK
@@ -199,14 +199,14 @@ impl YieldHandle {
     pub fn signal_done(&self) -> Result<(), String> {
         self.plan_tx
             .blocking_send(YieldedValue::Done)
-            .map_err(|e| format!("Failed to signal done: {}", e))
+            .map_err(|e| format!("Failed to signal done: {e}"))
     }
 
     /// Signal that the script encountered an error
     pub fn signal_error(&self, error: String) -> Result<(), String> {
         self.plan_tx
             .blocking_send(YieldedValue::Error(error))
-            .map_err(|e| format!("Failed to signal error: {}", e))
+            .map_err(|e| format!("Failed to signal error: {e}"))
     }
 
     /// Check if currently waiting for a result

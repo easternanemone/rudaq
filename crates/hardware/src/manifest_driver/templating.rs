@@ -158,7 +158,7 @@ pub fn render_command(template: &str, context: &HashMap<String, String>) -> Resu
 
     let rendered = get_env()
         .render_str(&converted, context)
-        .map_err(|e| anyhow!("Template rendering failed: {}", e))?;
+        .map_err(|e| anyhow!("Template rendering failed: {e}"))?;
 
     Ok(rendered)
 }

@@ -106,7 +106,7 @@ async fn test_ringbuffer_concurrent_access() {
     let ring_writer = ring.clone();
     let writer = tokio::spawn(async move {
         for i in 0..100 {
-            let data = format!("Message {}", i);
+            let data = format!("Message {i}");
             ring_writer.write(data.as_bytes()).unwrap();
             tokio::time::sleep(tokio::time::Duration::from_micros(100)).await;
         }

@@ -214,7 +214,7 @@ mod mock_driver {
         tokio::time::sleep(Duration::from_millis(50)).await;
 
         let count = driver.frame_count();
-        println!("Frame count after 50ms: {}", count);
+        println!("Frame count after 50ms: {count}");
 
         // Should have some frames
         assert!(count >= 1, "Should have received at least 1 frame");

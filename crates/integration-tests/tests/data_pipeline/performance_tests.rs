@@ -20,7 +20,7 @@ async fn test_arrow_batch_creation_performance() {
     let elapsed = start.elapsed();
     let ops_per_sec = f64::from(iterations) / elapsed.as_secs_f64();
 
-    println!("Arrow batch creation: {:.0} ops/sec", ops_per_sec);
+    println!("Arrow batch creation: {ops_per_sec:.0} ops/sec");
     assert!(ops_per_sec > 1000.0, "Should create batches quickly");
 }
 
@@ -42,6 +42,6 @@ async fn test_ringbuffer_write_performance() {
     let elapsed = start.elapsed();
     let ops_per_sec = f64::from(iterations) / elapsed.as_secs_f64();
 
-    println!("Ring buffer write: {:.0} ops/sec", ops_per_sec);
+    println!("Ring buffer write: {ops_per_sec:.0} ops/sec");
     assert!(ops_per_sec > 5_000.0, "Should write quickly");
 }

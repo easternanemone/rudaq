@@ -100,8 +100,7 @@ fn test_golden_startup_shutdown_mock() {
         stdout.contains("Starting Headless DAQ Daemon")
             || stdout.contains("gRPC server ready")
             || stdout.contains("Initializing"),
-        "Daemon should show startup messages, got stdout: {}",
-        stdout
+        "Daemon should show startup messages, got stdout: {stdout}"
     );
 }
 
@@ -317,15 +316,13 @@ fn test_golden_invalid_hardware_config_syntax() {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let combined = format!("{}{}", stdout, stderr);
+    let combined = format!("{stdout}{stderr}");
     assert!(
         combined.contains("parse")
             || combined.contains("TOML")
             || combined.contains("syntax")
             || combined.contains("expected"),
-        "Output should indicate a config parse error, got:\nstdout: {}\nstderr: {}",
-        stdout,
-        stderr
+        "Output should indicate a config parse error, got:\nstdout: {stdout}\nstderr: {stderr}"
     );
 }
 
@@ -371,9 +368,9 @@ fn test_golden_empty_hardware_config() {
     // Log the behavior for golden reference
     eprintln!("--- Golden behavior for empty config ---");
     eprintln!("Exit status: {:?}", output.status);
-    eprintln!("stdout: {}", stdout);
+    eprintln!("stdout: {stdout}");
     if !stderr.is_empty() {
-        eprintln!("stderr: {}", stderr);
+        eprintln!("stderr: {stderr}");
     }
     eprintln!("--- End golden behavior ---");
 }
@@ -441,8 +438,7 @@ fn test_golden_mock_devices_registered() {
             || stdout.contains("Registered")
             || stdout.contains("mock")
             || stdout.contains("Using mock profile bootstrap"),
-        "Daemon should report registered mock devices in stdout.\nGot: {}",
-        stdout
+        "Daemon should report registered mock devices in stdout.\nGot: {stdout}"
     );
 }
 

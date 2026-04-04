@@ -176,7 +176,7 @@ impl UniversalDriver {
             .manifest
             .commands
             .get(cmd_name)
-            .ok_or_else(|| anyhow!("Command '{}' not found", cmd_name))?;
+            .ok_or_else(|| anyhow!("Command '{cmd_name}' not found"))?;
 
         // Build template parameters
         let mut params = self.address_params();
@@ -198,9 +198,7 @@ impl UniversalDriver {
                     let (lo, hi) = (i64::MIN as f64, i64::MAX as f64);
                     if !rounded.is_finite() || rounded < lo || rounded > hi {
                         return Err(anyhow!(
-                            "Converted value {} for parameter '{}' overflows i64",
-                            converted,
-                            param_name
+                            "Converted value {converted} for parameter '{param_name}' overflows i64"
                         ));
                     }
                     #[allow(clippy::cast_possible_truncation)]
@@ -288,7 +286,7 @@ impl UniversalDriver {
             fields
                 .get(output_field)
                 .cloned()
-                .ok_or_else(|| anyhow!("Output field '{}' not found in response", output_field))
+                .ok_or_else(|| anyhow!("Output field '{output_field}' not found in response"))
         } else if let Some(value) = fields.get("value") {
             Ok(value.clone())
         } else if fields.len() == 1 {
@@ -312,7 +310,7 @@ impl UniversalDriver {
         let raw_f64 = raw_value
             .as_f64()
             .or_else(|| raw_value.as_i64().map(|i| i as f64))
-            .ok_or_else(|| anyhow!("Cannot convert response to f64: {:?}", raw_value))?;
+            .ok_or_else(|| anyhow!("Cannot convert response to f64: {raw_value:?}"))?;
 
         // Apply output conversion
         if let Some(conv_ref) = &mapping.output_conversion {
@@ -338,7 +336,7 @@ impl UniversalDriver {
             serde_json::Value::String(s) => {
                 Ok(matches!(s.as_str(), "1" | "ON" | "on" | "true" | "TRUE"))
             }
-            _ => Err(anyhow!("Cannot convert response to bool: {:?}", value)),
+            _ => Err(anyhow!("Cannot convert response to bool: {value:?}")),
         }
     }
 
@@ -440,7 +438,7 @@ impl UniversalDriver {
             let value = value.trim();
             let actual = fields
                 .get(field)
-                .ok_or_else(|| anyhow!("Condition field '{}' not found in response", field))?;
+                .ok_or_else(|| anyhow!("Condition field '{field}' not found in response"))?;
 
             // Try numeric comparison
             if let Ok(expected_num) = value.parse::<i64>()
@@ -464,8 +462,7 @@ impl UniversalDriver {
             Ok(actual.as_str() != Some(value))
         } else {
             Err(anyhow!(
-                "Unsupported condition format: '{}'. Expected 'field == value' or 'field != value'",
-                condition
+                "Unsupported condition format: '{condition}'. Expected 'field == value' or 'field != value'"
             ))
         }
     }
@@ -509,7 +506,7 @@ impl common::capabilities::Commandable for UniversalDriver {
             .manifest
             .commands
             .get(command)
-            .ok_or_else(|| anyhow!("Unknown command: '{}'", command))?;
+            .ok_or_else(|| anyhow!("Unknown command: '{command}'"))?;
 
         // Build template parameters from args + address
         let mut params = self.address_params();
@@ -623,11 +620,7 @@ impl common::capabilities::SpectrumReadable for UniversalDriver {
                 let mut vals = Vec::with_capacity(arr.len());
                 for (idx, v) in arr.iter().enumerate() {
                     let num = v.as_f64().ok_or_else(|| {
-                        anyhow!(
-                            "expected numeric spectrum array element at index {}, got: {}",
-                            idx,
-                            v
-                        )
+                        anyhow!("expected numeric spectrum array element at index {idx}, got: {v}")
                     })?;
                     vals.push(num);
                 }
@@ -641,12 +634,7 @@ impl common::capabilities::SpectrumReadable for UniversalDriver {
                     .enumerate()
                 {
                     let num = token.parse::<f64>().map_err(|e| {
-                        anyhow!(
-                            "failed to parse spectrum token '{}' at position {}: {}",
-                            token,
-                            idx,
-                            e
-                        )
+                        anyhow!("failed to parse spectrum token '{token}' at position {idx}: {e}")
                     })?;
                     vals.push(num);
                 }
@@ -655,8 +643,7 @@ impl common::capabilities::SpectrumReadable for UniversalDriver {
             other => {
                 let num = other.as_f64().ok_or_else(|| {
                     anyhow!(
-                        "expected numeric spectrum value or numeric vector/string, got: {}",
-                        other
+                        "expected numeric spectrum value or numeric vector/string, got: {other}"
                     )
                 })?;
                 vec![num]
@@ -703,7 +690,7 @@ impl common::capabilities::Settable for UniversalDriver {
             .manifest
             .commands
             .get(cmd_name)
-            .ok_or_else(|| anyhow!("Command '{}' not found", cmd_name))?;
+            .ok_or_else(|| anyhow!("Command '{cmd_name}' not found"))?;
 
         let mut params = self.address_params();
         params.insert(
@@ -756,7 +743,7 @@ impl common::capabilities::Settable for UniversalDriver {
     }
 
     async fn get_value(&self, name: &str) -> Result<serde_json::Value> {
-        anyhow::bail!("get_value('{}') not configured in manifest", name)
+        anyhow::bail!("get_value('{name}') not configured in manifest")
     }
 }
 

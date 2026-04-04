@@ -3436,7 +3436,7 @@ impl Commandable for PvcamDriver {
                 PvcamFeatures::upload_smart_stream(&conn, &exposures_u32)?;
                 Ok(serde_json::json!({ "success": true, "count": exposures_u32.len() }))
             }
-            _ => anyhow::bail!("Unknown command: {}", command),
+            _ => anyhow::bail!("Unknown command: {command}"),
         }
     }
 }

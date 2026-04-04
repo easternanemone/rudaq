@@ -19,8 +19,7 @@ fn test_smart_stream_exposure_index_wrapping() {
         let exposure_index = (frame_num - 1) % smart_stream_count;
         assert_eq!(
             exposure_index, expected,
-            "Frame {} should have exposure index {}, got {}",
-            frame_num, expected, exposure_index
+            "Frame {frame_num} should have exposure index {expected}, got {exposure_index}"
         );
     }
 }

@@ -90,7 +90,7 @@ pub(super) async fn get_parameter(
         let params = parameterized.parameters();
         if let Some(param) = params.get(&req.parameter_name) {
             let value = param.get_json().map_err(|e| {
-                map_hardware_error_to_status(&format!("Failed to get parameter: {}", e))
+                map_hardware_error_to_status(&format!("Failed to get parameter: {e}"))
             })?;
             let units = param.metadata().units.unwrap_or_default();
             #[allow(clippy::cast_possible_truncation)]
@@ -114,7 +114,7 @@ pub(super) async fn get_parameter(
     if let Some(settable) = svc.registry.get_settable(&req.device_id) {
         // Get the parameter value
         let value = settable.get_value(&req.parameter_name).await.map_err(|e| {
-            let err_msg = format!("Failed to get parameter: {}", e);
+            let err_msg = format!("Failed to get parameter: {e}");
             svc.registry.report_device_failure(&req.device_id, &err_msg);
             map_hardware_error_to_status(&err_msg)
         })?;
@@ -180,7 +180,7 @@ pub(super) async fn set_parameter(
                 // Try as raw string if JSON parsing fails
                 Ok::<_, serde_json::Error>(serde_json::Value::String(req.value.clone()))
             })
-            .map_err(|e| Status::invalid_argument(format!("Invalid value format: {}", e)))?;
+            .map_err(|e| Status::invalid_argument(format!("Invalid value format: {e}")))?;
 
         validate_parameter_value(&req.parameter_name, metadata.as_ref(), &json_value)?;
 
@@ -248,7 +248,7 @@ pub(super) async fn set_parameter(
                     // Try as raw string if JSON parsing fails
                     Ok::<_, serde_json::Error>(serde_json::Value::String(req.value.clone()))
                 })
-                .map_err(|e| Status::invalid_argument(format!("Invalid value format: {}", e)))?;
+                .map_err(|e| Status::invalid_argument(format!("Invalid value format: {e}")))?;
 
             validate_parameter_value(&req.parameter_name, Some(&metadata), &json_value)?;
 

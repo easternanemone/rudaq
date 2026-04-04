@@ -149,7 +149,7 @@ pub fn clear_script_calibrations(context_id: &str) {
 /// ```
 pub fn rhai_error(label: &str, error: impl std::fmt::Display) -> Box<EvalAltResult> {
     Box::new(EvalAltResult::ErrorRuntime(
-        format!("{}: {}", label, error).into(),
+        format!("{label}: {error}").into(),
         Position::NONE,
     ))
 }
@@ -192,7 +192,7 @@ where
         .or_else(|| Handle::try_current().ok())
         .ok_or_else(|| {
             rhai_error(
-                &format!("{}: missing Tokio runtime", label),
+                &format!("{label}: missing Tokio runtime"),
                 "No runtime available",
             )
         })?;
@@ -202,11 +202,8 @@ where
     if Handle::try_current().is_ok() {
         if handle.runtime_flavor() == RuntimeFlavor::CurrentThread {
             return Err(Box::new(EvalAltResult::ErrorRuntime(
-                format!(
-                    "{}: Cannot block current-thread runtime from within runtime context",
-                    label
-                )
-                .into(),
+                format!("{label}: Cannot block current-thread runtime from within runtime context")
+                    .into(),
                 Position::NONE,
             )));
         }

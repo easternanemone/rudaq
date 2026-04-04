@@ -55,9 +55,9 @@ fn test_daemon_binary_exists() {
     // This test verifies that the daemon binary can be located
     // It will pass even if not built yet (useful for CI)
     if binary.exists() {
-        println!("✓ Daemon binary found at: {:?}", binary);
+        println!("✓ Daemon binary found at: {binary:?}");
     } else {
-        println!("⚠ Daemon binary not built yet at: {:?}", binary);
+        println!("⚠ Daemon binary not built yet at: {binary:?}");
         println!("  Run: cargo build -p daq-bin");
     }
 
@@ -74,7 +74,7 @@ async fn test_daemon_loads_demo_config() {
 
     // Skip if demo config doesn't exist (may not be available in all environments)
     if !config_path.exists() {
-        eprintln!("Skipping test: demo.toml not found at {:?}", config_path);
+        eprintln!("Skipping test: demo.toml not found at {config_path:?}");
         return;
     }
 

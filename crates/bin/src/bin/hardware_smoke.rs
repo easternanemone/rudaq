@@ -370,11 +370,7 @@ fn validate_frame(
 
     if let Some(previous_shape) = &stats.frame_shape {
         if previous_shape != &current_shape {
-            bail!(
-                "frame shape changed from {:?} to {:?}",
-                previous_shape,
-                current_shape
-            );
+            bail!("frame shape changed from {previous_shape:?} to {current_shape:?}");
         }
     } else {
         stats.frame_shape = Some(current_shape);

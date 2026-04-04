@@ -133,8 +133,7 @@ fn validate_runtime_policy_for_config(
         "Runtime policy summary: universal TOML for SCPI/TCP, native exceptions for SDK-bound drivers"
     );
     println!(
-        "   Runtime policy [{}]: universal={}, native_exception={}, unrecognized={}",
-        source, universal_count, native_exception_count, unrecognized_count
+        "   Runtime policy [{source}]: universal={universal_count}, native_exception={native_exception_count}, unrecognized={unrecognized_count}"
     );
 
     // In universal/hybrid-db modes, only universal and native-exception drivers are allowed.
@@ -380,7 +379,7 @@ impl DaemonInstance {
                             vec![("engine", engine_name)],
                         )
                         .await;
-                    eprintln!("   ⚠️  Database initialization failed: {}", e);
+                    eprintln!("   ⚠️  Database initialization failed: {e}");
                     eprintln!(
                         "   Continuing without database persistence (ConfigService unavailable)."
                     );
@@ -481,11 +480,11 @@ impl DaemonInstance {
             }
             let factory_count = registry.list_factories().len();
             if factory_count > 0 {
-                println!("   Registered {} driver factories", factory_count);
+                println!("   Registered {factory_count} driver factories");
             }
 
             let device_count = registry.len();
-            println!("   Registered {} device(s)", device_count);
+            println!("   Registered {device_count} device(s)");
             for info in registry.list_devices() {
                 registry.set_config_source(&info.id, "toml");
                 tracing::info!(device_id = %info.id, config_source = "toml", "device config source tagged");
@@ -512,8 +511,7 @@ impl DaemonInstance {
             match db_bridge::shadow_write_with_registry(db, hw_config, &registry).await {
                 Ok((drivers, instruments)) => {
                     println!(
-                        "   🗄️  Shadowed config to DB ({} drivers, {} instruments)",
-                        drivers, instruments
+                        "   🗄️  Shadowed config to DB ({drivers} drivers, {instruments} instruments)"
                     );
 
                     // Set config_hash for each TOML-registered device so the
@@ -639,7 +637,7 @@ impl DaemonInstance {
                 mon_health
                     .heartbeat_with_message(
                         "hardware_registry",
-                        Some(format!("Managing {} devices", count)),
+                        Some(format!("Managing {count} devices")),
                     )
                     .await;
             }
@@ -729,7 +727,7 @@ impl DaemonInstance {
                 .context("Invalid server address")?;
 
             println!("✅ gRPC server ready");
-            println!("   Listening on: {}", addr);
+            println!("   Listening on: {addr}");
             println!("   Features:");
             println!("     - Script upload & execution");
             println!("     - Remote hardware control (HardwareService)");
@@ -765,7 +763,7 @@ impl DaemonInstance {
                     srv_db,
                 )
                 .await
-                .map_err(|e| anyhow::anyhow!("{}", e))
+                .map_err(|e| anyhow::anyhow!("{e}"))
             })
         };
 
@@ -800,7 +798,7 @@ impl DaemonInstance {
         println!();
         match tokio::signal::ctrl_c().await {
             Ok(()) => println!("\n🛑 Shutdown signal received, cleaning up..."),
-            Err(e) => eprintln!("\n❌ Failed to listen for shutdown signal: {}", e),
+            Err(e) => eprintln!("\n❌ Failed to listen for shutdown signal: {e}"),
         }
     }
 
@@ -899,7 +897,7 @@ impl DaemonInstance {
         #[cfg(test)]
         record_phase!(DaemonPhase::Hardware);
         if let Err(e) = self.registry.shutdown_all().await {
-            eprintln!("   ⚠️  Device shutdown encountered errors: {}", e);
+            eprintln!("   ⚠️  Device shutdown encountered errors: {e}");
         } else {
             println!("   ✓ All devices shutdown safely");
         }
@@ -1052,7 +1050,7 @@ mod tests {
             db_path: None,
             web_ui_path: None,
         };
-        let debug = format!("{:?}", config);
+        let debug = format!("{config:?}");
         assert!(debug.contains("50051"));
     }
 
@@ -1090,7 +1088,7 @@ mod tests {
         for (i, a) in lifecycle.iter().enumerate() {
             for (j, b) in lifecycle.iter().enumerate() {
                 if i != j {
-                    assert_ne!(a, b, "Phases at index {} and {} should differ", i, j);
+                    assert_ne!(a, b, "Phases at index {i} and {j} should differ");
                 }
             }
         }

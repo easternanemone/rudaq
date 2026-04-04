@@ -140,8 +140,7 @@ async fn test_camera_temperature_stream() {
     let temp = camera.temperature().await;
     assert!(
         temp > 20.5,
-        "Temperature should drift toward setpoint (got {})",
-        temp
+        "Temperature should drift toward setpoint (got {temp})"
     );
 
     handle.abort();
@@ -165,8 +164,7 @@ async fn test_power_meter_reading_stream() {
     let reading = meter.get_power_reading();
     assert!(
         reading > 0.0005 && reading < 0.002,
-        "Power reading should be near 1mW (got {})",
-        reading
+        "Power reading should be near 1mW (got {reading})"
     );
 
     handle.abort();
@@ -190,8 +188,7 @@ async fn test_stage_encoder_noise() {
     for r in &readings {
         assert!(
             (*r - 5.0).abs() < 0.001,
-            "Position should be near 5.0 (got {})",
-            r
+            "Position should be near 5.0 (got {r})"
         );
     }
 
@@ -200,9 +197,7 @@ async fn test_stage_encoder_noise() {
     let max = readings.iter().copied().fold(f64::NEG_INFINITY, f64::max);
     assert!(
         max - min > 0.0,
-        "Should have some noise variation (min={}, max={})",
-        min,
-        max
+        "Should have some noise variation (min={min}, max={max})"
     );
 }
 
@@ -221,9 +216,7 @@ async fn test_rotator_encoder_quantization() {
     let quantized = (45.123456_f64 / encoder_step).round() * encoder_step;
     assert!(
         (pos - quantized).abs() < 1e-6,
-        "Position should be quantized (got {}, expected {})",
-        pos,
-        quantized
+        "Position should be quantized (got {pos}, expected {quantized})"
     );
 }
 

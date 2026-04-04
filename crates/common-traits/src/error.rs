@@ -115,7 +115,7 @@ impl std::fmt::Display for StorageErrorKind {
             StorageErrorKind::Serialization => "serialization",
             StorageErrorKind::Other => "other",
         };
-        write!(f, "{}", label)
+        write!(f, "{label}")
     }
 }
 
@@ -174,7 +174,7 @@ impl std::fmt::Display for DriverErrorKind {
             DriverErrorKind::Safety => "safety",
             DriverErrorKind::Unknown => "unknown",
         };
-        write!(f, "{}", label)
+        write!(f, "{label}")
     }
 }
 

@@ -59,7 +59,7 @@ async fn test_high_throughput_pipeline() {
         for batch_num in 0..10 {
             let mut batch_measurements = Vec::new();
             for i in 0..100 {
-                let name = format!("measurement_{}_{}", batch_num, i);
+                let name = format!("measurement_{batch_num}_{i}");
                 batch_measurements.push(create_test_scalar(&name, f64::from(i)));
             }
 
@@ -106,7 +106,7 @@ async fn test_background_writer_async() {
     #[cfg(feature = "storage_arrow")]
     {
         for i in 0..10 {
-            let measurement = create_test_scalar(&format!("async_test_{}", i), f64::from(i));
+            let measurement = create_test_scalar(&format!("async_test_{i}"), f64::from(i));
             let batches = Measurement::into_arrow_batches(&[measurement]).unwrap();
             if let Some(batch) = batches.scalars {
                 ring.write_arrow_batch(&batch).unwrap();

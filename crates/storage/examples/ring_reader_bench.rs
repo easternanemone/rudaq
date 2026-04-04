@@ -53,7 +53,6 @@ fn main() {
     let rate = received as f64 / secs;
 
     println!(
-        "Ring read: {} frames in {:.3}s -> {:.0} reads/s (buffer {} MB, path {})",
-        received, secs, rate, buffer_mb, path
+        "Ring read: {received} frames in {secs:.3}s -> {rate:.0} reads/s (buffer {buffer_mb} MB, path {path})"
     );
 }

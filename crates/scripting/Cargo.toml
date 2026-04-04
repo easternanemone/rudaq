@@ -24,7 +24,7 @@ serde_json.workspace = true
 driver-comedi = { path = "../driver-comedi", optional = true }
 
 # Optional HDF5 support for data storage (use hdf5-metno to match ui/daq-storage)
-hdf5 = { package = "hdf5-metno", version = "0.12.3", optional = true }
+hdf5 = { package = "hdf5-metno", version = "0.12.4", optional = true }
 
 [features]
 default = []

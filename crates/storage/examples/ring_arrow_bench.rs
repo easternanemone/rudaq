@@ -57,7 +57,6 @@ fn main() {
     let rate = batches as f64 / secs;
 
     println!(
-        "Arrow write: {} batches ({} rows) in {:.3}s -> {:.0} batches/s (buffer {} MB, path {})",
-        batches, rows, secs, rate, buffer_mb, path
+        "Arrow write: {batches} batches ({rows} rows) in {secs:.3}s -> {rate:.0} batches/s (buffer {buffer_mb} MB, path {path})"
     );
 }

@@ -104,7 +104,7 @@ async fn test_end_to_end_frames() -> anyhow::Result<()> {
             // But verify it's not empty
             assert!(!data.is_empty(), "Frame data should not be empty");
         } else {
-            panic!("Event {} missing 'camera' array data", i);
+            panic!("Event {i} missing 'camera' array data");
         }
     }
 

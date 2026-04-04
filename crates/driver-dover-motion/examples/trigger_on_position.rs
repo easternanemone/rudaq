@@ -30,18 +30,18 @@ async fn main() -> Result<()> {
     let pulse_width_ns = 1000; // 1 µs pulse
 
     println!("Configuring Trigger-on-Position:");
-    println!("  Start: {} mm", start_pos);
-    println!("  End: {} mm", end_pos);
-    println!("  Increment: {} mm (100 µm)", increment);
-    println!("  Bidirectional: {}", bidirectional);
-    println!("  Pulse width: {} ns\n", pulse_width_ns);
+    println!("  Start: {start_pos} mm");
+    println!("  End: {end_pos} mm");
+    println!("  Increment: {increment} mm (100 µm)");
+    println!("  Bidirectional: {bidirectional}");
+    println!("  Pulse width: {pulse_width_ns} ns\n");
 
     axis.enable_top(start_pos, end_pos, increment, bidirectional, pulse_width_ns)
         .await?;
 
     // Verify TOP is enabled
     let enabled = axis.is_top_enabled().await?;
-    println!("TOP enabled: {}\n", enabled);
+    println!("TOP enabled: {enabled}\n");
 
     // Perform scan - triggers will fire automatically at position intervals
     println!("Performing forward scan (0 → 10 mm)...");
@@ -59,7 +59,7 @@ async fn main() -> Result<()> {
     axis.disable_top().await?;
 
     let enabled = axis.is_top_enabled().await?;
-    println!("TOP enabled: {}", enabled);
+    println!("TOP enabled: {enabled}");
 
     println!("\nDone!");
     println!("\nIn a real LIBS experiment:");
