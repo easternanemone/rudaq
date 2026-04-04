@@ -821,6 +821,7 @@ impl PvcamDriver {
             .with_description(
                 "Multi-ROI configuration as JSON array of {x,y,w,h} objects. Max 16 ROIs. Empty = single ROI mode.",
             )
+            .with_dtype("string")
             .with_group("Acquisition");
 
         // I/O Diagnostics (bd-oqo7.6)

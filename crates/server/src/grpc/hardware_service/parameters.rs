@@ -33,8 +33,8 @@ fn parse_value_string(value: &str, dtype: Option<&str>) -> serde_json::Value {
         Some(dt) if !dt.is_empty() => serde_json::from_str(value)
             .unwrap_or_else(|_| serde_json::Value::String(value.to_owned())),
 
-        // Empty or missing dtype (common for Parameter<String> with no explicit dtype).
-        // If the value is already valid JSON, use it as-is; otherwise wrap as string.
+        // Empty or missing dtype — try JSON parse, fall back to string.
+        // Callers should infer dtype from the current value when metadata is empty.
         _ => serde_json::from_str(value)
             .unwrap_or_else(|_| serde_json::Value::String(value.to_owned())),
     }
@@ -277,9 +277,22 @@ pub(super) async fn set_parameter(
                 .map(|v| value_to_display_string(&v))
                 .unwrap_or_default();
 
-            // Parse the value string to JSON, respecting dtype metadata (bd-4w33o)
+            // Parse the value string to JSON, respecting dtype metadata (bd-4w33o).
+            // When metadata.dtype is empty, infer from the current value type to
+            // avoid misinterpreting JSON-shaped strings as arrays/objects.
+            let effective_dtype = if metadata.dtype.is_empty() {
+                match param.get_json() {
+                    Ok(serde_json::Value::String(_)) => "string",
+                    Ok(serde_json::Value::Bool(_)) => "bool",
+                    Ok(serde_json::Value::Number(n)) if n.is_i64() || n.is_u64() => "int",
+                    Ok(serde_json::Value::Number(_)) => "float",
+                    _ => "",
+                }
+            } else {
+                metadata.dtype.as_str()
+            };
             let json_value: serde_json::Value =
-                parse_value_string(&req.value, Some(metadata.dtype.as_str()));
+                parse_value_string(&req.value, Some(effective_dtype));
 
             validate_parameter_value(&req.parameter_name, Some(&metadata), &json_value)?;
 
