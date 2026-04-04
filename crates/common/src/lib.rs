@@ -62,6 +62,7 @@ pub mod log_scrubbing;
 // without any import changes.
 pub use common_traits::capabilities;
 pub use common_traits::data;
+pub use common_traits::device_id;
 pub use common_traits::driver;
 pub use common_traits::error;
 pub use common_traits::modules;
