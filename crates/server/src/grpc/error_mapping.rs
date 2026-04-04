@@ -45,14 +45,20 @@
 //! - **DeadlineExceeded**: Driver timeout
 //! - **NotFound**: Referenced device or resource not found
 
-use common::error::{DaqError, DriverError};
+use common::error::{DaqError, DriverError, StorageError};
 use std::str::FromStr;
 use tonic::metadata::{MetadataMap, MetadataValue};
 use tonic::{Code, Status};
 
-const ERROR_KIND_HEADER: &str = "x-daq-error-kind";
-const DRIVER_TYPE_HEADER: &str = "x-daq-driver-type";
-const DRIVER_KIND_HEADER: &str = "x-daq-driver-kind";
+/// Metadata header carrying the high-level error category (e.g., "driver", "instrument",
+/// "config", "storage").  Always set on mapped errors.
+pub const ERROR_KIND_HEADER: &str = "x-daq-error-kind";
+/// Metadata header carrying the driver type string (e.g., "mock_camera", "comedi").
+/// Only set when the error is a `DriverError`.
+pub const DRIVER_TYPE_HEADER: &str = "x-daq-driver-type";
+/// Metadata header carrying the `DriverErrorKind` variant (e.g., "communication", "timeout").
+/// Only set when the error is a `DriverError`.
+pub const DRIVER_KIND_HEADER: &str = "x-daq-driver-kind";
 
 fn sanitize_metadata_value(value: &str) -> String {
     let sanitized: String = value.chars().filter(|c| c.is_ascii()).collect();
@@ -71,6 +77,7 @@ fn insert_metadata(metadata: &mut MetadataMap, key: &'static str, value: &str) {
     }
 }
 
+/// Build a `Status` with the `x-daq-error-kind` header and optional driver metadata.
 fn status_with_metadata(
     code: Code,
     message: impl Into<String>,
@@ -85,6 +92,34 @@ fn status_with_metadata(
         insert_metadata(metadata, DRIVER_KIND_HEADER, &driver.kind.to_string());
     }
     status
+}
+
+/// Convert an `anyhow::Error` into a `tonic::Status` by attempting structured downcasts.
+///
+/// The downcast order ensures the most specific error type wins:
+///
+/// 1. `DaqError` -- full variant-level mapping via [`map_daq_error_to_status`]
+/// 2. `DriverError` -- wraps in `DaqError::Driver` then maps
+/// 3. `StorageError` -- wraps in `DaqError::Storage` then maps
+/// 4. Fallback -- `Code::Internal` with the anyhow display chain
+///
+/// Service handlers receiving `anyhow::Result` from capability traits should use
+/// this function instead of manually converting to `Status`.
+pub fn anyhow_to_status(err: anyhow::Error) -> Status {
+    // Try DaqError first (most specific application error)
+    if let Ok(daq_err) = err.downcast::<DaqError>() {
+        return map_daq_error_to_status(daq_err);
+    }
+    // Try DriverError (common from driver trait methods)
+    if let Ok(driver_err) = err.downcast::<DriverError>() {
+        return map_daq_error_to_status(DaqError::Driver(driver_err));
+    }
+    // Try StorageError
+    if let Ok(storage_err) = err.downcast::<StorageError>() {
+        return map_daq_error_to_status(DaqError::Storage(storage_err));
+    }
+    // Fallback: opaque internal error with the full anyhow display chain
+    status_with_metadata(Code::Internal, err.to_string(), "unknown", None)
 }
 
 /// Map a DaqError to an appropriate gRPC Status.
