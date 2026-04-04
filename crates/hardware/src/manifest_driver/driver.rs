@@ -20,6 +20,7 @@ use common::driver::DeviceLifecycle;
 use common::error::DaqError;
 use common::limits::{self, validate_frame_size};
 use common::observable::ParameterSet; // NEW: For Parameterized trait implementation
+use common::parameter::Parameter;
 use common::serial::DynSerial;
 use futures::future::BoxFuture;
 
@@ -232,6 +233,22 @@ impl GenericDriver {
         // Create broadcast channel with capacity for 100 frames
         let (frame_tx, _) = tokio::sync::broadcast::channel(100);
 
+        // Populate ParameterSet from settable capabilities declared in the manifest.
+        // Each settable capability is registered as a Parameter<f64> with metadata
+        // (unit, range) so that the Parameterized trait exposes them for generic access.
+        let mut params = ParameterSet::new();
+        for cap in &config.capabilities.settable {
+            let mut param = Parameter::new(cap.name.clone(), 0.0f64)
+                .with_description(format!("Settable: {}", cap.name));
+            if let Some(unit) = &cap.unit {
+                param = param.with_unit(unit.clone());
+            }
+            if let (Some(min), Some(max)) = (cap.min, cap.max) {
+                param = param.with_range(min, max);
+            }
+            params.register(param);
+        }
+
         Ok(Self {
             config,
             connection: std::sync::Arc::new(Mutex::new(connection)),
@@ -241,13 +258,7 @@ impl GenericDriver {
             frame_broadcaster: frame_tx,
             frame_counter: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
             is_streaming: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            // TODO(bd-plb6): Populate this ParameterSet from the manifest config.
-            // Each parameter declared in `config.parameters` should be constructed
-            // as a `Parameter<T>`, optionally attached to a `hardware_writer` callback
-            // that sends the appropriate command string over `self.connection`, and
-            // then registered via `params.register(param)`. See the canonical pattern
-            // documented in `crates/driver-andor-sdk3/src/camera/parameters.rs`.
-            parameters: std::sync::Arc::new(ParameterSet::new()),
+            parameters: std::sync::Arc::new(params),
             on_connect_executed: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             observers: std::sync::Arc::new(RwLock::new(Vec::new())),
             next_observer_id: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(1)),
