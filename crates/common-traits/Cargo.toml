@@ -1,7 +1,7 @@
 [package]
 name = "common-traits"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 description = "Capability traits, reactive parameters, and driver plugin API extracted from common"
 
 [dependencies]

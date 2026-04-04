@@ -2567,12 +2567,12 @@ mod tests {
         {
             let mut seen_m: std::collections::HashSet<i32> = std::collections::HashSet::new();
             for cal in &mut cals {
-                if let Some(m) = cal.physical_order_number {
-                    if !seen_m.insert(m) {
-                        cal.physical_order_number = None;
-                        if let Some(ref mut notes) = cal.notes {
-                            notes.push_str(" [physical_order_number cleared: duplicate]");
-                        }
+                if let Some(m) = cal.physical_order_number
+                    && !seen_m.insert(m)
+                {
+                    cal.physical_order_number = None;
+                    if let Some(ref mut notes) = cal.notes {
+                        notes.push_str(" [physical_order_number cleared: duplicate]");
                     }
                 }
             }

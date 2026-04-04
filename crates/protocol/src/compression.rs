@@ -464,9 +464,9 @@ mod tests {
         let mut buf = Vec::new();
         let frame_size = 10_000;
 
-        for round in 0..5 {
+        for round in 0u8..5 {
             let mut frame = FrameData {
-                data: vec![(round & 0xFF) as u8; frame_size],
+                data: vec![round; frame_size],
                 width: 100,
                 height: 50,
                 bit_depth: 16,

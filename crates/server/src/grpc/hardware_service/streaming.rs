@@ -86,7 +86,7 @@ thread_local! {
     ///
     /// The observer contract forbids lock acquisition in `on_frame`, so we keep
     /// the scratch buffer thread-local instead of protecting it with a mutex.
-    static FRAME_BUFFER: RefCell<Vec<u8>> = RefCell::new(Vec::new());
+    static FRAME_BUFFER: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
 }
 
 impl FrameObserver for GrpcStreamObserver {
