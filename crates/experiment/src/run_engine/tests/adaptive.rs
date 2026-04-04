@@ -108,7 +108,7 @@ async fn test_adapt_scan_point_decisions() {
 
     // ThresholdCrossed should return adjusted position.
     let threshold_event = FeedbackEvent::ThresholdCrossed {
-        device_id: "det".to_string(),
+        device_id: "det".into(),
         field: "intensity".to_string(),
         value: 100.0,
         threshold: 80.0,
