@@ -7,16 +7,28 @@
 use std::fmt;
 use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// Type-safe device identifier, backed by `Arc<str>` for cheap cloning.
 ///
 /// Replaces bare `String` device IDs throughout the codebase for:
 /// - **Type safety**: Can't accidentally pass a parameter name where a device ID is expected
 /// - **Allocation efficiency**: `Arc<str>` clones are reference-count bumps, not heap copies
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DeviceId(Arc<str>);
+
+impl Serialize for DeviceId {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.0.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for DeviceId {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(deserializer)?;
+        Ok(Self(Arc::from(s)))
+    }
+}
 
 impl DeviceId {
     /// Create a new `DeviceId` from anything convertible to `Arc<str>`.
