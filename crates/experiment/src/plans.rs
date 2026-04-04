@@ -37,6 +37,7 @@
 
 use std::collections::HashMap;
 
+use common::device_id::DeviceId;
 use serde::{Deserialize, Serialize};
 
 /// Comparison operators for device reading comparisons.
