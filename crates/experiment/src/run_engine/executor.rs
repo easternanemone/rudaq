@@ -369,10 +369,10 @@ impl RunEngine {
                 }
 
                 if !is_frame_device {
-                    let value = dispatcher.execute_read(&device_id).await?;
+                    let value = dispatcher.execute_read(device_id.as_str()).await?;
 
                     if let Some(ctx) = self.run_context.lock().await.as_mut() {
-                        ctx.collected_data.insert(device_id, value);
+                        ctx.collected_data.insert(id_str, value);
                     }
                 }
                 Ok(false)
