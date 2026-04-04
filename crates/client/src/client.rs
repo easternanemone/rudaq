@@ -823,7 +823,7 @@ impl DaqClient {
         device_id: &str,
         max_fps: u32,
         quality: StreamQuality,
-    ) -> Result<impl futures::Stream<Item = Result<FrameData, tonic::Status>>> {
+    ) -> Result<impl futures::Stream<Item = Result<FrameData, tonic::Status>> + use<>> {
         let request = StreamFramesRequest {
             device_id: device_id.to_string(),
             max_fps,
