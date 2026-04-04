@@ -816,13 +816,11 @@ impl PvcamDriver {
             .with_choices_introspectable(vec!["Start".into(), "Stop".into(), "Reset".into()])
             .with_group("I/O");
 
-        // Multi-ROI (bd-oqo7.4) — read-only until Multi-ROI support is implemented
-        // TODO(bd-oqo7.4): make writable once Multi-ROI callback is wired
+        // Multi-ROI (bd-oqo7.4) — validated at set time via connect_to_hardware_write
         let multi_roi_config = Parameter::new("acquisition.multi_roi_config", "[]".to_string())
             .with_description(
                 "Multi-ROI configuration as JSON array of {x,y,w,h} objects. Max 16 ROIs. Empty = single ROI mode.",
             )
-            .read_only()
             .with_group("Acquisition");
 
         // I/O Diagnostics (bd-oqo7.6)
@@ -2676,6 +2674,27 @@ impl PvcamDriver {
                 }
             });
         }
+
+        // Multi-ROI config validation (bd-hjoch)
+        self.multi_roi_config.connect_to_hardware_write({
+            let sensor_w = self.sensor_width;
+            let sensor_h = self.sensor_height;
+            move |val: String| {
+                Box::pin(async move {
+                    // Empty or "[]" means single ROI mode — always valid
+                    if val.trim().is_empty() || val == "[]" {
+                        return Ok(());
+                    }
+                    // Validate JSON structure and sensor bounds
+                    use crate::components::acquisition::RoiRegion;
+                    let sw = u16::try_from(sensor_w).unwrap_or(u16::MAX);
+                    let sh = u16::try_from(sensor_h).unwrap_or(u16::MAX);
+                    RoiRegion::parse_json(&val, sw, sh)
+                        .map(|_| ())
+                        .map_err(|e| DaqError::Instrument(format!("Invalid multi_roi_config: {e}")))
+                })
+            }
+        });
     }
 
     /// Populate dynamic enum choices from the camera (bd-c4hf.2)
