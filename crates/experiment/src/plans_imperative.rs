@@ -42,6 +42,8 @@
 
 use std::collections::HashMap;
 
+use common::device_id::DeviceId;
+
 use super::plans::{Plan, PlanCommand};
 
 /// A plan that wraps imperative commands for RunEngine execution
@@ -68,10 +70,10 @@ impl ImperativePlan {
     pub fn new(commands: Vec<PlanCommand>) -> Self {
         // Try to infer primary device from first command
         let primary_device = commands.first().and_then(|cmd| match cmd {
-            PlanCommand::MoveTo { device_id, .. } => Some(device_id.clone()),
-            PlanCommand::Read { device_id } => Some(device_id.clone()),
-            PlanCommand::Trigger { device_id } => Some(device_id.clone()),
-            PlanCommand::Set { device_id, .. } => Some(device_id.clone()),
+            PlanCommand::MoveTo { device_id, .. } => Some(device_id.to_string()),
+            PlanCommand::Read { device_id } => Some(device_id.to_string()),
+            PlanCommand::Trigger { device_id } => Some(device_id.to_string()),
+            PlanCommand::Set { device_id, .. } => Some(device_id.to_string()),
             _ => None,
         });
 
@@ -85,32 +87,32 @@ impl ImperativePlan {
     }
 
     /// Create an ImperativePlan for a single move command
-    pub fn move_to(device_id: impl Into<String>, position: f64) -> Self {
-        let device = device_id.into();
+    pub fn move_to(device_id: impl Into<DeviceId>, position: f64) -> Self {
+        let device: DeviceId = device_id.into();
         Self::new(vec![PlanCommand::MoveTo {
             device_id: device.clone(),
             position,
         }])
-        .with_primary_device(device)
+        .with_primary_device(device.to_string())
     }
 
     /// Create an ImperativePlan for a single read command
-    pub fn read(device_id: impl Into<String>) -> Self {
-        let device = device_id.into();
+    pub fn read(device_id: impl Into<DeviceId>) -> Self {
+        let device: DeviceId = device_id.into();
         Self::new(vec![PlanCommand::Read {
             device_id: device.clone(),
         }])
-        .with_primary_device(device)
+        .with_primary_device(device.to_string())
         .with_emit_event(true) // Reads typically want event emission
     }
 
     /// Create an ImperativePlan for a single trigger command
-    pub fn trigger(device_id: impl Into<String>) -> Self {
-        let device = device_id.into();
+    pub fn trigger(device_id: impl Into<DeviceId>) -> Self {
+        let device: DeviceId = device_id.into();
         Self::new(vec![PlanCommand::Trigger {
             device_id: device.clone(),
         }])
-        .with_primary_device(device)
+        .with_primary_device(device.to_string())
     }
 
     /// Create an ImperativePlan for a wait command
@@ -120,17 +122,17 @@ impl ImperativePlan {
 
     /// Create an ImperativePlan for a parameter set command
     pub fn set_parameter(
-        device_id: impl Into<String>,
+        device_id: impl Into<DeviceId>,
         parameter: impl Into<String>,
         value: impl Into<String>,
     ) -> Self {
-        let device = device_id.into();
+        let device: DeviceId = device_id.into();
         Self::new(vec![PlanCommand::Set {
             device_id: device.clone(),
             parameter: parameter.into(),
             value: value.into(),
         }])
-        .with_primary_device(device)
+        .with_primary_device(device.to_string())
     }
 
     /// Set whether to emit an event after commands complete
@@ -152,7 +154,7 @@ impl ImperativePlan {
     }
 
     /// Add a move command
-    pub fn then_move(self, device_id: impl Into<String>, position: f64) -> Self {
+    pub fn then_move(self, device_id: impl Into<DeviceId>, position: f64) -> Self {
         self.add_command(PlanCommand::MoveTo {
             device_id: device_id.into(),
             position,
@@ -160,14 +162,14 @@ impl ImperativePlan {
     }
 
     /// Add a read command
-    pub fn then_read(self, device_id: impl Into<String>) -> Self {
+    pub fn then_read(self, device_id: impl Into<DeviceId>) -> Self {
         self.add_command(PlanCommand::Read {
             device_id: device_id.into(),
         })
     }
 
     /// Add a trigger command
-    pub fn then_trigger(self, device_id: impl Into<String>) -> Self {
+    pub fn then_trigger(self, device_id: impl Into<DeviceId>) -> Self {
         self.add_command(PlanCommand::Trigger {
             device_id: device_id.into(),
         })
@@ -201,7 +203,7 @@ impl Plan for ImperativePlan {
         self.commands
             .iter()
             .filter_map(|cmd| match cmd {
-                PlanCommand::MoveTo { device_id, .. } => Some(device_id.clone()),
+                PlanCommand::MoveTo { device_id, .. } => Some(device_id.to_string()),
                 _ => None,
             })
             .collect()
@@ -211,8 +213,8 @@ impl Plan for ImperativePlan {
         self.commands
             .iter()
             .filter_map(|cmd| match cmd {
-                PlanCommand::Read { device_id } => Some(device_id.clone()),
-                PlanCommand::Trigger { device_id } => Some(device_id.clone()),
+                PlanCommand::Read { device_id } => Some(device_id.to_string()),
+                PlanCommand::Trigger { device_id } => Some(device_id.to_string()),
                 _ => None,
             })
             .collect()
@@ -243,7 +245,7 @@ impl Plan for ImperativePlan {
                     PlanCommand::MoveTo {
                         device_id,
                         position,
-                    } => Some((device_id.clone(), *position)),
+                    } => Some((device_id.to_string(), *position)),
                     _ => None,
                 })
                 .collect();

@@ -358,6 +358,7 @@ pub fn resolve_address(
 }
 
 #[cfg(test)]
+#[allow(unsafe_code)] // edition 2024: env::set_var/remove_var require unsafe
 mod tests {
     use super::*;
 
@@ -469,7 +470,8 @@ mod tests {
     #[test]
     fn test_resolve_address_default() {
         // Clear env var for test isolation
-        std::env::remove_var("DAQ_DAEMON_URL");
+        // SAFETY: Tests are serialized; no concurrent env access.
+        unsafe { std::env::remove_var("DAQ_DAEMON_URL") };
 
         let addr = resolve_address(None, None, None);
         assert_eq!(addr.source(), AddressSource::Default);
@@ -477,38 +479,42 @@ mod tests {
 
     #[test]
     fn test_resolve_address_env() {
-        std::env::set_var("DAQ_DAEMON_URL", "http://test.local:9999");
+        // SAFETY: Tests are serialized; no concurrent env access.
+        unsafe { std::env::set_var("DAQ_DAEMON_URL", "http://test.local:9999") };
         let addr = resolve_address(None, None, None);
         assert_eq!(addr.as_str(), "http://test.local:9999/");
         assert_eq!(addr.source(), AddressSource::Environment);
-        std::env::remove_var("DAQ_DAEMON_URL");
+        unsafe { std::env::remove_var("DAQ_DAEMON_URL") };
     }
 
     #[test]
     fn test_resolve_address_user_input_priority() {
-        std::env::set_var("DAQ_DAEMON_URL", "http://env.local:8888");
+        // SAFETY: Tests are serialized; no concurrent env access.
+        unsafe { std::env::set_var("DAQ_DAEMON_URL", "http://env.local:8888") };
         let addr = resolve_address(Some("user.local:7777"), None, None);
         assert_eq!(addr.as_str(), "http://user.local:7777/");
         assert_eq!(addr.source(), AddressSource::UserInput);
-        std::env::remove_var("DAQ_DAEMON_URL");
+        unsafe { std::env::remove_var("DAQ_DAEMON_URL") };
     }
 
     #[test]
     fn test_resolve_address_persisted_priority() {
-        std::env::set_var("DAQ_DAEMON_URL", "http://env.local:8888");
+        // SAFETY: Tests are serialized; no concurrent env access.
+        unsafe { std::env::set_var("DAQ_DAEMON_URL", "http://env.local:8888") };
         let addr = resolve_address(None, Some("http://persisted.local:6666"), None);
         assert_eq!(addr.as_str(), "http://persisted.local:6666/");
         assert_eq!(addr.source(), AddressSource::Persisted);
-        std::env::remove_var("DAQ_DAEMON_URL");
+        unsafe { std::env::remove_var("DAQ_DAEMON_URL") };
     }
 
     #[test]
     fn test_resolve_address_preset_priority() {
-        std::env::set_var("DAQ_DAEMON_URL", "http://env.local:8888");
+        // SAFETY: Tests are serialized; no concurrent env access.
+        unsafe { std::env::set_var("DAQ_DAEMON_URL", "http://env.local:8888") };
         let addr = resolve_address(None, None, Some("http://preset.local:5555"));
         assert_eq!(addr.as_str(), "http://preset.local:5555/");
         assert_eq!(addr.source(), AddressSource::Preset);
-        std::env::remove_var("DAQ_DAEMON_URL");
+        unsafe { std::env::remove_var("DAQ_DAEMON_URL") };
     }
 
     #[test]

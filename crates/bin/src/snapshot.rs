@@ -152,6 +152,7 @@ fn write_frame_to_file(
                 image::ExtendedColorType::L8
             };
 
+            #[allow(deprecated)]
             encoder
                 .encode(data, width, height, color_type)
                 .context("TIFF encoding failed")?;

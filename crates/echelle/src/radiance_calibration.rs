@@ -267,7 +267,7 @@ fn resolve_calibration_device_type(
 ///
 /// # Example
 /// ```no_run
-/// use common::processing::radiance_calibration::{RadianceCalibrator, Spectrum};
+/// use echelle::radiance_calibration::{RadianceCalibrator, Spectrum};
 ///
 /// let cal = RadianceCalibrator::from_files(
 ///     "calibration/lamp_spec.lmp",

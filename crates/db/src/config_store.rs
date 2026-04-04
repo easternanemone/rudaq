@@ -290,7 +290,7 @@ impl DaqDb {
     ) -> Result<
         impl futures::Stream<
             Item = std::result::Result<surrealdb::Notification<DbInstrument>, surrealdb::Error>,
-        >,
+        > + use<>,
     > {
         let stream = self.client().select("instrument").live().await?;
         Ok(stream)

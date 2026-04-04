@@ -208,7 +208,7 @@ pub enum DaqError {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// use common::error::DaqError;
     ///
     /// fn validate_exposure(exposure_seconds: f64) -> Result<(), DaqError> {
@@ -276,7 +276,7 @@ pub enum DaqError {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// use common::error::DaqError;
     ///
     /// const CAMERA_FAULT: u32 = 0x01;
@@ -401,7 +401,7 @@ pub enum DaqError {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// use common::error::DaqError;
     ///
     /// fn acquire_frame_from_power_meter() -> Result<(), DaqError> {

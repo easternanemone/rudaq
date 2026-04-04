@@ -318,10 +318,13 @@ impl RunEngine {
                 position,
             } => {
                 self.watchdog.touch().await;
-                dispatcher.execute_move(&device_id, position).await?;
+                dispatcher
+                    .execute_move(device_id.as_str(), position)
+                    .await?;
 
                 if let Some(ctx) = self.run_context.lock().await.as_mut() {
-                    ctx.current_positions.insert(device_id, position);
+                    ctx.current_positions
+                        .insert(device_id.to_string(), position);
                 }
                 Ok(false)
             }
@@ -329,11 +332,12 @@ impl RunEngine {
             PlanCommand::Read { device_id } => {
                 self.watchdog.touch().await;
                 let mut is_frame_device = false;
+                let id_str = device_id.to_string();
 
                 {
                     let mut ctx_guard = self.run_context.lock().await;
                     if let Some(ctx) = ctx_guard.as_mut()
-                        && let Some(rx) = ctx.frame_channels.get_mut(&device_id)
+                        && let Some(rx) = ctx.frame_channels.get_mut(&id_str)
                     {
                         is_frame_device = true;
                         match rx.recv().await {
@@ -341,13 +345,13 @@ impl RunEngine {
                                 let data_len = capture.data.len();
                                 let frame_num = capture.frame_number;
                                 let summing_count = capture.summing_count;
-                                ctx.collected_frames.insert(device_id.clone(), capture.data);
+                                ctx.collected_frames.insert(id_str.clone(), capture.data);
                                 ctx.collected_summing_counts
-                                    .insert(device_id.clone(), summing_count);
+                                    .insert(id_str.clone(), summing_count);
                                 // bd-p6r4: Collect frame metadata for EventDoc propagation
                                 if !capture.metadata.is_empty() {
                                     ctx.collected_metadata
-                                        .insert(device_id.clone(), capture.metadata);
+                                        .insert(id_str.clone(), capture.metadata);
                                 }
                                 debug!(
                                     device = %device_id,
@@ -365,10 +369,10 @@ impl RunEngine {
                 }
 
                 if !is_frame_device {
-                    let value = dispatcher.execute_read(&device_id).await?;
+                    let value = dispatcher.execute_read(device_id.as_str()).await?;
 
                     if let Some(ctx) = self.run_context.lock().await.as_mut() {
-                        ctx.collected_data.insert(device_id, value);
+                        ctx.collected_data.insert(id_str, value);
                     }
                 }
                 Ok(false)
@@ -376,7 +380,7 @@ impl RunEngine {
 
             PlanCommand::Trigger { device_id } => {
                 self.watchdog.touch().await;
-                dispatcher.execute_trigger(&device_id).await?;
+                dispatcher.execute_trigger(device_id.as_str()).await?;
                 Ok(false)
             }
 
@@ -489,7 +493,7 @@ impl RunEngine {
                 self.watchdog.touch().await;
                 debug!(device = %device_id, param = %parameter, value = %value, "Setting parameter");
                 dispatcher
-                    .execute_set_parameter(&device_id, &parameter, &value)
+                    .execute_set_parameter(device_id.as_str(), &parameter, &value)
                     .await?;
                 Ok(false)
             }
@@ -526,7 +530,7 @@ impl RunEngine {
                 let deadline = Instant::now() + Duration::from_secs_f64(timeout_seconds);
                 let poll_interval = Duration::from_millis(100);
 
-                if let Some(readable) = dispatcher.registry.get_readable(&device_id) {
+                if let Some(readable) = dispatcher.registry.get_readable(device_id.as_str()) {
                     let mut last_value: Option<f64> = None;
                     let mut stable_since: Option<Instant> = None;
                     let stability_window = Duration::from_millis(500);

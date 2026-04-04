@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 common = { path = "../common", features = ["serial"] }
+echelle = { path = "../echelle" }
 hardware = { path = "../hardware" }
 experiment = { path = "../experiment" }
 driver-mock = { path = "../driver-mock" }

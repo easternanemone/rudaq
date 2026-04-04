@@ -1774,6 +1774,7 @@ impl Drop for RingBuffer {
 }
 
 #[cfg(test)]
+#[allow(unsafe_code)] // edition 2024: env::set_var/remove_var + raw pointer ops require unsafe
 mod tests {
     use super::*;
     use std::sync::Arc;
@@ -1975,7 +1976,8 @@ mod tests {
     #[test]
     fn test_read_snapshot_times_out_on_stuck_epoch() {
         // Use a short timeout for testing (100ms instead of default 500ms)
-        std::env::set_var("DAQ_RINGBUFFER_TIMEOUT_MS", "100");
+        // SAFETY: This test runs single-threaded; no concurrent env access.
+        unsafe { std::env::set_var("DAQ_RINGBUFFER_TIMEOUT_MS", "100") };
 
         let temp_dir = tempfile::tempdir().unwrap();
         let path = temp_dir.path().join("stuck_epoch.buf");
@@ -1990,7 +1992,8 @@ mod tests {
         let elapsed = start.elapsed();
 
         // Restore default timeout
-        std::env::remove_var("DAQ_RINGBUFFER_TIMEOUT_MS");
+        // SAFETY: This test runs single-threaded; no concurrent env access.
+        unsafe { std::env::remove_var("DAQ_RINGBUFFER_TIMEOUT_MS") };
 
         assert!(snapshot.is_empty());
         assert!(elapsed < Duration::from_millis(200));

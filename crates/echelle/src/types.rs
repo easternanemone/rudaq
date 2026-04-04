@@ -3432,8 +3432,8 @@ mod tests {
             .flux
             .iter()
             .zip(raw_flux.iter())
-            .filter(|(_, &r)| r > 0.0)
-            .map(|(&c, &r)| c / r)
+            .filter(|(_, r)| **r > 0.0)
+            .map(|(c, r)| c / r)
             .fold(0.0_f64, f64::max);
 
         // Maximum amplification should be 1/BLAZE_FLOOR = 10×
