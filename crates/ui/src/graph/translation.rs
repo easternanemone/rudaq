@@ -272,7 +272,7 @@ fn translate_node_with_snarl(
                 for i in 0..*points {
                     let pos = start + step * f64::from(i);
                     commands.push(PlanCommand::MoveTo {
-                        device_id: actuator.clone(),
+                        device_id: actuator.clone().into(),
                         position: pos,
                     });
                     commands.push(PlanCommand::Checkpoint {
@@ -296,7 +296,7 @@ fn translate_node_with_snarl(
                 if let Some(exposure_ms) = config.exposure_ms {
                     if exposure_ms > 0.0 {
                         commands.push(PlanCommand::Set {
-                            device_id: config.detector.clone(),
+                            device_id: config.detector.clone().into(),
                             parameter: "exposure_ms".to_string(),
                             value: exposure_ms.to_string(),
                         });
@@ -305,10 +305,10 @@ fn translate_node_with_snarl(
                 // Generate Trigger+Read for each frame in burst
                 for _ in 0..config.frame_count {
                     commands.push(PlanCommand::Trigger {
-                        device_id: config.detector.clone(),
+                        device_id: config.detector.clone().into(),
                     });
                     commands.push(PlanCommand::Read {
-                        device_id: config.detector.clone(),
+                        device_id: config.detector.clone().into(),
                     });
                     commands.push(PlanCommand::EmitEvent {
                         stream: "primary".to_string(),
@@ -324,13 +324,13 @@ fn translate_node_with_snarl(
             if !config.device.is_empty() {
                 movers.push(config.device.clone());
                 commands.push(PlanCommand::MoveTo {
-                    device_id: config.device.clone(),
+                    device_id: config.device.clone().into(),
                     position: config.position,
                 });
                 if config.wait_settled {
                     // Phase 4: Emit real WaitSettled for move-and-settle
                     commands.push(PlanCommand::WaitSettled {
-                        device_id: config.device.clone(),
+                        device_id: config.device.clone().into(),
                         timeout_seconds: 30.0, // Default 30s settle timeout for moves
                     });
                 }
@@ -354,7 +354,7 @@ fn translate_node_with_snarl(
                     // primary knobs; threshold field/operator details are
                     // evaluated by the RunEngine's settled-detection logic.
                     commands.push(PlanCommand::WaitSettled {
-                        device_id: device_id.clone(),
+                        device_id: device_id.clone().into(),
                         timeout_seconds: *timeout_ms / 1000.0,
                     });
                 }
@@ -369,7 +369,7 @@ fn translate_node_with_snarl(
                     // and duration_ms from the node config are available for
                     // future WaitSettled field extensions.
                     commands.push(PlanCommand::WaitSettled {
-                        device_id: device_id.clone(),
+                        device_id: device_id.clone().into(),
                         timeout_seconds: *timeout_ms / 1000.0,
                     });
                 }
@@ -441,7 +441,7 @@ fn translate_node_with_snarl(
                     let above = matches!(operator, ThresholdOp::GreaterThan);
                     commands.push(PlanCommand::RepeatWhile {
                         condition: experiment::plans::EvalCondition::Threshold {
-                            device_id: device_id.clone(),
+                            device_id: device_id.clone().into(),
                             field: "value".to_string(),
                             threshold: *value,
                             above,
@@ -524,7 +524,7 @@ fn translate_node_with_snarl(
                 // Move outer actuator
                 if !config.outer.actuator.is_empty() {
                     commands.push(PlanCommand::MoveTo {
-                        device_id: config.outer.actuator.clone(),
+                        device_id: config.outer.actuator.clone().into(),
                         position: outer_pos,
                     });
                 }
@@ -539,7 +539,7 @@ fn translate_node_with_snarl(
                     // Move inner actuator
                     if !config.inner.actuator.is_empty() {
                         commands.push(PlanCommand::MoveTo {
-                            device_id: config.inner.actuator.clone(),
+                            device_id: config.inner.actuator.clone().into(),
                             position: inner_pos,
                         });
                     }
@@ -640,7 +640,7 @@ fn translate_node_with_snarl(
 
                     // Move actuator
                     commands.push(PlanCommand::MoveTo {
-                        device_id: config.scan.actuator.clone(),
+                        device_id: config.scan.actuator.clone().into(),
                         position: pos,
                     });
 

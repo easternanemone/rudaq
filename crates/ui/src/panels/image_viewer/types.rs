@@ -297,6 +297,83 @@ impl MeasurementTool {
     }
 }
 
+/// Corner placement for the scale-bar overlay.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(super) enum ScaleBarPosition {
+    TopLeft,
+    TopRight,
+    #[default]
+    BottomLeft,
+    BottomRight,
+}
+
+impl ScaleBarPosition {
+    pub(super) fn label(self) -> &'static str {
+        match self {
+            Self::TopLeft => "Top Left",
+            Self::TopRight => "Top Right",
+            Self::BottomLeft => "Bottom Left",
+            Self::BottomRight => "Bottom Right",
+        }
+    }
+}
+
+/// Display color for the scale-bar overlay.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(super) enum ScaleBarColor {
+    #[default]
+    White,
+    Black,
+    Cyan,
+    Yellow,
+}
+
+impl ScaleBarColor {
+    pub(super) fn label(self) -> &'static str {
+        match self {
+            Self::White => "White",
+            Self::Black => "Black",
+            Self::Cyan => "Cyan",
+            Self::Yellow => "Yellow",
+        }
+    }
+
+    pub(super) fn bar_color(self) -> egui::Color32 {
+        match self {
+            Self::White => egui::Color32::WHITE,
+            Self::Black => egui::Color32::BLACK,
+            Self::Cyan => egui::Color32::from_rgb(80, 220, 255),
+            Self::Yellow => egui::Color32::from_rgb(255, 220, 80),
+        }
+    }
+
+    pub(super) fn contrast_color(self) -> egui::Color32 {
+        match self {
+            Self::Black => egui::Color32::WHITE,
+            Self::White | Self::Cyan | Self::Yellow => egui::Color32::BLACK,
+        }
+    }
+}
+
+/// Visual treatment for the scale-bar overlay.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(super) enum ScaleBarStyle {
+    #[default]
+    Solid,
+    Outlined,
+    Minimal,
+}
+
+impl ScaleBarStyle {
+    pub(super) fn label(self) -> &'static str {
+        match self {
+            Self::Solid => "Solid",
+            Self::Outlined => "Outlined",
+            Self::Minimal => "Minimal",
+        }
+    }
+}
+
 /// Measurement point stored in image-pixel coordinates.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct MeasurementPoint {
@@ -404,6 +481,13 @@ impl AngleMeasurement {
     }
 }
 
+/// A sampled point along a measured line profile.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct LineProfileSample {
+    pub(super) distance_pixels: f32,
+    pub(super) distance_physical: Option<f64>,
+    pub(super) intensity: u32,
+}
 /// Connection state for camera device (bd-12qt)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ConnectionState {

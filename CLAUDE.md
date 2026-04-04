@@ -8,6 +8,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Agents MUST NOT work directly on `main` in the primary checkout.** Always use a worktree or feature branch to avoid destroying concurrent work. Use `isolation: "worktree"` when spawning sub-agents, or `bd worktree create <name>` for manual work. Never squash-merge large changes directly onto main — use feature branches. See AGENTS.md "Worktree Isolation" section for full rules.
 
+## Disk Safety (MANDATORY for Agents)
+
+**The shared target directory in `.cargo/config.toml` (`target-dir = ".../target"`) is load-bearing.** All worktrees reuse the primary checkout's `target/` instead of each creating a 10-15GB copy. Without this, 4 parallel agents consume 40-60GB and exhaust disk quota.
+
+**Rules:**
+- **NEVER** run `cargo clean` in a worktree — it wipes the shared target
+- **NEVER** remove or override `target-dir` in `.cargo/config.toml`
+- **Before launching >2 parallel worktree agents**, check `df -h /` — need at least 15GB free
+- **After agents complete**, merge branches immediately, then remove worktrees (`git worktree remove`)
+- If disk fills: use Serena MCP `execute_shell_command` to clean up (Bash tool fails when disk is full because it needs to create output files in /tmp)
+
 ## PR Policy
 
 **NEVER push directly to main.** All changes go through feature branches and PRs:
