@@ -530,7 +530,7 @@ impl RunEngine {
                 let deadline = Instant::now() + Duration::from_secs_f64(timeout_seconds);
                 let poll_interval = Duration::from_millis(100);
 
-                if let Some(readable) = dispatcher.registry.get_readable(&device_id) {
+                if let Some(readable) = dispatcher.registry.get_readable(device_id.as_str()) {
                     let mut last_value: Option<f64> = None;
                     let mut stable_since: Option<Instant> = None;
                     let stability_window = Duration::from_millis(500);
