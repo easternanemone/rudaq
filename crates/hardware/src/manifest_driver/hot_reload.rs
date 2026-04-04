@@ -37,12 +37,12 @@
 
 use anyhow::Result;
 use notify::{
-    event::{CreateKind, ModifyKind, RemoveKind},
     Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher,
+    event::{CreateKind, ModifyKind, RemoveKind},
 };
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{RwLock, mpsc};
 
 use super::registry::PluginFactory;
 use super::schema::InstrumentConfig;

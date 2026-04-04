@@ -4,8 +4,8 @@
 //!
 //! Some icons are defined for future use and may not currently be referenced.
 
-pub use egui_phosphor::regular::*;
 pub use egui_phosphor::Variant;
+pub use egui_phosphor::regular::*;
 
 pub fn add_to_fonts(fonts: &mut egui::FontDefinitions) {
     egui_phosphor::add_to_fonts(fonts, Variant::Regular);

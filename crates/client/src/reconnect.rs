@@ -1170,7 +1170,9 @@ mod tests {
         assert!(friendly_error_message("connection refused").contains("Daemon not running"));
 
         // DNS errors
-        assert!(friendly_error_message("dns resolution failed").contains("Cannot resolve hostname"));
+        assert!(
+            friendly_error_message("dns resolution failed").contains("Cannot resolve hostname")
+        );
 
         // Timeout
         assert!(friendly_error_message("request timed out").contains("timed out"));

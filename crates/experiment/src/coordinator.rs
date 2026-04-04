@@ -232,8 +232,8 @@ impl CompositeCapability for AcquisitionCoordinator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
     use common::capabilities::{
         EmissionControl, ExposureControl, FrameProducer, Movable, Readable, Settable,

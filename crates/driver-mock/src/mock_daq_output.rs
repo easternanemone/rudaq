@@ -1,6 +1,6 @@
 //! Mock DAQ analog output implementation (Comedi-like).
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use common::capabilities::{AnalogRange, Parameterized, RangeIntrospectable, RangeUnit, Settable};
 use common::driver::{Capability, DeviceComponents, DeviceMetadata, DriverFactory};

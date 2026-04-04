@@ -157,24 +157,24 @@ impl PortSpec {
         };
 
         // Check vendor if specified
-        if let Some(ref vendor) = self.vendor {
-            if !name.starts_with(vendor) {
-                return false;
-            }
+        if let Some(ref vendor) = self.vendor
+            && !name.starts_with(vendor)
+        {
+            return false;
         }
 
         // Check model if specified (appears after vendor_)
-        if let Some(ref model) = self.model {
-            if !name.contains(model) {
-                return false;
-            }
+        if let Some(ref model) = self.model
+            && !name.contains(model)
+        {
+            return false;
         }
 
         // Check serial if specified
-        if let Some(ref serial) = self.serial {
-            if !name.contains(serial) {
-                return false;
-            }
+        if let Some(ref serial) = self.serial
+            && !name.contains(serial)
+        {
+            return false;
         }
 
         true

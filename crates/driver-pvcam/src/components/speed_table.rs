@@ -261,9 +261,5 @@ fn get_current_string_param(h: i16, param: u32) -> Option<String> {
         .to_string_lossy()
         .trim()
         .to_string();
-    if s.is_empty() {
-        None
-    } else {
-        Some(s)
-    }
+    if s.is_empty() { None } else { Some(s) }
 }

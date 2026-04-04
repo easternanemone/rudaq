@@ -11,7 +11,7 @@
 
 use std::collections::HashMap;
 
-use common::processing::radiance_calibration::{linear_interp, RadianceCalibrator, Spectrum};
+use common::processing::radiance_calibration::{RadianceCalibrator, Spectrum, linear_interp};
 
 // Re-export the standalone libs spectrum generator for use in benchmarks.
 // (It lives in driver-andor-sdk3 but we define a local equivalent here to
@@ -67,7 +67,7 @@ fn make_spectrum(num_pixels: usize) -> Spectrum {
     Spectrum::new(wl, vals).unwrap()
 }
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 
 // ── Benchmark groups ─────────────────────────────────────────────────────────
 

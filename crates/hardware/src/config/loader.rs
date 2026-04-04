@@ -22,8 +22,8 @@ use super::schema::DeviceConfig;
 use super::validation::validate_device_config;
 use anyhow::{Context, Result};
 use figment::{
-    providers::{Format, Toml},
     Figment,
+    providers::{Format, Toml},
 };
 use serde_valid::Validate;
 use std::path::Path;

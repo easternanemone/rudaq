@@ -35,7 +35,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use hardware::registry::{register_mock_factories, DeviceRegistry};
+use hardware::registry::{DeviceRegistry, register_mock_factories};
 use protocol::daq::hardware_service_server::HardwareService;
 use protocol::daq::{ListDevicesRequest, MoveRequest, ReadValueRequest};
 use server::grpc::hardware_service::HardwareServiceImpl;

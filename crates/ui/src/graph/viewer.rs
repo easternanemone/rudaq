@@ -7,7 +7,7 @@ use egui_snarl::{InPin, NodeId, OutPin, Snarl};
 
 use super::execution_state::{ExecutionState, NodeExecutionState};
 use super::nodes::{ExperimentNode, LoopTermination, MoveMode, WaitCondition};
-use super::validation::{output_pin_type, validate_connection, PinType};
+use super::validation::{PinType, output_pin_type, validate_connection};
 
 /// Viewer for rendering experiment nodes in the graph editor.
 #[derive(Default)]

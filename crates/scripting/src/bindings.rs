@@ -81,21 +81,21 @@ impl SoftLimits {
 
     /// Check if a position is within soft limits
     pub fn validate(&self, position: f64) -> Result<(), String> {
-        if let Some(min) = self.min {
-            if position < min {
-                return Err(format!(
-                    "Position {} is below soft limit minimum {}",
-                    position, min
-                ));
-            }
+        if let Some(min) = self.min
+            && position < min
+        {
+            return Err(format!(
+                "Position {} is below soft limit minimum {}",
+                position, min
+            ));
         }
-        if let Some(max) = self.max {
-            if position > max {
-                return Err(format!(
-                    "Position {} exceeds soft limit maximum {}",
-                    position, max
-                ));
-            }
+        if let Some(max) = self.max
+            && position > max
+        {
+            return Err(format!(
+                "Position {} exceeds soft limit maximum {}",
+                position, max
+            ));
         }
         Ok(())
     }
@@ -340,7 +340,7 @@ pub fn register_hardware(engine: &mut Engine) {
         move |stage: &mut StageHandle| -> Result<f64, Box<EvalAltResult>> {
             let driver = stage.driver.clone();
             run_blocking("Stage position", async move {
-                use tokio::time::{timeout, Duration};
+                use tokio::time::{Duration, timeout};
                 match timeout(Duration::from_secs(3), driver.position()).await {
                     Ok(Ok(pos)) => Ok(pos),
                     Ok(Err(e)) => Err(anyhow::anyhow!("position query failed: {}", e)),
@@ -358,7 +358,7 @@ pub fn register_hardware(engine: &mut Engine) {
         move |stage: &mut StageHandle| -> Result<Dynamic, Box<EvalAltResult>> {
             let driver = stage.driver.clone();
             run_blocking("Stage wait_settled", async move {
-                use tokio::time::{timeout, Duration};
+                use tokio::time::{Duration, timeout};
                 match timeout(Duration::from_secs(15), driver.wait_settled()).await {
                     Ok(Ok(())) => Ok(()),
                     Ok(Err(e)) => Err(anyhow::anyhow!("wait_settled failed: {}", e)),
@@ -539,7 +539,7 @@ pub fn register_hardware(engine: &mut Engine) {
             // Move to position 0.0 as a generic home operation
             // Note: For devices with true homing (like ELL14), use the specific driver
             run_blocking("Stage home", async move {
-                use tokio::time::{timeout, Duration};
+                use tokio::time::{Duration, timeout};
 
                 // Move to 0 with 5s timeout
                 timeout(Duration::from_secs(5), driver.move_abs(0.0))

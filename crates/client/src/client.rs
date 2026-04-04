@@ -72,12 +72,6 @@ impl ChannelConfig {
     }
 }
 use protocol::daq::{
-    control_service_client::ControlServiceClient,
-    hardware_service_client::HardwareServiceClient,
-    module_service_client::ModuleServiceClient,
-    run_engine_service_client::RunEngineServiceClient,
-    scan_service_client::ScanServiceClient,
-    storage_service_client::StorageServiceClient,
     // RunEngine control types
     AbortPlanRequest,
     AbortPlanResponse,
@@ -157,6 +151,12 @@ use protocol::daq::{
     StreamQuality,
     UploadRequest as ScriptUploadRequest,
     UploadResponse as ScriptUploadResponse,
+    control_service_client::ControlServiceClient,
+    hardware_service_client::HardwareServiceClient,
+    module_service_client::ModuleServiceClient,
+    run_engine_service_client::RunEngineServiceClient,
+    scan_service_client::ScanServiceClient,
+    storage_service_client::StorageServiceClient,
 };
 use protocol::ni_daq::ni_daq_service_client::NiDaqServiceClient;
 

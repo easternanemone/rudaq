@@ -3,7 +3,7 @@
 //! This module provides `PluginFactory` which scans directories for plugin YAML files,
 //! validates them, and spawns `GenericDriver` instances on demand.
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -191,14 +191,13 @@ impl PluginFactory {
         let mut entries = entries;
         while let Ok(Some(entry)) = entries.next_entry().await {
             let entry_path = entry.path();
-            if entry_path.is_file() {
-                if let Some(extension) = entry_path.extension() {
-                    if extension == "yaml" || extension == "yml" {
-                        match self.load_single_plugin(&entry_path, priority).await {
-                            Ok(()) => {}
-                            Err(e) => errors.push(e),
-                        }
-                    }
+            if entry_path.is_file()
+                && let Some(extension) = entry_path.extension()
+                && (extension == "yaml" || extension == "yml")
+            {
+                match self.load_single_plugin(&entry_path, priority).await {
+                    Ok(()) => {}
+                    Err(e) => errors.push(e),
                 }
             }
         }
@@ -301,51 +300,48 @@ impl PluginFactory {
         let mut entries = tokio::fs::read_dir(path).await?;
         while let Some(entry) = entries.next_entry().await? {
             let entry_path = entry.path();
-            if entry_path.is_file() {
-                if let Some(extension) = entry_path.extension() {
-                    if extension == "yaml" || extension == "yml" {
-                        let content = tokio::fs::read_to_string(&entry_path).await?;
-                        let config: InstrumentConfig =
-                            serde_yaml::from_str(&content).map_err(|e| {
-                                anyhow!("Failed to parse {}: {}", entry_path.display(), e)
-                            })?;
+            if entry_path.is_file()
+                && let Some(extension) = entry_path.extension()
+                && (extension == "yaml" || extension == "yml")
+            {
+                let content = tokio::fs::read_to_string(&entry_path).await?;
+                let config: InstrumentConfig = serde_yaml::from_str(&content)
+                    .map_err(|e| anyhow!("Failed to parse {}: {}", entry_path.display(), e))?;
 
-                        // Validate configuration
-                        let validation_errors = validate_plugin_config(&config);
-                        if !validation_errors.is_empty() {
-                            let msgs: Vec<String> = validation_errors
-                                .iter()
-                                .map(|e| format!("{}: {}", e.path, e.message))
-                                .collect();
-                            return Err(anyhow!(
-                                "Validation failed for {}: {}",
-                                entry_path.display(),
-                                msgs.join("; ")
-                            ));
-                        }
-
-                        if self.templates.contains_key(&config.metadata.id) {
-                            return Err(anyhow!(
-                                "Duplicate plugin ID '{}' found for file {}",
-                                config.metadata.id,
-                                entry_path.display()
-                            ));
-                        }
-                        tracing::info!(
-                            "Loaded plugin: {} ({})",
-                            config.metadata.name,
-                            entry_path.display()
-                        );
-                        self.templates.insert(
-                            config.metadata.id.clone(),
-                            PluginEntry {
-                                config,
-                                source_path: entry_path,
-                                priority: 0, // Legacy single-dir loading uses priority 0
-                            },
-                        );
-                    }
+                // Validate configuration
+                let validation_errors = validate_plugin_config(&config);
+                if !validation_errors.is_empty() {
+                    let msgs: Vec<String> = validation_errors
+                        .iter()
+                        .map(|e| format!("{}: {}", e.path, e.message))
+                        .collect();
+                    return Err(anyhow!(
+                        "Validation failed for {}: {}",
+                        entry_path.display(),
+                        msgs.join("; ")
+                    ));
                 }
+
+                if self.templates.contains_key(&config.metadata.id) {
+                    return Err(anyhow!(
+                        "Duplicate plugin ID '{}' found for file {}",
+                        config.metadata.id,
+                        entry_path.display()
+                    ));
+                }
+                tracing::info!(
+                    "Loaded plugin: {} ({})",
+                    config.metadata.name,
+                    entry_path.display()
+                );
+                self.templates.insert(
+                    config.metadata.id.clone(),
+                    PluginEntry {
+                        config,
+                        source_path: entry_path,
+                        priority: 0, // Legacy single-dir loading uses priority 0
+                    },
+                );
             }
         }
         Ok(())
@@ -686,13 +682,13 @@ pub fn validate_plugin_config(config: &InstrumentConfig) -> Vec<ValidationError>
             }
 
             // Validate min/max if both are specified
-            if let (Some(min), Some(max)) = (axis.min, axis.max) {
-                if min >= max {
-                    errors.push(ValidationError {
-                        path: format!("capabilities.movable.axes[{}]", i),
-                        message: format!("Axis min ({}) must be less than max ({})", min, max),
-                    });
-                }
+            if let (Some(min), Some(max)) = (axis.min, axis.max)
+                && min >= max
+            {
+                errors.push(ValidationError {
+                    path: format!("capabilities.movable.axes[{}]", i),
+                    message: format!("Axis min ({}) must be less than max ({})", min, max),
+                });
             }
         }
     }
@@ -746,13 +742,13 @@ pub fn validate_plugin_config(config: &InstrumentConfig) -> Vec<ValidationError>
         }
 
         // Validate min/max if both are specified
-        if let (Some(min), Some(max)) = (settable.min, settable.max) {
-            if min >= max {
-                errors.push(ValidationError {
-                    path: format!("capabilities.settable[{}]", i),
-                    message: format!("Settable min ({}) must be less than max ({})", min, max),
-                });
-            }
+        if let (Some(min), Some(max)) = (settable.min, settable.max)
+            && min >= max
+        {
+            errors.push(ValidationError {
+                path: format!("capabilities.settable[{}]", i),
+                message: format!("Settable min ({}) must be less than max ({})", min, max),
+            });
         }
     }
 
@@ -852,13 +848,13 @@ pub fn validate_plugin_config(config: &InstrumentConfig) -> Vec<ValidationError>
         }
 
         // Validate min/max if both are specified
-        if let (Some(min), Some(max)) = (exposure.min_seconds, exposure.max_seconds) {
-            if min >= max {
-                errors.push(ValidationError {
-                    path: "capabilities.exposure_control".to_string(),
-                    message: format!("Exposure min ({}) must be less than max ({})", min, max),
-                });
-            }
+        if let (Some(min), Some(max)) = (exposure.min_seconds, exposure.max_seconds)
+            && min >= max
+        {
+            errors.push(ValidationError {
+                path: "capabilities.exposure_control".to_string(),
+                message: format!("Exposure min ({}) must be less than max ({})", min, max),
+            });
         }
     }
 
@@ -987,9 +983,11 @@ mod tests {
             get_pattern: "{val}".to_string(),
         });
         let errors = validate_plugin_config(&config);
-        assert!(errors
-            .iter()
-            .any(|e| e.message.contains("must be less than")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("must be less than"))
+        );
     }
 
     #[test]

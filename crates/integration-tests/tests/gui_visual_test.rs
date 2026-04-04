@@ -13,8 +13,8 @@
     unused_imports,
     missing_docs
 )]
-use egui_kittest::kittest::Queryable;
 use egui_kittest::Harness;
+use egui_kittest::kittest::Queryable;
 use ui::{app::DaqGuiApp, create_channels};
 
 #[test]

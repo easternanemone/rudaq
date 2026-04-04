@@ -6,7 +6,7 @@
 
 use crate::runtime::Runtime;
 use crate::time::{Duration, Instant};
-use crate::widgets::{offline_notice, OfflineContext};
+use crate::widgets::{OfflineContext, offline_notice};
 use client::DaqClient;
 use egui_code_editor::{CodeEditor, ColorTheme, Syntax};
 #[cfg(not(target_arch = "wasm32"))]

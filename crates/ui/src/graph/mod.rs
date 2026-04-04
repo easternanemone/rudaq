@@ -34,23 +34,23 @@ pub use execution_state::{EngineStateLocal, ExecutionState, NodeExecutionState};
 pub use nodes::ExperimentNode;
 #[allow(unused_imports)]
 pub use serialization::{
-    load_graph, save_graph, GraphFile, GraphMetadata, GRAPH_FILE_EXTENSION, GRAPH_FILE_FILTER,
+    GRAPH_FILE_EXTENSION, GRAPH_FILE_FILTER, GraphFile, GraphMetadata, load_graph, save_graph,
 };
 #[cfg(not(target_arch = "wasm32"))]
 #[allow(unused_imports)]
 pub use translation::{
-    build_adjacency, detect_cycles, topological_sort, GraphPlan, TranslationError,
+    GraphPlan, TranslationError, build_adjacency, detect_cycles, topological_sort,
 };
 #[allow(unused_imports)]
 pub use validation::{
-    input_pin_type, output_pin_type, validate_adaptive_scan, validate_connection,
-    validate_graph_structure, PinType,
+    PinType, input_pin_type, output_pin_type, validate_adaptive_scan, validate_connection,
+    validate_graph_structure,
 };
 pub use viewer::ExperimentViewer;
 
 // Adaptive scan trigger evaluation
 #[allow(unused_imports)]
-pub use adaptive::{detect_peaks, evaluate_triggers, DetectedPeak, TriggerResult};
+pub use adaptive::{DetectedPeak, TriggerResult, detect_peaks, evaluate_triggers};
 
 // Re-export Snarl for convenience
 #[allow(unused_imports)]

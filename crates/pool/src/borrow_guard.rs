@@ -4,11 +4,11 @@
 //! `BorrowGuard`, the underlying pool slot cannot be recycled until all
 //! guards are dropped.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::foreign_view::ForeignView;
 use crate::FrameData;
+use crate::foreign_view::ForeignView;
 
 /// Tracks the number of active borrows on a pool slot.
 ///

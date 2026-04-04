@@ -63,11 +63,7 @@ impl PropertyInspector {
             }
         });
 
-        if changed {
-            Some(modified)
-        } else {
-            None
-        }
+        if changed { Some(modified) } else { None }
     }
 
     /// Show Move node inspector with device selector and all configuration options.

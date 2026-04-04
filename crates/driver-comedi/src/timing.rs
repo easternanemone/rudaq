@@ -322,12 +322,12 @@ impl TimingConfig {
         }
 
         // Validate external clock config
-        if let ClockSource::External { pin, .. } = self.clock_source {
-            if !caps.pfi_pins.contains(&pin) {
-                return Err(ComediError::InvalidConfig {
-                    message: format!("Invalid PFI pin {} for external clock", pin),
-                });
-            }
+        if let ClockSource::External { pin, .. } = self.clock_source
+            && !caps.pfi_pins.contains(&pin)
+        {
+            return Err(ComediError::InvalidConfig {
+                message: format!("Invalid PFI pin {} for external clock", pin),
+            });
         }
 
         Ok(())

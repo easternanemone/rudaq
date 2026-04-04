@@ -30,10 +30,10 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use hardware::capabilities::{Movable, Readable};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::sync::RwLock;
-use tokio::time::{sleep, Duration, Instant};
+use tokio::time::{Duration, Instant, sleep};
 
 // =============================================================================
 // Mock Hardware Implementations

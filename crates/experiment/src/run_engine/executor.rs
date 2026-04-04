@@ -9,18 +9,18 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use tokio::sync::mpsc;
-use tokio::time::{sleep, Duration, Instant};
+use tokio::time::{Duration, Instant, sleep};
 use tracing::{debug, error, info, warn};
 
 use common::experiment::document::{
     DataKey, DescriptorDoc, Document, EventDoc, ExperimentManifest, StartDoc, StopDoc,
 };
 
+use super::RunEngine;
 use super::command_dispatch::CommandDispatcher;
 use super::context::RunContext;
 use super::state_machine::ExperimentFrameObserver;
 use super::task_queue::QueuedPlan;
-use super::RunEngine;
 use crate::feedback::FeedbackEvent;
 use crate::plans::PlanCommand;
 
@@ -64,24 +64,24 @@ impl RunEngine {
         let mut frame_channels = HashMap::new();
 
         for det_id in plan.detectors() {
-            if let Some(producer) = self.device_registry.get_frame_producer(&det_id) {
-                if producer.supports_observers() {
-                    let (tx, rx) = mpsc::channel(16);
+            if let Some(producer) = self.device_registry.get_frame_producer(&det_id)
+                && producer.supports_observers()
+            {
+                let (tx, rx) = mpsc::channel(16);
 
-                    let observer = Box::new(ExperimentFrameObserver {
-                        tx,
-                        device_id: det_id.to_string(),
-                    });
+                let observer = Box::new(ExperimentFrameObserver {
+                    tx,
+                    device_id: det_id.to_string(),
+                });
 
-                    match producer.register_observer(observer).await {
-                        Ok(handle) => {
-                            info!("Registered frame observer for {}", det_id);
-                            frame_observers.insert(det_id.to_string(), handle);
-                            frame_channels.insert(det_id.to_string(), rx);
-                        }
-                        Err(e) => {
-                            warn!("Failed to register observer for {}: {}", det_id, e);
-                        }
+                match producer.register_observer(observer).await {
+                    Ok(handle) => {
+                        info!("Registered frame observer for {}", det_id);
+                        frame_observers.insert(det_id.to_string(), handle);
+                        frame_channels.insert(det_id.to_string(), rx);
+                    }
+                    Err(e) => {
+                        warn!("Failed to register observer for {}: {}", det_id, e);
                     }
                 }
             }
@@ -213,23 +213,23 @@ impl RunEngine {
             };
 
             // ---- Adaptive feedback integration (bd-0za1) ----
-            if let PlanCommand::Checkpoint { ref label } = cmd {
-                if label.contains("adaptive") {
-                    let planned_pos = self
-                        .run_context
-                        .lock()
-                        .await
-                        .as_ref()
-                        .and_then(|ctx| ctx.current_positions.values().last().copied())
-                        .unwrap_or(0.0);
+            if let PlanCommand::Checkpoint { ref label } = cmd
+                && label.contains("adaptive")
+            {
+                let planned_pos = self
+                    .run_context
+                    .lock()
+                    .await
+                    .as_ref()
+                    .and_then(|ctx| ctx.current_positions.values().last().copied())
+                    .unwrap_or(0.0);
 
-                    if let Some(adjusted) = self.drain_feedback_with_adaptation(planned_pos) {
-                        if let Some(ctx) = self.run_context.lock().await.as_mut() {
-                            for pos in ctx.current_positions.values_mut() {
-                                if (*pos - planned_pos).abs() < f64::EPSILON {
-                                    *pos = adjusted;
-                                }
-                            }
+                if let Some(adjusted) = self.drain_feedback_with_adaptation(planned_pos)
+                    && let Some(ctx) = self.run_context.lock().await.as_mut()
+                {
+                    for pos in ctx.current_positions.values_mut() {
+                        if (*pos - planned_pos).abs() < f64::EPSILON {
+                            *pos = adjusted;
                         }
                     }
                 }
@@ -332,33 +332,33 @@ impl RunEngine {
 
                 {
                     let mut ctx_guard = self.run_context.lock().await;
-                    if let Some(ctx) = ctx_guard.as_mut() {
-                        if let Some(rx) = ctx.frame_channels.get_mut(&device_id) {
-                            is_frame_device = true;
-                            match rx.recv().await {
-                                Some(capture) => {
-                                    let data_len = capture.data.len();
-                                    let frame_num = capture.frame_number;
-                                    let summing_count = capture.summing_count;
-                                    ctx.collected_frames.insert(device_id.clone(), capture.data);
-                                    ctx.collected_summing_counts
-                                        .insert(device_id.clone(), summing_count);
-                                    // bd-p6r4: Collect frame metadata for EventDoc propagation
-                                    if !capture.metadata.is_empty() {
-                                        ctx.collected_metadata
-                                            .insert(device_id.clone(), capture.metadata);
-                                    }
-                                    debug!(
-                                        device = %device_id,
-                                        size = %data_len,
-                                        frame_num = %frame_num,
-                                        ?summing_count,
-                                        "Captured frame"
-                                    );
+                    if let Some(ctx) = ctx_guard.as_mut()
+                        && let Some(rx) = ctx.frame_channels.get_mut(&device_id)
+                    {
+                        is_frame_device = true;
+                        match rx.recv().await {
+                            Some(capture) => {
+                                let data_len = capture.data.len();
+                                let frame_num = capture.frame_number;
+                                let summing_count = capture.summing_count;
+                                ctx.collected_frames.insert(device_id.clone(), capture.data);
+                                ctx.collected_summing_counts
+                                    .insert(device_id.clone(), summing_count);
+                                // bd-p6r4: Collect frame metadata for EventDoc propagation
+                                if !capture.metadata.is_empty() {
+                                    ctx.collected_metadata
+                                        .insert(device_id.clone(), capture.metadata);
                                 }
-                                None => {
-                                    warn!(device = %device_id, "Frame channel closed");
-                                }
+                                debug!(
+                                    device = %device_id,
+                                    size = %data_len,
+                                    frame_num = %frame_num,
+                                    ?summing_count,
+                                    "Captured frame"
+                                );
+                            }
+                            None => {
+                                warn!(device = %device_id, "Frame channel closed");
                             }
                         }
                     }
@@ -458,12 +458,12 @@ impl RunEngine {
 
                 // bd-oqo7.7: Add summing_count to event metadata for each detector
                 for (device_id, count) in &summing_metadata {
-                    if let Some(n) = count {
-                        if *n > 1 {
-                            event
-                                .metadata
-                                .insert(format!("{device_id}.summing_count"), n.to_string());
-                        }
+                    if let Some(n) = count
+                        && *n > 1
+                    {
+                        event
+                            .metadata
+                            .insert(format!("{device_id}.summing_count"), n.to_string());
                     }
                 }
 

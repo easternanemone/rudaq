@@ -6,15 +6,15 @@ use crate::runtime::Runtime;
 use eframe::egui::{self, Color32, RichText, Ui};
 use tokio::sync::mpsc;
 
-use crate::widgets::{offline_notice, OfflineContext};
+use crate::widgets::{OfflineContext, offline_notice};
 use client::DaqClient;
 use protocol::ni_daq::{
     ConfigureDigitalIoRequest, DigitalDirection, DigitalPinConfig, ReadDigitalPortRequest,
     WriteDigitalIoRequest,
 };
 
-use super::dio_monitor::{DioMonitorSender, DioStateUpdate};
 use super::DioDirection;
+use super::dio_monitor::{DioMonitorSender, DioStateUpdate};
 
 /// Action results from async operations.
 #[derive(Debug)]

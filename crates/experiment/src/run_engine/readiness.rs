@@ -349,16 +349,13 @@ impl ReadinessManager {
                 );
             }
 
-            if let Some(expected) = snapshot.echelle_frame_compatibility.as_ref() {
-                if let Some(info) = registry.get_device_info(device_id) {
-                    if info.capabilities.contains(&Capability::GatedCamera) {
-                        if let Some(issue) =
-                            Self::echelle_config_issue(registry, device_id, device_type, expected)
-                        {
-                            issues.push(issue);
-                        }
-                    }
-                }
+            if let Some(expected) = snapshot.echelle_frame_compatibility.as_ref()
+                && let Some(info) = registry.get_device_info(device_id)
+                && info.capabilities.contains(&Capability::GatedCamera)
+                && let Some(issue) =
+                    Self::echelle_config_issue(registry, device_id, device_type, expected)
+            {
+                issues.push(issue);
             }
         }
 

@@ -146,12 +146,16 @@ impl ComediError {
     ///
     /// This function calls FFI functions to get the error state.
     pub(crate) unsafe fn from_errno() -> Self {
-        let errno = comedi_sys::comedi_errno();
-        let msg_ptr = comedi_sys::comedi_strerror(errno);
+        // SAFETY: comedi_errno/comedi_strerror are safe to call after any comedi operation
+        let errno = unsafe { comedi_sys::comedi_errno() };
+        let msg_ptr = unsafe { comedi_sys::comedi_strerror(errno) };
         let message = if msg_ptr.is_null() {
             "Unknown error".to_string()
         } else {
-            CStr::from_ptr(msg_ptr).to_string_lossy().into_owned()
+            // SAFETY: msg_ptr is a valid C string returned by comedi_strerror
+            unsafe { CStr::from_ptr(msg_ptr) }
+                .to_string_lossy()
+                .into_owned()
         };
 
         Self::LibraryError { errno, message }
@@ -164,11 +168,15 @@ impl ComediError {
     /// This function calls FFI functions.
     #[allow(dead_code)]
     pub(crate) unsafe fn from_errno_value(errno: i32) -> Self {
-        let msg_ptr = comedi_sys::comedi_strerror(errno);
+        // SAFETY: comedi_strerror is safe to call with any errno value
+        let msg_ptr = unsafe { comedi_sys::comedi_strerror(errno) };
         let message = if msg_ptr.is_null() {
             "Unknown error".to_string()
         } else {
-            CStr::from_ptr(msg_ptr).to_string_lossy().into_owned()
+            // SAFETY: msg_ptr is a valid C string returned by comedi_strerror
+            unsafe { CStr::from_ptr(msg_ptr) }
+                .to_string_lossy()
+                .into_owned()
         };
 
         Self::LibraryError { errno, message }

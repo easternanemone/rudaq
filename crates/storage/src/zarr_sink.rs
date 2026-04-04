@@ -23,7 +23,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use async_trait::async_trait;
 use common::experiment::document::{DataKey, Document, EventDoc};
 use serde_json::json;

@@ -20,8 +20,8 @@
 use common::capabilities::{ExposureControl, FrameObserver, FrameProducer, LoanedFrame};
 use common::data::{Frame, FrameView};
 use driver_andor_sdk3::AndorCamera;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 // =============================================================================

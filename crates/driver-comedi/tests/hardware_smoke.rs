@@ -35,7 +35,7 @@
 
 #![cfg(feature = "hardware")]
 
-use driver_comedi::{subsystem::AnalogReference, ComediDevice, DeviceInfo, Range, SubdeviceType};
+use driver_comedi::{ComediDevice, DeviceInfo, Range, SubdeviceType, subsystem::AnalogReference};
 use std::env;
 
 // =============================================================================

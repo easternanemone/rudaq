@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use common::driver::{DeviceComponents, DeviceLifecycle, DriverFactory};
 use hardware::DeviceRegistry;
 

@@ -116,14 +116,14 @@ use parking_lot::RwLock;
 use std::cell::UnsafeCell;
 use std::fmt;
 use std::ops::{Deref, DerefMut};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 use tokio::sync::Semaphore;
 use tracing::{error, warn};
 
 #[cfg(feature = "metrics")]
-use prometheus::{register_int_counter, register_int_gauge, IntCounter, IntGauge};
+use prometheus::{IntCounter, IntGauge, register_int_counter, register_int_gauge};
 #[cfg(feature = "metrics")]
 use std::sync::LazyLock;
 

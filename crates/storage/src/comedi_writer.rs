@@ -58,8 +58,8 @@ use common::error::{DaqError, StorageError, StorageErrorKind};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 use tokio::sync::{OnceCell, RwLock};
 
@@ -313,10 +313,10 @@ impl ComediStreamWriterBuilder {
         }
 
         // Ensure parent directory exists so file creation doesn't fail on fresh systems
-        if let Some(parent) = self.output_path.parent() {
-            if !parent.as_os_str().is_empty() {
-                std::fs::create_dir_all(parent)?;
-            }
+        if let Some(parent) = self.output_path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            std::fs::create_dir_all(parent)?;
         }
 
         let ring_buffer = if let Some(mb) = self.ring_buffer_mb {
@@ -406,8 +406,8 @@ impl ComediStreamWriter {
         let compression = self.compression;
 
         tokio::task::spawn_blocking(move || -> Result<()> {
-            use hdf5::types::VarLenUnicode;
             use hdf5::File;
+            use hdf5::types::VarLenUnicode;
 
             let file = File::create(&output_path)?;
 

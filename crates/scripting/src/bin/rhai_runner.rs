@@ -1,5 +1,5 @@
 //! Generic Rhai script runner for experiment automation.
-use scripting::{traits::ScriptEngine, RhaiEngine};
+use scripting::{RhaiEngine, traits::ScriptEngine};
 use std::{env, fs};
 use tracing_subscriber::EnvFilter;
 
