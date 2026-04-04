@@ -148,14 +148,14 @@ async fn test_check_feedback_nonblocking() {
 
     // Send two events.
     tx.send(FeedbackEvent::ValueUpdate {
-        device_id: "d".to_string(),
+        device_id: "d".into(),
         field: "v".to_string(),
         value: 1.0,
     })
     .await
     .unwrap();
     tx.send(FeedbackEvent::ValueUpdate {
-        device_id: "d".to_string(),
+        device_id: "d".into(),
         field: "v".to_string(),
         value: 2.0,
     })
