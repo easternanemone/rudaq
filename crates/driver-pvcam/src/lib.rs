@@ -1498,6 +1498,7 @@ impl PvcamDriver {
         params.register(io_state.clone());
         params.register(frame_transfer_mode.clone());
         params.register(io_script_cmd.clone());
+        params.register(multi_roi_config.clone());
         if let Some(param) = &clear_cycles_param {
             params.register(param.clone());
         }
