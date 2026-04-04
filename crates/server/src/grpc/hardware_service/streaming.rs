@@ -4,7 +4,8 @@ use crate::grpc::proto::StreamQuality;
 use common::capabilities::FrameObserver;
 use common::data::FrameView;
 use common::limits::MAX_STREAMS_PER_CLIENT;
-use protocol::downsample::{downsample_2x2, downsample_4x4};
+use protocol::downsample::{downsample_2x2_into, downsample_4x4_into};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::net::IpAddr;
@@ -80,6 +81,14 @@ impl GrpcStreamObserver {
     }
 }
 
+thread_local! {
+    /// Reusable frame buffer for the synchronous hardware frame loop.
+    ///
+    /// The observer contract forbids lock acquisition in `on_frame`, so we keep
+    /// the scratch buffer thread-local instead of protecting it with a mutex.
+    static FRAME_BUFFER: RefCell<Vec<u8>> = RefCell::new(Vec::new());
+}
+
 impl FrameObserver for GrpcStreamObserver {
     fn on_frame(&self, frame: &FrameView<'_>) {
         let frame_count = self.frames_received.fetch_add(1, Ordering::Relaxed);
@@ -96,13 +105,28 @@ impl FrameObserver for GrpcStreamObserver {
             );
         }
 
-        // Apply server-side downsampling based on quality setting
-        // Note: downsample functions expect 16-bit data
-        let (frame_data, effective_width, effective_height) = match self.quality {
-            StreamQuality::Preview => downsample_2x2(frame.pixels(), frame.width, frame.height),
-            StreamQuality::Fast => downsample_4x4(frame.pixels(), frame.width, frame.height),
-            StreamQuality::Full => (frame.pixels().to_vec(), frame.width, frame.height),
-        };
+        // Apply server-side downsampling based on quality setting.
+        // Uses a thread-local buffer so the synchronous hardware frame loop
+        // never pays for lock acquisition while still reusing capacity.
+        let (frame_data, effective_width, effective_height) = FRAME_BUFFER.with(|buffer| {
+            let mut buf = buffer.borrow_mut();
+
+            let (effective_width, effective_height) = match self.quality {
+                StreamQuality::Preview => {
+                    downsample_2x2_into(frame.pixels(), frame.width, frame.height, &mut buf)
+                }
+                StreamQuality::Fast => {
+                    downsample_4x4_into(frame.pixels(), frame.width, frame.height, &mut buf)
+                }
+                StreamQuality::Full => {
+                    buf.clear();
+                    buf.extend_from_slice(frame.pixels());
+                    (frame.width, frame.height)
+                }
+            };
+
+            (buf.clone(), effective_width, effective_height)
+        });
 
         let packet = ObserverFramePacket {
             data: frame_data,

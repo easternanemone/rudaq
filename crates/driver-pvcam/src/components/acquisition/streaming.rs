@@ -63,6 +63,8 @@ impl PvcamAcquisition {
             smart_stream_enabled,
             smart_stream_exposures,
             prime_locate_enabled,
+            prime_enhance_enabled,
+            multi_roi_regions,
         } = config;
 
         // Avoid unused parameter warnings when hardware feature is disabled.
@@ -73,6 +75,8 @@ impl PvcamAcquisition {
         let _ = &smart_stream_enabled;
         let _ = &smart_stream_exposures;
         let _ = &prime_locate_enabled;
+        let _ = &prime_enhance_enabled;
+        let _ = &multi_roi_regions;
         if self.streaming.get() {
             tracing::warn!("start_stream: already streaming");
             bail!("Already streaming");
@@ -125,6 +129,20 @@ impl PvcamAcquisition {
             // disabling metadata mid-acquisition risks data corruption.
             self.metadata_enabled.store(true, Ordering::Release);
             let use_metadata = true;
+
+            // bd-oqo7.3: Re-apply PrimeEnhance state before acquisition setup.
+            // The write callback sets PP state immediately on Parameter change,
+            // but camera power-cycles reset PP features. Re-apply on each start_stream
+            // to ensure the configured state is always active.
+            let use_prime_enhance = prime_enhance_enabled.get();
+            if use_prime_enhance {
+                tracing::info!("Re-applying PrimeEnhance enabled state for acquisition");
+                if let Err(e) = PvcamFeatures::set_prime_enhance(conn, true) {
+                    tracing::warn!(
+                        "Failed to re-apply PrimeEnhance: {e}. Continuing without denoising."
+                    );
+                }
+            }
 
             // bd-oqo7.1: Configure SMART Streaming before acquisition setup.
             // SMART Streaming lets the FPGA cycle through pre-programmed exposures,
@@ -478,16 +496,47 @@ impl PvcamAcquisition {
                 "Calling pl_exp_setup_cont"
             );
 
+            // bd-oqo7.4: Build region array for multi-ROI when configured.
+            // Uses validated RoiRegion → rgn_type conversion. Falls back to single ROI
+            // when multi_roi_regions is empty.
+            let use_multi_roi = !multi_roi_regions.is_empty();
+            let multi_regions: Vec<rgn_type> = if use_multi_roi {
+                tracing::info!(
+                    roi_count = multi_roi_regions.len(),
+                    "Multi-ROI acquisition: building {} regions",
+                    multi_roi_regions.len()
+                );
+                let mut regions = Vec::with_capacity(multi_roi_regions.len());
+                for roi_region in &multi_roi_regions {
+                    let rgn = unsafe {
+                        let mut r: rgn_type = std::mem::zeroed();
+                        r.s1 = roi_region.x;
+                        r.s2 = roi_region.x + roi_region.w - 1;
+                        r.sbin = x_bin;
+                        r.p1 = roi_region.y;
+                        r.p2 = roi_region.y + roi_region.h - 1;
+                        r.pbin = y_bin;
+                        r
+                    };
+                    regions.push(rgn);
+                }
+                regions
+            } else {
+                vec![region]
+            };
+
             // SAFETY: `h` is a valid camera handle. `region` is a stack-allocated
             // rgn_type. `frame_bytes` is a stack-allocated uns32 output parameter.
             // `selected_buffer_mode` is a valid CIRC_* constant. No acquisition
             // is active (we are in setup). On failure, we retry with NO_OVERWRITE.
             unsafe {
+                let rgn_count = multi_regions.len() as u16;
+                let rgn_ptr = multi_regions.as_ptr() as *const _;
                 // Try overwrite first
                 if pl_exp_setup_cont(
                     h,
-                    1,
-                    &region as *const _,
+                    rgn_count,
+                    rgn_ptr,
                     exp_mode,
                     exposure_ms as uns32,
                     &mut frame_bytes,
@@ -510,8 +559,8 @@ impl PvcamAcquisition {
                     frame_bytes = 0;
                     if pl_exp_setup_cont(
                         h,
-                        1,
-                        &region as *const _,
+                        rgn_count,
+                        rgn_ptr,
                         exp_mode,
                         exposure_ms as uns32,
                         &mut frame_bytes,
@@ -1054,6 +1103,20 @@ impl PvcamAcquisition {
             smart_stream_enabled: smart_disabled,
             smart_stream_exposures: smart_empty,
             prime_locate_enabled,
+            prime_enhance_enabled: {
+                #[cfg(feature = "pvcam_sdk")]
+                {
+                    Parameter::new(
+                        "_single_frame_prime_enhance",
+                        PvcamFeatures::get_prime_enhance_enabled(conn).unwrap_or(false),
+                    )
+                }
+                #[cfg(not(feature = "pvcam_sdk"))]
+                {
+                    Parameter::new("_single_frame_prime_enhance", false)
+                }
+            },
+            multi_roi_regions: vec![], // Single-frame always uses single ROI
         };
         self.start_stream(conn, config).await?;
 

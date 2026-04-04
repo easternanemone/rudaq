@@ -79,6 +79,81 @@ pub struct StreamConfig {
     pub smart_stream_enabled: common::parameter::Parameter<bool>,
     pub smart_stream_exposures: common::parameter::Parameter<String>,
     pub prime_locate_enabled: common::parameter::Parameter<bool>,
+    pub prime_enhance_enabled: common::parameter::Parameter<bool>,
+    /// Multi-ROI configuration (bd-oqo7.4). Empty vec = single ROI mode.
+    pub multi_roi_regions: Vec<RoiRegion>,
+}
+
+/// A single ROI region for Multi-ROI acquisition (bd-oqo7.4).
+///
+/// Prime BSI supports up to 16 overlapping ROIs. Each ROI is defined by
+/// sensor-coordinate origin (x, y) and dimensions (w, h). The camera reads
+/// only the specified regions, dramatically increasing frame rate for
+/// sparse readout patterns (e.g., echelle spectroscopy with ~74 active orders).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct RoiRegion {
+    /// X offset in sensor coordinates (pixels).
+    pub x: u16,
+    /// Y offset in sensor coordinates (pixels).
+    pub y: u16,
+    /// Width in pixels.
+    pub w: u16,
+    /// Height in pixels.
+    pub h: u16,
+}
+
+/// Maximum number of ROIs supported by PVCAM (Prime BSI FPGA limit).
+pub const MAX_ROI_COUNT: usize = 16;
+
+impl RoiRegion {
+    /// Parse a JSON array of ROI regions with validation.
+    ///
+    /// Returns an error if:
+    /// - JSON is malformed
+    /// - More than 16 ROIs specified
+    /// - Any ROI has zero width or height
+    /// - Any ROI extends beyond the sensor bounds
+    pub fn parse_json(
+        json: &str,
+        sensor_width: u16,
+        sensor_height: u16,
+    ) -> anyhow::Result<Vec<Self>> {
+        let regions: Vec<Self> = serde_json::from_str(json)
+            .map_err(|e| anyhow::anyhow!("Invalid Multi-ROI JSON: {e}"))?;
+
+        if regions.len() > MAX_ROI_COUNT {
+            anyhow::bail!("Too many ROIs: {} (max {})", regions.len(), MAX_ROI_COUNT);
+        }
+
+        for (i, roi) in regions.iter().enumerate() {
+            if roi.w == 0 || roi.h == 0 {
+                anyhow::bail!("ROI {i} has zero dimension: {}x{}", roi.w, roi.h);
+            }
+            if roi.x + roi.w > sensor_width {
+                anyhow::bail!(
+                    "ROI {i} exceeds sensor width: x={} + w={} > {}",
+                    roi.x,
+                    roi.w,
+                    sensor_width
+                );
+            }
+            if roi.y + roi.h > sensor_height {
+                anyhow::bail!(
+                    "ROI {i} exceeds sensor height: y={} + h={} > {}",
+                    roi.y,
+                    roi.h,
+                    sensor_height
+                );
+            }
+        }
+
+        Ok(regions)
+    }
+
+    /// Total pixel count across all ROIs (for buffer sizing).
+    pub fn total_pixels(regions: &[Self]) -> usize {
+        regions.iter().map(|r| r.w as usize * r.h as usize).sum()
+    }
 }
 
 #[cfg(feature = "pvcam_sdk")]
