@@ -1374,17 +1374,17 @@ mod tests {
     fn test_command_replay_plan() {
         let commands = vec![
             PlanCommand::MoveTo {
-                device_id: "stage".to_string(),
+                device_id: "stage".into(),
                 position: 5.0,
             },
             PlanCommand::Checkpoint {
                 label: "pt_0".to_string(),
             },
             PlanCommand::Trigger {
-                device_id: "det".to_string(),
+                device_id: "det".into(),
             },
             PlanCommand::Read {
-                device_id: "det".to_string(),
+                device_id: "det".into(),
             },
             PlanCommand::EmitEvent {
                 stream: "primary".to_string(),
