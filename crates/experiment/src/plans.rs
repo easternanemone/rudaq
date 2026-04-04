@@ -104,19 +104,19 @@ pub enum PlanCommand {
     /// Move a device to an absolute position
     MoveTo {
         /// Device ID to move
-        device_id: String,
+        device_id: DeviceId,
         /// Target position
         position: f64,
     },
     /// Read a value from a device
     Read {
         /// Device to read
-        device_id: String,
+        device_id: DeviceId,
     },
     /// Trigger a device (e.g., start camera acquisition)
     Trigger {
         /// Device to trigger
-        device_id: String,
+        device_id: DeviceId,
     },
     /// Wait for a duration in seconds
     Wait {
