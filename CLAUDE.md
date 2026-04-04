@@ -10,10 +10,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## PR Policy
 
-**Multi-crate refactors and large changes MUST go through PRs**, not direct pushes to main:
-- **Requires PR**: >100 lines changed, >3 files, cross-crate changes, changes to foundational crates (`common`, `hardware`, `pool`, `protocol`)
-- **Direct push OK**: Single-crate fixes <100 lines, documentation-only, config changes, test-only changes
-- When in doubt, open a PR. Use `gh pr create` with a clear summary and test plan.
+**NEVER push directly to main.** All changes go through feature branches and PRs:
+
+1. **Before writing code**: Create a feature branch (`git checkout -b feat/<issue-id>-description`)
+2. **Commit to the branch**, not main
+3. **Push branch and create PR**: `git push -u origin feat/... && gh pr create`
+4. **Only merge after review** (automated reviewers count: CodeRabbit, Qodo, Copilot)
+
+**The ONLY exception** for direct-to-main: single-file fixes under 20 lines (typos, config tweaks).
+
+**If you accidentally pushed to main**: Create a GitHub issue documenting the commits for post-merge review (see TheFermiSea/rust-daq#505 as an example of what NOT to do).
 
 ## Build / Test / Lint
 
