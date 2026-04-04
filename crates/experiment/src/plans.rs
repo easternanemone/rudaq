@@ -327,7 +327,7 @@ impl Plan for LineScan {
                     LineScanStep::Checkpoint
                 };
                 PlanCommand::MoveTo {
-                    device_id: self.axis.clone(),
+                    device_id: DeviceId::from(self.axis.as_str()),
                     position: pos,
                 }
             }
