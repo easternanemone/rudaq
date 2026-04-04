@@ -50,7 +50,7 @@ egui-phosphor = { version = "0.11", optional = true }
 # --- Cross-platform dependencies (pure Rust, compile on native + WASM) ---
 egui-snarl = { version = "0.9", features = ["serde"] }
 undo = "0.52"
-egui_code_editor = "0.2.20"
+egui_code_editor = ">=0.2.20, <0.2.22"
 chrono.workspace = true
 toml.workspace = true
 url = "2"

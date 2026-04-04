@@ -241,7 +241,7 @@ impl ConfigDrivenPanel {
                 ConfigPanelAction::PositionUpdate(res) => {
                     if let Ok(pos) = res {
                         for section in &mut self.sections {
-                            if let SectionState::Motion(ref mut s) = section {
+                            if let SectionState::Motion(s) = section {
                                 s.position = Some(pos);
                             }
                         }
@@ -249,7 +249,7 @@ impl ConfigDrivenPanel {
                 }
                 ConfigPanelAction::Moved(res) => {
                     for section in &mut self.sections {
-                        if let SectionState::Motion(ref mut s) = section {
+                        if let SectionState::Motion(s) = section {
                             s.moving = false;
                         }
                     }
@@ -266,7 +266,7 @@ impl ConfigDrivenPanel {
                 }
                 ConfigPanelAction::ReadValue(res) => {
                     for section in &mut self.sections {
-                        if let SectionState::Sensor(ref mut s) = section {
+                        if let SectionState::Sensor(s) = section {
                             if let Ok((value, ref units)) = res {
                                 s.value = Some(value);
                                 s.units.clone_from(units);
@@ -287,7 +287,7 @@ impl ConfigDrivenPanel {
                 }
                 ConfigPanelAction::ShutterState(res, _) => {
                     for section in &mut self.sections {
-                        if let SectionState::Shutter(ref mut s) = section {
+                        if let SectionState::Shutter(s) = section {
                             if let Ok(is_open) = res {
                                 s.is_open = Some(is_open);
                             }
@@ -310,7 +310,7 @@ impl ConfigDrivenPanel {
                 }
                 ConfigPanelAction::WavelengthValue(res, _) => {
                     for section in &mut self.sections {
-                        if let SectionState::Wavelength(ref mut s) = section {
+                        if let SectionState::Wavelength(s) = section {
                             if let Ok(nm) = res {
                                 s.current_nm = Some(nm);
                                 if !s.dragging {
@@ -332,7 +332,7 @@ impl ConfigDrivenPanel {
                     }
                 }
                 ConfigPanelAction::ParameterRead { idx, result } => {
-                    if let Some(SectionState::Parameter(ref mut s)) = self.sections.get_mut(idx) {
+                    if let Some(SectionState::Parameter(s)) = self.sections.get_mut(idx) {
                         match result {
                             Ok(val) => {
                                 if s.input.is_empty() {
@@ -349,7 +349,7 @@ impl ConfigDrivenPanel {
                     }
                 }
                 ConfigPanelAction::ParameterWrite { idx, result } => {
-                    if let Some(SectionState::Parameter(ref mut s)) = self.sections.get_mut(idx) {
+                    if let Some(SectionState::Parameter(s)) = self.sections.get_mut(idx) {
                         match result {
                             Ok(val) => {
                                 s.input.clone_from(&val);
@@ -365,8 +365,7 @@ impl ConfigDrivenPanel {
                     }
                 }
                 ConfigPanelAction::StatusValues { idx, result } => {
-                    if let Some(SectionState::StatusDisplay(ref mut s)) = self.sections.get_mut(idx)
-                    {
+                    if let Some(SectionState::StatusDisplay(s)) = self.sections.get_mut(idx) {
                         match result {
                             Ok(values) => s.values = values,
                             Err(e) => {
@@ -393,7 +392,7 @@ impl ConfigDrivenPanel {
                 ConfigPanelAction::Stopped(res) => {
                     // Clear motion state so the UI doesn't remain "busy"
                     for section in &mut self.sections {
-                        if let SectionState::Motion(ref mut motion_state) = section {
+                        if let SectionState::Motion(motion_state) = section {
                             motion_state.moving = false;
                         }
                     }
@@ -475,7 +474,7 @@ impl ConfigDrivenPanel {
 
         // Initialize sensor trend tracking
         for section in &mut self.sections {
-            if let SectionState::Sensor(ref mut s) = section {
+            if let SectionState::Sensor(s) = section {
                 s.trend_start = Some(Instant::now());
             }
         }
@@ -931,7 +930,7 @@ impl ConfigDrivenPanel {
         if should_refresh_position {
             self.dispatch_position_refresh(client.as_deref_mut(), runtime, device_id);
             for section in &mut self.sections {
-                if let SectionState::Motion(ref mut s) = section {
+                if let SectionState::Motion(s) = section {
                     s.last_position_refresh = Some(Instant::now());
                 }
             }
@@ -962,7 +961,7 @@ impl ConfigDrivenPanel {
         if should_refresh_sensor {
             self.dispatch_sensor_refresh(client.as_deref_mut(), runtime, device_id);
             for section in &mut self.sections {
-                if let SectionState::Sensor(ref mut s) = section {
+                if let SectionState::Sensor(s) = section {
                     s.last_refresh = Some(Instant::now());
                 }
             }
