@@ -178,7 +178,7 @@ async fn test_evaluate_condition_threshold_above_true() {
     let engine = RunEngine::new(registry);
 
     let cond = EvalCondition::Threshold {
-        device_id: "sensor".to_string(),
+        device_id: "sensor".into(),
         field: "value".to_string(),
         threshold: 10.0,
         above: true,
@@ -193,7 +193,7 @@ async fn test_evaluate_condition_threshold_above_false() {
     let engine = RunEngine::new(registry);
 
     let cond = EvalCondition::Threshold {
-        device_id: "sensor".to_string(),
+        device_id: "sensor".into(),
         field: "value".to_string(),
         threshold: 10.0,
         above: true,
@@ -208,7 +208,7 @@ async fn test_evaluate_condition_threshold_below() {
     let engine = RunEngine::new(registry);
 
     let cond = EvalCondition::Threshold {
-        device_id: "sensor".to_string(),
+        device_id: "sensor".into(),
         field: "value".to_string(),
         threshold: 10.0,
         above: false,
