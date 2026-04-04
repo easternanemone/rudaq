@@ -8,7 +8,7 @@ mod tests {
     use tonic::Code;
 
     fn assert_status_code(err: DaqError, expected: Code) {
-        let status = map_daq_error_to_status(err);
+        let status = map_daq_error_to_status(&err);
         assert_eq!(status.code(), expected);
     }
 
@@ -22,7 +22,7 @@ mod tests {
     }
 
     fn assert_has_error_kind(err: DaqError, expected_kind: &str) {
-        let status = map_daq_error_to_status(err);
+        let status = map_daq_error_to_status(&err);
         assert_metadata(&status, ERROR_KIND_HEADER, expected_kind);
     }
 
@@ -79,7 +79,7 @@ mod tests {
                 DriverErrorKind::Initialization,
                 "failed",
             ));
-            let status = map_daq_error_to_status(err);
+            let status = map_daq_error_to_status(&err);
 
             assert_metadata(&status, ERROR_KIND_HEADER, "driver");
             assert_metadata(&status, DRIVER_TYPE_HEADER, "mock_camera");
@@ -109,7 +109,7 @@ mod tests {
         #[test]
         fn instrument_error_includes_metadata() {
             let err = DaqError::Instrument("camera fault".into());
-            let status = map_daq_error_to_status(err);
+            let status = map_daq_error_to_status(&err);
 
             assert_metadata(&status, ERROR_KIND_HEADER, "instrument");
         }
@@ -211,7 +211,7 @@ mod tests {
                 DriverErrorKind::Communication,
                 "usb disconnect",
             ));
-            let status = map_daq_error_to_status(err);
+            let status = map_daq_error_to_status(&err);
             assert_metadata(&status, ERROR_KIND_HEADER, "driver");
             assert_metadata(&status, DRIVER_TYPE_HEADER, "pvcam");
             assert_metadata(&status, DRIVER_KIND_HEADER, "communication");
@@ -540,22 +540,15 @@ mod tests {
 
         #[test]
         fn anyhow_with_context_preserves_downcast() {
-            // anyhow::context wraps the error; downcast still works on the source
+            // anyhow::Context wraps the error, but anyhow_to_status walks the
+            // full chain so the buried DaqError is still found and mapped.
             use anyhow::Context;
             let result: Result<(), _> =
                 Err(DaqError::ParameterReadOnly).context("while setting exposure");
-            let err = result.unwrap_err();
-            // After .context(), the DaqError is the *source*, not the outer error.
-            // Our anyhow_to_status tries downcast on the outer error first.
-            // anyhow wraps it in a context wrapper, so the outer downcast fails;
-            // this falls through to the string fallback -- which is expected behavior.
+            let err = result.expect_err("context wrapper should produce an Err");
             let status = anyhow_to_status(err);
-            // The context string is the outermost message
-            assert!(
-                status.code() == Code::Internal || status.code() == Code::PermissionDenied,
-                "got {:?}",
-                status.code()
-            );
+            assert_eq!(status.code(), Code::PermissionDenied);
+            assert_metadata(&status, ERROR_KIND_HEADER, "parameter_read_only");
         }
     }
 
@@ -565,14 +558,15 @@ mod tests {
         #[test]
         fn serde_error_maps_to_internal() {
             // Create a real serde_json error via a failed parse
-            let err: serde_json::Error =
-                serde_json::from_str::<String>("not valid json").unwrap_err();
+            let err: serde_json::Error = serde_json::from_str::<String>("not valid json")
+                .expect_err("invalid JSON should fail to parse");
             assert_status_code(DaqError::Serde(err), Code::Internal);
         }
 
         #[test]
         fn serde_error_has_metadata() {
-            let err: serde_json::Error = serde_json::from_str::<String>("bad").unwrap_err();
+            let err: serde_json::Error = serde_json::from_str::<String>("bad")
+                .expect_err("invalid JSON should fail to parse");
             assert_has_error_kind(DaqError::Serde(err), "serde");
         }
     }

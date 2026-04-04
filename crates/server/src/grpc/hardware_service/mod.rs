@@ -97,7 +97,7 @@ use crate::grpc::{
 };
 use anyhow::Error as AnyError;
 use common::driver::Capability;
-use common::error::DaqError;
+use common::error::{DaqError, DriverError, StorageError};
 use common::limits::{FPS_WINDOW, RPC_TIMEOUT};
 use common::observable::{Observable, ParameterMetadata as CommonParameterMetadata};
 use common::parameter::Parameter;

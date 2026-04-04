@@ -24,7 +24,7 @@
 //!
 //! fn anyhow_to_status(err: anyhow::Error) -> tonic::Status {
 //!     // Try structured downcast first
-//!     if let Some(daq_err) = err.downcast::<DaqError>().ok() {
+//!     if let Some(daq_err) = err.downcast_ref::<DaqError>() {
 //!         return map_daq_error_to_status(daq_err);
 //!     }
 //!     // Fallback: opaque internal error
@@ -106,22 +106,19 @@ fn status_with_metadata(
 /// Service handlers receiving `anyhow::Result` from capability traits should use
 /// this function instead of manually converting to `Status`.
 pub fn anyhow_to_status(err: anyhow::Error) -> Status {
-    // Try DaqError first (most specific application error).
-    // `downcast` consumes `err`, so we recover it from the `Err` case.
-    let err = match err.downcast::<DaqError>() {
-        Ok(daq_err) => return map_daq_error_to_status(daq_err),
-        Err(e) => e,
-    };
-    // Try DriverError (common from driver trait methods)
-    let err = match err.downcast::<DriverError>() {
-        Ok(driver_err) => return map_daq_error_to_status(DaqError::Driver(driver_err)),
-        Err(e) => e,
-    };
-    // Try StorageError
-    let err = match err.downcast::<StorageError>() {
-        Ok(storage_err) => return map_daq_error_to_status(DaqError::Storage(storage_err)),
-        Err(e) => e,
-    };
+    // Walk the full error chain so that `anyhow::Context` wrappers don't hide
+    // structured errors.  The first recognized type wins.
+    for cause in err.chain() {
+        if let Some(daq_err) = cause.downcast_ref::<DaqError>() {
+            return map_daq_error_to_status(daq_err);
+        }
+        if let Some(driver_err) = cause.downcast_ref::<DriverError>() {
+            return map_daq_error_to_status(&DaqError::Driver(driver_err.clone()));
+        }
+        if let Some(storage_err) = cause.downcast_ref::<StorageError>() {
+            return map_daq_error_to_status(&DaqError::Storage(storage_err.clone()));
+        }
+    }
     // Fallback: opaque internal error with the full anyhow display chain
     status_with_metadata(Code::Internal, err.to_string(), "unknown", None)
 }
@@ -139,10 +136,10 @@ pub fn anyhow_to_status(err: anyhow::Error) -> Status {
 /// use tonic::Code;
 ///
 /// let err = DaqError::SerialPortNotConnected;
-/// let status = map_daq_error_to_status(err);
+/// let status = map_daq_error_to_status(&err);
 /// assert_eq!(status.code(), Code::Unavailable);
 /// ```
-pub fn map_daq_error_to_status(err: DaqError) -> Status {
+pub fn map_daq_error_to_status(err: &DaqError) -> Status {
     match err {
         // Configuration errors -> InvalidArgument
         // Client provided bad configuration that cannot be accepted
@@ -167,7 +164,7 @@ pub fn map_daq_error_to_status(err: DaqError) -> Status {
             "instrument",
             None,
         ),
-        DaqError::Driver(ref driver_err) => {
+        DaqError::Driver(driver_err) => {
             use common::error::DriverErrorKind;
             let code = match driver_err.kind {
                 DriverErrorKind::Configuration | DriverErrorKind::InvalidParameter => {
@@ -279,7 +276,7 @@ pub fn map_daq_error_to_status(err: DaqError) -> Status {
 
         // Shutdown errors -> Internal (aggregated failures)
         DaqError::ShutdownFailed(errors) => {
-            let messages: Vec<String> = errors.into_iter().map(|e| e.to_string()).collect();
+            let messages: Vec<String> = errors.iter().map(|e| e.to_string()).collect();
             status_with_metadata(
                 Code::Internal,
                 format!("Shutdown failed: {}", messages.join("; ")),
@@ -335,7 +332,7 @@ pub fn map_daq_error_to_status(err: DaqError) -> Status {
         ),
 
         // Storage errors
-        DaqError::Storage(ref e) => {
+        DaqError::Storage(e) => {
             let code = match e.kind {
                 common::error::StorageErrorKind::Configuration => Code::InvalidArgument,
                 _ => Code::Internal,
@@ -386,7 +383,7 @@ pub trait DaqResultExt<T> {
 
 impl<T> DaqResultExt<T> for Result<T, DaqError> {
     fn map_daq_err(self) -> Result<T, Status> {
-        self.map_err(map_daq_error_to_status)
+        self.map_err(|e| map_daq_error_to_status(&e))
     }
 }
 
