@@ -364,9 +364,9 @@ pub fn map_daq_error_to_status(err: DaqError) -> Status {
     }
 }
 
-/// Extension trait for converting Result<T, DaqError> to Result<T, Status>
+/// Extension trait for converting `Result<T, DaqError>` to `Result<T, Status>`.
 pub trait DaqResultExt<T> {
-    /// Convert a DaqError result to a tonic Status result
+    /// Convert a `DaqError` result to a tonic `Status` result.
     #[allow(clippy::result_large_err)] // tonic::Status (176 bytes) is the standard gRPC error type
     fn map_daq_err(self) -> Result<T, Status>;
 }
@@ -374,5 +374,21 @@ pub trait DaqResultExt<T> {
 impl<T> DaqResultExt<T> for Result<T, DaqError> {
     fn map_daq_err(self) -> Result<T, Status> {
         self.map_err(map_daq_error_to_status)
+    }
+}
+
+/// Extension trait for converting `Result<T, anyhow::Error>` to `Result<T, Status>`.
+///
+/// Uses the downcast chain in [`anyhow_to_status`] to recover structured error types
+/// before falling back to an opaque `Code::Internal` status.
+pub trait AnyhowResultExt<T> {
+    /// Convert an anyhow result to a tonic `Status` result via downcast chain.
+    #[allow(clippy::result_large_err)]
+    fn map_anyhow_err(self) -> Result<T, Status>;
+}
+
+impl<T> AnyhowResultExt<T> for Result<T, anyhow::Error> {
+    fn map_anyhow_err(self) -> Result<T, Status> {
+        self.map_err(anyhow_to_status)
     }
 }
