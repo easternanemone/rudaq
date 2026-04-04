@@ -129,7 +129,11 @@ impl RoiRegion {
             if roi.w == 0 || roi.h == 0 {
                 anyhow::bail!("ROI {i} has zero dimension: {}x{}", roi.w, roi.h);
             }
-            if roi.x + roi.w > sensor_width {
+            let end_x = roi
+                .x
+                .checked_add(roi.w)
+                .ok_or_else(|| anyhow::anyhow!("ROI {i} x+w overflows u16"))?;
+            if end_x > sensor_width {
                 anyhow::bail!(
                     "ROI {i} exceeds sensor width: x={} + w={} > {}",
                     roi.x,
@@ -137,7 +141,11 @@ impl RoiRegion {
                     sensor_width
                 );
             }
-            if roi.y + roi.h > sensor_height {
+            let end_y = roi
+                .y
+                .checked_add(roi.h)
+                .ok_or_else(|| anyhow::anyhow!("ROI {i} y+h overflows u16"))?;
+            if end_y > sensor_height {
                 anyhow::bail!(
                     "ROI {i} exceeds sensor height: y={} + h={} > {}",
                     roi.y,

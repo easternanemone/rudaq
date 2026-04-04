@@ -707,7 +707,7 @@ impl PvcamAcquisition {
             // when multiple callbacks fire while we're processing
             let mut frames_processed_in_drain: u32 = 0;
             let mut consecutive_duplicates: u32 = 0;
-            let mut fatal_error = false;
+            let fatal_error = false;
             let mut unlock_failures: u32 = 0; // bd-3gnv: Track unlock failures
 
             // TRACING: Starting drain loop (bd-trace-2026-01-11)
@@ -794,7 +794,7 @@ impl PvcamAcquisition {
             // Step 1: UNLOCK IMMEDIATELY after get_oldest_frame - EXACTLY like minimal test
             // SAFETY: frame_info is a stack-allocated FRAME_INFO filled by
             // pl_exp_get_oldest_frame_ex above. FrameNr is a plain i32 field.
-            let unlock_frame_nr = unsafe { frame_info.FrameNr };
+            let unlock_frame_nr = frame_info.FrameNr;
             // bd-fix-2026-01-17: Use loop_iteration (global counter) instead of
             // frames_processed_in_drain (reset each loop) to limit debug logging.
             // Previous bug: logging fired every frame due to counter reset.
@@ -926,7 +926,7 @@ impl PvcamAcquisition {
                         // eprintln for guaranteed console visibility during debugging
                         eprintln!(
                             "[PVCAM BACKPRESSURE] Frame {} dropped - pool exhausted ({}/{} available, {} total dropped)",
-                            unsafe { frame_info.FrameNr },
+                            frame_info.FrameNr,
                             buffer_pool.available(),
                             buffer_pool.size(),
                             drop_count
@@ -934,7 +934,7 @@ impl PvcamAcquisition {
                         // SAFETY: Same frame_info.FrameNr access as above.
                         tracing::warn!(
                             target: "pvcam_pool",
-                            frame_nr = unsafe { frame_info.FrameNr },
+                            frame_nr = frame_info.FrameNr,
                             dropped_frames = drop_count,
                             pool_misses = misses,
                             pool_available = buffer_pool.available(),
@@ -1070,19 +1070,17 @@ impl PvcamAcquisition {
             // by pl_exp_get_oldest_frame_ex. All field accesses (FrameNr,
             // TimeStamp, TimeStampBOF, ReadoutTime) read plain integer fields.
             if loop_iteration <= 10 || loop_iteration % 100 == 0 {
-                if unsafe { frame_info.FrameNr } >= 0 {
-                    unsafe {
-                        tracing::info!(
-                            target: "pvcam_frame_trace",
-                            iter = loop_iteration,
-                            drain_frame = frames_processed_in_drain,
-                            hw_frame_nr = frame_info.FrameNr,
-                            timestamp = frame_info.TimeStamp,
-                            timestamp_bof = frame_info.TimeStampBOF,
-                            readout_time = frame_info.ReadoutTime,
-                            "Frame retrieved from PVCAM"
-                        );
-                    }
+                if frame_info.FrameNr >= 0 {
+                    tracing::info!(
+                        target: "pvcam_frame_trace",
+                        iter = loop_iteration,
+                        drain_frame = frames_processed_in_drain,
+                        hw_frame_nr = frame_info.FrameNr,
+                        timestamp = frame_info.TimeStamp,
+                        timestamp_bof = frame_info.TimeStampBOF,
+                        readout_time = frame_info.ReadoutTime,
+                        "Frame retrieved from PVCAM"
+                    );
                 } else {
                     tracing::info!(
                         target: "pvcam_frame_trace",
@@ -1095,11 +1093,11 @@ impl PvcamAcquisition {
 
             // Remaining frame processing uses our copies (pixel_data, frame_metadata, frame_info)
             // frame_ptr is NO LONGER VALID after unlock above
-            // SAFETY: frame_info.FrameNr is a plain i32 field in the stack-
-            // allocated FRAME_INFO. callback_ctx fields are atomic loads.
-            // last_hw_frame_nr and discontinuity_events are AtomicI32/AtomicU64
-            // with correct ordering. No raw pointer dereferences occur here.
-            unsafe {
+            // frame_info.FrameNr is a plain i32 field in the stack-allocated FRAME_INFO.
+            // callback_ctx fields are atomic loads. last_hw_frame_nr and
+            // discontinuity_events are AtomicI32/AtomicU64 with correct ordering.
+            // No raw pointer dereferences — all operations are safe in edition 2024.
+            {
                 // bd-non-ex-2026-01-12: Get frame number from callback context when using non-_ex API
                 // The callback still receives FRAME_INFO from PVCAM even if get_oldest_frame doesn't fill it
                 let current_frame_nr = if frame_info.FrameNr >= 0 {
@@ -1172,7 +1170,8 @@ impl PvcamAcquisition {
                     last_hw_frame_nr.store(current_frame_nr, Ordering::Release);
                 }
                 // bd-3gnv: Reset duplicate counter on successful new frame
-                consecutive_duplicates = 0;
+                // (value is re-initialized at top of outer loop; suppress dead-store warning)
+                _ = consecutive_duplicates;
 
                 // bd-immediate-unlock-2026-01-12: pixel_data, frame_metadata, and unlock
                 // are all handled at the top of the loop immediately after get_oldest_frame.
@@ -1417,7 +1416,7 @@ impl PvcamAcquisition {
                 // bd-r8ux: Deliver through primary_tx if a consumer is registered.
                 // Copies pixel data from the already-built frame_arc into a pooled
                 // LoanedFrame for zero-allocation downstream consumption (HDF5, measurement).
-                if let (Some(ref p_tx), Some(ref pool)) = (&primary_tx, &primary_frame_pool) {
+                if let (Some(p_tx), Some(pool)) = (&primary_tx, &primary_frame_pool) {
                     if let Some(mut loaned) = pool.try_acquire() {
                         let fd = loaned.get_mut();
                         let src = frame_arc.data.as_ref();
@@ -1491,7 +1490,7 @@ impl PvcamAcquisition {
 
                 // Gemini SDK review: Send metadata through channel if available
                 // Use try_send to avoid blocking frame loop
-                if let (Some(md), Some(ref tx)) = (frame_metadata, &metadata_tx) {
+                if let (Some(md), Some(tx)) = (frame_metadata, &metadata_tx) {
                     let _ = tx.try_send(md); // Non-blocking: drop if slow
                 }
             }

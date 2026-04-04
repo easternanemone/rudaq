@@ -6,7 +6,7 @@
 #[cfg(feature = "pvcam_sdk")]
 use pvcam_sys::*;
 #[cfg(feature = "pvcam_sdk")]
-use std::sync::atomic::{AtomicBool, AtomicI16, AtomicI32, AtomicPtr, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI16, AtomicI32, AtomicPtr, Ordering};
 #[cfg(feature = "pvcam_sdk")]
 use std::time::Duration;
 #[cfg(feature = "pvcam_sdk")]
@@ -399,7 +399,8 @@ pub unsafe extern "system" fn pvcam_eof_callback(
             );
             // Basic sanity check: pending_frames counter should be < 1 million
             // (if it's a huge value, the memory is likely corrupted/freed)
-            let pending = (*ctx_ptr)
+            // SAFETY: ctx_ptr was validated non-null and aligned above.
+            let pending = unsafe { &*ctx_ptr }
                 .pending_frames
                 .load(std::sync::atomic::Ordering::Relaxed);
             debug_assert!(
@@ -409,11 +410,13 @@ pub unsafe extern "system" fn pvcam_eof_callback(
             );
         }
 
-        let ctx = &*ctx_ptr;
+        // SAFETY: ctx_ptr validated non-null above; lifetime is pinned via Arc.
+        let ctx = unsafe { &*ctx_ptr };
 
         // Extract frame number (infallible)
         let frame_nr = if !p_frame_info.is_null() {
-            let info = *p_frame_info;
+            // SAFETY: p_frame_info validated non-null in enclosing if-let.
+            let info = unsafe { *p_frame_info };
 
             // Trace callbacks (eprintln is thread-safe, no allocation)
             // Print first 25, then every 50th

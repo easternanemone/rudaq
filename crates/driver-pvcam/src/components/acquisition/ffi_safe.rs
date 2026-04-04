@@ -119,7 +119,7 @@ pub(crate) fn full_restart_acquisition(
 
     // Use same constants as initial setup
     let exp_mode = TIMED_MODE;
-    let mut buffer_mode = if circ_overwrite {
+    let buffer_mode = if circ_overwrite {
         CIRC_OVERWRITE
     } else {
         CIRC_NO_OVERWRITE
@@ -172,7 +172,7 @@ pub(crate) fn full_restart_acquisition(
             }
         }
     }
-    let mut circ_overwrite = buffer_mode == CIRC_OVERWRITE;
+    let circ_overwrite = buffer_mode == CIRC_OVERWRITE;
     let mut selected_buffer_mode = if circ_overwrite {
         CIRC_OVERWRITE
     } else {
@@ -203,7 +203,6 @@ pub(crate) fn full_restart_acquisition(
         );
         // Retry with no-overwrite
         selected_buffer_mode = CIRC_NO_OVERWRITE;
-        circ_overwrite = false;
         frame_bytes = 0;
         // SAFETY: Same as above — valid handle, region, and output pointer.
         // CIRC_NO_OVERWRITE is the fallback mode for cameras that don't

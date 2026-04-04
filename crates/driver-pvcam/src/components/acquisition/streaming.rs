@@ -953,6 +953,12 @@ impl PvcamAcquisition {
             // bd-3gnv: circ_ptr_usize was converted from raw pointer at line 1110,
             // BEFORE any await points. We use it here for cross-thread transfer.
 
+            // Clone senders and pool BEFORE the closure captures (moves) the originals.
+            // The clones are stored in SdkStreamingState::Streaming below.
+            let error_tx_state = error_tx.clone();
+            let done_tx_state = done_tx.clone();
+            let buffer_pool_state = buffer_pool.clone();
+
             let poll_handle = tokio::task::spawn_blocking(move || {
                 // bd-3gnv: Convert usize back to raw pointer inside the closure.
                 let circ_ptr_restored = circ_ptr_usize as *mut u8;
@@ -1004,10 +1010,10 @@ impl PvcamAcquisition {
                 *state = SdkStreamingState::Streaming {
                     poll_handle,
                     circ_buffer: circ_buf,
-                    error_tx: error_tx.clone(),
-                    frame_pool: buffer_pool,
+                    error_tx: error_tx_state,
+                    frame_pool: buffer_pool_state,
                     poll_thread_done_rx: done_rx,
-                    poll_thread_done_tx: done_tx.clone(),
+                    poll_thread_done_tx: done_tx_state,
                 };
             }
 
@@ -1478,6 +1484,9 @@ impl PvcamAcquisition {
         // Create a dummy buffer pool (sequence mode allocates per-batch, not from a pool).
         let dummy_pool = BufferPool::new(1, 1);
 
+        // Clone done_tx before the closure captures (moves) the original.
+        let done_tx_state = done_tx.clone();
+
         // Spawn blocking task for sequence acquisition loop.
         // NOTE: frame_loop_sequence uses std::thread::sleep + blocking PVCAM FFI calls,
         // so it must run on the tokio blocking pool (not runtime worker threads).
@@ -1520,7 +1529,7 @@ impl PvcamAcquisition {
                 error_tx: seq_error_tx,
                 frame_pool: dummy_pool,
                 poll_thread_done_rx: done_rx,
-                poll_thread_done_tx: done_tx.clone(),
+                poll_thread_done_tx: done_tx_state,
             };
         }
         Ok(())

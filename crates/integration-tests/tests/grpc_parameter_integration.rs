@@ -29,7 +29,9 @@
 use anyhow::Result;
 use hardware::registry::{DeviceRegistry, register_mock_factories};
 use protocol::daq::hardware_service_server::HardwareService;
-use protocol::daq::{GetParameterRequest, SetParameterRequest, StreamParameterChangesRequest};
+use protocol::daq::{
+    GetParameterRequest, ListParametersRequest, SetParameterRequest, StreamParameterChangesRequest,
+};
 use server::grpc::hardware_service::HardwareServiceImpl;
 use std::sync::Arc;
 use tokio_stream::StreamExt;
@@ -508,6 +510,230 @@ async fn test_filtered_parameter_notifications() -> Result<()> {
     let change_data = change.unwrap()?;
     assert_eq!(change_data.device_id, "camera1");
     assert_eq!(change_data.new_value, "0.3");
+
+    Ok(())
+}
+
+// =============================================================================
+// Test 8: Parameter<String> Roundtrip — No Double-Quoting (bd-0lacj)
+// =============================================================================
+
+#[tokio::test]
+async fn test_string_parameter_roundtrip_no_double_quoting() -> Result<()> {
+    let registry = DeviceRegistry::new();
+    register_mock_factories(&registry);
+    registry
+        .register_from_toml(
+            "mock_camera",
+            "Mock Camera",
+            "mock_camera",
+            toml::toml! {
+                width = 640
+                height = 480
+            }
+            .into(),
+        )
+        .await?;
+
+    let registry = Arc::new(registry);
+    let service = HardwareServiceImpl::new(registry.clone());
+
+    // Verify user_label is listed with dtype "string"
+    let list_resp = service
+        .list_parameters(Request::new(ListParametersRequest {
+            device_id: "mock_camera".to_string(),
+        }))
+        .await?;
+    let label_desc = list_resp
+        .into_inner()
+        .parameters
+        .into_iter()
+        .find(|p| p.name == "user_label")
+        .expect("user_label parameter should be listed");
+    assert_eq!(label_desc.dtype, "string");
+
+    // Get the default string value — must NOT be double-quoted
+    let response = service
+        .get_parameter(Request::new(GetParameterRequest {
+            device_id: "mock_camera".to_string(),
+            parameter_name: "user_label".to_string(),
+        }))
+        .await?;
+    let value = response.into_inner().value;
+    assert_eq!(
+        value, "default",
+        "string value should not have extra quotes"
+    );
+    assert!(
+        !value.starts_with('"'),
+        "string value must not be double-quoted: got {value:?}"
+    );
+
+    // Set a new string value and verify roundtrip
+    let set_resp = service
+        .set_parameter(Request::new(SetParameterRequest {
+            device_id: "mock_camera".to_string(),
+            parameter_name: "user_label".to_string(),
+            value: "my_camera_1".to_string(),
+        }))
+        .await?;
+    let set_inner = set_resp.into_inner();
+    assert!(set_inner.success);
+    assert_eq!(
+        set_inner.actual_value, "my_camera_1",
+        "set response should echo back the raw string"
+    );
+
+    // Read it back and confirm no double-quoting
+    let response = service
+        .get_parameter(Request::new(GetParameterRequest {
+            device_id: "mock_camera".to_string(),
+            parameter_name: "user_label".to_string(),
+        }))
+        .await?;
+    let roundtripped = response.into_inner().value;
+    assert_eq!(roundtripped, "my_camera_1");
+    assert!(
+        !roundtripped.starts_with('"'),
+        "roundtripped string must not be double-quoted: got {roundtripped:?}"
+    );
+
+    Ok(())
+}
+
+// =============================================================================
+// Test 9: JSON-Shaped String Preserved as String (bd-0lacj)
+// =============================================================================
+
+#[tokio::test]
+async fn test_json_shaped_string_preserved() -> Result<()> {
+    let registry = DeviceRegistry::new();
+    register_mock_factories(&registry);
+    registry
+        .register_from_toml(
+            "mock_camera",
+            "Mock Camera",
+            "mock_camera",
+            toml::toml! {
+                width = 640
+                height = 480
+            }
+            .into(),
+        )
+        .await?;
+
+    let registry = Arc::new(registry);
+    let service = HardwareServiceImpl::new(registry.clone());
+
+    // Set a value that looks like JSON to a string-typed parameter.
+    // The dtype-aware coercion (bd-4w33o) must treat it as a raw string,
+    // NOT parse it as JSON and re-serialize.
+    let json_shaped = r#"[{"x":0,"y":100}]"#;
+    let set_resp = service
+        .set_parameter(Request::new(SetParameterRequest {
+            device_id: "mock_camera".to_string(),
+            parameter_name: "user_label".to_string(),
+            value: json_shaped.to_string(),
+        }))
+        .await?;
+    let set_inner = set_resp.into_inner();
+    assert!(set_inner.success);
+    assert_eq!(
+        set_inner.actual_value, json_shaped,
+        "JSON-shaped string should be preserved verbatim"
+    );
+
+    // Read it back — must be identical, not re-serialized JSON
+    let response = service
+        .get_parameter(Request::new(GetParameterRequest {
+            device_id: "mock_camera".to_string(),
+            parameter_name: "user_label".to_string(),
+        }))
+        .await?;
+    let value = response.into_inner().value;
+    assert_eq!(
+        value, json_shaped,
+        "JSON-shaped string should roundtrip verbatim"
+    );
+
+    Ok(())
+}
+
+// =============================================================================
+// Test 10: String Parameter dtype-Aware Coercion (bd-0lacj)
+// =============================================================================
+
+#[tokio::test]
+async fn test_string_parameter_dtype_coercion() -> Result<()> {
+    let registry = DeviceRegistry::new();
+    register_mock_factories(&registry);
+    registry
+        .register_from_toml(
+            "mock_camera",
+            "Mock Camera",
+            "mock_camera",
+            toml::toml! {
+                width = 640
+                height = 480
+            }
+            .into(),
+        )
+        .await?;
+
+    let registry = Arc::new(registry);
+    let service = HardwareServiceImpl::new(registry.clone());
+
+    // Set a numeric-looking value to a string parameter.
+    // Because dtype="string", the value "42" should be stored as the string
+    // "42", not parsed as integer 42 and re-serialized.
+    let set_resp = service
+        .set_parameter(Request::new(SetParameterRequest {
+            device_id: "mock_camera".to_string(),
+            parameter_name: "user_label".to_string(),
+            value: "42".to_string(),
+        }))
+        .await?;
+    let set_inner = set_resp.into_inner();
+    assert!(set_inner.success);
+    assert_eq!(
+        set_inner.actual_value, "42",
+        "numeric string should be stored as-is"
+    );
+
+    // Read it back — the value should still be the string "42"
+    let response = service
+        .get_parameter(Request::new(GetParameterRequest {
+            device_id: "mock_camera".to_string(),
+            parameter_name: "user_label".to_string(),
+        }))
+        .await?;
+    let value = response.into_inner().value;
+    assert_eq!(
+        value, "42",
+        "numeric string should roundtrip as the string 42"
+    );
+
+    // Also verify a boolean-looking value is treated as string
+    let set_resp = service
+        .set_parameter(Request::new(SetParameterRequest {
+            device_id: "mock_camera".to_string(),
+            parameter_name: "user_label".to_string(),
+            value: "true".to_string(),
+        }))
+        .await?;
+    assert!(set_resp.into_inner().success);
+
+    let response = service
+        .get_parameter(Request::new(GetParameterRequest {
+            device_id: "mock_camera".to_string(),
+            parameter_name: "user_label".to_string(),
+        }))
+        .await?;
+    let value = response.into_inner().value;
+    assert_eq!(
+        value, "true",
+        "boolean-looking string should be preserved as string 'true'"
+    );
 
     Ok(())
 }
