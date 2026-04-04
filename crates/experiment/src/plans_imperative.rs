@@ -42,6 +42,8 @@
 
 use std::collections::HashMap;
 
+use common::device_id::DeviceId;
+
 use super::plans::{Plan, PlanCommand};
 
 /// A plan that wraps imperative commands for RunEngine execution
