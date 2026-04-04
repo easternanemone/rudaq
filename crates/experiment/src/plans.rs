@@ -75,7 +75,7 @@ pub enum EvalCondition {
     /// Check if a value exceeds a threshold
     Threshold {
         /// Device ID to check
-        device_id: String,
+        device_id: DeviceId,
         /// Field name (e.g., "intensity")
         field: String,
         /// Threshold value
@@ -86,11 +86,11 @@ pub enum EvalCondition {
     /// Compare two device readings
     Comparison {
         /// Left-hand device
-        left_device_id: String,
+        left_device_id: DeviceId,
         /// Left field name
         left_field: String,
         /// Right-hand device
-        right_device_id: String,
+        right_device_id: DeviceId,
         /// Right field name
         right_field: String,
         /// Comparison operator
