@@ -48,3 +48,9 @@ hardware = ["comedi-sys/comedi-sdk"]
 
 [lints]
 workspace = true
+
+[lints.clippy]
+# driver-comedi is excluded from clippy --fix runs (comedi-sys FFI dependency),
+# so keep uninlined_format_args as allow until it can be batch-fixed on a
+# machine with comedilib headers installed.
+uninlined_format_args = "allow"
