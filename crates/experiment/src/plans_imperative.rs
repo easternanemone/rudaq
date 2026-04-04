@@ -249,7 +249,7 @@ impl Plan for ImperativePlan {
                     PlanCommand::MoveTo {
                         device_id,
                         position,
-                    } => Some((device_id.clone(), *position)),
+                    } => Some((device_id.to_string(), *position)),
                     _ => None,
                 })
                 .collect();
