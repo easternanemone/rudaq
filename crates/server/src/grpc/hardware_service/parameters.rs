@@ -4,6 +4,18 @@
 
 use super::*;
 
+/// Display a `serde_json::Value` without JSON-encoding string values.
+///
+/// `Value::to_string()` wraps strings in extra quotes (`"\"hello\""`).
+/// This helper returns the raw inner string for `Value::String` and
+/// delegates to `to_string()` for all other variants.
+fn value_to_display_string(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(s) => s.clone(),
+        other => other.to_string(),
+    }
+}
+
 pub(super) fn list_parameters(
     svc: &HardwareServiceImpl,
     request: Request<ListParametersRequest>,
@@ -103,7 +115,7 @@ pub(super) async fn get_parameter(
             return Ok(Response::new(ParameterValue {
                 device_id: req.device_id,
                 name: req.parameter_name,
-                value: value.to_string(),
+                value: value_to_display_string(&value),
                 units,
                 timestamp_ns,
             }));
@@ -136,7 +148,7 @@ pub(super) async fn get_parameter(
         return Ok(Response::new(ParameterValue {
             device_id: req.device_id,
             name: req.parameter_name,
-            value: value.to_string(),
+            value: value_to_display_string(&value),
             units,
             timestamp_ns,
         }));
@@ -171,16 +183,26 @@ pub(super) async fn set_parameter(
         let old_value = settable
             .get_value(&req.parameter_name)
             .await
-            .map(|v| v.to_string())
+            .map(|v| value_to_display_string(&v))
             .unwrap_or_default();
 
-        // Parse the value string to JSON
-        let json_value: serde_json::Value = serde_json::from_str(&req.value)
-            .or_else(|_| {
-                // Try as raw string if JSON parsing fails
-                Ok::<_, serde_json::Error>(serde_json::Value::String(req.value.clone()))
-            })
-            .map_err(|e| Status::invalid_argument(format!("Invalid value format: {e}")))?;
+        // Parse the value string to JSON, respecting dtype metadata (bd-4w33o)
+        let json_value: serde_json::Value = {
+            let is_string_param = metadata
+                .as_ref()
+                .map(|m| m.dtype == "string")
+                .unwrap_or(false);
+
+            if is_string_param {
+                serde_json::Value::String(req.value.clone())
+            } else {
+                serde_json::from_str(&req.value)
+                    .or_else(|_| {
+                        Ok::<_, serde_json::Error>(serde_json::Value::String(req.value.clone()))
+                    })
+                    .map_err(|e| Status::invalid_argument(format!("Invalid value format: {e}")))?
+            }
+        };
 
         validate_parameter_value(&req.parameter_name, metadata.as_ref(), &json_value)?;
 
@@ -199,7 +221,7 @@ pub(super) async fn set_parameter(
         let actual_value = settable
             .get_value(&req.parameter_name)
             .await
-            .map(|v| v.to_string())
+            .map(|v| value_to_display_string(&v))
             .unwrap_or_else(|_| req.value.clone());
 
         let units = metadata
@@ -240,15 +262,27 @@ pub(super) async fn set_parameter(
 
         if let Some(param) = params.get(&req.parameter_name) {
             let metadata = param.metadata();
-            let old_value = param.get_json().map(|v| v.to_string()).unwrap_or_default();
+            let old_value = param
+                .get_json()
+                .map(|v| value_to_display_string(&v))
+                .unwrap_or_default();
 
-            // Parse the value string to JSON
-            let json_value: serde_json::Value = serde_json::from_str(&req.value)
-                .or_else(|_| {
-                    // Try as raw string if JSON parsing fails
-                    Ok::<_, serde_json::Error>(serde_json::Value::String(req.value.clone()))
-                })
-                .map_err(|e| Status::invalid_argument(format!("Invalid value format: {e}")))?;
+            // Parse the value string to JSON, respecting dtype metadata (bd-4w33o)
+            let json_value: serde_json::Value = {
+                let is_string_param = metadata.dtype == "string";
+
+                if is_string_param {
+                    serde_json::Value::String(req.value.clone())
+                } else {
+                    serde_json::from_str(&req.value)
+                        .or_else(|_| {
+                            Ok::<_, serde_json::Error>(serde_json::Value::String(req.value.clone()))
+                        })
+                        .map_err(|e| {
+                            Status::invalid_argument(format!("Invalid value format: {e}"))
+                        })?
+                }
+            };
 
             validate_parameter_value(&req.parameter_name, Some(&metadata), &json_value)?;
 
@@ -259,7 +293,7 @@ pub(super) async fn set_parameter(
 
             let actual_value = param
                 .get_json()
-                .map(|v| v.to_string())
+                .map(|v| value_to_display_string(&v))
                 .unwrap_or_else(|_| req.value.clone());
 
             let units = metadata.units.clone().unwrap_or_default();

@@ -158,6 +158,17 @@ pub(super) fn validate_parameter_value(
         }
     }
 
+    // String-type validation (bd-eefxe): reject non-string JSON values
+    if meta.dtype == "string" {
+        if !value.is_string() {
+            return Err(Status::invalid_argument(format!(
+                "Parameter '{}' expects a string value, got {}",
+                name, value
+            )));
+        }
+        return Ok(());
+    }
+
     if meta.min_value.is_some() || meta.max_value.is_some() {
         let numeric = extract_numeric_value(value).ok_or_else(|| {
             Status::invalid_argument(format!("Parameter '{name}' expects a numeric value"))
