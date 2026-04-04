@@ -730,7 +730,6 @@ pub trait DeviceLifecycle: Send + Sync + 'static {
     }
 
     /// Called when a device is unregistered or during shutdown cleanup.
-    #[allow(dead_code)]
     fn on_unregister(&self) -> BoxFuture<'static, Result<()>> {
         Box::pin(async { Ok(()) })
     }

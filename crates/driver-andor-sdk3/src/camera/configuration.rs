@@ -67,11 +67,15 @@ impl AndorCamera {
         #[cfg(feature = "camera")]
         {
             let handle = self.inner.handle;
-            let (min, max) = tokio::task::spawn_blocking(move || {
-                let min = Self::get_float_min(handle, "ExposureTime")?;
-                let max = Self::get_float_max(handle, "ExposureTime")?;
-                Ok::<(f64, f64), anyhow::Error>((min, max))
-            })
+            let (min, max) = crate::ffi_timeout::ffi_call(
+                move || {
+                    let min = Self::get_float_min(handle, "ExposureTime")?;
+                    let max = Self::get_float_max(handle, "ExposureTime")?;
+                    Ok::<(f64, f64), anyhow::Error>((min, max))
+                },
+                crate::ffi_timeout::FFI_QUERY_TIMEOUT,
+                "get_exposure_range",
+            )
             .await??;
             return Ok((min, max));
         }
@@ -90,9 +94,11 @@ impl AndorCamera {
         {
             let handle = self.inner.handle;
             let feature = feature.to_string();
-            return tokio::task::spawn_blocking(move || {
-                Self::is_feature_implemented(handle, &feature)
-            })
+            return crate::ffi_timeout::ffi_call(
+                move || Self::is_feature_implemented(handle, &feature),
+                crate::ffi_timeout::FFI_QUERY_TIMEOUT,
+                "is_feature_implemented_on_camera",
+            )
             .await?;
         }
 
@@ -134,9 +140,11 @@ impl AndorCamera {
         #[cfg(feature = "camera")]
         {
             let handle = self.inner.handle;
-            tokio::task::spawn_blocking(move || {
-                Self::set_bool_feature(handle, "SensorCooling", enabled)
-            })
+            crate::ffi_timeout::ffi_call(
+                move || Self::set_bool_feature(handle, "SensorCooling", enabled),
+                crate::ffi_timeout::FFI_CONFIG_TIMEOUT,
+                "set_cooling",
+            )
             .await??;
         }
 
@@ -180,14 +188,16 @@ impl AndorCamera {
         {
             let handle = self.inner.handle;
             let fan = fan_speed.to_string();
-            match tokio::task::spawn_blocking(move || {
-                Self::set_enum_feature(handle, "FanSpeed", &fan)
-            })
+            match crate::ffi_timeout::ffi_call(
+                move || Self::set_enum_feature(handle, "FanSpeed", &fan),
+                crate::ffi_timeout::FFI_CONFIG_TIMEOUT,
+                "configure_cooling:fan_speed",
+            )
             .await
             {
                 Ok(Ok(())) => tracing::info!(fan_speed, "Fan speed configured"),
                 Ok(Err(e)) => tracing::warn!(error = %e, fan_speed, "Failed to set fan speed"),
-                Err(e) => tracing::warn!(error = %e, "spawn_blocking failed for FanSpeed"),
+                Err(e) => tracing::warn!(error = %e, "FFI call failed for FanSpeed"),
             }
         }
 
@@ -196,40 +206,44 @@ impl AndorCamera {
         {
             let handle = self.inner.handle;
             let tc_value = temperature_control.to_string();
-            match tokio::task::spawn_blocking(move || -> anyhow::Result<&str> {
-                // Try TemperatureControl enum (calibrated setpoints)
-                if Self::is_feature_implemented(handle, "TemperatureControl")? {
-                    if Self::is_feature_writable(handle, "TemperatureControl")? {
-                        Self::set_enum_feature(handle, "TemperatureControl", &tc_value)?;
-                        return Ok("enum");
+            match crate::ffi_timeout::ffi_call(
+                move || -> anyhow::Result<&str> {
+                    // Try TemperatureControl enum (calibrated setpoints)
+                    if Self::is_feature_implemented(handle, "TemperatureControl")? {
+                        if Self::is_feature_writable(handle, "TemperatureControl")? {
+                            Self::set_enum_feature(handle, "TemperatureControl", &tc_value)?;
+                            return Ok("enum");
+                        }
+                        let current = Self::get_enum_string(handle, "TemperatureControl")
+                            .unwrap_or_else(|_| "unknown".to_string());
+                        tracing::info!(
+                            current_setpoint = %current,
+                            requested = %tc_value,
+                            "TemperatureControl is not writable \
+                             (camera uses hardware-managed setpoint)"
+                        );
+                        return Ok("skipped");
                     }
-                    let current = Self::get_enum_string(handle, "TemperatureControl")
-                        .unwrap_or_else(|_| "unknown".to_string());
+
+                    // TemperatureControl not available — try float fallback
+                    if Self::is_feature_implemented(handle, "TargetSensorTemperature")?
+                        && Self::is_feature_writable(handle, "TargetSensorTemperature")?
+                    {
+                        if let Ok(target_c) = tc_value.parse::<f64>() {
+                            Self::set_float_feature(handle, "TargetSensorTemperature", target_c)?;
+                            return Ok("float");
+                        }
+                    }
+
                     tracing::info!(
-                        current_setpoint = %current,
-                        requested = %tc_value,
-                        "TemperatureControl is not writable \
-                         (camera uses hardware-managed setpoint)"
-                    );
-                    return Ok("skipped");
-                }
-
-                // TemperatureControl not available — try float fallback
-                if Self::is_feature_implemented(handle, "TargetSensorTemperature")?
-                    && Self::is_feature_writable(handle, "TargetSensorTemperature")?
-                {
-                    if let Ok(target_c) = tc_value.parse::<f64>() {
-                        Self::set_float_feature(handle, "TargetSensorTemperature", target_c)?;
-                        return Ok("float");
-                    }
-                }
-
-                tracing::info!(
-                    "No writable temperature target feature available \
+                        "No writable temperature target feature available \
                      (camera manages its own setpoint)"
-                );
-                Ok("skipped")
-            })
+                    );
+                    Ok("skipped")
+                },
+                crate::ffi_timeout::FFI_CONFIG_TIMEOUT,
+                "configure_cooling:temperature",
+            )
             .await
             {
                 Ok(Ok(method)) => match method {
@@ -249,7 +263,7 @@ impl AndorCamera {
                     "Failed to set temperature target"
                 ),
                 Err(e) => {
-                    tracing::warn!(error = %e, "spawn_blocking failed for temperature control")
+                    tracing::warn!(error = %e, "FFI call failed for temperature control")
                 }
             }
         }
@@ -280,9 +294,11 @@ impl AndorCamera {
         #[cfg(feature = "camera")]
         {
             let handle = self.inner.handle;
-            tokio::task::spawn_blocking(move || {
-                Self::set_float_feature(handle, "TargetSensorTemperature", target_c)
-            })
+            crate::ffi_timeout::ffi_call(
+                move || Self::set_float_feature(handle, "TargetSensorTemperature", target_c),
+                crate::ffi_timeout::FFI_CONFIG_TIMEOUT,
+                "set_target_temperature",
+            )
             .await??;
         }
 
@@ -295,9 +311,11 @@ impl AndorCamera {
         #[cfg(feature = "camera")]
         {
             let handle = self.inner.handle;
-            let status_str = tokio::task::spawn_blocking(move || {
-                Self::get_enum_string(handle, "TemperatureStatus")
-            })
+            let status_str = crate::ffi_timeout::ffi_call(
+                move || Self::get_enum_string(handle, "TemperatureStatus"),
+                crate::ffi_timeout::FFI_QUERY_TIMEOUT,
+                "get_cooling_status",
+            )
             .await??;
 
             return match status_str.as_str() {

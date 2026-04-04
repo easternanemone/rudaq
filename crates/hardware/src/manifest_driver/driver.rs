@@ -102,6 +102,19 @@ impl crate::capabilities::Parameterized for GenericDriver {
 /// - **Serial**: RS-232, USB-Serial adapters (driver_type: serial_scpi, serial_raw)
 /// - **TCP/IP**: Network instruments (driver_type: tcp_scpi, tcp_raw)
 ///
+/// # Lock Ordering (MUST be followed to prevent deadlock)
+///
+/// When acquiring multiple locks, always acquire in this order:
+/// 1. `connection` (Mutex) -- serializes all hardware I/O
+/// 2. `state` (RwLock) -- runtime capability values
+/// 3. `observers` (RwLock) -- frame observer registrations
+///
+/// In practice, all current methods acquire at most one lock at a time
+/// (acquire, release, then acquire the next if needed). This sequential
+/// pattern inherently satisfies the ordering constraint. If future changes
+/// require holding two locks simultaneously, the ordering above MUST be
+/// followed to prevent deadlock.
+///
 /// # Example
 ///
 /// ```rust,ignore
@@ -117,10 +130,10 @@ pub struct GenericDriver {
     /// Connection wrapped in Arc<Mutex> for interior mutability and cloneability.
     /// This allows `&self` methods while still enabling writes, and enables
     /// the driver to be cloned for use in async lifecycle hooks.
-    connection: std::sync::Arc<Mutex<Connection>>,
+    connection: std::sync::Arc<Mutex<Connection>>, // Lock #1
 
     /// Runtime state storage for capability values.
-    state: std::sync::Arc<RwLock<HashMap<String, Value>>>,
+    state: std::sync::Arc<RwLock<HashMap<String, Value>>>, // Lock #2
 
     /// Compiled regex patterns for error detection.
     error_patterns: Vec<Regex>,
@@ -152,7 +165,7 @@ pub struct GenericDriver {
     /// Frame observers for secondary frame access (taps).
     /// Stores (observer_id, observer) pairs for dispatching on_frame() calls.
     #[allow(clippy::type_complexity)]
-    observers: std::sync::Arc<RwLock<Vec<(u64, Box<dyn crate::capabilities::FrameObserver>)>>>,
+    observers: std::sync::Arc<RwLock<Vec<(u64, Box<dyn crate::capabilities::FrameObserver>)>>>, // Lock #3
 
     /// Monotonic counter for generating unique observer IDs.
     next_observer_id: std::sync::Arc<std::sync::atomic::AtomicU64>,
@@ -1102,10 +1115,11 @@ impl GenericDriver {
             .ok_or_else(|| anyhow!("No triggerable capability configured"))?;
 
         if is_mocking {
-            let armed = self
-                .state
-                .read()
-                .await
+            // Use a single write lock for atomic check-and-update to prevent
+            // a TOCTOU race where concurrent callers could both see armed=true
+            // between a read() and a subsequent write().
+            let mut state = self.state.write().await;
+            let armed = state
                 .get("trigger_armed")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
@@ -1114,10 +1128,7 @@ impl GenericDriver {
                 return Err(anyhow!("Device not armed for trigger (mock mode)"));
             }
 
-            self.state
-                .write()
-                .await
-                .insert("trigger_armed".to_string(), Value::from(false));
+            state.insert("trigger_armed".to_string(), Value::from(false));
             return Ok(());
         }
 

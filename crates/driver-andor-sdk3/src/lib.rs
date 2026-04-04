@@ -63,6 +63,7 @@ pub mod buffer;
 pub mod camera;
 pub mod error;
 pub mod factory;
+pub(crate) mod ffi_timeout;
 pub mod introspection;
 pub mod mock;
 pub mod spectrograph;
