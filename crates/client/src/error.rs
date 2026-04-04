@@ -137,7 +137,7 @@ mod tests {
     fn status_with_metadata(
         code: tonic::Code,
         message: &str,
-        headers: &[(&str, &str)],
+        headers: &[(&'static str, &str)],
     ) -> tonic::Status {
         let mut status = tonic::Status::new(code, message);
         for &(key, value) in headers {
