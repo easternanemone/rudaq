@@ -380,7 +380,7 @@ impl RunEngine {
 
             PlanCommand::Trigger { device_id } => {
                 self.watchdog.touch().await;
-                dispatcher.execute_trigger(&device_id).await?;
+                dispatcher.execute_trigger(device_id.as_str()).await?;
                 Ok(false)
             }
 
