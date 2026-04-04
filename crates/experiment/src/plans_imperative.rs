@@ -70,10 +70,10 @@ impl ImperativePlan {
     pub fn new(commands: Vec<PlanCommand>) -> Self {
         // Try to infer primary device from first command
         let primary_device = commands.first().and_then(|cmd| match cmd {
-            PlanCommand::MoveTo { device_id, .. } => Some(device_id.clone()),
-            PlanCommand::Read { device_id } => Some(device_id.clone()),
-            PlanCommand::Trigger { device_id } => Some(device_id.clone()),
-            PlanCommand::Set { device_id, .. } => Some(device_id.clone()),
+            PlanCommand::MoveTo { device_id, .. } => Some(device_id.to_string()),
+            PlanCommand::Read { device_id } => Some(device_id.to_string()),
+            PlanCommand::Trigger { device_id } => Some(device_id.to_string()),
+            PlanCommand::Set { device_id, .. } => Some(device_id.to_string()),
             _ => None,
         });
 
