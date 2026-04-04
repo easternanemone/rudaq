@@ -154,7 +154,7 @@ impl ImperativePlan {
     }
 
     /// Add a move command
-    pub fn then_move(self, device_id: impl Into<String>, position: f64) -> Self {
+    pub fn then_move(self, device_id: impl Into<DeviceId>, position: f64) -> Self {
         self.add_command(PlanCommand::MoveTo {
             device_id: device_id.into(),
             position,
@@ -162,14 +162,14 @@ impl ImperativePlan {
     }
 
     /// Add a read command
-    pub fn then_read(self, device_id: impl Into<String>) -> Self {
+    pub fn then_read(self, device_id: impl Into<DeviceId>) -> Self {
         self.add_command(PlanCommand::Read {
             device_id: device_id.into(),
         })
     }
 
     /// Add a trigger command
-    pub fn then_trigger(self, device_id: impl Into<String>) -> Self {
+    pub fn then_trigger(self, device_id: impl Into<DeviceId>) -> Self {
         self.add_command(PlanCommand::Trigger {
             device_id: device_id.into(),
         })
