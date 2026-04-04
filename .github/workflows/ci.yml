@@ -31,6 +31,45 @@ defaults:
     shell: bash
 
 jobs:
+  change-detection:
+    name: Detect CI-relevant changes
+    runs-on: ubuntu-24.04
+    outputs:
+      dependency_hygiene: ${{ steps.filter.outputs.dependency_hygiene }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Classify changed files
+        id: filter
+        run: |
+          set -euo pipefail
+
+          dependency_hygiene=true
+          if [[ "${GITHUB_EVENT_NAME}" != "workflow_dispatch" ]]; then
+            if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+              base_sha="${{ github.event.pull_request.base.sha }}"
+            else
+              base_sha="${{ github.event.before }}"
+            fi
+
+            if [[ -n "${base_sha}" && ! "${base_sha}" =~ ^0+$ ]]; then
+              dependency_hygiene=false
+              while IFS= read -r path; do
+                case "${path}" in
+                  Cargo.toml|Cargo.lock|crates/*/Cargo.toml|crates/*/build.rs|.cargo/**|deny*.toml|scripts/hygiene/**|.github/workflows/ci.yml|.github/actions/setup-daq/**)
+                    dependency_hygiene=true
+                    break
+                    ;;
+                esac
+              done < <(git diff --name-only "${base_sha}" "${GITHUB_SHA}")
+            fi
+          fi
+
+          echo "dependency_hygiene=${dependency_hygiene}" >> "${GITHUB_OUTPUT}"
+
   validate:
     name: Format, lint, and tests (self-hosted)
     runs-on: [self-hosted, Linux, X64, leabs]
@@ -189,6 +228,7 @@ jobs:
 
   performance-regression:
     name: Performance regression gate
+    if: github.event_name != 'pull_request'
     runs-on: [self-hosted, Linux, X64, leabs]
     timeout-minutes: 35
     env:
@@ -229,7 +269,9 @@ jobs:
 
   dependency-hygiene:
     name: Dependency hygiene and SBOM
-    runs-on: [self-hosted, Linux, X64, leabs]
+    needs: change-detection
+    if: needs.change-detection.outputs.dependency_hygiene == 'true'
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
       CARGO_BUILD_JOBS: "2"
