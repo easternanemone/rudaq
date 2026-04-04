@@ -129,7 +129,7 @@ impl CommandDispatcher<'_> {
                 threshold,
                 above,
             } => {
-                let Some(readable) = self.registry.get_readable(device_id) else {
+                let Some(readable) = self.registry.get_readable(device_id.as_str()) else {
                     warn!(%device_id, "evaluate_condition: device not readable");
                     return false;
                 };
