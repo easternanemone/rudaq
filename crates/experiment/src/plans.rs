@@ -350,7 +350,7 @@ impl Plan for LineScan {
                 // In a more sophisticated implementation, this would trigger each detector
                 if let Some(det) = self.detectors.first() {
                     PlanCommand::Trigger {
-                        device_id: det.clone(),
+                        device_id: DeviceId::from(det.as_str()),
                     }
                 } else {
                     // No detectors, skip to emit
@@ -365,7 +365,7 @@ impl Plan for LineScan {
                         detector_idx: detector_idx + 1,
                     };
                     PlanCommand::Read {
-                        device_id: det.clone(),
+                        device_id: DeviceId::from(det.as_str()),
                     }
                 } else {
                     self.current_step = LineScanStep::EmitEvent;
