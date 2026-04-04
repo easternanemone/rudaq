@@ -1446,13 +1446,13 @@ mod tests {
     fn test_serde_round_trip_conditional_branch() {
         let cmd = PlanCommand::ConditionalBranch {
             condition: EvalCondition::Threshold {
-                device_id: "detector".to_string(),
+                device_id: "detector".into(),
                 field: "intensity".to_string(),
                 threshold: 100.0,
                 above: true,
             },
             then_commands: vec![PlanCommand::MoveTo {
-                device_id: "stage".to_string(),
+                device_id: "stage".into(),
                 position: 5.0,
             }],
             else_commands: vec![PlanCommand::Wait { seconds: 1.0 }],
