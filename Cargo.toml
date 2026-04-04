@@ -57,7 +57,7 @@ tonic = { version = "0.10", default-features = false }
 prost = "0.12"
 
 # Storage
-hdf5 = { package = "hdf5-metno", version = "0.12.3" }
+hdf5 = { package = "hdf5-metno", version = "0.12.4" }
 
 # Time handling
 chrono = { version = "0.4", features = ["serde"] }
