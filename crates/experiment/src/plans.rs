@@ -592,7 +592,7 @@ impl Plan for GridScan {
                 self.current_step = GridScanStep::ReadDetectors { detector_idx: 0 };
                 if let Some(det) = self.detectors.first() {
                     PlanCommand::Trigger {
-                        device_id: det.clone(),
+                        device_id: DeviceId::from(det.as_str()),
                     }
                 } else {
                     self.current_step = GridScanStep::EmitEvent;
@@ -606,7 +606,7 @@ impl Plan for GridScan {
                         detector_idx: detector_idx + 1,
                     };
                     PlanCommand::Read {
-                        device_id: det.clone(),
+                        device_id: DeviceId::from(det.as_str()),
                     }
                 } else {
                     self.current_step = GridScanStep::EmitEvent;
