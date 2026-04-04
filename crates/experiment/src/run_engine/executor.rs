@@ -318,10 +318,13 @@ impl RunEngine {
                 position,
             } => {
                 self.watchdog.touch().await;
-                dispatcher.execute_move(&device_id, position).await?;
+                dispatcher
+                    .execute_move(device_id.as_str(), position)
+                    .await?;
 
                 if let Some(ctx) = self.run_context.lock().await.as_mut() {
-                    ctx.current_positions.insert(device_id, position);
+                    ctx.current_positions
+                        .insert(device_id.to_string(), position);
                 }
                 Ok(false)
             }
