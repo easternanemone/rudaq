@@ -79,11 +79,12 @@ source scripts/ops/env-check.sh && cargo nextest run --profile hardware --featur
 
 ## Architecture
 
-### Crate Dependency Layers (27 workspace crates)
+### Crate Dependency Layers (28 workspace crates)
 
 ```
 Foundation
-  common           ← Capability traits, Parameter<T>, DaqError, Frame, DriverFactory
+  common-traits    ← Capability traits, Parameter<T>, Observable<T>, DaqError, Frame, DriverFactory, DeviceId, pipeline traits
+  common           ← Re-exports common-traits; adds validation, limits, time, health, feature_flags, state_cache
   pool             ← Lock-free object pool for zero-allocation frame handling, ForeignView trait, BorrowGuard/BorrowCount, DlPackDescriptor (feature "dlpack")
   protocol         ← Protobuf definitions (daq.proto, experiment.proto, hardware.proto, health.proto, ni_daq.proto, storage.proto)
 
@@ -133,15 +134,21 @@ Testing
 
 ### Key Abstractions
 
-**Capability traits** (`common/src/capabilities.rs`): `Movable`, `Readable`, `FrameProducer`, `Triggerable`, `ExposureControl`, `ShutterControl`, `WavelengthTunable`, `EmissionControl`, `Stageable`, `Settable`, `Switchable`, `Actionable`, `Loggable`, `Parameterized`, `Camera`, `Commandable`, `GatedCamera`, `SpectrometerControl`, `SpectrumReadable`, `TriggerOnPosition`, `PulseGenerator`, `SafetyInterlock`, `Reconfigurable`, etc. All are `async_trait + Send + Sync`. Devices are defined by what they *do*, not what they *are*. **`SpectrumReadable`** + **`SpectrumData`** (bd-lncj) provide the 1D detector abstraction for spectrometers and line detectors — `read_spectrum()` returns wavelength/intensity arrays with units. **`CompositeCapability`** orchestrates multi-device operations (e.g., move+trigger+read); **`CapabilityProvider`** is the trait that supplies typed device lookups for composites (implemented by `DeviceRegistry`).
+**`DeviceId`** (`common-traits/src/device_id.rs`): Type-safe device identifier backed by `Arc<str>` for cheap cloning. Replaces bare `String` device IDs throughout the codebase. `#[serde(transparent)]` for JSON/TOML compat. Implements `From<&str>`, `From<String>`, `Display`, `Hash`, `PartialEq<str>`. Used in `PlanCommand`, `DeviceRegistry`, `DeviceComponents`, gRPC services, db records, and modules. At the protobuf boundary (server/client), convert with `DeviceId::from()` on input and `.to_string()` on output.
 
-**`DeviceComponents`** (`common/src/driver.rs`): Capability bag returned by `DriverFactory::build()` — one `Option<Arc<dyn Trait>>` per capability. The `DeviceRegistry` stores these and provides typed accessors (`get_movable("stage_1")`).
+**Capability traits** (`common-traits/src/capabilities.rs`): `Movable`, `Readable`, `FrameProducer`, `Triggerable`, `ExposureControl`, `ShutterControl`, `WavelengthTunable`, `EmissionControl`, `Stageable`, `Settable`, `Switchable`, `Actionable`, `Loggable`, `Parameterized`, `Camera`, `Commandable`, `GatedCamera`, `SpectrometerControl`, `SpectrumReadable`, `TriggerOnPosition`, `PulseGenerator`, `SafetyInterlock`, `Reconfigurable`, etc. All are `async_trait + Send + Sync`. Devices are defined by what they *do*, not what they *are*. **`SpectrumReadable`** + **`SpectrumData`** (bd-lncj) provide the 1D detector abstraction for spectrometers and line detectors — `read_spectrum()` returns wavelength/intensity arrays with units. **`CompositeCapability`** orchestrates multi-device operations (e.g., move+trigger+read); **`CapabilityProvider`** is the trait that supplies typed device lookups for composites (implemented by `DeviceRegistry`).
 
-**`Parameter<T>`** (`common/src/parameter.rs`): Reactive state inspired by QCodes/ScopeFoundry. Wraps `Observable<T>` + hardware callbacks. Flow: `set(value)` → validate constraints → call `hardware_writer` (async BoxFuture) → update internal value (notifies subscribers) → call change listeners. Use `Parameter<T>` for device state, never raw `Arc<Mutex<T>>`.
+**`DeviceComponents`** (`common-traits/src/driver.rs`): Capability bag returned by `DriverFactory::build()` — one `Option<Arc<dyn Trait>>` per capability. The `DeviceRegistry` stores these and provides typed accessors (`get_movable("stage_1")`).
+
+**`Parameter<T>`** (`common-traits/src/parameter.rs`): Reactive state inspired by QCodes/ScopeFoundry. Wraps `Observable<T>` + hardware callbacks. Flow: `set(value)` → validate constraints → call `hardware_writer` (async BoxFuture) → update internal value (notifies subscribers) → call change listeners. Use `Parameter<T>` for device state, never raw `Arc<Mutex<T>>`.
 
 **`Plan` + `RunEngine`** (`experiment/src/`): Bluesky-inspired. Plans yield `PlanCommand` variants (`MoveTo`, `Read`, `Trigger`, `Wait`, `Checkpoint`, `EmitEvent`, `Set`, `ConditionalBranch`, `WaitSettled`, `RepeatWhile`). RunEngine executes them as a state machine (`Idle → Running → Paused → Aborting`) and emits Bluesky-style documents (`Start`, `Descriptor`, `Event`, `Stop`, `Manifest`). State is push-based: `subscribe_state()` returns a `broadcast::Receiver<EngineState>` for reactive UIs, and the server exposes a `StreamEngineStatus` streaming RPC (client: `stream_engine_status()`). `ConditionalBranch` evaluates an `EvalCondition` (threshold, comparison, expression) and dispatches to then/else command lists. `WaitSettled` blocks until a device reports stable. `RepeatWhile` loops a command body with a safety cap on iterations. `EmitEvent` carries optional `scan_indices: Vec<(String, usize)>` for dimensional scan coordinates (used by `ZarrSink` for chunk placement). Command dispatch now fails fast when devices are missing required capabilities (Move/Read/Trigger/Set), instead of silently skipping device actions. **Frame metadata pipeline**: `Frame.metadata` (hardware timestamps, bit_depth, roi_count, etc.) flows through RunEngine `Event` documents into HDF5 storage via `ExperimentFrameObserver`. **`AcquisitionCoordinator`** (`experiment/src/coordinator.rs`) composes move+trigger+read workflows via `CompositeCapability`. **Feedback system** (`experiment/src/feedback.rs`): `FeedbackEvent` (ThresholdCrossed, StabilityReached, ValueUpdate) feeds adaptive scans; `execute_adaptive()` on RunEngine runs plans with a feedback channel. `FeedbackRouter` (`server/src/grpc/feedback_router.rs`) bridges gRPC streams to the feedback channel.
 
 **PVCAM trigger/timing parameters** (`driver-pvcam/src/lib.rs`, `driver-pvcam/src/components/features/mod.rs`): Exposes trigger controls for external synchronization through typed parameters: `trigger.expose_out_mode`, `trigger.edge_trigger`, `trigger.pre_delay_us`, and `trigger.post_delay_us`. The SDK-backed implementation maps these through `PARAM_EXPOSE_OUT_MODE`, `PARAM_EDGE_TRIGGER`, `PARAM_PRE_TRIGGER_DELAY`, and `PARAM_POST_TRIGGER_DELAY`; mock state mirrors the same behavior for tests.
+
+**FFI timeout protection** (`driver-pvcam/src/ffi_timeout.rs`, `driver-andor-sdk3/src/ffi_timeout.rs`): All `spawn_blocking` FFI calls to native SDK drivers are wrapped with `tokio::time::timeout`. Timeout tiers: 5s queries, 15s config, 30s acquisition, 60s motion, 120s init. Each module provides two variants: `ffi_with_timeout()` (returns `anyhow::Result`) and `ffi_with_timeout_daq()` (returns `Result<R, DaqError>`) for Parameter hardware-write callbacks. Long-running acquisition loops (frame polling) are intentionally NOT wrapped — they have their own SDK-level timeouts.
+
+**PVCAM acquisition state machine** (`driver-pvcam/src/components/acquisition/mod.rs`): Uses `SdkStreamingState` enum (`Idle` / `Streaming { poll_handle, circ_buffer, error_tx, frame_pool, ... }`) instead of 7 separate `Arc<Mutex<Option<T>>>` fields. Single lock, single transition for start/stop. Output channels (`reliable_tx`, `primary_tx`, `metadata_tx`) remain separate — they have different lifecycles, set by external callers.
 
 **`RingBuffer`** (`storage/src/ring_buffer.rs`): mmap-backed circular buffer with seqlock for lock-free reads. Uses Apache Arrow IPC format. "Tap" consumers receive every Nth frame via async channel for live visualization without blocking writers.
 
@@ -152,6 +159,8 @@ Testing
 **Webhook Alerting** (`server/src/alerting.rs`): Sends Slack/Discord-compatible webhook notifications when a device faults, exhausts restart attempts, or the RunEngine aborts a plan. Configured via `[alerting]` in `config/config.v4.toml` or `RUSTDAQ_ALERTING__WEBHOOK_URL` env var. Rate-limited per device key; fire-and-forget via `tokio::spawn`.
 
 **Heartbeat JSONL Log** (`server/src/health/heartbeat_log.rs`): Writes one JSON object per minute to `/tmp/rust_daq_heartbeat.jsonl` with system vitals (CPU%, RSS, disk free, device health, RunEngine state). Designed for post-mortem analysis of overnight run failures.
+
+**Error hierarchy** (`common-traits/src/error.rs`, `server/src/grpc/error_mapping.rs`, `client/src/error.rs`): Four-layer boundary contract: (1) `DaqError` is the canonical error enum, (2) capability trait methods return `anyhow::Result` for driver ergonomics, (3) `error_mapping.rs` downcasts anyhow chains at the gRPC boundary via 3-step chain (DaqError → DriverError → StorageError → fallback) and sets `x-daq-error-kind` metadata headers, (4) `ClientError` extracts structured error info via `daq_error_kind()`, `driver_type()`, `driver_kind()` methods. This closes the round-trip: DaqError → gRPC Status (with metadata) → ClientError (with structured extraction).
 
 **Hybrid Persistence** — Three-tier model: TOML (design-time, git-tracked), SurrealDB (runtime control plane, optional), specialized writers (science data: HDF5, Arrow, Zarr). See [ADR-015](docs/adr/015-hybrid-persistence-architecture.md).
 
@@ -182,7 +191,7 @@ registry.register_from_config(DeviceConfig { id, name, driver: DriverConfig { ty
 
 ## Code Style
 
-- Current stable Rust toolchain (edition 2024 workspace members require newer than 1.75), async/await everywhere (Tokio runtime). Never `std::thread::sleep` in async code.
+- Current stable Rust toolchain (edition 2024 for all crates, requires Rust 1.85+), async/await everywhere (Tokio runtime). Never `std::thread::sleep` in async code. Note: `async_trait` is retained for capability traits — native async fn in trait only supports static dispatch, but `Arc<dyn Trait>` (used by `DeviceComponents`) requires dynamic dispatch via boxed futures.
 - Error handling: propagate with `?`, add context via `anyhow::Context`. No `.unwrap()` in library code (CI enforces `clippy::unwrap_used`); use `.expect("reason")` for invariants.
 - Hardware state: always use `Parameter<T>` with `BoxFuture<'static, Result<()>>` callbacks.
 - Workspace clippy: pedantic lints enabled with project-specific allows (see `Cargo.toml` `[workspace.lints.clippy]`).
