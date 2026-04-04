@@ -59,7 +59,7 @@ jobs:
               wasm_check=false
               while IFS= read -r path; do
                 case "${path}" in
-                  Cargo.toml|Cargo.lock|crates/ui/*|crates/ui/*/*|crates/ui/*/*/*|crates/ui-slint/*|crates/ui-slint/*/*|crates/ui-slint/*/*/*|.github/workflows/feature-matrix.yml|.github/actions/setup-daq/*)
+                  Cargo.toml|Cargo.lock|crates/ui/**|crates/ui-slint/**|.github/workflows/feature-matrix.yml|.github/actions/setup-daq/**)
                     wasm_check=true
                     break
                     ;;

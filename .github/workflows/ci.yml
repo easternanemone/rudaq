@@ -59,7 +59,7 @@ jobs:
               dependency_hygiene=false
               while IFS= read -r path; do
                 case "${path}" in
-                  Cargo.toml|Cargo.lock|crates/*/Cargo.toml|crates/*/build.rs|.cargo/*|.cargo/*/*|deny*.toml|scripts/hygiene/*|.github/workflows/ci.yml|.github/actions/setup-daq/*)
+                  Cargo.toml|Cargo.lock|crates/*/Cargo.toml|crates/*/build.rs|.cargo/**|deny*.toml|scripts/hygiene/**|.github/workflows/ci.yml|.github/actions/setup-daq/**)
                     dependency_hygiene=true
                     break
                     ;;
