@@ -91,10 +91,11 @@ fn generate_format_string(segments: &[FormatSegment], state: &HashMap<String, Va
                         out.push_str(&value_as_string(&val));
                     }
                     FieldKind::FixedWidth(n) => {
+                        let n = *n;
                         let s = value_as_string(&val);
                         // Left-align, truncate or pad to n chars
-                        let formatted = if s.len() >= *n {
-                            s[..*n].to_string()
+                        let formatted = if s.len() >= n {
+                            s[..n].to_string()
                         } else {
                             format!("{s:<n$}")
                         };
