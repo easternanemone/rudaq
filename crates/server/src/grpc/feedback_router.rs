@@ -53,7 +53,7 @@ impl FeedbackRouter {
     ) -> bool {
         if value >= threshold {
             let event = FeedbackEvent::ThresholdCrossed {
-                device_id: device_id.to_string(),
+                device_id: device_id.into(),
                 field: field.to_string(),
                 value,
                 threshold,
