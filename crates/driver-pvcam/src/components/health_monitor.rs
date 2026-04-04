@@ -117,7 +117,7 @@ async fn run_health_monitor(
     }
 }
 
-/// Poll the camera's controller_alive and CCS status via spawn_blocking.
+/// Poll the camera's controller_alive and CCS status via spawn_blocking with timeout.
 async fn poll_device_state(
     device_id: &str,
     connection: &Arc<Mutex<PvcamConnection>>,
@@ -125,32 +125,33 @@ async fn poll_device_state(
     let conn = connection.clone();
     let device_id_owned = device_id.to_owned();
 
-    match tokio::task::spawn_blocking(move || {
-        // Block on the async mutex from a blocking context.
-        // This is safe because the lock is held only briefly for FFI calls.
-        let conn_guard = conn.blocking_lock();
-        let controller_alive = PvcamFeatures::get_controller_alive(&conn_guard)?;
-        let ccs_status = PvcamFeatures::get_ccs_status(&conn_guard)?;
-        Ok::<_, anyhow::Error>((controller_alive, ccs_status))
-    })
+    match crate::ffi_timeout::ffi_with_timeout(
+        "health_check",
+        crate::ffi_timeout::PARAM_QUERY_TIMEOUT,
+        move || {
+            // Block on the async mutex from a blocking context.
+            // This is safe because the lock is held only briefly for FFI calls.
+            let conn_guard = conn.blocking_lock();
+            let controller_alive = PvcamFeatures::get_controller_alive(&conn_guard)?;
+            let ccs_status = PvcamFeatures::get_ccs_status(&conn_guard)?;
+            Ok::<_, anyhow::Error>((controller_alive, ccs_status))
+        },
+    )
     .await
     {
-        Ok(Ok((alive, ccs))) => PvcamDeviceState::from_health_check(alive, ccs),
-        Ok(Err(e)) => {
-            warn!(
-                device_id = device_id_owned,
-                error = %e,
-                "PVCAM health check SDK call failed"
-            );
-            PvcamDeviceState::Error
-        }
+        Ok((alive, ccs)) => PvcamDeviceState::from_health_check(alive, ccs),
         Err(e) => {
             warn!(
                 device_id = device_id_owned,
                 error = %e,
-                "PVCAM health check task panicked"
+                "PVCAM health check failed"
             );
-            PvcamDeviceState::Offline
+            // Distinguish timeout (likely offline) from SDK errors
+            if e.to_string().contains("timed out") {
+                PvcamDeviceState::Offline
+            } else {
+                PvcamDeviceState::Error
+            }
         }
     }
 }
