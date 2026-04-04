@@ -17,7 +17,7 @@
 //! assert_eq!(result.as_f64().unwrap(), 25.5);
 //! ```
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
@@ -62,10 +62,9 @@ impl TransformOp {
         if let TransformOp::RegexExtract {
             pattern, compiled, ..
         } = self
+            && compiled.is_none()
         {
-            if compiled.is_none() {
-                *compiled = Some(Regex::new(pattern).context("Failed to compile regex pattern")?);
-            }
+            *compiled = Some(Regex::new(pattern).context("Failed to compile regex pattern")?);
         }
         Ok(())
     }

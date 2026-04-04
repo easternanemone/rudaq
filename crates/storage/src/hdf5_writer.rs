@@ -14,9 +14,9 @@ use common::error::DaqError;
 #[cfg(feature = "storage_hdf5")]
 use common::error::{StorageError, StorageErrorKind};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use tokio::time::{interval, Duration};
+use std::sync::atomic::{AtomicU64, Ordering};
+use tokio::time::{Duration, interval};
 
 #[cfg(feature = "storage_hdf5")]
 use crate::map_hdf5_err;
@@ -259,8 +259,8 @@ impl HDF5Writer {
         let output_path = self.output_path.clone();
 
         tokio::task::spawn_blocking(move || -> Result<()> {
-            use hdf5::types::VarLenUnicode;
             use hdf5::File;
+            use hdf5::types::VarLenUnicode;
 
             let file = if output_path.exists() {
                 File::open_rw(&output_path).map_err(map_hdf5_err)?

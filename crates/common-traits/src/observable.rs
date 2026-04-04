@@ -82,7 +82,7 @@
 //! - **dtype="enum"**: Choice parameters use `dtype="enum"` per the proto contract
 //!   (daq.proto:610), not "string".
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::any::Any;

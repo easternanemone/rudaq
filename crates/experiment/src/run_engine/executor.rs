@@ -9,18 +9,18 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use tokio::sync::mpsc;
-use tokio::time::{sleep, Duration, Instant};
+use tokio::time::{Duration, Instant, sleep};
 use tracing::{debug, error, info, warn};
 
 use common::experiment::document::{
     DataKey, DescriptorDoc, Document, EventDoc, ExperimentManifest, StartDoc, StopDoc,
 };
 
+use super::RunEngine;
 use super::command_dispatch::CommandDispatcher;
 use super::context::RunContext;
 use super::state_machine::ExperimentFrameObserver;
 use super::task_queue::QueuedPlan;
-use super::RunEngine;
 use crate::feedback::FeedbackEvent;
 use crate::plans::PlanCommand;
 
@@ -64,10 +64,9 @@ impl RunEngine {
         let mut frame_channels = HashMap::new();
 
         for det_id in plan.detectors() {
-            let Some(producer) = self.device_registry.get_frame_producer(&det_id) else {
-                continue;
-            };
-            if producer.supports_observers() {
+            if let Some(producer) = self.device_registry.get_frame_producer(&det_id)
+                && producer.supports_observers()
+            {
                 let (tx, rx) = mpsc::channel(16);
 
                 let observer = Box::new(ExperimentFrameObserver {
@@ -77,12 +76,12 @@ impl RunEngine {
 
                 match producer.register_observer(observer).await {
                     Ok(handle) => {
-                        info!("Registered frame observer for {det_id}");
+                        info!("Registered frame observer for {}", det_id);
                         frame_observers.insert(det_id.to_string(), handle);
                         frame_channels.insert(det_id.to_string(), rx);
                     }
                     Err(e) => {
-                        warn!("Failed to register observer for {det_id}: {e}");
+                        warn!("Failed to register observer for {}: {}", det_id, e);
                     }
                 }
             }
@@ -214,23 +213,23 @@ impl RunEngine {
             };
 
             // ---- Adaptive feedback integration (bd-0za1) ----
-            if let PlanCommand::Checkpoint { ref label } = cmd {
-                if label.contains("adaptive") {
-                    let planned_pos = self
-                        .run_context
-                        .lock()
-                        .await
-                        .as_ref()
-                        .and_then(|ctx| ctx.current_positions.values().last().copied())
-                        .unwrap_or(0.0);
+            if let PlanCommand::Checkpoint { ref label } = cmd
+                && label.contains("adaptive")
+            {
+                let planned_pos = self
+                    .run_context
+                    .lock()
+                    .await
+                    .as_ref()
+                    .and_then(|ctx| ctx.current_positions.values().last().copied())
+                    .unwrap_or(0.0);
 
-                    if let Some(adjusted) = self.drain_feedback_with_adaptation(planned_pos) {
-                        if let Some(ctx) = self.run_context.lock().await.as_mut() {
-                            for pos in ctx.current_positions.values_mut() {
-                                if (*pos - planned_pos).abs() < f64::EPSILON {
-                                    *pos = adjusted;
-                                }
-                            }
+                if let Some(adjusted) = self.drain_feedback_with_adaptation(planned_pos)
+                    && let Some(ctx) = self.run_context.lock().await.as_mut()
+                {
+                    for pos in ctx.current_positions.values_mut() {
+                        if (*pos - planned_pos).abs() < f64::EPSILON {
+                            *pos = adjusted;
                         }
                     }
                 }
@@ -319,10 +318,13 @@ impl RunEngine {
                 position,
             } => {
                 self.watchdog.touch().await;
-                dispatcher.execute_move(&device_id, position).await?;
+                dispatcher
+                    .execute_move(device_id.as_str(), position)
+                    .await?;
 
                 if let Some(ctx) = self.run_context.lock().await.as_mut() {
-                    ctx.current_positions.insert(device_id, position);
+                    ctx.current_positions
+                        .insert(device_id.to_string(), position);
                 }
                 Ok(false)
             }
@@ -330,46 +332,47 @@ impl RunEngine {
             PlanCommand::Read { device_id } => {
                 self.watchdog.touch().await;
                 let mut is_frame_device = false;
+                let id_str = device_id.to_string();
 
                 {
                     let mut ctx_guard = self.run_context.lock().await;
-                    if let Some(ctx) = ctx_guard.as_mut() {
-                        if let Some(rx) = ctx.frame_channels.get_mut(&device_id) {
-                            is_frame_device = true;
-                            match rx.recv().await {
-                                Some(capture) => {
-                                    let data_len = capture.data.len();
-                                    let frame_num = capture.frame_number;
-                                    let summing_count = capture.summing_count;
-                                    ctx.collected_frames.insert(device_id.clone(), capture.data);
-                                    ctx.collected_summing_counts
-                                        .insert(device_id.clone(), summing_count);
-                                    // bd-p6r4: Collect frame metadata for EventDoc propagation
-                                    if !capture.metadata.is_empty() {
-                                        ctx.collected_metadata
-                                            .insert(device_id.clone(), capture.metadata);
-                                    }
-                                    debug!(
-                                        device = %device_id,
-                                        size = %data_len,
-                                        frame_num = %frame_num,
-                                        ?summing_count,
-                                        "Captured frame"
-                                    );
+                    if let Some(ctx) = ctx_guard.as_mut()
+                        && let Some(rx) = ctx.frame_channels.get_mut(&id_str)
+                    {
+                        is_frame_device = true;
+                        match rx.recv().await {
+                            Some(capture) => {
+                                let data_len = capture.data.len();
+                                let frame_num = capture.frame_number;
+                                let summing_count = capture.summing_count;
+                                ctx.collected_frames.insert(id_str.clone(), capture.data);
+                                ctx.collected_summing_counts
+                                    .insert(id_str.clone(), summing_count);
+                                // bd-p6r4: Collect frame metadata for EventDoc propagation
+                                if !capture.metadata.is_empty() {
+                                    ctx.collected_metadata
+                                        .insert(id_str.clone(), capture.metadata);
                                 }
-                                None => {
-                                    warn!(device = %device_id, "Frame channel closed");
-                                }
+                                debug!(
+                                    device = %device_id,
+                                    size = %data_len,
+                                    frame_num = %frame_num,
+                                    ?summing_count,
+                                    "Captured frame"
+                                );
+                            }
+                            None => {
+                                warn!(device = %device_id, "Frame channel closed");
                             }
                         }
                     }
                 }
 
                 if !is_frame_device {
-                    let value = dispatcher.execute_read(&device_id).await?;
+                    let value = dispatcher.execute_read(device_id.as_str()).await?;
 
                     if let Some(ctx) = self.run_context.lock().await.as_mut() {
-                        ctx.collected_data.insert(device_id, value);
+                        ctx.collected_data.insert(id_str, value);
                     }
                 }
                 Ok(false)
@@ -377,7 +380,7 @@ impl RunEngine {
 
             PlanCommand::Trigger { device_id } => {
                 self.watchdog.touch().await;
-                dispatcher.execute_trigger(&device_id).await?;
+                dispatcher.execute_trigger(device_id.as_str()).await?;
                 Ok(false)
             }
 
@@ -459,12 +462,12 @@ impl RunEngine {
 
                 // bd-oqo7.7: Add summing_count to event metadata for each detector
                 for (device_id, count) in &summing_metadata {
-                    if let Some(n) = count {
-                        if *n > 1 {
-                            event
-                                .metadata
-                                .insert(format!("{device_id}.summing_count"), n.to_string());
-                        }
+                    if let Some(n) = count
+                        && *n > 1
+                    {
+                        event
+                            .metadata
+                            .insert(format!("{device_id}.summing_count"), n.to_string());
                     }
                 }
 
@@ -490,7 +493,7 @@ impl RunEngine {
                 self.watchdog.touch().await;
                 debug!(device = %device_id, param = %parameter, value = %value, "Setting parameter");
                 dispatcher
-                    .execute_set_parameter(&device_id, &parameter, &value)
+                    .execute_set_parameter(device_id.as_str(), &parameter, &value)
                     .await?;
                 Ok(false)
             }
@@ -527,7 +530,7 @@ impl RunEngine {
                 let deadline = Instant::now() + Duration::from_secs_f64(timeout_seconds);
                 let poll_interval = Duration::from_millis(100);
 
-                if let Some(readable) = dispatcher.registry.get_readable(&device_id) {
+                if let Some(readable) = dispatcher.registry.get_readable(device_id.as_str()) {
                     let mut last_value: Option<f64> = None;
                     let mut stable_since: Option<Instant> = None;
                     let stability_window = Duration::from_millis(500);

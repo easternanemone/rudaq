@@ -81,8 +81,8 @@ use common::data::FrameView;
 use common::error::DaqError;
 use common::observable::ParameterSet;
 use common::parameter::Parameter;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use tokio::sync::Mutex;
 
 /// SDK3 feature names already represented by core typed parameters.
@@ -118,9 +118,9 @@ const CORE_FEATURE_NAMES: &[&str] = &[
 #[cfg(feature = "camera")]
 use crate::error::AndorError;
 #[cfg(feature = "camera")]
-use std::sync::atomic::AtomicUsize;
-#[cfg(feature = "camera")]
 use std::sync::Mutex as StdMutex;
+#[cfg(feature = "camera")]
+use std::sync::atomic::AtomicUsize;
 
 #[cfg(feature = "camera")]
 use andor_sdk3_sys::*;
@@ -138,20 +138,20 @@ type CameraHandle = i32;
 // Blocking bridge helper
 // =============================================================================
 
-/// Run an SDK FFI call on `spawn_blocking` and map errors to `DaqError`.
+/// Run an SDK FFI call on `spawn_blocking` with a config-class timeout and
+/// map errors to `DaqError`.
 ///
 /// This eliminates the repeated `.await.map_err(...)?.map_err(...)` pattern
 /// used by every `Parameter<T>` hardware callback in this module.
+/// Default timeout is [`FFI_CONFIG_TIMEOUT`](crate::ffi_timeout::FFI_CONFIG_TIMEOUT) (15s).
 #[cfg(feature = "camera")]
 async fn sdk_blocking<F, T>(f: F) -> Result<T, DaqError>
 where
     F: FnOnce() -> anyhow::Result<T> + Send + 'static,
     T: Send + 'static,
 {
-    tokio::task::spawn_blocking(f)
+    crate::ffi_timeout::ffi_call_daq(f, crate::ffi_timeout::FFI_CONFIG_TIMEOUT, "sdk_blocking")
         .await
-        .map_err(|e| DaqError::Instrument(format!("spawn_blocking: {e}")))?
-        .map_err(|e| DaqError::Instrument(e.to_string()))
 }
 
 /// Pause SDK acquisition, apply a parameter change, then restart (bd-4msn, bd-71sq).
@@ -407,8 +407,12 @@ impl AndorCamera {
     /// Create new camera instance (async, validates device identity)
     pub async fn new_async(camera_index: i32) -> Result<Self> {
         #[cfg(feature = "camera")]
-        let (handle, info) =
-            tokio::task::spawn_blocking(move || Self::init_hardware(camera_index)).await??;
+        let (handle, info) = crate::ffi_timeout::ffi_call(
+            move || Self::init_hardware(camera_index),
+            crate::ffi_timeout::FFI_INIT_TIMEOUT,
+            "AndorCamera::init_hardware",
+        )
+        .await??;
 
         #[cfg(not(feature = "camera"))]
         let (handle, info) = (camera_index, Self::mock_camera_info(camera_index));

@@ -28,13 +28,13 @@
 //! println!("Run {} completed with {} events", report.run_uid, report.num_events);
 //! ```
 
-use super::document::{Document, StopReason};
 use super::ModuleState;
-use anyhow::{anyhow, Result};
+use super::document::{Document, StopReason};
+use anyhow::{Result, anyhow};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{RwLock, mpsc};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 

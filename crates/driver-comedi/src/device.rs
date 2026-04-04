@@ -708,10 +708,10 @@ impl ComediDevice {
     pub fn find_subdevice(&self, subdev_type: SubdeviceType) -> Option<u32> {
         let n = self.n_subdevices();
         for i in 0..n {
-            if let Ok(t) = self.subdevice_type(i) {
-                if t == subdev_type {
-                    return Some(i);
-                }
+            if let Ok(t) = self.subdevice_type(i)
+                && t == subdev_type
+            {
+                return Some(i);
             }
         }
         None

@@ -1,16 +1,16 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use std::collections::HashMap;
 #[cfg(feature = "metrics")]
 use std::collections::HashSet;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 #[cfg(feature = "metrics")]
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 
 #[cfg(feature = "metrics")]
-use prometheus::{register_gauge_vec, register_int_counter_vec, GaugeVec, IntCounterVec};
+use prometheus::{GaugeVec, IntCounterVec, register_gauge_vec, register_int_counter_vec};
 #[cfg(feature = "metrics")]
 use std::sync::LazyLock;
 

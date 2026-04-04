@@ -19,7 +19,7 @@
 use crate::rectification::RectifiedOrder;
 use std::time::Instant;
 
-use tracing::info;
+use tracing::{debug, info};
 
 /// Configuration for optimal extraction.
 #[derive(Debug, Clone)]
@@ -114,7 +114,7 @@ pub fn optimal_extract(
     let stage_a_duration = stage_a_start.elapsed();
     let stage_a_ms = stage_a_duration.as_secs_f64() * 1000.0;
 
-    info!(
+    debug!(
         target: "echelle::optimal_extraction",
         order_index = %rect.order_index,
         stage = "A",
@@ -161,7 +161,7 @@ pub fn optimal_extract(
         let stage_b_duration = stage_b_start.elapsed();
         stage_b_total += stage_b_duration;
 
-        info!(
+        debug!(
             target: "echelle::optimal_extraction",
             order_index = %rect.order_index,
             stage = "B",
@@ -180,7 +180,7 @@ pub fn optimal_extract(
         let stage_c_duration = stage_c_start.elapsed();
         stage_c_total += stage_c_duration;
 
-        info!(
+        debug!(
             target: "echelle::optimal_extraction",
             order_index = %rect.order_index,
             stage = "C",
@@ -201,7 +201,7 @@ pub fn optimal_extract(
     let stage_b_avg_ms = stage_b_total.as_secs_f64() * 1000.0 / n_iterations as f64;
     let stage_c_avg_ms = stage_c_total.as_secs_f64() * 1000.0 / n_iterations as f64;
 
-    info!(
+    debug!(
         target: "echelle::optimal_extraction",
         order_index = %rect.order_index,
         stage = "B+C",
@@ -441,7 +441,7 @@ fn reject_cosmic_rays(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rectification::{rectify_order, OrderSpec, RectifyConfig};
+    use crate::rectification::{OrderSpec, RectifyConfig, rectify_order};
     use crate::types::PolynomialBasis;
 
     fn flat_trace(center: f64) -> crate::types::EchelleTraceModel {

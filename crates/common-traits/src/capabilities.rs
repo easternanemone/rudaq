@@ -339,7 +339,7 @@ impl ObserverHandle {
 ///
 /// ```rust,ignore
 /// use common::capabilities::{FrameObserver, ObserverHandle};
-/// use common::data::FrameView;
+/// use crate::data::FrameView;
 ///
 /// struct DecimatedObserver {
 ///     interval: u64,

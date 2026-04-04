@@ -13,7 +13,7 @@
 use crate::config::validated::{ResponseParser, ScpiResponseType, ValidatedFormat, ValidatedRegex};
 use crate::format_parser;
 use crate::transform::TransformPipeline;
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use serde_json::Value;
 use std::collections::HashMap;
 
@@ -45,8 +45,8 @@ pub fn parse_scpi(input: &str, response_type: &ScpiResponseType) -> Result<Value
                 "0" | "OFF" | "off" | "false" | "FALSE" => false,
                 _ => {
                     return Err(anyhow!(
-                    "SCPI: unrecognized boolean value '{trimmed}' (expected 1/0/ON/OFF/true/false)"
-                ))
+                        "SCPI: unrecognized boolean value '{trimmed}' (expected 1/0/ON/OFF/true/false)"
+                    ));
                 }
             };
             Ok(Value::Bool(b))

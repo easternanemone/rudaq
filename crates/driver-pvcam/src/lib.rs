@@ -11,6 +11,7 @@
 mod macros;
 
 pub mod components;
+pub(crate) mod ffi_timeout;
 
 #[cfg(feature = "pvcam_sdk")]
 pub use crate::components::connection::sdk_ref_count;
@@ -47,8 +48,8 @@ use common::observable::ParameterSet;
 use common::parameter::Parameter;
 use common::pipeline::MeasurementSource;
 use futures::future::BoxFuture;
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 use tokio::sync::Mutex;
 
@@ -61,8 +62,8 @@ pub use crate::components::features::{
 };
 // Re-export feature functions for direct access
 pub use crate::components::features::{
-    is_prime_enhance_name, is_prime_locate_name, normalize_pp_name, pp_name_contains,
-    pp_name_matches, PvcamFeatures,
+    PvcamFeatures, is_prime_enhance_name, is_prime_locate_name, normalize_pp_name,
+    pp_name_contains, pp_name_matches,
 };
 
 use crate::components::acquisition::{PvcamAcquisition, StreamConfig};
@@ -323,49 +324,51 @@ impl PvcamDriver {
 
         // Run initialization in blocking task
 
-        let (connection, early_pp_features) = tokio::task::spawn_blocking({
-            #[cfg(feature = "pvcam_sdk")]
-            let name = camera_name.clone();
-            move || -> Result<(Arc<Mutex<PvcamConnection>>, Vec<PPFeature>)> {
+        let (connection, early_pp_features) =
+            ffi_timeout::ffi_with_timeout("PVCAM SDK init", ffi_timeout::INIT_TIMEOUT, {
                 #[cfg(feature = "pvcam_sdk")]
-                let mut conn = PvcamConnection::new();
-                #[cfg(not(feature = "pvcam_sdk"))]
-                let conn = PvcamConnection::new();
+                let name = camera_name.clone();
+                move || -> Result<(Arc<Mutex<PvcamConnection>>, Vec<PPFeature>)> {
+                    #[cfg(feature = "pvcam_sdk")]
+                    let mut conn = PvcamConnection::new();
+                    #[cfg(not(feature = "pvcam_sdk"))]
+                    let conn = PvcamConnection::new();
 
-                let pp_features;
-                #[cfg(feature = "pvcam_sdk")]
-                {
-                    tracing::info!("Initializing PVCAM SDK...");
-                    conn.initialize()?;
-                    tracing::info!("PVCAM SDK initialized, opening camera: {}", name);
-                    conn.open(&name)?;
-                    tracing::info!("Camera opened successfully, handle: {:?}", conn.handle());
+                    let pp_features;
+                    #[cfg(feature = "pvcam_sdk")]
+                    {
+                        tracing::info!("Initializing PVCAM SDK...");
+                        conn.initialize()?;
+                        tracing::info!("PVCAM SDK initialized, opening camera: {}", name);
+                        conn.open(&name)?;
+                        tracing::info!("Camera opened successfully, handle: {:?}", conn.handle());
 
-                    // Reset and enumerate PP features IMMEDIATELY after open, before any
-                    // other SDK calls. Speed table enumeration changes readout config which
-                    // invalidates PP feature availability (PARAM_PP_INDEX becomes unsupported).
-                    // (bd-ldjy.1: confirmed via C probe that PP features work before speed table)
-                    if let Err(e) = PvcamFeatures::reset_pp_features(&conn) {
-                        tracing::warn!("Failed to reset PP features: {e}");
+                        // Reset and enumerate PP features IMMEDIATELY after open, before any
+                        // other SDK calls. Speed table enumeration changes readout config which
+                        // invalidates PP feature availability (PARAM_PP_INDEX becomes unsupported).
+                        // (bd-ldjy.1: confirmed via C probe that PP features work before speed table)
+                        if let Err(e) = PvcamFeatures::reset_pp_features(&conn) {
+                            tracing::warn!("Failed to reset PP features: {e}");
+                        }
+                        pp_features =
+                            PvcamFeatures::enumerate_pp_features(&conn).unwrap_or_default();
+                        tracing::info!(
+                            "PP features discovered: {} (before speed table build)",
+                            pp_features.len()
+                        );
+                        for f in &pp_features {
+                            tracing::info!("  PP[{}]: '{}' (id={})", f.index, f.name, f.id);
+                        }
                     }
-                    pp_features = PvcamFeatures::enumerate_pp_features(&conn).unwrap_or_default();
-                    tracing::info!(
-                        "PP features discovered: {} (before speed table build)",
-                        pp_features.len()
-                    );
-                    for f in &pp_features {
-                        tracing::info!("  PP[{}]: '{}' (id={})", f.index, f.name, f.id);
+                    #[cfg(not(feature = "pvcam_sdk"))]
+                    {
+                        pp_features = Vec::new();
+                        tracing::warn!("pvcam_sdk feature NOT enabled - using mock mode");
                     }
+                    Ok((Arc::new(Mutex::new(conn)), pp_features))
                 }
-                #[cfg(not(feature = "pvcam_sdk"))]
-                {
-                    pp_features = Vec::new();
-                    tracing::warn!("pvcam_sdk feature NOT enabled - using mock mode");
-                }
-                Ok((Arc::new(Mutex::new(conn)), pp_features))
-            }
-        })
-        .await??;
+            })
+            .await?;
 
         Self::create(camera_name, connection, early_pp_features).await
     }
@@ -1014,7 +1017,6 @@ impl PvcamDriver {
             let conn_guard = connection.lock().await;
 
             if let Ok(current_cycles) = PvcamFeatures::get_clear_cycles(&conn_guard) {
-                // TODO(bd-ldjy.4): read-only until clear_cycles write callback is validated
                 let param = Parameter::new("acquisition.clear_cycles", current_cycles)
                     .with_description("Number of sensor clearing cycles before exposure")
                     .read_only()
@@ -1037,12 +1039,15 @@ impl PvcamDriver {
                         Box::pin(async move {
                             let conn_guard = conn.lock_owned().await;
                             let res = ExposureResolution::from_str(&val);
-                            tokio::task::spawn_blocking(move || {
-                                PvcamFeatures::set_exposure_resolution(&conn_guard, res)
-                                    .map_err(|e| DaqError::Instrument(e.to_string()))
-                            })
+                            ffi_timeout::ffi_with_timeout_daq(
+                                "set_exposure_resolution",
+                                ffi_timeout::CONFIG_TIMEOUT,
+                                move || {
+                                    PvcamFeatures::set_exposure_resolution(&conn_guard, res)
+                                        .map_err(|e| DaqError::Instrument(e.to_string()))
+                                },
+                            )
                             .await
-                            .map_err(|e| DaqError::Instrument(e.to_string()))?
                         })
                     }
                 });
@@ -1096,12 +1101,15 @@ impl PvcamDriver {
                         let conn = conn.clone();
                         Box::pin(async move {
                             let conn_guard = conn.lock_owned().await;
-                            tokio::task::spawn_blocking(move || {
-                                PvcamFeatures::set_centroids_enabled(&conn_guard, val)
-                                    .map_err(|e| DaqError::Instrument(e.to_string()))
-                            })
+                            ffi_timeout::ffi_with_timeout_daq(
+                                "set_centroids_enabled",
+                                ffi_timeout::CONFIG_TIMEOUT,
+                                move || {
+                                    PvcamFeatures::set_centroids_enabled(&conn_guard, val)
+                                        .map_err(|e| DaqError::Instrument(e.to_string()))
+                                },
+                            )
                             .await
-                            .map_err(|e| DaqError::Instrument(e.to_string()))?
                         })
                     }
                 });
@@ -1153,12 +1161,15 @@ impl PvcamDriver {
                                 max_count,
                                 threshold,
                             };
-                            tokio::task::spawn_blocking(move || {
-                                PvcamFeatures::set_centroids_config(&conn_guard, &config)
-                                    .map_err(|e| DaqError::Instrument(e.to_string()))
-                            })
+                            ffi_timeout::ffi_with_timeout_daq(
+                                "set_centroids_config",
+                                ffi_timeout::CONFIG_TIMEOUT,
+                                move || {
+                                    PvcamFeatures::set_centroids_config(&conn_guard, &config)
+                                        .map_err(|e| DaqError::Instrument(e.to_string()))
+                                },
+                            )
                             .await
-                            .map_err(|e| DaqError::Instrument(e.to_string()))?
                         })
                     });
                 }
@@ -1171,12 +1182,15 @@ impl PvcamDriver {
                         let conn = conn.clone();
                         Box::pin(async move {
                             let conn_guard = conn.lock_owned().await;
-                            tokio::task::spawn_blocking(move || {
-                                PvcamFeatures::set_centroids_threshold(&conn_guard, val)
-                                    .map_err(|e| DaqError::Instrument(e.to_string()))
-                            })
+                            ffi_timeout::ffi_with_timeout_daq(
+                                "set_centroids_threshold",
+                                ffi_timeout::CONFIG_TIMEOUT,
+                                move || {
+                                    PvcamFeatures::set_centroids_threshold(&conn_guard, val)
+                                        .map_err(|e| DaqError::Instrument(e.to_string()))
+                                },
+                            )
                             .await
-                            .map_err(|e| DaqError::Instrument(e.to_string()))?
                         })
                     }
                 });
@@ -1224,12 +1238,15 @@ impl PvcamDriver {
                             let direction = ScanDirection::from_str(&val).ok_or_else(|| {
                                 DaqError::Instrument(format!("Invalid scan direction '{val}'"))
                             })?;
-                            tokio::task::spawn_blocking(move || {
-                                PvcamFeatures::set_scan_direction(&conn_guard, direction)
-                                    .map_err(|e| DaqError::Instrument(e.to_string()))
-                            })
+                            ffi_timeout::ffi_with_timeout_daq(
+                                "set_scan_direction",
+                                ffi_timeout::CONFIG_TIMEOUT,
+                                move || {
+                                    PvcamFeatures::set_scan_direction(&conn_guard, direction)
+                                        .map_err(|e| DaqError::Instrument(e.to_string()))
+                                },
+                            )
                             .await
-                            .map_err(|e| DaqError::Instrument(e.to_string()))?
                         })
                     }
                 });
@@ -1362,17 +1379,20 @@ impl PvcamDriver {
                                     let conn = conn.clone();
                                     Box::pin(async move {
                                         let conn_guard = conn.lock_owned().await;
-                                        tokio::task::spawn_blocking(move || {
-                                            PvcamFeatures::set_pp_param(
-                                                &conn_guard,
-                                                feature_index,
-                                                param_index,
-                                                u32::from(val),
-                                            )
-                                            .map_err(|e| DaqError::Instrument(e.to_string()))
-                                        })
+                                        ffi_timeout::ffi_with_timeout_daq(
+                                            "set_pp_param(bool)",
+                                            ffi_timeout::CONFIG_TIMEOUT,
+                                            move || {
+                                                PvcamFeatures::set_pp_param(
+                                                    &conn_guard,
+                                                    feature_index,
+                                                    param_index,
+                                                    u32::from(val),
+                                                )
+                                                .map_err(|e| DaqError::Instrument(e.to_string()))
+                                            },
+                                        )
                                         .await
-                                        .map_err(|e| DaqError::Instrument(e.to_string()))?
                                     })
                                 }
                             });
@@ -1390,17 +1410,20 @@ impl PvcamDriver {
                                     let conn = conn.clone();
                                     Box::pin(async move {
                                         let conn_guard = conn.lock_owned().await;
-                                        tokio::task::spawn_blocking(move || {
-                                            PvcamFeatures::set_pp_param(
-                                                &conn_guard,
-                                                feature_index,
-                                                param_index,
-                                                val,
-                                            )
-                                            .map_err(|e| DaqError::Instrument(e.to_string()))
-                                        })
+                                        ffi_timeout::ffi_with_timeout_daq(
+                                            "set_pp_param(u32)",
+                                            ffi_timeout::CONFIG_TIMEOUT,
+                                            move || {
+                                                PvcamFeatures::set_pp_param(
+                                                    &conn_guard,
+                                                    feature_index,
+                                                    param_index,
+                                                    val,
+                                                )
+                                                .map_err(|e| DaqError::Instrument(e.to_string()))
+                                            },
+                                        )
                                         .await
-                                        .map_err(|e| DaqError::Instrument(e.to_string()))?
                                     })
                                 }
                             });
@@ -1787,12 +1810,15 @@ impl PvcamDriver {
                 Box::pin(async move {
                     tracing::debug!(param = "exposure_ms", ?val, "PVCAM hw_write called");
                     let conn_guard = conn.lock_owned().await;
-                    let result = tokio::task::spawn_blocking(move || {
-                        PvcamFeatures::set_exposure_time_ms(&conn_guard, val)
-                            .map_err(|e| DaqError::Instrument(e.to_string()))
-                    })
-                    .await
-                    .map_err(|e| DaqError::Instrument(e.to_string()))?;
+                    let result = ffi_timeout::ffi_with_timeout_daq(
+                        "set_exposure_time_ms",
+                        ffi_timeout::CONFIG_TIMEOUT,
+                        move || {
+                            PvcamFeatures::set_exposure_time_ms(&conn_guard, val)
+                                .map_err(|e| DaqError::Instrument(e.to_string()))
+                        },
+                    )
+                    .await;
                     tracing::debug!(
                         param = "exposure_ms",
                         success = result.is_ok(),
@@ -1815,12 +1841,15 @@ impl PvcamDriver {
                         "PVCAM hw_write called"
                     );
                     let conn_guard = conn.lock_owned().await;
-                    let result = tokio::task::spawn_blocking(move || {
-                        PvcamFeatures::set_temperature_setpoint(&conn_guard, val)
-                            .map_err(|e| DaqError::Instrument(e.to_string()))
-                    })
-                    .await
-                    .map_err(|e| DaqError::Instrument(e.to_string()))?;
+                    let result = ffi_timeout::ffi_with_timeout_daq(
+                        "set_temperature_setpoint",
+                        ffi_timeout::CONFIG_TIMEOUT,
+                        move || {
+                            PvcamFeatures::set_temperature_setpoint(&conn_guard, val)
+                                .map_err(|e| DaqError::Instrument(e.to_string()))
+                        },
+                    )
+                    .await;
                     tracing::debug!(
                         param = "temperature_setpoint",
                         success = result.is_ok(),
@@ -1839,12 +1868,15 @@ impl PvcamDriver {
                 Box::pin(async move {
                     let conn_guard = conn.lock_owned().await;
                     let speed = FanSpeed::from_str(&val);
-                    tokio::task::spawn_blocking(move || {
-                        PvcamFeatures::set_fan_speed(&conn_guard, speed)
-                            .map_err(|e| DaqError::Instrument(e.to_string()))
-                    })
+                    ffi_timeout::ffi_with_timeout_daq(
+                        "set_fan_speed",
+                        ffi_timeout::CONFIG_TIMEOUT,
+                        move || {
+                            PvcamFeatures::set_fan_speed(&conn_guard, speed)
+                                .map_err(|e| DaqError::Instrument(e.to_string()))
+                        },
+                    )
                     .await
-                    .map_err(|e| DaqError::Instrument(e.to_string()))?
                 })
             }
         });
@@ -1858,31 +1890,35 @@ impl PvcamDriver {
                     tracing::debug!(param = "trigger_mode", %val, "PVCAM hw_write called");
                     let conn_guard = conn.lock_owned().await;
                     let requested_name = val.clone();
-                    let result = tokio::task::spawn_blocking(move || {
-                        let modes = PvcamFeatures::list_exposure_modes(&conn_guard)
-                            .map_err(|e| DaqError::Instrument(e.to_string()))?;
+                    let result = ffi_timeout::ffi_with_timeout_daq(
+                        "set_trigger_mode",
+                        ffi_timeout::CONFIG_TIMEOUT,
+                        move || {
+                            let modes = PvcamFeatures::list_exposure_modes(&conn_guard)
+                                .map_err(|e| DaqError::Instrument(e.to_string()))?;
 
-                        if let Some((raw, _)) =
-                            modes.iter().find(|(_, name)| name == &requested_name)
-                        {
-                            return PvcamFeatures::set_exposure_mode_raw(&conn_guard, *raw)
-                                .map_err(|e| DaqError::Instrument(e.to_string()));
-                        }
+                            if let Some((raw, _)) =
+                                modes.iter().find(|(_, name)| name == &requested_name)
+                            {
+                                return PvcamFeatures::set_exposure_mode_raw(&conn_guard, *raw)
+                                    .map_err(|e| DaqError::Instrument(e.to_string()));
+                            }
 
-                        // Backward compatibility with legacy static trigger strings.
-                        let legacy_mode = ExposureMode::from_str(&requested_name);
-                        let requested_trimmed = requested_name.trim();
-                        if legacy_mode.as_str().eq_ignore_ascii_case(requested_trimmed) {
-                            return PvcamFeatures::set_exposure_mode(&conn_guard, legacy_mode)
-                                .map_err(|e| DaqError::Instrument(e.to_string()));
-                        }
+                            // Backward compatibility with legacy static trigger strings.
+                            let legacy_mode = ExposureMode::from_str(&requested_name);
+                            let requested_trimmed = requested_name.trim();
+                            if legacy_mode.as_str().eq_ignore_ascii_case(requested_trimmed) {
+                                return PvcamFeatures::set_exposure_mode(&conn_guard, legacy_mode)
+                                    .map_err(|e| DaqError::Instrument(e.to_string()));
+                            }
 
-                        Err(DaqError::Instrument(format!(
-                            "Invalid trigger mode: {requested_name}"
-                        )))
-                    })
-                    .await
-                    .map_err(|e| DaqError::Instrument(e.to_string()))?;
+                            Err(DaqError::Instrument(format!(
+                                "Invalid trigger mode: {}",
+                                requested_name
+                            )))
+                        },
+                    )
+                    .await;
                     tracing::debug!(
                         param = "trigger_mode",
                         success = result.is_ok(),
@@ -1918,12 +1954,15 @@ impl PvcamDriver {
                 Box::pin(async move {
                     let mode = ClearMode::from_str(&val);
                     let conn_guard = conn.lock_owned().await;
-                    tokio::task::spawn_blocking(move || {
-                        PvcamFeatures::set_clear_mode(&conn_guard, mode)
-                            .map_err(|e| DaqError::Instrument(e.to_string()))
-                    })
+                    ffi_timeout::ffi_with_timeout_daq(
+                        "set_clear_mode",
+                        ffi_timeout::CONFIG_TIMEOUT,
+                        move || {
+                            PvcamFeatures::set_clear_mode(&conn_guard, mode)
+                                .map_err(|e| DaqError::Instrument(e.to_string()))
+                        },
+                    )
                     .await
-                    .map_err(|e| DaqError::Instrument(e.to_string()))?
                 })
             }
         });
@@ -1936,12 +1975,15 @@ impl PvcamDriver {
                 Box::pin(async move {
                     let mode = ExposeOutMode::from_str(&val);
                     let conn_guard = conn.lock_owned().await;
-                    tokio::task::spawn_blocking(move || {
-                        PvcamFeatures::set_expose_out_mode(&conn_guard, mode)
-                            .map_err(|e| DaqError::Instrument(e.to_string()))
-                    })
+                    ffi_timeout::ffi_with_timeout_daq(
+                        "set_expose_out_mode",
+                        ffi_timeout::CONFIG_TIMEOUT,
+                        move || {
+                            PvcamFeatures::set_expose_out_mode(&conn_guard, mode)
+                                .map_err(|e| DaqError::Instrument(e.to_string()))
+                        },
+                    )
                     .await
-                    .map_err(|e| DaqError::Instrument(e.to_string()))?
                 })
             }
         });
@@ -1954,12 +1996,15 @@ impl PvcamDriver {
                 Box::pin(async move {
                     let mode = EdgeTrigger::from_str(&val);
                     let conn_guard = conn.lock_owned().await;
-                    tokio::task::spawn_blocking(move || {
-                        PvcamFeatures::set_edge_trigger(&conn_guard, mode)
-                            .map_err(|e| DaqError::Instrument(e.to_string()))
-                    })
+                    ffi_timeout::ffi_with_timeout_daq(
+                        "set_edge_trigger",
+                        ffi_timeout::CONFIG_TIMEOUT,
+                        move || {
+                            PvcamFeatures::set_edge_trigger(&conn_guard, mode)
+                                .map_err(|e| DaqError::Instrument(e.to_string()))
+                        },
+                    )
                     .await
-                    .map_err(|e| DaqError::Instrument(e.to_string()))?
                 })
             }
         });
@@ -1971,12 +2016,15 @@ impl PvcamDriver {
                 let conn = conn.clone();
                 Box::pin(async move {
                     let conn_guard = conn.lock_owned().await;
-                    tokio::task::spawn_blocking(move || {
-                        PvcamFeatures::set_pre_trigger_delay_us(&conn_guard, val)
-                            .map_err(|e| DaqError::Instrument(e.to_string()))
-                    })
+                    ffi_timeout::ffi_with_timeout_daq(
+                        "set_pre_trigger_delay_us",
+                        ffi_timeout::CONFIG_TIMEOUT,
+                        move || {
+                            PvcamFeatures::set_pre_trigger_delay_us(&conn_guard, val)
+                                .map_err(|e| DaqError::Instrument(e.to_string()))
+                        },
+                    )
                     .await
-                    .map_err(|e| DaqError::Instrument(e.to_string()))?
                 })
             }
         });
@@ -1988,12 +2036,15 @@ impl PvcamDriver {
                 let conn = conn.clone();
                 Box::pin(async move {
                     let conn_guard = conn.lock_owned().await;
-                    tokio::task::spawn_blocking(move || {
-                        PvcamFeatures::set_post_trigger_delay_us(&conn_guard, val)
-                            .map_err(|e| DaqError::Instrument(e.to_string()))
-                    })
+                    ffi_timeout::ffi_with_timeout_daq(
+                        "set_post_trigger_delay_us",
+                        ffi_timeout::CONFIG_TIMEOUT,
+                        move || {
+                            PvcamFeatures::set_post_trigger_delay_us(&conn_guard, val)
+                                .map_err(|e| DaqError::Instrument(e.to_string()))
+                        },
+                    )
                     .await
-                    .map_err(|e| DaqError::Instrument(e.to_string()))?
                 })
             }
         });
@@ -2006,12 +2057,15 @@ impl PvcamDriver {
                 Box::pin(async move {
                     let mode = ShutterMode::from_str(&val);
                     let conn_guard = conn.lock_owned().await;
-                    tokio::task::spawn_blocking(move || {
-                        PvcamFeatures::set_shutter_mode(&conn_guard, mode)
-                            .map_err(|e| DaqError::Instrument(e.to_string()))
-                    })
+                    ffi_timeout::ffi_with_timeout_daq(
+                        "set_shutter_mode",
+                        ffi_timeout::CONFIG_TIMEOUT,
+                        move || {
+                            PvcamFeatures::set_shutter_mode(&conn_guard, mode)
+                                .map_err(|e| DaqError::Instrument(e.to_string()))
+                        },
+                    )
                     .await
-                    .map_err(|e| DaqError::Instrument(e.to_string()))?
                 })
             }
         });
@@ -2023,12 +2077,15 @@ impl PvcamDriver {
                 let conn = conn.clone();
                 Box::pin(async move {
                     let conn_guard = conn.lock_owned().await;
-                    tokio::task::spawn_blocking(move || {
-                        PvcamFeatures::set_shutter_open_delay_us(&conn_guard, val)
-                            .map_err(|e| DaqError::Instrument(e.to_string()))
-                    })
+                    ffi_timeout::ffi_with_timeout_daq(
+                        "set_shutter_open_delay_us",
+                        ffi_timeout::CONFIG_TIMEOUT,
+                        move || {
+                            PvcamFeatures::set_shutter_open_delay_us(&conn_guard, val)
+                                .map_err(|e| DaqError::Instrument(e.to_string()))
+                        },
+                    )
                     .await
-                    .map_err(|e| DaqError::Instrument(e.to_string()))?
                 })
             }
         });
@@ -2040,12 +2097,15 @@ impl PvcamDriver {
                 let conn = conn.clone();
                 Box::pin(async move {
                     let conn_guard = conn.lock_owned().await;
-                    tokio::task::spawn_blocking(move || {
-                        PvcamFeatures::set_shutter_close_delay_us(&conn_guard, val)
-                            .map_err(|e| DaqError::Instrument(e.to_string()))
-                    })
+                    ffi_timeout::ffi_with_timeout_daq(
+                        "set_shutter_close_delay_us",
+                        ffi_timeout::CONFIG_TIMEOUT,
+                        move || {
+                            PvcamFeatures::set_shutter_close_delay_us(&conn_guard, val)
+                                .map_err(|e| DaqError::Instrument(e.to_string()))
+                        },
+                    )
                     .await
-                    .map_err(|e| DaqError::Instrument(e.to_string()))?
                 })
             }
         });
@@ -2090,12 +2150,15 @@ impl PvcamDriver {
                         ));
                     }
                     let conn_guard = conn.lock_owned().await;
-                    tokio::task::spawn_blocking(move || {
-                        PvcamFeatures::set_binning(&conn_guard, val.0, val.1)
-                            .map_err(|e| DaqError::Instrument(e.to_string()))
-                    })
+                    ffi_timeout::ffi_with_timeout_daq(
+                        "set_binning",
+                        ffi_timeout::CONFIG_TIMEOUT,
+                        move || {
+                            PvcamFeatures::set_binning(&conn_guard, val.0, val.1)
+                                .map_err(|e| DaqError::Instrument(e.to_string()))
+                        },
+                    )
                     .await
-                    .map_err(|e| DaqError::Instrument(e.to_string()))?
                 })
             }
         });
@@ -2119,20 +2182,24 @@ impl PvcamDriver {
                         ));
                     }
                     let conn_guard = conn.lock_owned().await;
-                    tokio::task::spawn_blocking(move || {
-                        let ports = PvcamFeatures::list_readout_ports(&conn_guard)
-                            .map_err(|e| DaqError::Instrument(e.to_string()))?;
-                        if let Some(port) = ports.iter().find(|p| p.name == name) {
-                            PvcamFeatures::set_readout_port(&conn_guard, port.index)
-                                .map_err(|e| DaqError::Instrument(e.to_string()))
-                        } else {
-                            Err(DaqError::Instrument(format!(
-                                "Invalid readout port: {name}"
-                            )))
-                        }
-                    })
+                    ffi_timeout::ffi_with_timeout_daq(
+                        "set_readout_port",
+                        ffi_timeout::CONFIG_TIMEOUT,
+                        move || {
+                            let ports = PvcamFeatures::list_readout_ports(&conn_guard)
+                                .map_err(|e| DaqError::Instrument(e.to_string()))?;
+                            if let Some(port) = ports.iter().find(|p| p.name == name) {
+                                PvcamFeatures::set_readout_port(&conn_guard, port.index)
+                                    .map_err(|e| DaqError::Instrument(e.to_string()))
+                            } else {
+                                Err(DaqError::Instrument(format!(
+                                    "Invalid readout port: {}",
+                                    name
+                                )))
+                            }
+                        },
+                    )
                     .await
-                    .map_err(|e| DaqError::Instrument(e.to_string()))?
                 })
             }
         });
@@ -2156,18 +2223,24 @@ impl PvcamDriver {
                         ));
                     }
                     let conn_guard = conn.lock_owned().await;
-                    tokio::task::spawn_blocking(move || {
-                        let modes = PvcamFeatures::list_speed_modes(&conn_guard)
-                            .map_err(|e| DaqError::Instrument(e.to_string()))?;
-                        if let Some(mode) = modes.iter().find(|m| m.name == name) {
-                            PvcamFeatures::set_speed_index(&conn_guard, mode.index)
-                                .map_err(|e| DaqError::Instrument(e.to_string()))
-                        } else {
-                            Err(DaqError::Instrument(format!("Invalid speed mode: {name}")))
-                        }
-                    })
+                    ffi_timeout::ffi_with_timeout_daq(
+                        "set_speed_mode",
+                        ffi_timeout::CONFIG_TIMEOUT,
+                        move || {
+                            let modes = PvcamFeatures::list_speed_modes(&conn_guard)
+                                .map_err(|e| DaqError::Instrument(e.to_string()))?;
+                            if let Some(mode) = modes.iter().find(|m| m.name == name) {
+                                PvcamFeatures::set_speed_index(&conn_guard, mode.index)
+                                    .map_err(|e| DaqError::Instrument(e.to_string()))
+                            } else {
+                                Err(DaqError::Instrument(format!(
+                                    "Invalid speed mode: {}",
+                                    name
+                                )))
+                            }
+                        },
+                    )
                     .await
-                    .map_err(|e| DaqError::Instrument(e.to_string()))?
                 })
             }
         });
@@ -2191,18 +2264,21 @@ impl PvcamDriver {
                         ));
                     }
                     let conn_guard = conn.lock_owned().await;
-                    tokio::task::spawn_blocking(move || {
-                        let modes = PvcamFeatures::list_gain_modes(&conn_guard)
-                            .map_err(|e| DaqError::Instrument(e.to_string()))?;
-                        if let Some(mode) = modes.iter().find(|m| m.name == name) {
-                            PvcamFeatures::set_gain_index(&conn_guard, mode.index)
-                                .map_err(|e| DaqError::Instrument(e.to_string()))
-                        } else {
-                            Err(DaqError::Instrument(format!("Invalid gain mode: {name}")))
-                        }
-                    })
+                    ffi_timeout::ffi_with_timeout_daq(
+                        "set_gain_mode",
+                        ffi_timeout::CONFIG_TIMEOUT,
+                        move || {
+                            let modes = PvcamFeatures::list_gain_modes(&conn_guard)
+                                .map_err(|e| DaqError::Instrument(e.to_string()))?;
+                            if let Some(mode) = modes.iter().find(|m| m.name == name) {
+                                PvcamFeatures::set_gain_index(&conn_guard, mode.index)
+                                    .map_err(|e| DaqError::Instrument(e.to_string()))
+                            } else {
+                                Err(DaqError::Instrument(format!("Invalid gain mode: {}", name)))
+                            }
+                        },
+                    )
                     .await
-                    .map_err(|e| DaqError::Instrument(e.to_string()))?
                 })
             }
         });
@@ -2214,12 +2290,15 @@ impl PvcamDriver {
                 let conn = conn.clone();
                 Box::pin(async move {
                     let conn_guard = conn.lock_owned().await;
-                    tokio::task::spawn_blocking(move || {
-                        PvcamFeatures::set_smart_stream_enabled(&conn_guard, val)
-                            .map_err(|e| DaqError::Instrument(e.to_string()))
-                    })
+                    ffi_timeout::ffi_with_timeout_daq(
+                        "set_smart_stream_enabled",
+                        ffi_timeout::CONFIG_TIMEOUT,
+                        move || {
+                            PvcamFeatures::set_smart_stream_enabled(&conn_guard, val)
+                                .map_err(|e| DaqError::Instrument(e.to_string()))
+                        },
+                    )
                     .await
-                    .map_err(|e| DaqError::Instrument(e.to_string()))?
                 })
             }
         });
@@ -2232,12 +2311,15 @@ impl PvcamDriver {
                 Box::pin(async move {
                     let mode = SmartStreamMode::from_str(&val);
                     let conn_guard = conn.lock_owned().await;
-                    tokio::task::spawn_blocking(move || {
-                        PvcamFeatures::set_smart_stream_mode(&conn_guard, mode)
-                            .map_err(|e| DaqError::Instrument(e.to_string()))
-                    })
+                    ffi_timeout::ffi_with_timeout_daq(
+                        "set_smart_stream_mode",
+                        ffi_timeout::CONFIG_TIMEOUT,
+                        move || {
+                            PvcamFeatures::set_smart_stream_mode(&conn_guard, mode)
+                                .map_err(|e| DaqError::Instrument(e.to_string()))
+                        },
+                    )
                     .await
-                    .map_err(|e| DaqError::Instrument(e.to_string()))?
                 })
             }
         });
@@ -2257,12 +2339,15 @@ impl PvcamDriver {
                         return Ok(());
                     }
                     let conn_guard = conn.lock_owned().await;
-                    tokio::task::spawn_blocking(move || {
-                        PvcamFeatures::upload_smart_stream(&conn_guard, &exposures)
-                            .map_err(|e| DaqError::Instrument(e.to_string()))
-                    })
+                    ffi_timeout::ffi_with_timeout_daq(
+                        "upload_smart_stream",
+                        ffi_timeout::CONFIG_TIMEOUT,
+                        move || {
+                            PvcamFeatures::upload_smart_stream(&conn_guard, &exposures)
+                                .map_err(|e| DaqError::Instrument(e.to_string()))
+                        },
+                    )
                     .await
-                    .map_err(|e| DaqError::Instrument(e.to_string()))?
                 })
             }
         });
@@ -2283,12 +2368,15 @@ impl PvcamDriver {
                     _acquisition.set_metadata_decoding(val);
 
                     let conn_guard = conn.lock_owned().await;
-                    tokio::task::spawn_blocking(move || {
-                        PvcamFeatures::set_metadata_enabled(&conn_guard, val)
-                            .map_err(|e| DaqError::Instrument(e.to_string()))
-                    })
+                    ffi_timeout::ffi_with_timeout_daq(
+                        "set_metadata_enabled",
+                        ffi_timeout::CONFIG_TIMEOUT,
+                        move || {
+                            PvcamFeatures::set_metadata_enabled(&conn_guard, val)
+                                .map_err(|e| DaqError::Instrument(e.to_string()))
+                        },
+                    )
                     .await
-                    .map_err(|e| DaqError::Instrument(e.to_string()))?
                 })
             }
         });
@@ -2300,12 +2388,15 @@ impl PvcamDriver {
                 let conn = conn.clone();
                 Box::pin(async move {
                     let conn_guard = conn.lock_owned().await;
-                    tokio::task::spawn_blocking(move || {
-                        PvcamFeatures::set_adc_offset(&conn_guard, val)
-                            .map_err(|e| DaqError::Instrument(e.to_string()))
-                    })
+                    ffi_timeout::ffi_with_timeout_daq(
+                        "set_adc_offset",
+                        ffi_timeout::CONFIG_TIMEOUT,
+                        move || {
+                            PvcamFeatures::set_adc_offset(&conn_guard, val)
+                                .map_err(|e| DaqError::Instrument(e.to_string()))
+                        },
+                    )
                     .await
-                    .map_err(|e| DaqError::Instrument(e.to_string()))?
                 })
             }
         });
@@ -2318,12 +2409,15 @@ impl PvcamDriver {
                 Box::pin(async move {
                     let rotate = FrameRotate::from_str(&val);
                     let conn_guard = conn.lock_owned().await;
-                    tokio::task::spawn_blocking(move || {
-                        PvcamFeatures::set_host_frame_rotate(&conn_guard, rotate)
-                            .map_err(|e| DaqError::Instrument(e.to_string()))
-                    })
+                    ffi_timeout::ffi_with_timeout_daq(
+                        "set_host_frame_rotate",
+                        ffi_timeout::CONFIG_TIMEOUT,
+                        move || {
+                            PvcamFeatures::set_host_frame_rotate(&conn_guard, rotate)
+                                .map_err(|e| DaqError::Instrument(e.to_string()))
+                        },
+                    )
                     .await
-                    .map_err(|e| DaqError::Instrument(e.to_string()))?
                 })
             }
         });
@@ -2336,12 +2430,15 @@ impl PvcamDriver {
                 Box::pin(async move {
                     let flip = FrameFlip::from_str(&val);
                     let conn_guard = conn.lock_owned().await;
-                    tokio::task::spawn_blocking(move || {
-                        PvcamFeatures::set_host_frame_flip(&conn_guard, flip)
-                            .map_err(|e| DaqError::Instrument(e.to_string()))
-                    })
+                    ffi_timeout::ffi_with_timeout_daq(
+                        "set_host_frame_flip",
+                        ffi_timeout::CONFIG_TIMEOUT,
+                        move || {
+                            PvcamFeatures::set_host_frame_flip(&conn_guard, flip)
+                                .map_err(|e| DaqError::Instrument(e.to_string()))
+                        },
+                    )
                     .await
-                    .map_err(|e| DaqError::Instrument(e.to_string()))?
                 })
             }
         });
@@ -2353,12 +2450,15 @@ impl PvcamDriver {
                 let conn = conn.clone();
                 Box::pin(async move {
                     let conn_guard = conn.lock_owned().await;
-                    tokio::task::spawn_blocking(move || {
-                        PvcamFeatures::set_host_frame_summing_enabled(&conn_guard, val)
-                            .map_err(|e| DaqError::Instrument(e.to_string()))
-                    })
+                    ffi_timeout::ffi_with_timeout_daq(
+                        "set_host_frame_summing_enabled",
+                        ffi_timeout::CONFIG_TIMEOUT,
+                        move || {
+                            PvcamFeatures::set_host_frame_summing_enabled(&conn_guard, val)
+                                .map_err(|e| DaqError::Instrument(e.to_string()))
+                        },
+                    )
                     .await
-                    .map_err(|e| DaqError::Instrument(e.to_string()))?
                 })
             }
         });
@@ -2370,12 +2470,15 @@ impl PvcamDriver {
                 let conn = conn.clone();
                 Box::pin(async move {
                     let conn_guard = conn.lock_owned().await;
-                    tokio::task::spawn_blocking(move || {
-                        PvcamFeatures::set_host_frame_summing_count(&conn_guard, val)
-                            .map_err(|e| DaqError::Instrument(e.to_string()))
-                    })
+                    ffi_timeout::ffi_with_timeout_daq(
+                        "set_host_frame_summing_count",
+                        ffi_timeout::CONFIG_TIMEOUT,
+                        move || {
+                            PvcamFeatures::set_host_frame_summing_count(&conn_guard, val)
+                                .map_err(|e| DaqError::Instrument(e.to_string()))
+                        },
+                    )
                     .await
-                    .map_err(|e| DaqError::Instrument(e.to_string()))?
                 })
             }
         });
@@ -2387,12 +2490,15 @@ impl PvcamDriver {
                 let conn = conn.clone();
                 Box::pin(async move {
                     let conn_guard = conn.lock_owned().await;
-                    tokio::task::spawn_blocking(move || {
-                        PvcamFeatures::set_io_address(&conn_guard, val)
-                            .map_err(|e| DaqError::Instrument(e.to_string()))
-                    })
+                    ffi_timeout::ffi_with_timeout_daq(
+                        "set_io_address",
+                        ffi_timeout::CONFIG_TIMEOUT,
+                        move || {
+                            PvcamFeatures::set_io_address(&conn_guard, val)
+                                .map_err(|e| DaqError::Instrument(e.to_string()))
+                        },
+                    )
                     .await
-                    .map_err(|e| DaqError::Instrument(e.to_string()))?
                 })
             }
         });
@@ -2405,12 +2511,15 @@ impl PvcamDriver {
                 let addr = io_address.get();
                 Box::pin(async move {
                     let conn_guard = conn.lock_owned().await;
-                    tokio::task::spawn_blocking(move || {
-                        PvcamFeatures::set_io_direction(&conn_guard, addr, &val)
-                            .map_err(|e| DaqError::Instrument(e.to_string()))
-                    })
+                    ffi_timeout::ffi_with_timeout_daq(
+                        "set_io_direction",
+                        ffi_timeout::CONFIG_TIMEOUT,
+                        move || {
+                            PvcamFeatures::set_io_direction(&conn_guard, addr, &val)
+                                .map_err(|e| DaqError::Instrument(e.to_string()))
+                        },
+                    )
                     .await
-                    .map_err(|e| DaqError::Instrument(e.to_string()))?
                 })
             }
         });
@@ -2423,12 +2532,15 @@ impl PvcamDriver {
                 let addr = io_address.get();
                 Box::pin(async move {
                     let conn_guard = conn.lock_owned().await;
-                    tokio::task::spawn_blocking(move || {
-                        PvcamFeatures::set_io_state(&conn_guard, addr, val)
-                            .map_err(|e| DaqError::Instrument(e.to_string()))
-                    })
+                    ffi_timeout::ffi_with_timeout_daq(
+                        "set_io_state",
+                        ffi_timeout::CONFIG_TIMEOUT,
+                        move || {
+                            PvcamFeatures::set_io_state(&conn_guard, addr, val)
+                                .map_err(|e| DaqError::Instrument(e.to_string()))
+                        },
+                    )
                     .await
-                    .map_err(|e| DaqError::Instrument(e.to_string()))?
                 })
             }
         });
@@ -2441,12 +2553,15 @@ impl PvcamDriver {
                 Box::pin(async move {
                     let mode = pmode_from_name(&val);
                     let conn_guard = conn.lock_owned().await;
-                    tokio::task::spawn_blocking(move || {
-                        PvcamFeatures::set_pmode(&conn_guard, mode)
-                            .map_err(|e| DaqError::Instrument(e.to_string()))
-                    })
+                    ffi_timeout::ffi_with_timeout_daq(
+                        "set_pmode",
+                        ffi_timeout::CONFIG_TIMEOUT,
+                        move || {
+                            PvcamFeatures::set_pmode(&conn_guard, mode)
+                                .map_err(|e| DaqError::Instrument(e.to_string()))
+                        },
+                    )
                     .await
-                    .map_err(|e| DaqError::Instrument(e.to_string()))?
                 })
             }
         });
@@ -2463,13 +2578,16 @@ impl PvcamDriver {
                         _ => 0.0,       // Stop (default)
                     };
                     let conn_guard = conn.lock_owned().await;
-                    tokio::task::spawn_blocking(move || {
-                        // Use address 0 (default); PVCAM 3.x parameter-based API (bd-lkci)
-                        PvcamFeatures::io_control(&conn_guard, 0, "Output", state)
-                            .map_err(|e| DaqError::Instrument(e.to_string()))
-                    })
+                    ffi_timeout::ffi_with_timeout_daq(
+                        "io_control",
+                        ffi_timeout::CONFIG_TIMEOUT,
+                        move || {
+                            // Use address 0 (default); PVCAM 3.x parameter-based API (bd-lkci)
+                            PvcamFeatures::io_control(&conn_guard, 0, "Output", state)
+                                .map_err(|e| DaqError::Instrument(e.to_string()))
+                        },
+                    )
                     .await
-                    .map_err(|e| DaqError::Instrument(e.to_string()))?
                 })
             }
         });
@@ -2482,12 +2600,15 @@ impl PvcamDriver {
                 Box::pin(async move {
                     let conn_guard = conn.lock_owned().await;
                     let mode = LogicOutput::from_str(&val);
-                    tokio::task::spawn_blocking(move || {
-                        PvcamFeatures::set_logic_output(&conn_guard, mode)
-                            .map_err(|e| DaqError::Instrument(e.to_string()))
-                    })
+                    ffi_timeout::ffi_with_timeout_daq(
+                        "set_logic_output",
+                        ffi_timeout::CONFIG_TIMEOUT,
+                        move || {
+                            PvcamFeatures::set_logic_output(&conn_guard, mode)
+                                .map_err(|e| DaqError::Instrument(e.to_string()))
+                        },
+                    )
                     .await
-                    .map_err(|e| DaqError::Instrument(e.to_string()))?
                 })
             }
         });
@@ -2499,12 +2620,15 @@ impl PvcamDriver {
                 let conn = conn.clone();
                 Box::pin(async move {
                     let conn_guard = conn.lock_owned().await;
-                    tokio::task::spawn_blocking(move || {
-                        PvcamFeatures::set_logic_output_invert(&conn_guard, val)
-                            .map_err(|e| DaqError::Instrument(e.to_string()))
-                    })
+                    ffi_timeout::ffi_with_timeout_daq(
+                        "set_logic_output_invert",
+                        ffi_timeout::CONFIG_TIMEOUT,
+                        move || {
+                            PvcamFeatures::set_logic_output_invert(&conn_guard, val)
+                                .map_err(|e| DaqError::Instrument(e.to_string()))
+                        },
+                    )
                     .await
-                    .map_err(|e| DaqError::Instrument(e.to_string()))?
                 })
             }
         });
@@ -2517,12 +2641,15 @@ impl PvcamDriver {
                     let conn = conn.clone();
                     Box::pin(async move {
                         let conn_guard = conn.lock_owned().await;
-                        tokio::task::spawn_blocking(move || {
-                            PvcamFeatures::set_prime_enhance(&conn_guard, val)
-                                .map_err(|e| DaqError::Instrument(e.to_string()))
-                        })
+                        ffi_timeout::ffi_with_timeout_daq(
+                            "set_prime_enhance",
+                            ffi_timeout::CONFIG_TIMEOUT,
+                            move || {
+                                PvcamFeatures::set_prime_enhance(&conn_guard, val)
+                                    .map_err(|e| DaqError::Instrument(e.to_string()))
+                            },
+                        )
                         .await
-                        .map_err(|e| DaqError::Instrument(e.to_string()))?
                     })
                 }
             });
@@ -2536,12 +2663,15 @@ impl PvcamDriver {
                     let conn = conn.clone();
                     Box::pin(async move {
                         let conn_guard = conn.lock_owned().await;
-                        tokio::task::spawn_blocking(move || {
-                            PvcamFeatures::set_prime_locate(&conn_guard, val)
-                                .map_err(|e| DaqError::Instrument(e.to_string()))
-                        })
+                        ffi_timeout::ffi_with_timeout_daq(
+                            "set_prime_locate",
+                            ffi_timeout::CONFIG_TIMEOUT,
+                            move || {
+                                PvcamFeatures::set_prime_locate(&conn_guard, val)
+                                    .map_err(|e| DaqError::Instrument(e.to_string()))
+                            },
+                        )
                         .await
-                        .map_err(|e| DaqError::Instrument(e.to_string()))?
                     })
                 }
             });
@@ -2585,10 +2715,10 @@ impl PvcamDriver {
                             let speed_names: Vec<String> =
                                 port.speeds.iter().map(|s| s.name.clone()).collect();
                             speed_mode.inner().update_choices(speed_names.clone());
-                            if !speed_names.iter().any(|n| *n == speed_mode.get()) {
-                                if let Some(first) = speed_names.first() {
-                                    let _ = speed_mode.set(first.clone()).await;
-                                }
+                            if !speed_names.iter().any(|n| *n == speed_mode.get())
+                                && let Some(first) = speed_names.first()
+                            {
+                                let _ = speed_mode.set(first.clone()).await;
                             }
 
                             // Cascade to gain
@@ -2604,10 +2734,10 @@ impl PvcamDriver {
                                 let gain_names: Vec<String> =
                                     speed.gains.iter().map(|g| g.name.clone()).collect();
                                 gain_mode.inner().update_choices(gain_names.clone());
-                                if !gain_names.iter().any(|n| *n == gain_mode.get()) {
-                                    if let Some(first) = gain_names.first() {
-                                        let _ = gain_mode.set(first.clone()).await;
-                                    }
+                                if !gain_names.iter().any(|n| *n == gain_mode.get())
+                                    && let Some(first) = gain_names.first()
+                                {
+                                    let _ = gain_mode.set(first.clone()).await;
                                 }
 
                                 let _ = bit_depth
@@ -2647,32 +2777,31 @@ impl PvcamDriver {
                 let new_speed = new_speed.clone();
                 tokio::spawn(async move {
                     let current_port = readout_port.get();
-                    if let Some(port) = table.ports.iter().find(|p| p.name == current_port) {
-                        if let Some(speed) =
+                    if let Some(port) = table.ports.iter().find(|p| p.name == current_port)
+                        && let Some(speed) =
                             port.speeds.iter().find(|s| s.name == new_speed).cloned()
+                    {
+                        let gain_names: Vec<String> =
+                            speed.gains.iter().map(|g| g.name.clone()).collect();
+                        gain_mode.inner().update_choices(gain_names.clone());
+                        if !gain_names.iter().any(|n| *n == gain_mode.get())
+                            && let Some(first) = gain_names.first()
                         {
-                            let gain_names: Vec<String> =
-                                speed.gains.iter().map(|g| g.name.clone()).collect();
-                            gain_mode.inner().update_choices(gain_names.clone());
-                            if !gain_names.iter().any(|n| *n == gain_mode.get()) {
-                                if let Some(first) = gain_names.first() {
-                                    let _ = gain_mode.set(first.clone()).await;
-                                }
-                            }
-
-                            let _ = bit_depth
-                                .set_from_hardware({
-                                    #[allow(clippy::cast_sign_loss)]
-                                    // SAFETY: PVCAM bit_depth is always positive (8, 12, 16)
-                                    {
-                                        speed.bit_depth as u16
-                                    }
-                                })
-                                .await;
-                            let _ = pixel_time_ns
-                                .set_from_hardware(u32::from(speed.pix_time_ns))
-                                .await;
+                            let _ = gain_mode.set(first.clone()).await;
                         }
+
+                        let _ = bit_depth
+                            .set_from_hardware({
+                                #[allow(clippy::cast_sign_loss)]
+                                // SAFETY: PVCAM bit_depth is always positive (8, 12, 16)
+                                {
+                                    speed.bit_depth as u16
+                                }
+                            })
+                            .await;
+                        let _ = pixel_time_ns
+                            .set_from_hardware(u32::from(speed.pix_time_ns))
+                            .await;
                     }
                 });
             })
@@ -2686,10 +2815,10 @@ impl PvcamDriver {
             let port_names: Vec<String> = table.ports.iter().map(|p| p.name.clone()).collect();
             self.readout_port.inner().update_choices(port_names.clone());
 
-            if !port_names.iter().any(|n| *n == self.readout_port.get()) {
-                if let Some(first) = port_names.first() {
-                    let _ = self.readout_port.set(first.clone()).await;
-                }
+            if !port_names.iter().any(|n| *n == self.readout_port.get())
+                && let Some(first) = port_names.first()
+            {
+                let _ = self.readout_port.set(first.clone()).await;
             }
 
             let selected_port_name = self.readout_port.get();
@@ -2703,10 +2832,10 @@ impl PvcamDriver {
             if let Some(port) = selected_port {
                 let speed_names: Vec<String> = port.speeds.iter().map(|s| s.name.clone()).collect();
                 self.speed_mode.inner().update_choices(speed_names.clone());
-                if !speed_names.iter().any(|n| *n == self.speed_mode.get()) {
-                    if let Some(first) = speed_names.first() {
-                        let _ = self.speed_mode.set(first.clone()).await;
-                    }
+                if !speed_names.iter().any(|n| *n == self.speed_mode.get())
+                    && let Some(first) = speed_names.first()
+                {
+                    let _ = self.speed_mode.set(first.clone()).await;
                 }
 
                 let selected_speed_name = self.speed_mode.get();
@@ -2721,10 +2850,10 @@ impl PvcamDriver {
                     let gain_names: Vec<String> =
                         speed.gains.iter().map(|g| g.name.clone()).collect();
                     self.gain_mode.inner().update_choices(gain_names.clone());
-                    if !gain_names.iter().any(|n| *n == self.gain_mode.get()) {
-                        if let Some(first) = gain_names.first() {
-                            let _ = self.gain_mode.set(first.clone()).await;
-                        }
+                    if !gain_names.iter().any(|n| *n == self.gain_mode.get())
+                        && let Some(first) = gain_names.first()
+                    {
+                        let _ = self.gain_mode.set(first.clone()).await;
                     }
 
                     // Update read-only info parameters when available
@@ -2799,15 +2928,14 @@ impl PvcamDriver {
                 tracing::debug!("Populating trigger mode choices: {:?}", names);
                 self.trigger_mode.inner().update_choices(names.clone());
 
-                if let Ok(current_raw) = current_raw_result {
-                    if let Some((_, current_name)) =
+                if let Ok(current_raw) = current_raw_result
+                    && let Some((_, current_name)) =
                         modes.iter().find(|(raw, _)| *raw == current_raw)
-                    {
-                        let _ = self
-                            .trigger_mode
-                            .set_from_hardware(current_name.clone())
-                            .await;
-                    }
+                {
+                    let _ = self
+                        .trigger_mode
+                        .set_from_hardware(current_name.clone())
+                        .await;
                 }
             }
             Err(e) => {
@@ -3022,27 +3150,31 @@ impl PvcamDriver {
         let camera_name = self.camera_name.clone();
         let connection = self.connection.clone();
 
-        tokio::task::spawn_blocking(move || -> Result<()> {
-            let mut conn = connection.blocking_lock();
+        ffi_timeout::ffi_with_timeout(
+            "PVCAM reinitialize",
+            ffi_timeout::INIT_TIMEOUT,
+            move || -> Result<()> {
+                let mut conn = connection.blocking_lock();
 
-            // Close existing connection
-            conn.close();
+                // Close existing connection
+                conn.close();
 
-            // Full SDK teardown (bd-a2iv): uninitialize() decrements ref count and
-            // calls pl_pvcam_uninit() if we're the last connection. This ensures
-            // the SDK is fully reset, not just the camera handle.
-            conn.uninitialize();
+                // Full SDK teardown (bd-a2iv): uninitialize() decrements ref count and
+                // calls pl_pvcam_uninit() if we're the last connection. This ensures
+                // the SDK is fully reset, not just the camera handle.
+                conn.uninitialize();
 
-            // Reinitialize SDK (ref counting handles multiple instances)
-            conn.initialize()?;
+                // Reinitialize SDK (ref counting handles multiple instances)
+                conn.initialize()?;
 
-            // Reopen camera
-            conn.open(&camera_name)?;
+                // Reopen camera
+                conn.open(&camera_name)?;
 
-            tracing::info!("Camera reconnected successfully");
-            Ok(())
-        })
-        .await??;
+                tracing::info!("Camera reconnected successfully");
+                Ok(())
+            },
+        )
+        .await?;
 
         // 4. Reload camera info (temperature, etc. may have changed)
         let conn = self.connection.lock().await;
@@ -3136,6 +3268,20 @@ impl FrameProducer for PvcamDriver {
             smart_stream_enabled: self.smart_stream_enabled.clone(),
             smart_stream_exposures: self.smart_stream_exposures.clone(),
             prime_locate_enabled: self.prime_locate_enabled.clone(),
+            prime_enhance_enabled: self.prime_enhance_enabled.clone(),
+            multi_roi_regions: {
+                use crate::components::acquisition::RoiRegion;
+                let json = self.multi_roi_config.get();
+                if json.trim().is_empty() || json == "[]" {
+                    vec![]
+                } else {
+                    // Parse with sensor bounds validation (2048x2048 for Prime BSI)
+                    RoiRegion::parse_json(&json, 2048, 2048).unwrap_or_else(|e| {
+                        tracing::warn!("Invalid multi_roi_config, using single ROI: {e}");
+                        vec![]
+                    })
+                }
+            },
         };
         self.acquisition.start_stream(&conn, config).await
     }

@@ -102,7 +102,10 @@ impl ImageViewerPanel {
                 true
             }
             Err(e) => {
-                tracing::error!("Failed to spawn RGBA converter thread: {}. Falling back to synchronous conversion.", e);
+                tracing::error!(
+                    "Failed to spawn RGBA converter thread: {}. Falling back to synchronous conversion.",
+                    e
+                );
                 self.rgba_sync_mode = true;
                 false
             }

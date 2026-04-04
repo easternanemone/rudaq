@@ -7,8 +7,8 @@
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
-use crate::error::Result;
 use crate::DaqDb;
+use crate::error::Result;
 
 // ---------------------------------------------------------------------------
 // DB-native types
@@ -290,7 +290,7 @@ impl DaqDb {
     ) -> Result<
         impl futures::Stream<
             Item = std::result::Result<surrealdb::Notification<DbInstrument>, surrealdb::Error>,
-        >,
+        > + use<>,
     > {
         let stream = self.client().select("instrument").live().await?;
         Ok(stream)

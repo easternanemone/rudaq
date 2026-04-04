@@ -11,11 +11,11 @@
 
 #![allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 
-use echelle::optimal_extraction::{optimal_extract, OptimalExtractionConfig};
-use echelle::rectification::{rectify_all_orders, rectify_order, OrderSpec, RectifyConfig};
-use echelle::scattered_light::{subtract_scattered_light, ScatteredLightConfig, TraceInfo};
+use echelle::optimal_extraction::{OptimalExtractionConfig, optimal_extract};
+use echelle::rectification::{OrderSpec, RectifyConfig, rectify_all_orders, rectify_order};
+use echelle::scattered_light::{ScatteredLightConfig, TraceInfo, subtract_scattered_light};
 use echelle::types::{EchelleTraceModel, PolynomialBasis};
 
 // ── Synthetic data builders ─────────────────────────────────────────────────

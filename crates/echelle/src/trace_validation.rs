@@ -215,11 +215,7 @@ fn eval_trace_at(trace: &EchelleTraceModel, x: f64) -> Option<f64> {
                     acc
                 }
             };
-            if val.is_finite() {
-                Some(val)
-            } else {
-                None
-            }
+            if val.is_finite() { Some(val) } else { None }
         }
     }
 }
@@ -292,7 +288,7 @@ fn apply_spacing_filter(measurements: &[TraceMeasurement], keep: &mut [bool], si
     let alive: Vec<usize> = keep
         .iter()
         .enumerate()
-        .filter(|(_, &k)| k)
+        .filter(|&(_, &k)| k)
         .map(|(j, _)| j)
         .collect();
     if alive.len() < 3 {
@@ -447,7 +443,7 @@ mod tests {
     fn snr_filter_rejects_faint_traces() {
         let traces = vec![flat_trace(50.0), flat_trace(150.0)];
         let mut frame = vec![100.0f32; 200 * 200]; // background = 100
-                                                   // Make the first trace bright, leave the second at background level.
+        // Make the first trace bright, leave the second at background level.
         for col in 0..200usize {
             for offset in -4i32..=4 {
                 let row = (50 + offset) as usize;

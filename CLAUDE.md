@@ -8,12 +8,29 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Agents MUST NOT work directly on `main` in the primary checkout.** Always use a worktree or feature branch to avoid destroying concurrent work. Use `isolation: "worktree"` when spawning sub-agents, or `bd worktree create <name>` for manual work. Never squash-merge large changes directly onto main — use feature branches. See AGENTS.md "Worktree Isolation" section for full rules.
 
+## Disk Safety (MANDATORY for Agents)
+
+**The shared target directory in `.cargo/config.toml` (`target-dir = ".../target"`) is load-bearing.** All worktrees reuse the primary checkout's `target/` instead of each creating a 10-15GB copy. Without this, 4 parallel agents consume 40-60GB and exhaust disk quota.
+
+**Rules:**
+- **NEVER** run `cargo clean` in a worktree — it wipes the shared target
+- **NEVER** remove or override `target-dir` in `.cargo/config.toml`
+- **Before launching >2 parallel worktree agents**, check `df -h /` — need at least 15GB free
+- **After agents complete**, merge branches immediately, then remove worktrees (`git worktree remove`)
+- If disk fills: use Serena MCP `execute_shell_command` to clean up (Bash tool fails when disk is full because it needs to create output files in /tmp)
+
 ## PR Policy
 
-**Multi-crate refactors and large changes MUST go through PRs**, not direct pushes to main:
-- **Requires PR**: >100 lines changed, >3 files, cross-crate changes, changes to foundational crates (`common`, `hardware`, `pool`, `protocol`)
-- **Direct push OK**: Single-crate fixes <100 lines, documentation-only, config changes, test-only changes
-- When in doubt, open a PR. Use `gh pr create` with a clear summary and test plan.
+**NEVER push directly to main.** All changes go through feature branches and PRs:
+
+1. **Before writing code**: Create a feature branch (`git checkout -b feat/<issue-id>-description`)
+2. **Commit to the branch**, not main
+3. **Push branch and create PR**: `git push -u origin feat/... && gh pr create`
+4. **Only merge after review** (automated reviewers count: CodeRabbit, Qodo, Copilot)
+
+**The ONLY exception** for direct-to-main: single-file fixes under 20 lines (typos, config tweaks).
+
+**If you accidentally pushed to main**: Create a GitHub issue documenting the commits for post-merge review (see TheFermiSea/rust-daq#505 as an example of what NOT to do).
 
 ## Build / Test / Lint
 

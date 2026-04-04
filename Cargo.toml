@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/common",
+    "crates/common-traits",
     "crates/echelle",
     "crates/client",
     "crates/pool",
@@ -28,6 +29,9 @@ members = [
     "crates/ui-slint",
 ]
 exclude = []
+
+[workspace.package]
+rust-version = "1.85.0"
 
 # Shared dependency versions across all crates
 [workspace.dependencies]

@@ -1,17 +1,53 @@
 //! Parameter hardware callback attachment and dynamic feature registration.
+//!
+//! # Canonical `Parameter<T>` Registration Pattern
+//!
+//! Parameters are registered into a [`ParameterSet`] using the following pattern:
+//!
+//! 1. **Construct** a typed `Parameter<T>` with a name and default value:
+//!    ```rust,ignore
+//!    let mut param = Parameter::new("FeatureName".to_string(), 0.0f64)
+//!        .with_description("Human-readable description");
+//!    ```
+//!
+//! 2. **Attach metadata** (range, choices, dtype, read-only flag) as needed:
+//!    ```rust,ignore
+//!    param = param.with_range_introspectable(min, max);
+//!    param = param.read_only(); // if the hardware feature is not writable
+//!    ```
+//!
+//! 3. **Connect a `hardware_writer` callback** (hardware mode only) so that
+//!    writing the parameter propagates the value to the physical device:
+//!    ```rust,ignore
+//!    param.connect_to_hardware_write(move |val: f64| {
+//!        let fname = fname.clone();
+//!        Box::pin(async move {
+//!            // Call the SDK / FFI layer here, e.g.:
+//!            AndorCamera::set_float_feature(handle, &fname, val).await
+//!        })
+//!    });
+//!    ```
+//!
+//! 4. **Register** the fully-configured parameter into the set:
+//!    ```rust,ignore
+//!    params.register(param);
+//!    ```
+//!
+//! The `hardware_writer` closure is **only wired in hardware mode** (guarded by
+//! `#[cfg(feature = "camera")]`). In mock/test mode the parameter still exists
+//! and holds state in memory, but writes are no-ops at the hardware boundary.
 
 use super::AndorCamera;
 #[cfg(feature = "camera")]
 use super::{pause_apply_restart, sdk_blocking};
 use crate::types::{ElectronicShutteringMode, GateMode, TriggerMode};
 use common::core::Roi;
-use common::error::DaqError;
 use common::observable::ParameterSet;
 use common::parameter::Parameter;
 #[cfg(feature = "camera")]
-use std::sync::atomic::AtomicBool;
-#[cfg(feature = "camera")]
 use std::sync::Arc;
+#[cfg(feature = "camera")]
+use std::sync::atomic::AtomicBool;
 
 #[cfg(feature = "camera")]
 use andor_sdk3_sys::AT_H;
@@ -67,14 +103,12 @@ impl AndorCamera {
                             param.connect_to_hardware_write(move |val: f64| {
                                 let fname = fname.clone();
                                 Box::pin(async move {
-                                    tokio::task::spawn_blocking(move || {
-                                        AndorCamera::set_float_feature(handle, &fname, val)
-                                    })
+                                    crate::ffi_timeout::ffi_call_daq(
+                                        move || AndorCamera::set_float_feature(handle, &fname, val),
+                                        crate::ffi_timeout::FFI_CONFIG_TIMEOUT,
+                                        "dynamic:set_float",
+                                    )
                                     .await
-                                    .map_err(|e| {
-                                        DaqError::Instrument(format!("spawn_blocking: {e}"))
-                                    })?
-                                    .map_err(|e| DaqError::Instrument(e.to_string()))
                                 })
                             });
                         }
@@ -103,14 +137,12 @@ impl AndorCamera {
                             param.connect_to_hardware_write(move |val: i64| {
                                 let fname = fname.clone();
                                 Box::pin(async move {
-                                    tokio::task::spawn_blocking(move || {
-                                        AndorCamera::set_int_feature(handle, &fname, val)
-                                    })
+                                    crate::ffi_timeout::ffi_call_daq(
+                                        move || AndorCamera::set_int_feature(handle, &fname, val),
+                                        crate::ffi_timeout::FFI_CONFIG_TIMEOUT,
+                                        "dynamic:set_int",
+                                    )
                                     .await
-                                    .map_err(|e| {
-                                        DaqError::Instrument(format!("spawn_blocking: {e}"))
-                                    })?
-                                    .map_err(|e| DaqError::Instrument(e.to_string()))
                                 })
                             });
                         }
@@ -135,14 +167,12 @@ impl AndorCamera {
                             param.connect_to_hardware_write(move |val: bool| {
                                 let fname = fname.clone();
                                 Box::pin(async move {
-                                    tokio::task::spawn_blocking(move || {
-                                        AndorCamera::set_bool_feature(handle, &fname, val)
-                                    })
+                                    crate::ffi_timeout::ffi_call_daq(
+                                        move || AndorCamera::set_bool_feature(handle, &fname, val),
+                                        crate::ffi_timeout::FFI_CONFIG_TIMEOUT,
+                                        "dynamic:set_bool",
+                                    )
                                     .await
-                                    .map_err(|e| {
-                                        DaqError::Instrument(format!("spawn_blocking: {e}"))
-                                    })?
-                                    .map_err(|e| DaqError::Instrument(e.to_string()))
                                 })
                             });
                         }
@@ -170,14 +200,12 @@ impl AndorCamera {
                             param.connect_to_hardware_write(move |val: String| {
                                 let fname = fname.clone();
                                 Box::pin(async move {
-                                    tokio::task::spawn_blocking(move || {
-                                        AndorCamera::set_enum_feature(handle, &fname, &val)
-                                    })
+                                    crate::ffi_timeout::ffi_call_daq(
+                                        move || AndorCamera::set_enum_feature(handle, &fname, &val),
+                                        crate::ffi_timeout::FFI_CONFIG_TIMEOUT,
+                                        "dynamic:set_enum",
+                                    )
                                     .await
-                                    .map_err(|e| {
-                                        DaqError::Instrument(format!("spawn_blocking: {e}"))
-                                    })?
-                                    .map_err(|e| DaqError::Instrument(e.to_string()))
                                 })
                             });
                         }

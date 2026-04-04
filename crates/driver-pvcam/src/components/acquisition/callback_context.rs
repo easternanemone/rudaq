@@ -204,11 +204,7 @@ impl CallbackContext {
         let _ = self
             .pending_frames
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
-                if n > 0 {
-                    Some(n - 1)
-                } else {
-                    None
-                }
+                if n > 0 { Some(n - 1) } else { None }
             });
     }
 

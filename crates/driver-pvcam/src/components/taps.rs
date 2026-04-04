@@ -57,8 +57,8 @@ use common::capabilities::FrameObserver;
 use common::data::Frame;
 use parking_lot::RwLock;
 use pool::FrameData;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 // ============================================================================
 // FrameTap Trait

@@ -13,7 +13,7 @@ use driver_registry::{create_registry_from_config, register_all_factories};
 use hardware::registry::HardwareConfig;
 
 #[cfg(feature = "db-surreal-mem")]
-use db::config_store::{toml_to_json, DbDriver, DbInstrument};
+use db::config_store::{DbDriver, DbInstrument, toml_to_json};
 #[cfg(feature = "db-surreal-mem")]
 use db::{DaqDb, DbConfig};
 #[cfg(feature = "db-surreal-mem")]

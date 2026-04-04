@@ -25,7 +25,7 @@
 
 use common::driver::DriverFactory;
 use common::error::DaqError;
-use hardware::registry::{register_mock_factories, DeviceRegistry, HardwareConfig};
+use hardware::registry::{DeviceRegistry, HardwareConfig, register_mock_factories};
 
 // ============================================================================
 // Runtime SDK probing (feature: runtime_probe)
@@ -191,23 +191,23 @@ pub async fn register_all_factories(
     }
 
     // Load and register config-driven factories from TOML files (schema_version=3)
-    if let Some(dir) = config_dir {
-        if dir.exists() {
-            match driver_universal::factory::load_all_factories(dir) {
-                Ok(factories) => {
-                    for factory in factories {
-                        let driver_type = factory.driver_type().to_string();
-                        registry.register_factory(Box::new(factory));
-                        tracing::debug!(driver_type = %driver_type, "Registered universal config factory");
-                    }
+    if let Some(dir) = config_dir
+        && dir.exists()
+    {
+        match driver_universal::factory::load_all_factories(dir) {
+            Ok(factories) => {
+                for factory in factories {
+                    let driver_type = factory.driver_type().to_string();
+                    registry.register_factory(Box::new(factory));
+                    tracing::debug!(driver_type = %driver_type, "Registered universal config factory");
                 }
-                Err(e) => {
-                    tracing::warn!(
-                        "Failed to load config factories from {}: {}",
-                        dir.display(),
-                        e
-                    );
-                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to load config factories from {}: {}",
+                    dir.display(),
+                    e
+                );
             }
         }
     }

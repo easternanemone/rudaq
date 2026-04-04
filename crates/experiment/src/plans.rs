@@ -37,6 +37,7 @@
 
 use std::collections::HashMap;
 
+use common::device_id::DeviceId;
 use serde::{Deserialize, Serialize};
 
 /// Comparison operators for device reading comparisons.
@@ -74,7 +75,7 @@ pub enum EvalCondition {
     /// Check if a value exceeds a threshold
     Threshold {
         /// Device ID to check
-        device_id: String,
+        device_id: DeviceId,
         /// Field name (e.g., "intensity")
         field: String,
         /// Threshold value
@@ -85,11 +86,11 @@ pub enum EvalCondition {
     /// Compare two device readings
     Comparison {
         /// Left-hand device
-        left_device_id: String,
+        left_device_id: DeviceId,
         /// Left field name
         left_field: String,
         /// Right-hand device
-        right_device_id: String,
+        right_device_id: DeviceId,
         /// Right field name
         right_field: String,
         /// Comparison operator
@@ -103,19 +104,19 @@ pub enum PlanCommand {
     /// Move a device to an absolute position
     MoveTo {
         /// Device ID to move
-        device_id: String,
+        device_id: DeviceId,
         /// Target position
         position: f64,
     },
     /// Read a value from a device
     Read {
         /// Device to read
-        device_id: String,
+        device_id: DeviceId,
     },
     /// Trigger a device (e.g., start camera acquisition)
     Trigger {
         /// Device to trigger
-        device_id: String,
+        device_id: DeviceId,
     },
     /// Wait for a duration in seconds
     Wait {
@@ -143,7 +144,7 @@ pub enum PlanCommand {
     /// Set a device parameter
     Set {
         /// Device to set
-        device_id: String,
+        device_id: DeviceId,
         /// Parameter name
         parameter: String,
         /// Value to set
@@ -161,7 +162,7 @@ pub enum PlanCommand {
     /// Wait until a device reports settled/stable
     WaitSettled {
         /// Device to wait on
-        device_id: String,
+        device_id: DeviceId,
         /// Maximum time to wait in seconds
         timeout_seconds: f64,
     },
@@ -326,7 +327,7 @@ impl Plan for LineScan {
                     LineScanStep::Checkpoint
                 };
                 PlanCommand::MoveTo {
-                    device_id: self.axis.clone(),
+                    device_id: DeviceId::from(self.axis.as_str()),
                     position: pos,
                 }
             }
@@ -347,7 +348,11 @@ impl Plan for LineScan {
                 self.current_step = LineScanStep::ReadDetectors { detector_idx: 0 };
                 // For simplicity, emit a single trigger command
                 // In a more sophisticated implementation, this would trigger each detector
-                let Some(det) = self.detectors.first() else {
+                if let Some(det) = self.detectors.first() {
+                    PlanCommand::Trigger {
+                        device_id: DeviceId::from(det.as_str()),
+                    }
+                } else {
                     // No detectors, skip to emit
                     self.current_step = LineScanStep::EmitEvent;
                     return self.next_command();
@@ -363,7 +368,7 @@ impl Plan for LineScan {
                         detector_idx: detector_idx + 1,
                     };
                     PlanCommand::Read {
-                        device_id: det.clone(),
+                        device_id: DeviceId::from(det.as_str()),
                     }
                 } else {
                     self.current_step = LineScanStep::EmitEvent;
@@ -558,7 +563,7 @@ impl Plan for GridScan {
                 let pos = self.outer_position(self.outer_idx);
                 self.current_step = GridScanStep::MoveInner;
                 PlanCommand::MoveTo {
-                    device_id: self.axis_outer.clone(),
+                    device_id: DeviceId::from(self.axis_outer.as_str()),
                     position: pos,
                 }
             }
@@ -570,7 +575,7 @@ impl Plan for GridScan {
                     GridScanStep::Checkpoint
                 };
                 PlanCommand::MoveTo {
-                    device_id: self.axis_inner.clone(),
+                    device_id: DeviceId::from(self.axis_inner.as_str()),
                     position: pos,
                 }
             }
@@ -588,7 +593,11 @@ impl Plan for GridScan {
             }
             GridScanStep::TriggerDetectors => {
                 self.current_step = GridScanStep::ReadDetectors { detector_idx: 0 };
-                let Some(det) = self.detectors.first() else {
+                if let Some(det) = self.detectors.first() {
+                    PlanCommand::Trigger {
+                        device_id: DeviceId::from(det.as_str()),
+                    }
+                } else {
                     self.current_step = GridScanStep::EmitEvent;
                     return self.next_command();
                 };
@@ -603,7 +612,7 @@ impl Plan for GridScan {
                         detector_idx: detector_idx + 1,
                     };
                     PlanCommand::Read {
-                        device_id: det.clone(),
+                        device_id: DeviceId::from(det.as_str()),
                     }
                 } else {
                     self.current_step = GridScanStep::EmitEvent;
@@ -756,7 +765,11 @@ impl Plan for Count {
             }
             CountStep::Trigger => {
                 self.current_step = CountStep::Read { detector_idx: 0 };
-                let Some(det) = self.detectors.first() else {
+                if let Some(det) = self.detectors.first() {
+                    PlanCommand::Trigger {
+                        device_id: DeviceId::from(det.as_str()),
+                    }
+                } else {
                     self.current_step = CountStep::Emit;
                     return self.next_command();
                 };
@@ -771,7 +784,7 @@ impl Plan for Count {
                         detector_idx: detector_idx + 1,
                     };
                     PlanCommand::Read {
-                        device_id: det.clone(),
+                        device_id: DeviceId::from(det.as_str()),
                     }
                 } else {
                     self.current_step = CountStep::Emit;
@@ -1311,14 +1324,14 @@ mod tests {
     fn test_plan_command_serde_round_trip() {
         let commands = vec![
             PlanCommand::MoveTo {
-                device_id: "stage_x".to_string(),
+                device_id: "stage_x".into(),
                 position: 42.5,
             },
             PlanCommand::Read {
-                device_id: "power_meter".to_string(),
+                device_id: "power_meter".into(),
             },
             PlanCommand::Trigger {
-                device_id: "camera".to_string(),
+                device_id: "camera".into(),
             },
             PlanCommand::Wait { seconds: 0.1 },
             PlanCommand::Checkpoint {
@@ -1331,7 +1344,7 @@ mod tests {
                 scan_indices: None,
             },
             PlanCommand::Set {
-                device_id: "laser".to_string(),
+                device_id: "laser".into(),
                 parameter: "wavelength".to_string(),
                 value: "800.0".to_string(),
             },
@@ -1370,17 +1383,17 @@ mod tests {
     fn test_command_replay_plan() {
         let commands = vec![
             PlanCommand::MoveTo {
-                device_id: "stage".to_string(),
+                device_id: "stage".into(),
                 position: 5.0,
             },
             PlanCommand::Checkpoint {
                 label: "pt_0".to_string(),
             },
             PlanCommand::Trigger {
-                device_id: "det".to_string(),
+                device_id: "det".into(),
             },
             PlanCommand::Read {
-                device_id: "det".to_string(),
+                device_id: "det".into(),
             },
             PlanCommand::EmitEvent {
                 stream: "primary".to_string(),
@@ -1389,7 +1402,7 @@ mod tests {
                 scan_indices: None,
             },
             PlanCommand::MoveTo {
-                device_id: "stage".to_string(),
+                device_id: "stage".into(),
                 position: 10.0,
             },
             PlanCommand::EmitEvent {
@@ -1442,13 +1455,13 @@ mod tests {
     fn test_serde_round_trip_conditional_branch() {
         let cmd = PlanCommand::ConditionalBranch {
             condition: EvalCondition::Threshold {
-                device_id: "detector".to_string(),
+                device_id: "detector".into(),
                 field: "intensity".to_string(),
                 threshold: 100.0,
                 above: true,
             },
             then_commands: vec![PlanCommand::MoveTo {
-                device_id: "stage".to_string(),
+                device_id: "stage".into(),
                 position: 5.0,
             }],
             else_commands: vec![PlanCommand::Wait { seconds: 1.0 }],
@@ -1467,7 +1480,7 @@ mod tests {
     #[test]
     fn test_serde_round_trip_wait_settled() {
         let cmd = PlanCommand::WaitSettled {
-            device_id: "stage_x".to_string(),
+            device_id: "stage_x".into(),
             timeout_seconds: 5.0,
         };
 
@@ -1482,15 +1495,15 @@ mod tests {
     fn test_serde_round_trip_repeat_while() {
         let cmd = PlanCommand::RepeatWhile {
             condition: EvalCondition::Comparison {
-                left_device_id: "sensor_a".to_string(),
+                left_device_id: "sensor_a".into(),
                 left_field: "value".to_string(),
-                right_device_id: "sensor_b".to_string(),
+                right_device_id: "sensor_b".into(),
                 right_field: "value".to_string(),
                 operator: ComparisonOp::Lt,
             },
             body: vec![
                 PlanCommand::Read {
-                    device_id: "sensor_a".to_string(),
+                    device_id: "sensor_a".into(),
                 },
                 PlanCommand::Wait { seconds: 0.5 },
             ],
@@ -1507,7 +1520,7 @@ mod tests {
     #[test]
     fn test_serde_round_trip_eval_condition_variants() {
         let threshold = EvalCondition::Threshold {
-            device_id: "det".to_string(),
+            device_id: "det".into(),
             field: "intensity".to_string(),
             threshold: 42.0,
             above: false,
@@ -1521,9 +1534,9 @@ mod tests {
         );
 
         let comparison = EvalCondition::Comparison {
-            left_device_id: "a".to_string(),
+            left_device_id: "a".into(),
             left_field: "val".to_string(),
-            right_device_id: "b".to_string(),
+            right_device_id: "b".into(),
             right_field: "val".to_string(),
             operator: ComparisonOp::Gte,
         };

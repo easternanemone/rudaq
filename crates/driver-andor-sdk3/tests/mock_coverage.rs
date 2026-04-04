@@ -99,8 +99,8 @@ mod mock_camera_unit {
     async fn observer_register_unregister() {
         use common::capabilities::FrameObserver;
         use common::data::FrameView;
-        use std::sync::atomic::{AtomicU64, Ordering};
         use std::sync::Arc;
+        use std::sync::atomic::{AtomicU64, Ordering};
 
         struct CountingObserver {
             count: Arc<AtomicU64>,

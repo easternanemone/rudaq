@@ -14,7 +14,7 @@ use futures::StreamExt;
 use tokio::sync::mpsc;
 
 use crate::device_ext::DeviceInfoExt;
-use crate::widgets::{offline_notice, MetadataEditor, OfflineContext};
+use crate::widgets::{MetadataEditor, OfflineContext, offline_notice};
 use client::DaqClient;
 use protocol::daq::Document;
 

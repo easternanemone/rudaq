@@ -1,0 +1,36 @@
+[package]
+name = "common-traits"
+version = "0.1.0"
+edition = "2024"
+description = "Capability traits, reactive parameters, and driver plugin API extracted from common"
+
+[dependencies]
+pool = { path = "../pool" }
+anyhow.workspace = true
+bytes = { version = "1.11", features = ["serde"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+async-trait.workspace = true
+futures.workspace = true
+parking_lot = "0.12"
+thiserror.workspace = true
+toml.workspace = true
+tracing.workspace = true
+arrow = { version = "57", optional = true, features = ["ipc"] }
+hdf5 = { package = "hdf5-metno", version = "0.12.3", optional = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { workspace = true, features = ["sync", "macros", "rt", "rt-multi-thread", "time"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+tokio = { workspace = true, default-features = false, features = ["sync", "macros", "rt"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros", "test-util"] }
+
+[features]
+storage_hdf5 = ["dep:hdf5"]
+storage_arrow = ["dep:arrow"]
+
+[lints]
+workspace = true

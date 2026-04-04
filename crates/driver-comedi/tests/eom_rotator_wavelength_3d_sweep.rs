@@ -821,8 +821,8 @@ impl Ell14Simple {
         let expected_prefix = format!("{}IN", address);
         let pulses_per_degree = if let Some(idx) = response_str.find(&expected_prefix) {
             let data_start = idx + 3; // After "{addr}IN"
-                                      // ELL14 has 143360 pulses/revolution = 1433.60 pulses/degree
-                                      // The response has: type(2) + serial(8) + year(4) + fwrel(2) + hwrel(2) + travel(4) + pulses(8) = 30 chars
+            // ELL14 has 143360 pulses/revolution = 1433.60 pulses/degree
+            // The response has: type(2) + serial(8) + year(4) + fwrel(2) + hwrel(2) + travel(4) + pulses(8) = 30 chars
             if response_str.len() >= data_start + 30 {
                 let pulses_hex = &response_str[data_start + 22..data_start + 30];
                 // pulses is total pulses per revolution, divide by 100 to get degrees

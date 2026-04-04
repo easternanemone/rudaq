@@ -5,7 +5,7 @@
 //! recompilation.
 
 use crate::manifest_driver::templating::render_command;
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use rand::Rng;
 use regex::Regex;
 use serde_json::Value;
@@ -20,6 +20,7 @@ use common::driver::DeviceLifecycle;
 use common::error::DaqError;
 use common::limits::{self, validate_frame_size};
 use common::observable::ParameterSet; // NEW: For Parameterized trait implementation
+use common::parameter::Parameter;
 use common::serial::DynSerial;
 use futures::future::BoxFuture;
 
@@ -102,6 +103,19 @@ impl crate::capabilities::Parameterized for GenericDriver {
 /// - **Serial**: RS-232, USB-Serial adapters (driver_type: serial_scpi, serial_raw)
 /// - **TCP/IP**: Network instruments (driver_type: tcp_scpi, tcp_raw)
 ///
+/// # Lock Ordering (MUST be followed to prevent deadlock)
+///
+/// When acquiring multiple locks, always acquire in this order:
+/// 1. `connection` (Mutex) -- serializes all hardware I/O
+/// 2. `state` (RwLock) -- runtime capability values
+/// 3. `observers` (RwLock) -- frame observer registrations
+///
+/// In practice, all current methods acquire at most one lock at a time
+/// (acquire, release, then acquire the next if needed). This sequential
+/// pattern inherently satisfies the ordering constraint. If future changes
+/// require holding two locks simultaneously, the ordering above MUST be
+/// followed to prevent deadlock.
+///
 /// # Example
 ///
 /// ```rust,ignore
@@ -117,10 +131,10 @@ pub struct GenericDriver {
     /// Connection wrapped in Arc<Mutex> for interior mutability and cloneability.
     /// This allows `&self` methods while still enabling writes, and enables
     /// the driver to be cloned for use in async lifecycle hooks.
-    connection: std::sync::Arc<Mutex<Connection>>,
+    connection: std::sync::Arc<Mutex<Connection>>, // Lock #1
 
     /// Runtime state storage for capability values.
-    state: std::sync::Arc<RwLock<HashMap<String, Value>>>,
+    state: std::sync::Arc<RwLock<HashMap<String, Value>>>, // Lock #2
 
     /// Compiled regex patterns for error detection.
     error_patterns: Vec<Regex>,
@@ -152,7 +166,7 @@ pub struct GenericDriver {
     /// Frame observers for secondary frame access (taps).
     /// Stores (observer_id, observer) pairs for dispatching on_frame() calls.
     #[allow(clippy::type_complexity)]
-    observers: std::sync::Arc<RwLock<Vec<(u64, Box<dyn crate::capabilities::FrameObserver>)>>>,
+    observers: std::sync::Arc<RwLock<Vec<(u64, Box<dyn crate::capabilities::FrameObserver>)>>>, // Lock #3
 
     /// Monotonic counter for generating unique observer IDs.
     next_observer_id: std::sync::Arc<std::sync::atomic::AtomicU64>,
@@ -219,6 +233,26 @@ impl GenericDriver {
         // Create broadcast channel with capacity for 100 frames
         let (frame_tx, _) = tokio::sync::broadcast::channel(100);
 
+        // Populate ParameterSet from settable capabilities declared in the manifest.
+        // Each settable capability is registered as a Parameter<f64> with metadata
+        // (unit, range) so that the Parameterized trait exposes them for generic access.
+        let mut params = ParameterSet::new();
+        for cap in &config.capabilities.settable {
+            // Derive default from manifest min bound (safe hardware starting
+            // point) instead of hardcoded 0.0 which may be out-of-range.
+            let default_val = cap.min.unwrap_or(0.0);
+            let description: String = ["Settable: ", &cap.name].concat();
+            let mut param =
+                Parameter::new(cap.name.clone(), default_val).with_description(description);
+            if let Some(unit) = &cap.unit {
+                param = param.with_unit(unit.clone());
+            }
+            if let (Some(min), Some(max)) = (cap.min, cap.max) {
+                param = param.with_range(min, max);
+            }
+            params.register(param);
+        }
+
         Ok(Self {
             config,
             connection: std::sync::Arc::new(Mutex::new(connection)),
@@ -228,7 +262,7 @@ impl GenericDriver {
             frame_broadcaster: frame_tx,
             frame_counter: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
             is_streaming: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            parameters: std::sync::Arc::new(ParameterSet::new()),
+            parameters: std::sync::Arc::new(params),
             on_connect_executed: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             observers: std::sync::Arc::new(RwLock::new(Vec::new())),
             next_observer_id: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(1)),
@@ -732,10 +766,10 @@ impl GenericDriver {
         // Try to get from state first (assume cached after first read)
         {
             let state_read = self.state.read().await;
-            if let Some(val) = state_read.get(capability_name) {
-                if let Some(s) = val.as_str() {
-                    return Ok(s.to_string());
-                }
+            if let Some(val) = state_read.get(capability_name)
+                && let Some(s) = val.as_str()
+            {
+                return Ok(s.to_string());
             }
         }
 
@@ -938,15 +972,15 @@ impl GenericDriver {
             .ok_or_else(|| anyhow!("No exposure control capability configured"))?;
 
         // Validate range if specified
-        if let Some(min) = exposure_cap.min_seconds {
-            if seconds < min {
-                return Err(anyhow!("Exposure {seconds} s is below minimum {min} s"));
-            }
+        if let Some(min) = exposure_cap.min_seconds
+            && seconds < min
+        {
+            return Err(anyhow!("Exposure {} s is below minimum {} s", seconds, min));
         }
-        if let Some(max) = exposure_cap.max_seconds {
-            if seconds > max {
-                return Err(anyhow!("Exposure {seconds} s exceeds maximum {max} s"));
-            }
+        if let Some(max) = exposure_cap.max_seconds
+            && seconds > max
+        {
+            return Err(anyhow!("Exposure {} s exceeds maximum {} s", seconds, max));
         }
 
         if is_mocking {
@@ -1058,10 +1092,11 @@ impl GenericDriver {
             .ok_or_else(|| anyhow!("No triggerable capability configured"))?;
 
         if is_mocking {
-            let armed = self
-                .state
-                .read()
-                .await
+            // Use a single write lock for atomic check-and-update to prevent
+            // a TOCTOU race where concurrent callers could both see armed=true
+            // between a read() and a subsequent write().
+            let mut state = self.state.write().await;
+            let armed = state
                 .get("trigger_armed")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
@@ -1070,10 +1105,7 @@ impl GenericDriver {
                 return Err(anyhow!("Device not armed for trigger (mock mode)"));
             }
 
-            self.state
-                .write()
-                .await
-                .insert("trigger_armed".to_string(), Value::from(false));
+            state.insert("trigger_armed".to_string(), Value::from(false));
             return Ok(());
         }
 
@@ -1344,12 +1376,12 @@ impl GenericDriver {
 
         while self.is_streaming.load(std::sync::atomic::Ordering::SeqCst) {
             // Check frame limit
-            if let Some(limit) = frame_limit {
-                if frame_count >= limit {
-                    self.is_streaming
-                        .store(false, std::sync::atomic::Ordering::SeqCst);
-                    break;
-                }
+            if let Some(limit) = frame_limit
+                && frame_count >= limit
+            {
+                self.is_streaming
+                    .store(false, std::sync::atomic::Ordering::SeqCst);
+                break;
             }
 
             // Generate or acquire frame

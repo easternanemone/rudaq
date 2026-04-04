@@ -9,8 +9,8 @@ use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 
 use protocol::daq::{
-    hardware_service_client::HardwareServiceClient, SetExposureRequest, StartStreamRequest,
-    StopStreamRequest, StreamFramesRequest, StreamQuality,
+    SetExposureRequest, StartStreamRequest, StopStreamRequest, StreamFramesRequest, StreamQuality,
+    hardware_service_client::HardwareServiceClient,
 };
 
 /// Maximum gRPC message size (64 MB, matches server config).
@@ -152,6 +152,7 @@ fn write_frame_to_file(
                 image::ExtendedColorType::L8
             };
 
+            #[allow(deprecated)]
             encoder
                 .encode(data, width, height, color_type)
                 .context("TIFF encoding failed")?;

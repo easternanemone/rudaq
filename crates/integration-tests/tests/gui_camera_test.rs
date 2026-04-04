@@ -14,7 +14,7 @@
     missing_docs
 )]
 
-use ui::{app::DaqGuiApp, create_channels, BackendEvent};
+use ui::{BackendEvent, app::DaqGuiApp, create_channels};
 
 #[test]
 fn test_camera_stream_logic_u16() {

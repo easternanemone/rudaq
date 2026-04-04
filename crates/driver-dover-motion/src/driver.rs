@@ -4,7 +4,7 @@
 //! from dover-motion-sys. All blocking FFI calls are wrapped in spawn_blocking
 //! to avoid blocking the tokio runtime.
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use async_trait::async_trait;
 use common::capabilities::{Movable, Parameterized, TriggerOnPosition};
 use common::error::DaqError;

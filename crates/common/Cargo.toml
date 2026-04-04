@@ -1,11 +1,12 @@
 [package]
 name = "common"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 description = "Core types and traits for rust-daq"
 build = "build.rs"
 
 [dependencies]
+common-traits = { path = "../common-traits" }
 bytes = { version = "1.11", features = ["serde"] }
 parking_lot = "0.12"
 serde = { workspace = true, features = ["derive"] }
@@ -25,6 +26,7 @@ fitsio = { version = "0.21", optional = true }
 pool = { path = "../pool" }
 sha2 = "0.10"  # For graph file hashing
 regex-lite = "0.1"  # Lightweight regex for log scrubbing
+fastrand = "2.3"  # Lightweight PRNG for exponential backoff jitter
 
 # Serial port support (optional, for driver crates)
 # serial2-tokio: single crate for async serial + port listing (replaces tokio-serial + serialport)
@@ -50,14 +52,15 @@ tempfile.workspace = true
 tracing-subscriber = "0.3.22"
 tokio = { workspace = true, features = ["rt", "macros", "test-util"] }
 criterion.workspace = true
+echelle = { path = "../echelle" }
 
 [[bench]]
 name = "libs_benchmarks"
 harness = false
 
 [features]
-storage_arrow = ["dep:arrow"]
-storage_hdf5 = ["dep:hdf5"]
+storage_arrow = ["dep:arrow", "common-traits/storage_arrow"]
+storage_hdf5 = ["dep:hdf5", "common-traits/storage_hdf5"]
 serial = ["dep:serial2-tokio"]  # Serial port support for driver crates
 fits = ["dep:fitsio"]  # FITS file I/O for calibration frame import (requires cfitsio C library)
 

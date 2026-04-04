@@ -183,7 +183,7 @@ async fn smoke_hybrid_driver_classification() {
 #[cfg(feature = "db-surreal-mem")]
 mod db_smoke {
     use super::*;
-    use db::config_store::{toml_to_json, DbDriver, DbInstrument};
+    use db::config_store::{DbDriver, DbInstrument, toml_to_json};
     use db::{DaqDb, DbConfig};
     use std::collections::HashSet;
 

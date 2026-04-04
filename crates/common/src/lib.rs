@@ -49,23 +49,27 @@
 
 pub mod core;
 pub mod validation;
-// Data types (Frame, etc.)
-pub mod data;
-// Document model (Bluesky-style)
-pub mod capabilities;
-pub mod error;
+
 pub mod error_recovery;
 pub mod experiment;
 pub mod health;
 pub mod limits;
 pub mod log_scrubbing;
-pub mod modules;
-pub mod observable;
-pub mod parameter;
-pub mod pipeline;
 
-// Driver factory and capability types for plugin architecture
-pub mod driver;
+// Canonical source for traits, data types, error types, and reactive parameters
+// is the common-traits crate. Re-exported here for backward compatibility so
+// downstream crates continue to use `common::capabilities`, `common::data`, etc.
+// Note: `common::processing` was removed (moved to the echelle crate) and
+// `common::device_id` was added.
+pub use common_traits::capabilities;
+pub use common_traits::data;
+pub use common_traits::device_id;
+pub use common_traits::driver;
+pub use common_traits::error;
+pub use common_traits::modules;
+pub use common_traits::observable;
+pub use common_traits::parameter;
+pub use common_traits::pipeline;
 
 // Well-known panel_kind string constants for explicit UI routing
 pub mod panel_kind;
@@ -89,6 +93,3 @@ pub mod time;
 
 // Arrow extension metadata helpers for Python interop
 pub mod arrow_metadata;
-
-// Signal-processing utilities (radiance calibration, interpolation, etc.)
-pub mod processing;

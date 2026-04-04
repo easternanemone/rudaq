@@ -541,10 +541,10 @@ fn is_inter_order(col: f64, row: f64, traces: &[TraceInfo<'_>], aperture_half_wi
         if col_u32 < trace_info.disp_start || col_u32 > trace_info.disp_end {
             continue;
         }
-        if let Some(center) = eval_trace_safe(trace_info.trace, col) {
-            if (row - center).abs() <= aperture_half_width {
-                return false;
-            }
+        if let Some(center) = eval_trace_safe(trace_info.trace, col)
+            && (row - center).abs() <= aperture_half_width
+        {
+            return false;
         }
     }
     true

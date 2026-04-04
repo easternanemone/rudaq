@@ -21,7 +21,7 @@
 
 use hardware::drivers::mock_serial;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::time::{timeout, Duration};
+use tokio::time::{Duration, timeout};
 
 // =============================================================================
 // Generic Serial Communication Tests

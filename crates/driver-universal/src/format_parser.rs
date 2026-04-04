@@ -123,16 +123,17 @@ pub fn parse_format(format: &str) -> Result<Vec<FormatSegment>, ConfigError> {
 
     // Validate: reject adjacent greedy fields with no literal separator
     for window in segments.windows(2) {
-        if let [FormatSegment::Field(a), FormatSegment::Field(b)] = window {
-            if matches!(a.kind, FieldKind::Greedy) && matches!(b.kind, FieldKind::Greedy) {
-                return Err(ConfigError::InvalidFormat {
-                    format: format.to_string(),
-                    reason: format!(
-                        "adjacent greedy fields '{}' and '{}' with no literal separator",
-                        a.name, b.name
-                    ),
-                });
-            }
+        if let [FormatSegment::Field(a), FormatSegment::Field(b)] = window
+            && matches!(a.kind, FieldKind::Greedy)
+            && matches!(b.kind, FieldKind::Greedy)
+        {
+            return Err(ConfigError::InvalidFormat {
+                format: format.to_string(),
+                reason: format!(
+                    "adjacent greedy fields '{}' and '{}' with no literal separator",
+                    a.name, b.name
+                ),
+            });
         }
     }
 

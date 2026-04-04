@@ -19,7 +19,7 @@ use tokio_util::sync::CancellationToken;
 use crate::safety_sentinel::SafetySentinel;
 use common::health::watchdog::{HardwareWatchdog, WatchdogConfig};
 use hardware::registry::DeviceRegistry;
-use hardware::supervisor::{run_device_supervisor, SupervisorConfig};
+use hardware::supervisor::{SupervisorConfig, run_device_supervisor};
 use scripting::shutter_safety::ShutterRegistry;
 use server::config::ServerConfig;
 use server::health::sys_monitor::SystemMetricsCollector;
@@ -506,7 +506,7 @@ impl DaemonInstance {
         // Reuses the HardwareConfig already parsed above — no redundant file I/O.
         // Non-fatal: if anything fails, log a warning and continue.
         #[cfg(all(feature = "db-surreal", feature = "networking"))]
-        if let (Some(ref db), Some(ref hw_config)) = (&db, &hw_config) {
+        if let (Some(db), Some(hw_config)) = (&db, &hw_config) {
             use crate::db_bridge;
             match db_bridge::shadow_write_with_registry(db, hw_config, &registry).await {
                 Ok((drivers, instruments)) => {

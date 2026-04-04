@@ -1,6 +1,6 @@
 //! Mock Dover Motion driver for testing and development
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use common::capabilities::{Movable, Parameterized, TriggerOnPosition};
 use common::observable::ParameterSet;
@@ -314,10 +314,12 @@ mod tests {
         let driver = DoverMockDriver::new("X");
 
         // Test invalid increment
-        assert!(driver
-            .enable_top(0.0, 10.0, -0.1, true, 1000)
-            .await
-            .is_err());
+        assert!(
+            driver
+                .enable_top(0.0, 10.0, -0.1, true, 1000)
+                .await
+                .is_err()
+        );
 
         // Test invalid pulse width (too small)
         assert!(driver.enable_top(0.0, 10.0, 0.1, true, 25).await.is_err());

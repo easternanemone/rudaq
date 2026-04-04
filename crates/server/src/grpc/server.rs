@@ -1498,10 +1498,8 @@ impl ControlService for DaqServer {
         &self,
         _request: Request<DaemonInfoRequest>,
     ) -> Result<Response<DaemonInfoResponse>, Status> {
+        #[allow(unused_mut)] // features.push() only compiles under cfg'd features
         let mut features = Vec::new();
-
-        #[cfg(feature = "networking")]
-        features.push("networking".to_string());
 
         #[cfg(feature = "storage_hdf5")]
         features.push("storage_hdf5".to_string());

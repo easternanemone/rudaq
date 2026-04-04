@@ -1,10 +1,11 @@
 [package]
 name = "scripting"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
 common = { path = "../common", features = ["serial"] }
+echelle = { path = "../echelle" }
 hardware = { path = "../hardware" }
 experiment = { path = "../experiment" }
 driver-mock = { path = "../driver-mock" }

@@ -24,9 +24,8 @@ mod common;
 
 use ::common::capabilities::{ExposureControl, FrameProducer};
 use common::{
-    assert_errors_within_limit, assert_fps_near, assert_frame_count_min,
-    assert_no_duplicate_frames, durations, exposures, Frame, FrameTracker, FrameValidator,
-    TestStats,
+    Frame, FrameTracker, FrameValidator, TestStats, assert_errors_within_limit, assert_fps_near,
+    assert_frame_count_min, assert_no_duplicate_frames, durations, exposures,
 };
 use driver_pvcam::PvcamDriver;
 use std::time::Instant;

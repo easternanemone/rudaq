@@ -53,7 +53,7 @@ impl FeedbackRouter {
     ) -> bool {
         if value >= threshold {
             let event = FeedbackEvent::ThresholdCrossed {
-                device_id: device_id.to_string(),
+                device_id: device_id.into(),
                 field: field.to_string(),
                 value,
                 threshold,
@@ -84,7 +84,7 @@ impl FeedbackRouter {
     ) -> bool {
         if variance <= tolerance {
             let event = FeedbackEvent::StabilityReached {
-                device_id: device_id.to_string(),
+                device_id: device_id.into(),
                 field: field.to_string(),
                 variance,
             };
@@ -106,7 +106,7 @@ impl FeedbackRouter {
     /// the `RunEngine` consumer without applying any condition.
     pub fn send_value_update(&self, device_id: &str, field: &str, value: f64) {
         let event = FeedbackEvent::ValueUpdate {
-            device_id: device_id.to_string(),
+            device_id: device_id.into(),
             field: field.to_string(),
             value,
         };

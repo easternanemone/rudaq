@@ -21,8 +21,8 @@
 use anyhow::Result;
 use hardware::capabilities::{FrameProducer, Movable, Readable, Triggerable};
 use hardware::drivers::mock::{MockCamera, MockPowerMeter, MockStage};
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 

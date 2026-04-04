@@ -114,7 +114,7 @@ impl CommandDispatcher<'_> {
                 threshold,
                 above,
             } => {
-                let Some(readable) = self.registry.get_readable(device_id) else {
+                let Some(readable) = self.registry.get_readable(device_id.as_str()) else {
                     warn!(%device_id, "evaluate_condition: device not readable");
                     return false;
                 };
@@ -125,17 +125,16 @@ impl CommandDispatcher<'_> {
                         } else {
                             value < *threshold
                         };
-                        if result {
-                            if let Err(e) =
+                        if result
+                            && let Err(e) =
                                 self.feedback_tx.try_send(FeedbackEvent::ThresholdCrossed {
                                     device_id: device_id.clone(),
                                     field: "value".to_string(),
                                     value,
                                     threshold: *threshold,
                                 })
-                            {
-                                warn!("Feedback event dropped (channel full): {e}");
-                            }
+                        {
+                            warn!("Feedback event dropped (channel full): {e}");
                         }
                         result
                     }
@@ -152,8 +151,8 @@ impl CommandDispatcher<'_> {
                 right_field: _,
                 operator,
             } => {
-                let left = self.registry.get_readable(left_device_id);
-                let right = self.registry.get_readable(right_device_id);
+                let left = self.registry.get_readable(left_device_id.as_str());
+                let right = self.registry.get_readable(right_device_id.as_str());
 
                 let (Some(left_r), Some(right_r)) = (left, right) else {
                     warn!(

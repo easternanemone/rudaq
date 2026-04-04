@@ -20,7 +20,7 @@
 
 #[cfg(feature = "server")]
 mod camera_integration_tests {
-    use hardware::registry::{register_mock_factories, DeviceRegistry};
+    use hardware::registry::{DeviceRegistry, register_mock_factories};
     use protocol::daq::hardware_service_server::HardwareService;
     use protocol::daq::{
         ArmRequest, DeviceStateRequest, ListDevicesRequest, StartStreamRequest, StopStreamRequest,
@@ -426,7 +426,7 @@ mod camera_integration_tests {
 
 #[cfg(feature = "server")]
 mod scan_integration_tests {
-    use hardware::registry::{register_mock_factories, DeviceRegistry};
+    use hardware::registry::{DeviceRegistry, register_mock_factories};
     use protocol::daq::scan_service_server::ScanService;
     use protocol::daq::{
         AxisConfig, CreateScanRequest, GetScanStatusRequest, ScanConfig, ScanState, ScanType,

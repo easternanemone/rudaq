@@ -470,12 +470,11 @@ async fn run_stream(
                             update_latency(stats, latency_ms);
                         }
 
-                        if let Some(prev) = stats.last_frame_number {
-                            if frame.frame_number > prev + 1 {
+                        if let Some(prev) = stats.last_frame_number
+                            && frame.frame_number > prev + 1 {
                                 stats.gap_events += 1;
                                 stats.gap_frames += frame.frame_number - prev - 1;
                             }
-                        }
                         stats.last_frame_number = Some(frame.frame_number);
                     }
                     Some(Err(err)) => {

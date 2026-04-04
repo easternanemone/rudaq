@@ -1,7 +1,7 @@
 #![cfg(not(target_arch = "wasm32"))]
 #![allow(clippy::print_stdout)]
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
 use clap::Parser;
 use protocol::compression::decompress_frame_into;
 use protocol::daq::hardware_service_client::HardwareServiceClient;
@@ -13,7 +13,7 @@ use serde::Serialize;
 use std::fs;
 use std::path::PathBuf;
 use std::time::Duration;
-use tokio::time::{sleep, timeout, Instant};
+use tokio::time::{Instant, sleep, timeout};
 use tokio_stream::StreamExt;
 use tonic::transport::{Channel, Endpoint};
 

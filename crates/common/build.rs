@@ -1,12 +1,11 @@
+#![allow(clippy::collapsible_if)]
 use std::process::Command;
 
 fn main() {
     // Get git commit SHA
     if let Ok(output) = Command::new("git").args(["rev-parse", "HEAD"]).output() {
-        if output.status.success() {
-            if let Ok(sha) = String::from_utf8(output.stdout) {
-                println!("cargo:rustc-env=VERGEN_GIT_SHA={}", sha.trim());
-            }
+        if let (true, Ok(sha)) = (output.status.success(), String::from_utf8(output.stdout)) {
+            println!("cargo:rustc-env=VERGEN_GIT_SHA={}", sha.trim());
         }
     } else {
         // Fallback if git not available
@@ -24,14 +23,12 @@ fn main() {
     }
 
     // Get git commit date
-    if let Ok(output) = Command::new("git")
+    let date_output = Command::new("git")
         .args(["log", "-1", "--format=%cI"])
-        .output()
-    {
-        if output.status.success() {
-            if let Ok(date) = String::from_utf8(output.stdout) {
-                println!("cargo:rustc-env=VERGEN_GIT_COMMIT_DATE={}", date.trim());
-            }
+        .output();
+    if let Ok(output) = date_output {
+        if let (true, Ok(date)) = (output.status.success(), String::from_utf8(output.stdout)) {
+            println!("cargo:rustc-env=VERGEN_GIT_COMMIT_DATE={}", date.trim());
         }
     }
 

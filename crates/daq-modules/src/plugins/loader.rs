@@ -32,7 +32,7 @@
 
 use super::script_module::ScriptModule;
 use crate::Module;
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use tracing::{debug, info, warn};

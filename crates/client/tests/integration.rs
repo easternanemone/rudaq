@@ -5,9 +5,9 @@
 //! DAEMON_URL=http://maitai-eos:50051 cargo test -p daq-client --test integration -- --ignored
 //! ```
 
+use client::DaqClient;
 use client::connection::AddressSource;
 use client::connection::DaemonAddress;
-use client::DaqClient;
 
 /// Get daemon URL from environment or default to maitai-eos
 fn daemon_url() -> String {

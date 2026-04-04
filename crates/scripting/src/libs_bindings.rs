@@ -47,7 +47,7 @@ use rhai::{Array, Dynamic, Engine, EvalAltResult};
 
 use crate::run_blocking;
 use common::capabilities::{GatedCamera, SpectrometerControl, TriggerOnPosition, Triggerable};
-use common::processing::radiance_calibration::{RadianceCalibrator, Spectrum};
+use echelle::radiance_calibration::{RadianceCalibrator, Spectrum};
 
 // Boxed async closure type used for capability bundling
 type BoxFuture<T> = Pin<Box<dyn Future<Output = anyhow::Result<T>> + Send>>;
@@ -833,7 +833,7 @@ mod tests {
 
     #[test]
     fn test_calibrator_handle_in_memory() {
-        use common::processing::radiance_calibration::Spectrum;
+        use echelle::radiance_calibration::Spectrum;
         use std::collections::HashMap;
 
         // Build an in-memory calibrator (flat lamp = flat cal -> unity correction)

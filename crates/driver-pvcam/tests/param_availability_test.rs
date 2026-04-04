@@ -20,7 +20,7 @@
 #![cfg(not(target_arch = "wasm32"))]
 
 use pvcam_sys::*;
-use std::ffi::{c_void, CStr};
+use std::ffi::{CStr, c_void};
 use std::sync::LazyLock;
 use tracing::{debug, info, warn};
 use tracing_subscriber::EnvFilter;

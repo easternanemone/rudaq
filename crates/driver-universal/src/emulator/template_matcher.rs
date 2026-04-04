@@ -5,7 +5,7 @@
 //! MiniJinja templates like `"{{ address }}ma{{ position_pulses | hex(8) }}"`
 //! into regex patterns with named capture groups.
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use regex::Regex;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -70,7 +70,7 @@ impl TemplateMatcher {
                 // Check for filter pipe
                 let (pattern, decoder) = if i < chars.len() && chars[i] == '|' {
                     i += 1; // consume '|'
-                            // Collect filter text until }}
+                    // Collect filter text until }}
                     let filter_start = i;
                     let mut brace_depth = 0;
                     while i < chars.len() {

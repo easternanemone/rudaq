@@ -1,8 +1,36 @@
-//! Semantic mapping from DaqError to gRPC Status codes (bd-cxvg).
+//! Semantic mapping from `DaqError` to gRPC Status codes (bd-cxvg).
 //!
-//! This module provides a centralized, well-documented mapping from internal
-//! `DaqError` variants to appropriate gRPC `Status` codes. The mappings follow
-//! gRPC best practices and semantic guidelines.
+//! This module is the server-side half of the error round-trip described in
+//! `common_traits::error`.  It converts structured `DaqError` values into
+//! `tonic::Status` responses with:
+//!
+//! 1. An appropriate gRPC status code (see Mapping Philosophy below).
+//! 2. Custom metadata headers for structured client-side recovery:
+//!    - `x-daq-error-kind`  -- the high-level error category (e.g., "driver", "instrument")
+//!    - `x-daq-driver-type` -- the driver type string, when the error is a `DriverError`
+//!    - `x-daq-driver-kind` -- the `DriverErrorKind` variant name (e.g., "communication")
+//!
+//! The `client` crate's `ClientError` type provides accessor methods that extract
+//! these headers, completing the round-trip:
+//!
+//!   `DaqError` -> `map_daq_error_to_status()` -> wire -> `ClientError::daq_error_kind()`
+//!
+//! When the server receives an `anyhow::Error` from a capability trait method, the
+//! service handler should attempt to downcast before calling this mapper:
+//!
+//! ```rust,ignore
+//! use common::error::DaqError;
+//! use server::grpc::map_daq_error_to_status;
+//!
+//! fn anyhow_to_status(err: anyhow::Error) -> tonic::Status {
+//!     // Try structured downcast first
+//!     if let Some(daq_err) = err.downcast_ref::<DaqError>() {
+//!         return map_daq_error_to_status(daq_err);
+//!     }
+//!     // Fallback: opaque internal error
+//!     tonic::Status::internal(err.to_string())
+//! }
+//! ```
 //!
 //! # Mapping Philosophy
 //!
@@ -14,15 +42,23 @@
 //! - **PermissionDenied**: Client lacks permission (read-only parameters)
 //! - **Internal**: Server-side bugs (I/O errors, processing failures)
 //! - **Aborted**: Operation was aborted (unexpected EOF)
+//! - **DeadlineExceeded**: Driver timeout
+//! - **NotFound**: Referenced device or resource not found
 
-use common::error::{DaqError, DriverError};
+use common::error::{DaqError, DriverError, StorageError};
 use std::str::FromStr;
 use tonic::metadata::{MetadataMap, MetadataValue};
 use tonic::{Code, Status};
 
-const ERROR_KIND_HEADER: &str = "x-daq-error-kind";
-const DRIVER_TYPE_HEADER: &str = "x-daq-driver-type";
-const DRIVER_KIND_HEADER: &str = "x-daq-driver-kind";
+/// Metadata header carrying the high-level error category (e.g., "driver", "instrument",
+/// "config", "storage").  Always set on mapped errors.
+pub const ERROR_KIND_HEADER: &str = "x-daq-error-kind";
+/// Metadata header carrying the driver type string (e.g., "mock_camera", "comedi").
+/// Only set when the error is a `DriverError`.
+pub const DRIVER_TYPE_HEADER: &str = "x-daq-driver-type";
+/// Metadata header carrying the `DriverErrorKind` variant (e.g., "communication", "timeout").
+/// Only set when the error is a `DriverError`.
+pub const DRIVER_KIND_HEADER: &str = "x-daq-driver-kind";
 
 fn sanitize_metadata_value(value: &str) -> String {
     let sanitized: String = value.chars().filter(|c| c.is_ascii()).collect();
@@ -41,6 +77,7 @@ fn insert_metadata(metadata: &mut MetadataMap, key: &'static str, value: &str) {
     }
 }
 
+/// Build a `Status` with the `x-daq-error-kind` header and optional driver metadata.
 fn status_with_metadata(
     code: Code,
     message: impl Into<String>,
@@ -57,6 +94,35 @@ fn status_with_metadata(
     status
 }
 
+/// Convert an `anyhow::Error` into a `tonic::Status` by attempting structured downcasts.
+///
+/// The downcast order ensures the most specific error type wins:
+///
+/// 1. `DaqError` -- full variant-level mapping via [`map_daq_error_to_status`]
+/// 2. `DriverError` -- wraps in `DaqError::Driver` then maps
+/// 3. `StorageError` -- wraps in `DaqError::Storage` then maps
+/// 4. Fallback -- `Code::Internal` with the anyhow display chain
+///
+/// Service handlers receiving `anyhow::Result` from capability traits should use
+/// this function instead of manually converting to `Status`.
+pub fn anyhow_to_status(err: anyhow::Error) -> Status {
+    // Walk the full error chain so that `anyhow::Context` wrappers don't hide
+    // structured errors.  The first recognized type wins.
+    for cause in err.chain() {
+        if let Some(daq_err) = cause.downcast_ref::<DaqError>() {
+            return map_daq_error_to_status(daq_err);
+        }
+        if let Some(driver_err) = cause.downcast_ref::<DriverError>() {
+            return map_daq_error_to_status(&DaqError::Driver(driver_err.clone()));
+        }
+        if let Some(storage_err) = cause.downcast_ref::<StorageError>() {
+            return map_daq_error_to_status(&DaqError::Storage(storage_err.clone()));
+        }
+    }
+    // Fallback: opaque internal error with the full anyhow display chain
+    status_with_metadata(Code::Internal, err.to_string(), "unknown", None)
+}
+
 /// Map a DaqError to an appropriate gRPC Status.
 ///
 /// This function provides semantic mapping from internal error types to
@@ -70,19 +136,27 @@ fn status_with_metadata(
 /// use tonic::Code;
 ///
 /// let err = DaqError::SerialPortNotConnected;
-/// let status = map_daq_error_to_status(err);
+/// let status = map_daq_error_to_status(&err);
 /// assert_eq!(status.code(), Code::Unavailable);
 /// ```
-pub fn map_daq_error_to_status(err: DaqError) -> Status {
+pub fn map_daq_error_to_status(err: &DaqError) -> Status {
     match err {
-        // Configuration errors → InvalidArgument
+        // Configuration errors -> InvalidArgument
         // Client provided bad configuration that cannot be accepted
-        DaqError::Config(e) => Status::new(Code::InvalidArgument, format!("Config error: {e}")),
-        DaqError::Configuration(msg) => {
-            Status::new(Code::InvalidArgument, format!("Configuration error: {msg}"))
-        }
+        DaqError::Config(e) => status_with_metadata(
+            Code::InvalidArgument,
+            format!("Config error: {e}"),
+            "config",
+            None,
+        ),
+        DaqError::Configuration(msg) => status_with_metadata(
+            Code::InvalidArgument,
+            format!("Configuration error: {msg}"),
+            "configuration",
+            None,
+        ),
 
-        // Hardware/connection errors → Unavailable
+        // Hardware/connection errors -> Unavailable
         // Resource is temporarily unavailable, client may retry
         DaqError::Instrument(msg) => status_with_metadata(
             Code::Unavailable,
@@ -90,170 +164,241 @@ pub fn map_daq_error_to_status(err: DaqError) -> Status {
             "instrument",
             None,
         ),
-        DaqError::Driver(ref err) => match err.kind {
-            common::error::DriverErrorKind::Configuration
-            | common::error::DriverErrorKind::InvalidParameter => {
-                status_with_metadata(Code::InvalidArgument, err.to_string(), "driver", Some(err))
-            }
-            common::error::DriverErrorKind::Initialization => status_with_metadata(
-                Code::FailedPrecondition,
-                err.to_string(),
-                "driver",
-                Some(err),
-            ),
-            common::error::DriverErrorKind::Communication
-            | common::error::DriverErrorKind::Hardware => {
-                status_with_metadata(Code::Unavailable, err.to_string(), "driver", Some(err))
-            }
-            common::error::DriverErrorKind::Timeout => {
-                status_with_metadata(Code::DeadlineExceeded, err.to_string(), "driver", Some(err))
-            }
-            common::error::DriverErrorKind::Permission => {
-                status_with_metadata(Code::PermissionDenied, err.to_string(), "driver", Some(err))
-            }
-            common::error::DriverErrorKind::Busy => {
-                status_with_metadata(Code::Unavailable, err.to_string(), "driver", Some(err))
-            }
-            common::error::DriverErrorKind::NotFound => {
-                status_with_metadata(Code::NotFound, err.to_string(), "driver", Some(err))
-            }
-            common::error::DriverErrorKind::Safety => status_with_metadata(
-                Code::FailedPrecondition,
-                err.to_string(),
-                "driver",
-                Some(err),
-            ),
-            common::error::DriverErrorKind::Shutdown | common::error::DriverErrorKind::Unknown => {
-                status_with_metadata(Code::Internal, err.to_string(), "driver", Some(err))
-            }
-        },
-        DaqError::SerialPortNotConnected => {
-            Status::new(Code::Unavailable, "Serial port not connected")
+        DaqError::Driver(driver_err) => {
+            use common::error::DriverErrorKind;
+            let code = match driver_err.kind {
+                DriverErrorKind::Configuration | DriverErrorKind::InvalidParameter => {
+                    Code::InvalidArgument
+                }
+                DriverErrorKind::Initialization | DriverErrorKind::Safety => {
+                    Code::FailedPrecondition
+                }
+                DriverErrorKind::Communication
+                | DriverErrorKind::Hardware
+                | DriverErrorKind::Busy => Code::Unavailable,
+                DriverErrorKind::Timeout => Code::DeadlineExceeded,
+                DriverErrorKind::Permission => Code::PermissionDenied,
+                DriverErrorKind::NotFound => Code::NotFound,
+                DriverErrorKind::Shutdown | DriverErrorKind::Unknown => Code::Internal,
+            };
+            status_with_metadata(code, driver_err.to_string(), "driver", Some(driver_err))
         }
-        DaqError::ModuleBusyDuringOperation => {
-            Status::new(Code::Unavailable, "Module busy during operation")
-        }
+        DaqError::SerialPortNotConnected => status_with_metadata(
+            Code::Unavailable,
+            "Serial port not connected",
+            "serial",
+            None,
+        ),
+        DaqError::ModuleBusyDuringOperation => status_with_metadata(
+            Code::Unavailable,
+            "Module busy during operation",
+            "module_busy",
+            None,
+        ),
 
         // Serial protocol errors
-        DaqError::SerialUnexpectedEof => {
-            Status::new(Code::Aborted, "Serial communication: unexpected EOF")
-        }
-        DaqError::SerialFeatureDisabled => {
-            Status::new(Code::Unimplemented, "Serial feature is disabled")
-        }
+        DaqError::SerialUnexpectedEof => status_with_metadata(
+            Code::Aborted,
+            "Serial communication: unexpected EOF",
+            "serial_eof",
+            None,
+        ),
+        DaqError::SerialFeatureDisabled => status_with_metadata(
+            Code::Unimplemented,
+            "Serial feature is disabled",
+            "serial_disabled",
+            None,
+        ),
 
-        // Resource limit errors → ResourceExhausted
+        // Resource limit errors -> ResourceExhausted
         DaqError::FrameDimensionsTooLarge {
             width,
             height,
             max_dimension,
-        } => Status::new(
+        } => status_with_metadata(
             Code::ResourceExhausted,
             format!("Frame dimensions {width}x{height} exceed maximum {max_dimension}"),
+            "frame_dimensions",
+            None,
         ),
-        DaqError::FrameTooLarge { bytes, max_bytes } => Status::new(
+        DaqError::FrameTooLarge { bytes, max_bytes } => status_with_metadata(
             Code::ResourceExhausted,
             format!("Frame size {bytes} bytes exceeds maximum {max_bytes}"),
+            "frame_too_large",
+            None,
         ),
-        DaqError::ResponseTooLarge { bytes, max_bytes } => Status::new(
+        DaqError::ResponseTooLarge { bytes, max_bytes } => status_with_metadata(
             Code::ResourceExhausted,
             format!("Response size {bytes} bytes exceeds maximum {max_bytes}"),
+            "response_too_large",
+            None,
         ),
-        DaqError::ScriptTooLarge { bytes, max_bytes } => Status::new(
+        DaqError::ScriptTooLarge { bytes, max_bytes } => status_with_metadata(
             Code::ResourceExhausted,
             format!("Script size {bytes} bytes exceeds maximum {max_bytes}"),
+            "script_too_large",
+            None,
         ),
-        DaqError::SizeOverflow { context } => Status::new(
+        DaqError::SizeOverflow { context } => status_with_metadata(
             Code::ResourceExhausted,
             format!("Size overflow in {context}"),
+            "size_overflow",
+            None,
         ),
 
-        // Module state errors → FailedPrecondition or Unimplemented
-        DaqError::ModuleOperationNotSupported(op) => Status::new(
+        // Module state errors -> FailedPrecondition or Unimplemented
+        DaqError::ModuleOperationNotSupported(op) => status_with_metadata(
             Code::Unimplemented,
             format!("Operation not supported: {op}"),
+            "module_unsupported",
+            None,
         ),
-        DaqError::CameraNotAssigned => {
-            Status::new(Code::FailedPrecondition, "Camera not assigned to module")
-        }
+        DaqError::CameraNotAssigned => status_with_metadata(
+            Code::FailedPrecondition,
+            "Camera not assigned to module",
+            "camera_not_assigned",
+            None,
+        ),
 
-        // Feature availability → Unimplemented
-        DaqError::FeatureNotEnabled(feature) => Status::new(
+        // Feature availability -> Unimplemented
+        DaqError::FeatureNotEnabled(feature) => status_with_metadata(
             Code::Unimplemented,
             format!("Feature not enabled: {feature}"),
+            "feature_not_enabled",
+            None,
         ),
-        DaqError::FeatureIncomplete(feature, reason) => Status::new(
+        DaqError::FeatureIncomplete(feature, reason) => status_with_metadata(
             Code::Unimplemented,
             format!("Feature '{feature}' incomplete: {reason}"),
+            "feature_incomplete",
+            None,
         ),
 
-        // Shutdown errors → Internal (aggregated failures)
+        // Shutdown errors -> Internal (aggregated failures)
         DaqError::ShutdownFailed(errors) => {
-            let messages: Vec<String> = errors.into_iter().map(|e| e.to_string()).collect();
-            Status::new(
+            let messages: Vec<String> = errors.iter().map(|e| e.to_string()).collect();
+            status_with_metadata(
                 Code::Internal,
                 format!("Shutdown failed: {}", messages.join("; ")),
+                "shutdown_failed",
+                None,
             )
         }
 
         // Parameter errors
-        DaqError::ParameterNoSubscribers => Status::new(
+        DaqError::ParameterNoSubscribers => status_with_metadata(
             Code::FailedPrecondition,
             "No subscribers for parameter update",
+            "parameter_no_subscribers",
+            None,
         ),
-        DaqError::ParameterReadOnly => {
-            Status::new(Code::PermissionDenied, "Parameter is read-only")
-        }
-        DaqError::ParameterInvalidChoice => {
-            Status::new(Code::InvalidArgument, "Invalid parameter choice")
-        }
-        DaqError::ParameterNoHardwareReader => Status::new(
+        DaqError::ParameterReadOnly => status_with_metadata(
+            Code::PermissionDenied,
+            "Parameter is read-only",
+            "parameter_read_only",
+            None,
+        ),
+        DaqError::ParameterInvalidChoice => status_with_metadata(
+            Code::InvalidArgument,
+            "Invalid parameter choice",
+            "parameter_invalid_choice",
+            None,
+        ),
+        DaqError::ParameterNoHardwareReader => status_with_metadata(
             Code::FailedPrecondition,
             "Parameter has no hardware reader configured",
+            "parameter_no_reader",
+            None,
         ),
 
-        // I/O errors → Internal
+        // I/O errors -> Internal
         // These are server-side failures that shouldn't happen in normal operation
-        DaqError::Io(e) => Status::new(Code::Internal, format!("I/O error: {e}")),
-        DaqError::Tokio(e) => Status::new(Code::Internal, format!("Tokio I/O error: {e}")),
-
-        // Processing errors → Internal
-        DaqError::Processing(msg) => {
-            Status::new(Code::Internal, format!("Processing error: {msg}"))
+        DaqError::Io(e) => {
+            status_with_metadata(Code::Internal, format!("I/O error: {e}"), "io", None)
         }
+        DaqError::Tokio(e) => status_with_metadata(
+            Code::Internal,
+            format!("Tokio I/O error: {e}"),
+            "tokio",
+            None,
+        ),
+
+        // Processing errors -> Internal
+        DaqError::Processing(msg) => status_with_metadata(
+            Code::Internal,
+            format!("Processing error: {msg}"),
+            "processing",
+            None,
+        ),
 
         // Storage errors
-        DaqError::Storage(e) => match &e.kind {
-            common::error::StorageErrorKind::Configuration => Status::new(
-                Code::InvalidArgument,
-                format!("Storage configuration error: {}", e.message),
-            ),
-            common::error::StorageErrorKind::Io => {
-                Status::new(Code::Internal, format!("Storage I/O error: {}", e.message))
-            }
-            _ => Status::new(Code::Internal, format!("Storage error: {}", e.message)),
-        },
+        DaqError::Storage(e) => {
+            let code = match e.kind {
+                common::error::StorageErrorKind::Configuration => Code::InvalidArgument,
+                _ => Code::Internal,
+            };
+            let msg = match e.kind {
+                common::error::StorageErrorKind::Configuration => {
+                    format!("Storage configuration error: {}", e.message)
+                }
+                common::error::StorageErrorKind::Io => {
+                    format!("Storage I/O error: {}", e.message)
+                }
+                _ => format!("Storage error: {}", e.message),
+            };
+            status_with_metadata(code, msg, "storage", None)
+        }
 
         // Feature-specific errors
         #[cfg(feature = "storage_hdf5")]
-        DaqError::Hdf5(e) => Status::new(Code::Internal, format!("HDF5 error: {e}")),
+        DaqError::Hdf5(e) => {
+            status_with_metadata(Code::Internal, format!("HDF5 error: {e}"), "hdf5", None)
+        }
         #[cfg(feature = "storage_arrow")]
-        DaqError::Arrow(e) => Status::new(Code::Internal, format!("Arrow error: {e}")),
+        DaqError::Arrow(e) => {
+            status_with_metadata(Code::Internal, format!("Arrow error: {e}"), "arrow", None)
+        }
 
-        DaqError::Serde(e) => Status::new(Code::Internal, format!("Serialization error: {e}")),
-        DaqError::TaskJoin(e) => Status::new(Code::Internal, format!("Task join error: {e}")),
+        DaqError::Serde(e) => status_with_metadata(
+            Code::Internal,
+            format!("Serialization error: {e}"),
+            "serde",
+            None,
+        ),
+        DaqError::TaskJoin(e) => status_with_metadata(
+            Code::Internal,
+            format!("Task join error: {e}"),
+            "task_join",
+            None,
+        ),
     }
 }
 
-/// Extension trait for converting Result<T, DaqError> to Result<T, Status>
+/// Extension trait for converting `Result<T, DaqError>` to `Result<T, Status>`.
 pub trait DaqResultExt<T> {
-    /// Convert a DaqError result to a tonic Status result
+    /// Convert a `DaqError` result to a tonic `Status` result.
     #[allow(clippy::result_large_err)] // tonic::Status (176 bytes) is the standard gRPC error type
     fn map_daq_err(self) -> Result<T, Status>;
 }
 
 impl<T> DaqResultExt<T> for Result<T, DaqError> {
     fn map_daq_err(self) -> Result<T, Status> {
-        self.map_err(map_daq_error_to_status)
+        self.map_err(|e| map_daq_error_to_status(&e))
+    }
+}
+
+/// Extension trait for converting `Result<T, anyhow::Error>` to `Result<T, Status>`.
+///
+/// Uses the downcast chain in [`anyhow_to_status`] to recover structured error types
+/// before falling back to an opaque `Code::Internal` status.
+pub trait AnyhowResultExt<T> {
+    /// Convert an anyhow result to a tonic `Status` result via downcast chain.
+    #[allow(clippy::result_large_err)]
+    fn map_anyhow_err(self) -> Result<T, Status>;
+}
+
+impl<T> AnyhowResultExt<T> for Result<T, anyhow::Error> {
+    fn map_anyhow_err(self) -> Result<T, Status> {
+        self.map_err(anyhow_to_status)
     }
 }

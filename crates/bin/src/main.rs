@@ -571,6 +571,7 @@ fn handle_simulate(
         .with_context(|| format!("Cannot create {}", output.display()))?;
     let writer = std::io::BufWriter::new(file);
     let encoder = image::codecs::tiff::TiffEncoder::new(writer);
+    #[allow(deprecated)]
     encoder
         .encode(
             &u16_bytes,
@@ -678,10 +679,10 @@ fn resolve_hardware_config(cli_config: Option<PathBuf>) -> (Option<PathBuf>, &'s
     if cli_config.is_some() {
         return (cli_config, "from --hardware-config flag");
     }
-    if let Ok(val) = std::env::var("DAQ_CONFIG_PATH") {
-        if !val.is_empty() {
-            return (Some(PathBuf::from(val)), "from DAQ_CONFIG_PATH env var");
-        }
+    if let Ok(val) = std::env::var("DAQ_CONFIG_PATH")
+        && !val.is_empty()
+    {
+        return (Some(PathBuf::from(val)), "from DAQ_CONFIG_PATH env var");
     }
     (None, "default")
 }
@@ -1283,6 +1284,7 @@ async fn handle_recover(input: PathBuf, output: PathBuf) -> Result<()> {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
+#[allow(unsafe_code)] // edition 2024: env::set_var/remove_var require unsafe
 mod tests {
     use super::*;
     use std::sync::Mutex;
@@ -1291,11 +1293,16 @@ mod tests {
     static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     /// Helper: clear all DAQ-related env vars before each test.
-    fn clear_env_vars() {
-        std::env::remove_var("DAQ_PORT");
-        std::env::remove_var("DAQ_CONFIG_PATH");
-        std::env::remove_var("DAQ_RUNTIME_MODE");
-        std::env::remove_var("RUSTDAQ_RUNTIME_MODE");
+    ///
+    /// # Safety
+    /// Caller must hold `ENV_LOCK` to prevent concurrent env mutation.
+    unsafe fn clear_env_vars() {
+        unsafe {
+            std::env::remove_var("DAQ_PORT");
+            std::env::remove_var("DAQ_CONFIG_PATH");
+            std::env::remove_var("DAQ_RUNTIME_MODE");
+            std::env::remove_var("RUSTDAQ_RUNTIME_MODE");
+        }
     }
 
     // ---- resolve_port tests ----
@@ -1303,8 +1310,11 @@ mod tests {
     #[test]
     fn port_cli_flag_wins_over_env() {
         let _lock = ENV_LOCK.lock().expect("test mutex poisoned");
-        clear_env_vars();
-        std::env::set_var("DAQ_PORT", "9999");
+        // SAFETY: ENV_LOCK held; no concurrent env access.
+        unsafe {
+            clear_env_vars();
+            std::env::set_var("DAQ_PORT", "9999");
+        }
         let (port, source) = resolve_port(Some(8080));
         assert_eq!(port, 8080);
         assert_eq!(source, "from --port flag");
@@ -1313,8 +1323,11 @@ mod tests {
     #[test]
     fn port_env_var_used_when_no_cli_flag() {
         let _lock = ENV_LOCK.lock().expect("test mutex poisoned");
-        clear_env_vars();
-        std::env::set_var("DAQ_PORT", "9999");
+        // SAFETY: ENV_LOCK held; no concurrent env access.
+        unsafe {
+            clear_env_vars();
+            std::env::set_var("DAQ_PORT", "9999");
+        }
         let (port, source) = resolve_port(None);
         assert_eq!(port, 9999);
         assert_eq!(source, "from DAQ_PORT env var");
@@ -1323,7 +1336,8 @@ mod tests {
     #[test]
     fn port_default_when_nothing_set() {
         let _lock = ENV_LOCK.lock().expect("test mutex poisoned");
-        clear_env_vars();
+        // SAFETY: ENV_LOCK held; no concurrent env access.
+        unsafe { clear_env_vars() };
         let (port, source) = resolve_port(None);
         assert_eq!(port, DEFAULT_PORT);
         assert_eq!(source, "default");
@@ -1332,8 +1346,11 @@ mod tests {
     #[test]
     fn port_invalid_env_var_falls_back_to_default() {
         let _lock = ENV_LOCK.lock().expect("test mutex poisoned");
-        clear_env_vars();
-        std::env::set_var("DAQ_PORT", "not_a_number");
+        // SAFETY: ENV_LOCK held; no concurrent env access.
+        unsafe {
+            clear_env_vars();
+            std::env::set_var("DAQ_PORT", "not_a_number");
+        }
         let (port, source) = resolve_port(None);
         assert_eq!(port, DEFAULT_PORT);
         assert_eq!(source, "default");
@@ -1344,8 +1361,11 @@ mod tests {
     #[test]
     fn config_cli_flag_wins_over_env() {
         let _lock = ENV_LOCK.lock().expect("test mutex poisoned");
-        clear_env_vars();
-        std::env::set_var("DAQ_CONFIG_PATH", "/env/path.toml");
+        // SAFETY: ENV_LOCK held; no concurrent env access.
+        unsafe {
+            clear_env_vars();
+            std::env::set_var("DAQ_CONFIG_PATH", "/env/path.toml");
+        }
         let cli_path = Some(PathBuf::from("/cli/path.toml"));
         let (config, source) = resolve_hardware_config(cli_path);
         assert_eq!(
@@ -1358,8 +1378,11 @@ mod tests {
     #[test]
     fn config_env_var_used_when_no_cli_flag() {
         let _lock = ENV_LOCK.lock().expect("test mutex poisoned");
-        clear_env_vars();
-        std::env::set_var("DAQ_CONFIG_PATH", "/env/path.toml");
+        // SAFETY: ENV_LOCK held; no concurrent env access.
+        unsafe {
+            clear_env_vars();
+            std::env::set_var("DAQ_CONFIG_PATH", "/env/path.toml");
+        }
         let (config, source) = resolve_hardware_config(None);
         assert_eq!(
             config.as_deref(),
@@ -1371,7 +1394,8 @@ mod tests {
     #[test]
     fn config_none_when_nothing_set() {
         let _lock = ENV_LOCK.lock().expect("test mutex poisoned");
-        clear_env_vars();
+        // SAFETY: ENV_LOCK held; no concurrent env access.
+        unsafe { clear_env_vars() };
         let (config, source) = resolve_hardware_config(None);
         assert!(config.is_none());
         assert_eq!(source, "default");
@@ -1380,8 +1404,11 @@ mod tests {
     #[test]
     fn config_empty_env_var_treated_as_unset() {
         let _lock = ENV_LOCK.lock().expect("test mutex poisoned");
-        clear_env_vars();
-        std::env::set_var("DAQ_CONFIG_PATH", "");
+        // SAFETY: ENV_LOCK held; no concurrent env access.
+        unsafe {
+            clear_env_vars();
+            std::env::set_var("DAQ_CONFIG_PATH", "");
+        }
         let (config, source) = resolve_hardware_config(None);
         assert!(config.is_none());
         assert_eq!(source, "default");
@@ -1392,8 +1419,11 @@ mod tests {
     #[test]
     fn runtime_mode_cli_flag_wins_over_env() {
         let _lock = ENV_LOCK.lock().expect("test mutex poisoned");
-        clear_env_vars();
-        std::env::set_var("DAQ_RUNTIME_MODE", "mock");
+        // SAFETY: ENV_LOCK held; no concurrent env access.
+        unsafe {
+            clear_env_vars();
+            std::env::set_var("DAQ_RUNTIME_MODE", "mock");
+        }
         let (mode, source) = resolve_runtime_mode(Some(RuntimeMode::Native));
         assert!(matches!(mode, Some(RuntimeMode::Native)));
         assert_eq!(source, "from --runtime-mode flag");
@@ -1402,9 +1432,12 @@ mod tests {
     #[test]
     fn runtime_mode_daq_env_wins_over_legacy_env() {
         let _lock = ENV_LOCK.lock().expect("test mutex poisoned");
-        clear_env_vars();
-        std::env::set_var("DAQ_RUNTIME_MODE", "mock");
-        std::env::set_var("RUSTDAQ_RUNTIME_MODE", "native");
+        // SAFETY: ENV_LOCK held; no concurrent env access.
+        unsafe {
+            clear_env_vars();
+            std::env::set_var("DAQ_RUNTIME_MODE", "mock");
+            std::env::set_var("RUSTDAQ_RUNTIME_MODE", "native");
+        }
         let (mode, source) = resolve_runtime_mode(None);
         assert!(matches!(mode, Some(RuntimeMode::Mock)));
         assert_eq!(source, "from DAQ_RUNTIME_MODE env var");
@@ -1413,8 +1446,11 @@ mod tests {
     #[test]
     fn runtime_mode_legacy_env_used_as_fallback() {
         let _lock = ENV_LOCK.lock().expect("test mutex poisoned");
-        clear_env_vars();
-        std::env::set_var("RUSTDAQ_RUNTIME_MODE", "universal");
+        // SAFETY: ENV_LOCK held; no concurrent env access.
+        unsafe {
+            clear_env_vars();
+            std::env::set_var("RUSTDAQ_RUNTIME_MODE", "universal");
+        }
         let (mode, source) = resolve_runtime_mode(None);
         assert!(matches!(mode, Some(RuntimeMode::Universal)));
         assert_eq!(source, "from RUSTDAQ_RUNTIME_MODE env var");
@@ -1423,7 +1459,8 @@ mod tests {
     #[test]
     fn runtime_mode_none_when_nothing_set() {
         let _lock = ENV_LOCK.lock().expect("test mutex poisoned");
-        clear_env_vars();
+        // SAFETY: ENV_LOCK held; no concurrent env access.
+        unsafe { clear_env_vars() };
         let (mode, source) = resolve_runtime_mode(None);
         assert!(mode.is_none());
         assert_eq!(source, "default");
@@ -1432,8 +1469,11 @@ mod tests {
     #[test]
     fn runtime_mode_invalid_env_var_falls_back_to_none() {
         let _lock = ENV_LOCK.lock().expect("test mutex poisoned");
-        clear_env_vars();
-        std::env::set_var("DAQ_RUNTIME_MODE", "invalid_mode");
+        // SAFETY: ENV_LOCK held; no concurrent env access.
+        unsafe {
+            clear_env_vars();
+            std::env::set_var("DAQ_RUNTIME_MODE", "invalid_mode");
+        }
         let (mode, source) = resolve_runtime_mode(None);
         assert!(mode.is_none());
         assert_eq!(source, "default");
@@ -1442,8 +1482,11 @@ mod tests {
     #[test]
     fn runtime_mode_hybrid_db_parsed_correctly() {
         let _lock = ENV_LOCK.lock().expect("test mutex poisoned");
-        clear_env_vars();
-        std::env::set_var("DAQ_RUNTIME_MODE", "hybrid-db");
+        // SAFETY: ENV_LOCK held; no concurrent env access.
+        unsafe {
+            clear_env_vars();
+            std::env::set_var("DAQ_RUNTIME_MODE", "hybrid-db");
+        }
         let (mode, source) = resolve_runtime_mode(None);
         assert!(matches!(mode, Some(RuntimeMode::HybridDb)));
         assert_eq!(source, "from DAQ_RUNTIME_MODE env var");

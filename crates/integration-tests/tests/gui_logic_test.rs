@@ -15,7 +15,7 @@
 )]
 
 use ui::{
-    app::DaqGuiApp, create_channels, BackendCommand, BackendEvent, ConnectionStatus, DeviceInfo,
+    BackendCommand, BackendEvent, ConnectionStatus, DeviceInfo, app::DaqGuiApp, create_channels,
 };
 
 #[test]

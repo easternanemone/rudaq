@@ -13,8 +13,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use common::error::DaqError;
-use db::config_store::{config_hash, json_to_toml, DbDeviceFeature, DbDriver, DbInstrument};
 use db::DaqDb;
+use db::config_store::{DbDeviceFeature, DbDriver, DbInstrument, config_hash, json_to_toml};
 use hardware::registry::DeviceRegistry;
 use tracing::{info, warn};
 
@@ -277,6 +277,79 @@ async fn upsert_features(db: &DaqDb, device_id: &str, features: &[DbDeviceFeatur
     }
 }
 
+/// Restore persisted parameter values from SurrealDB after device registration (bd-oqo7.8).
+///
+/// Reads the `device_runtime_state` table for the device and applies each
+/// persisted value to the device's Parameters via the `Parameterized` trait.
+/// Skips read-only parameters and logs warnings for values that fail to apply
+/// (e.g., hardware-rejected ranges after a firmware update).
+async fn restore_device_parameters(db: &DaqDb, registry: &DeviceRegistry, device_id: &str) {
+    let saved_state = match db.get_device_state(device_id).await {
+        Ok(state) if !state.is_empty() => state,
+        Ok(_) => return, // No persisted state — first boot
+        Err(e) => {
+            warn!(
+                device_id,
+                error = %e,
+                "reconciler: failed to read persisted parameter state"
+            );
+            return;
+        }
+    };
+
+    let Some(parameterized) = registry.get_parameterized(device_id) else {
+        return;
+    };
+
+    let params = parameterized.parameters();
+    let mut restored = 0u32;
+    let mut skipped = 0u32;
+
+    for saved in &saved_state {
+        // Skip internal pseudo-parameters (e.g., _lifecycle_state)
+        if saved.param_name.starts_with('_') {
+            continue;
+        }
+
+        let Some(param) = params.get(&saved.param_name) else {
+            tracing::debug!(
+                device_id,
+                param = saved.param_name,
+                "reconciler: persisted param not found on device, skipping"
+            );
+            skipped += 1;
+            continue;
+        };
+
+        if param.metadata().read_only {
+            continue;
+        }
+
+        match param.set_json(saved.param_value.clone()) {
+            Ok(()) => {
+                restored += 1;
+            }
+            Err(e) => {
+                warn!(
+                    device_id,
+                    param = saved.param_name,
+                    value = %saved.param_value,
+                    error = %e,
+                    "reconciler: failed to restore parameter"
+                );
+                skipped += 1;
+            }
+        }
+    }
+
+    if restored > 0 {
+        info!(
+            device_id,
+            restored, skipped, "reconciler: restored persisted parameter state from DB"
+        );
+    }
+}
+
 /// Remove cached feature metadata for a device from SurrealDB.
 ///
 /// Called after successful device removal.
@@ -446,6 +519,10 @@ pub async fn reconcile_once(
                     "reconciler: added device"
                 );
                 persist_device_features(db, registry, id).await;
+                // bd-oqo7.8: Restore persisted parameter values from SurrealDB.
+                // This applies the last-known parameter state (exposure, temperature,
+                // speed table, etc.) so the device resumes where it left off.
+                restore_device_parameters(db, registry, id).await;
                 report.added.push(id.clone());
             }
             Err(e) => {
@@ -546,8 +623,8 @@ pub async fn start_polling_reconciler(
 #[cfg(feature = "db-surreal-mem")]
 mod tests {
     use super::*;
-    use db::config_store::DbInstrument;
     use db::DbConfig;
+    use db::config_store::DbInstrument;
     use driver_mock::MockPowerMeterFactory;
 
     /// Create a registry with mock factories pre-registered.
@@ -893,7 +970,7 @@ mod tests {
     #[tokio::test]
     async fn test_e2e_db_to_game_loop_broadcast() {
         use common::state_cache::{
-            now_ns, run_game_loop, GameLoopConfig, NodeStateUpdate, NodeValue, SystemStateSnapshot,
+            GameLoopConfig, NodeStateUpdate, NodeValue, SystemStateSnapshot, now_ns, run_game_loop,
         };
         use tokio::sync::{broadcast, mpsc};
         use tokio_util::sync::CancellationToken;
@@ -971,7 +1048,7 @@ mod tests {
     /// the device is Readable (proving the full factory → capabilities path).
     #[tokio::test]
     async fn test_e2e_watch_to_readable() {
-        use crate::watch_reconciler::{start_watch_reconciler, WatchConfig};
+        use crate::watch_reconciler::{WatchConfig, start_watch_reconciler};
         use tokio_util::sync::CancellationToken;
 
         let db = DaqDb::init(DbConfig::in_memory()).await.unwrap();
@@ -1031,7 +1108,7 @@ mod tests {
     /// removes it from the registry via LIVE SELECT → reconcile_once.
     #[tokio::test]
     async fn test_e2e_watch_detects_delete() {
-        use crate::watch_reconciler::{start_watch_reconciler, WatchConfig};
+        use crate::watch_reconciler::{WatchConfig, start_watch_reconciler};
         use tokio_util::sync::CancellationToken;
 
         let db = DaqDb::init(DbConfig::in_memory()).await.unwrap();
@@ -1091,7 +1168,7 @@ mod tests {
     /// in sequence: Create → Update → Delete, each triggering reconcile_once.
     #[tokio::test]
     async fn test_e2e_watch_full_lifecycle() {
-        use crate::watch_reconciler::{start_watch_reconciler, WatchConfig};
+        use crate::watch_reconciler::{WatchConfig, start_watch_reconciler};
         use tokio_util::sync::CancellationToken;
 
         let db = DaqDb::init(DbConfig::in_memory()).await.unwrap();
@@ -1166,7 +1243,7 @@ mod tests {
     #[tokio::test]
     #[cfg(feature = "networking")]
     async fn test_e2e_grpc_config_hot_swap() {
-        use crate::watch_reconciler::{start_watch_reconciler, WatchConfig};
+        use crate::watch_reconciler::{WatchConfig, start_watch_reconciler};
         use server::grpc::proto::DeleteInstrumentRequest;
         use server::grpc::{
             ConfigService, ConfigServiceImpl, HardwareService, HardwareServiceImpl,
@@ -1282,7 +1359,7 @@ mod tests {
     /// lock, the periodic resync (or next notification) picks it up.
     #[tokio::test]
     async fn test_e2e_measurement_lock_defers_reconfig() {
-        use crate::watch_reconciler::{start_watch_reconciler, WatchConfig};
+        use crate::watch_reconciler::{WatchConfig, start_watch_reconciler};
         use tokio_util::sync::CancellationToken;
 
         let db = DaqDb::init(DbConfig::in_memory()).await.unwrap();
@@ -1369,7 +1446,7 @@ mod tests {
     /// reconciler converges.
     #[tokio::test]
     async fn test_e2e_concurrent_upserts_converge() {
-        use crate::watch_reconciler::{start_watch_reconciler, WatchConfig};
+        use crate::watch_reconciler::{WatchConfig, start_watch_reconciler};
         use tokio_util::sync::CancellationToken;
 
         let db = DaqDb::init(DbConfig::in_memory()).await.unwrap();

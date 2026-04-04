@@ -370,8 +370,10 @@ mod tests {
         };
         let result = launcher.start_with_mode(&remote_mode);
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .contains("Cannot start daemon in Remote mode"));
+        assert!(
+            result
+                .unwrap_err()
+                .contains("Cannot start daemon in Remote mode")
+        );
     }
 }

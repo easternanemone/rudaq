@@ -38,9 +38,9 @@ use crate::time::{Duration, Instant};
 use eframe::egui;
 use egui_extras::{Size, StripBuilder};
 use egui_plot::{Line, Plot, PlotPoints, Points};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
-use std::sync::Arc;
 
 use crate::device_ext::DeviceInfoExt;
 use crate::icons;
@@ -275,12 +275,20 @@ pub struct ImageViewerPanel {
     // -- Scale Bar Overlay (bd-0tcg) --
     /// Show scale bar overlay on the image
     pub(super) show_scale_bar: bool,
+    /// Configurable corner placement for the scale-bar overlay
+    pub(in crate::panels::image_viewer) scale_bar_position: ScaleBarPosition,
+    /// User-selected display color for the scale-bar overlay
+    pub(in crate::panels::image_viewer) scale_bar_color: ScaleBarColor,
+    /// Visual treatment for the scale-bar overlay
+    pub(in crate::panels::image_viewer) scale_bar_style: ScaleBarStyle,
     /// Active interactive measurement tool
     pub(in crate::panels::image_viewer) measurement_tool: MeasurementTool,
     /// Persistent line measurements in image-pixel coordinates
     pub(in crate::panels::image_viewer) line_measurements: Vec<LineMeasurement>,
     /// Persistent angle measurements in image-pixel coordinates
     pub(in crate::panels::image_viewer) angle_measurements: Vec<AngleMeasurement>,
+    /// Selected line measurement for the profile panel
+    pub(in crate::panels::image_viewer) selected_line_measurement: Option<usize>,
     /// In-progress drag origin for line measurements
     pub(in crate::panels::image_viewer) line_measurement_start: Option<MeasurementPoint>,
     /// In-progress drag endpoint for line measurements
@@ -462,9 +470,13 @@ impl Default for ImageViewerPanel {
 
             // Scale bar overlay (bd-0tcg)
             show_scale_bar: false,
+            scale_bar_position: ScaleBarPosition::BottomLeft,
+            scale_bar_color: ScaleBarColor::White,
+            scale_bar_style: ScaleBarStyle::Solid,
             measurement_tool: MeasurementTool::None,
             line_measurements: Vec::new(),
             angle_measurements: Vec::new(),
+            selected_line_measurement: None,
             line_measurement_start: None,
             line_measurement_current: None,
             angle_measurement_points: Vec::new(),
@@ -828,7 +840,7 @@ mod histogram_tests {
         assert_eq!(hist.len(), 256);
         assert!(hist[0] > 0); // Should have bin for 0
         assert!(hist[255] > 0); // Should have bin for 65535
-                                // 32768 * (255/65535) = 127.5, truncates to bin 127
+        // 32768 * (255/65535) = 127.5, truncates to bin 127
         assert!(hist[127] > 0); // Should have bin for 32768
     }
 
@@ -1184,6 +1196,44 @@ mod helper_function_tests {
         let panel = ImageViewerPanel::default();
         assert_eq!(panel.stream_quality, StreamQuality::Fast);
         assert_eq!(panel.histogram_position, HistogramPosition::SidePanel);
+    }
+
+    #[test]
+    fn test_sample_line_profile_8bit_horizontal() {
+        let data = vec![10u8, 20, 30, 40];
+        let measurement = LineMeasurement {
+            start: MeasurementPoint { x: 0.0, y: 0.0 },
+            end: MeasurementPoint { x: 3.0, y: 0.0 },
+        };
+
+        let samples = sample_line_profile(&data, 4, 1, 8, &measurement, None, None);
+        let intensities: Vec<u32> = samples.iter().map(|sample| sample.intensity).collect();
+
+        assert_eq!(intensities, vec![10, 20, 30, 40]);
+        assert_eq!(
+            samples.first().map(|sample| sample.distance_pixels),
+            Some(0.0)
+        );
+        assert_eq!(
+            samples.last().map(|sample| sample.distance_pixels),
+            Some(3.0)
+        );
+    }
+
+    #[test]
+    fn test_sample_line_profile_physical_distance() {
+        let data = vec![0u8, 1, 2, 3];
+        let measurement = LineMeasurement {
+            start: MeasurementPoint { x: 0.0, y: 0.0 },
+            end: MeasurementPoint { x: 3.0, y: 0.0 },
+        };
+
+        let samples = sample_line_profile(&data, 4, 1, 8, &measurement, Some(0.5), Some(0.5));
+
+        assert_eq!(
+            samples.last().and_then(|sample| sample.distance_physical),
+            Some(1.5)
+        );
     }
 }
 

@@ -34,7 +34,7 @@ async fn test_adaptive_scan_feedback_integration() {
             label: "adaptive_test_start".to_string(),
         },
         PlanCommand::Read {
-            device_id: "detector".to_string(),
+            device_id: "detector".into(),
         },
         PlanCommand::Checkpoint {
             label: "adaptive_test_point_0_triggers_1".to_string(),
@@ -52,7 +52,7 @@ async fn test_adaptive_scan_feedback_integration() {
     // adaptive checkpoint.
     feedback_tx
         .send(FeedbackEvent::ThresholdCrossed {
-            device_id: "detector".to_string(),
+            device_id: "detector".into(),
             field: "intensity".to_string(),
             value: 100.0,
             threshold: 50.0,
@@ -106,7 +106,7 @@ async fn test_adapt_scan_point_decisions() {
 
     // ThresholdCrossed should return adjusted position.
     let threshold_event = FeedbackEvent::ThresholdCrossed {
-        device_id: "det".to_string(),
+        device_id: "det".into(),
         field: "intensity".to_string(),
         value: 100.0,
         threshold: 80.0,
@@ -117,7 +117,7 @@ async fn test_adapt_scan_point_decisions() {
 
     // ValueUpdate should return None (no adjustment).
     let value_event = FeedbackEvent::ValueUpdate {
-        device_id: "det".to_string(),
+        device_id: "det".into(),
         field: "value".to_string(),
         value: 42.0,
     };
@@ -126,7 +126,7 @@ async fn test_adapt_scan_point_decisions() {
 
     // StabilityReached should return None.
     let stability_event = FeedbackEvent::StabilityReached {
-        device_id: "det".to_string(),
+        device_id: "det".into(),
         field: "value".to_string(),
         variance: 0.001,
     };
@@ -146,14 +146,14 @@ async fn test_check_feedback_nonblocking() {
 
     // Send two events.
     tx.send(FeedbackEvent::ValueUpdate {
-        device_id: "d".to_string(),
+        device_id: "d".into(),
         field: "v".to_string(),
         value: 1.0,
     })
     .await
     .unwrap();
     tx.send(FeedbackEvent::ValueUpdate {
-        device_id: "d".to_string(),
+        device_id: "d".into(),
         field: "v".to_string(),
         value: 2.0,
     })
@@ -176,7 +176,7 @@ async fn test_evaluate_condition_threshold_above_true() {
     let engine = RunEngine::new(registry);
 
     let cond = EvalCondition::Threshold {
-        device_id: "sensor".to_string(),
+        device_id: "sensor".into(),
         field: "value".to_string(),
         threshold: 10.0,
         above: true,
@@ -191,7 +191,7 @@ async fn test_evaluate_condition_threshold_above_false() {
     let engine = RunEngine::new(registry);
 
     let cond = EvalCondition::Threshold {
-        device_id: "sensor".to_string(),
+        device_id: "sensor".into(),
         field: "value".to_string(),
         threshold: 10.0,
         above: true,
@@ -206,7 +206,7 @@ async fn test_evaluate_condition_threshold_below() {
     let engine = RunEngine::new(registry);
 
     let cond = EvalCondition::Threshold {
-        device_id: "sensor".to_string(),
+        device_id: "sensor".into(),
         field: "value".to_string(),
         threshold: 10.0,
         above: false,
@@ -221,7 +221,7 @@ async fn test_evaluate_condition_threshold_missing_device() {
     let engine = RunEngine::new(registry);
 
     let cond = EvalCondition::Threshold {
-        device_id: "nonexistent".to_string(),
+        device_id: "nonexistent".into(),
         field: "value".to_string(),
         threshold: 10.0,
         above: true,
@@ -236,9 +236,9 @@ async fn test_evaluate_condition_threshold_missing_device() {
 
 fn comparison_condition(op: ComparisonOp) -> EvalCondition {
     EvalCondition::Comparison {
-        left_device_id: "left".to_string(),
+        left_device_id: "left".into(),
         left_field: "value".to_string(),
-        right_device_id: "right".to_string(),
+        right_device_id: "right".into(),
         right_field: "value".to_string(),
         operator: op,
     }

@@ -1,7 +1,7 @@
 [package]
 name = "integration-tests"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 publish = false
 
 [dependencies]
@@ -45,7 +45,7 @@ tracing-subscriber = { version = "0.3", features = ["registry"] }
 
 
 [features]
-default = ["networking", "server", "scripting", "storage_hdf5", "storage_arrow", "serial", "modules", "pvcam", "universal", "db-surreal-mem"]
+default = ["server", "scripting", "storage_hdf5", "storage_arrow", "serial", "modules", "pvcam", "universal", "db-surreal-mem"]
 
 # ============================================================================
 # CRATE-LOCAL ONLY (no downstream forwarding, gate test code only)
@@ -59,14 +59,13 @@ libs_spirit_driver = []  # Nextest group marker (no cfg usage)
 #
 # In integration-tests, most features serve triple duty:
 #   1. Activate an optional dependency (dep:server, dep:scripting, etc.)
-#   2. Forward feature flags to downstream crates (server/networking, storage/storage_hdf5, etc.)
+#   2. Forward feature flags to downstream crates (storage/storage_hdf5, etc.)
 #   3. Gate #[cfg(feature = "...")] in test files to skip tests when disabled
 # ============================================================================
-server = ["dep:server", "networking"]     # gRPC tests (grpc_server_test, grpc_roundtrip, grpc_config_service_e2e)
+server = ["dep:server"]                   # gRPC tests (grpc_server_test, grpc_roundtrip, grpc_config_service_e2e)
 scripting = ["dep:scripting"]             # e2e_script_execution, grpc tests with scripting
 universal = ["dep:driver-universal"]      # hardware_universal_driver_validation tests
 gui_egui = ["ui/standalone"]              # gui_logic_test, gui_visual_test, gui_camera_test
-networking = ["server/networking"]        # grpc_api_test, grpc_server_smoke
 storage_hdf5 = ["dep:hdf5", "storage/storage_hdf5", "server/storage_hdf5"]  # data_pipeline/hdf5_tests, full_pipeline
 storage_arrow = ["storage/storage_arrow", "server/storage_arrow", "common/storage_arrow"]  # data_pipeline, full_pipeline
 pvcam = ["dep:driver-pvcam", "driver-registry/pvcam"]   # pvcam_integration, end_to_end_frames, grpc_camera_test

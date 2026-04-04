@@ -27,7 +27,7 @@
 #![cfg(feature = "server")]
 
 use anyhow::Result;
-use hardware::registry::{register_mock_factories, DeviceRegistry};
+use hardware::registry::{DeviceRegistry, register_mock_factories};
 use protocol::daq::hardware_service_server::HardwareService;
 use protocol::daq::{GetParameterRequest, SetParameterRequest, StreamParameterChangesRequest};
 use server::grpc::hardware_service::HardwareServiceImpl;

@@ -22,8 +22,8 @@
 //!
 //! Run with: cargo nextest run -p integration-tests --test fault_injection
 
-use driver_mock::common::{ErrorConfig, ErrorScenario};
 use driver_mock::MockMode;
+use driver_mock::common::{ErrorConfig, ErrorScenario};
 use hardware::capabilities::{ExposureControl, FrameProducer, Movable, Readable, Triggerable};
 use hardware::drivers::mock::{MockCamera, MockPowerMeter, MockStage};
 

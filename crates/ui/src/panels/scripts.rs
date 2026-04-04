@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use tokio::sync::mpsc;
 
-use crate::widgets::{offline_notice, OfflineContext};
+use crate::widgets::{OfflineContext, offline_notice};
 use client::DaqClient;
 
 /// Maximum script size for upload (matches `common::limits::MAX_SCRIPT_SIZE`).

@@ -37,14 +37,14 @@
 //! - `statistics` - Computed stats: `{mean, std, min, max, count}`
 
 use super::{Module, ModuleContext};
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use common::modules::{
     ModuleEventSeverity, ModuleParameter, ModuleRole, ModuleState, ModuleTypeInfo,
 };
 use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tracing::{info, warn};
 
@@ -332,10 +332,10 @@ impl Module for PowerMonitor {
         }
 
         // Validate threshold relationship
-        if let (Some(low), Some(high)) = (self.config.low_threshold, self.config.high_threshold) {
-            if low >= high {
-                warnings.push("low_threshold should be less than high_threshold".to_string());
-            }
+        if let (Some(low), Some(high)) = (self.config.low_threshold, self.config.high_threshold)
+            && low >= high
+        {
+            warnings.push("low_threshold should be less than high_threshold".to_string());
         }
 
         self.state = ModuleState::Configured;
@@ -529,15 +529,15 @@ async fn power_monitor_task(
 
 /// Check if value crosses thresholds
 fn check_thresholds(value: f64, config: &PowerMonitorConfig) -> ThresholdState {
-    if let Some(low) = config.low_threshold {
-        if value < low {
-            return ThresholdState::Low;
-        }
+    if let Some(low) = config.low_threshold
+        && value < low
+    {
+        return ThresholdState::Low;
     }
-    if let Some(high) = config.high_threshold {
-        if value > high {
-            return ThresholdState::High;
-        }
+    if let Some(high) = config.high_threshold
+        && value > high
+    {
+        return ThresholdState::High;
     }
     ThresholdState::Normal
 }

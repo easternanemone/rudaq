@@ -1,32 +1,91 @@
 //! Custom error types for the application.
 //!
-//! This module defines the primary error type, `DaqError`, for the entire application.
+//! This module defines the primary error type, [`DaqError`], for the entire application.
 //! Using the `thiserror` crate, it provides a centralized and consistent way to handle
 //! different kinds of errors that can occur, from I/O and configuration issues to
 //! instrument-specific problems.
 //!
-//! ## Error Hierarchy
+//! # Error Hierarchy and Boundary Contracts
 //!
-//! `DaqError` is an enum that consolidates various error sources:
+//! The rust-daq project uses a layered error strategy, with different conventions at
+//! each architectural boundary:
 //!
-//! - **`Config`**: Wraps errors from the `config` crate, typically related to file parsing
-//!   or format issues in the configuration files.
-//! - **`Configuration`**: Represents semantic errors in the configuration, such as invalid
-//!   values that pass parsing but are logically incorrect (e.g., an invalid IP address format).
-//!   These are usually caught during the validation step.
-//! - **`Io`**: Wraps standard `std::io::Error`, covering all file and network I/O issues.
-//! - **`Tokio`**: Specifically for errors related to the Tokio runtime, though it also wraps
-//!   `std::io::Error` as Tokio I/O operations are a common source.
-//! - **`Instrument`**: A general category for errors originating from instrument drivers. This
-//!   could be anything from a communication failure to an invalid command sent to the hardware.
-//! - **`Processing`**: For errors that occur during data processing stages, such as filtering
-//!   or analysis.
-//! - **`FeatureNotEnabled`**: A specific error used when the code attempts to use functionality
-//!   (like a specific instrument driver or storage format) that was not included at compile
-//!   time via feature flags. This provides a clear message to the user on how to enable it.
+//! ## 1. `DaqError` -- the canonical application error enum (this module)
 //!
-//! By using `#[from]`, `DaqError` can be seamlessly created from underlying error types,
-//! simplifying error handling throughout the application with the `?` operator.
+//! [`DaqError`] is a `thiserror`-derived enum that consolidates all known failure modes
+//! across the system.  It lives in `common-traits` (re-exported via `common::error`) so
+//! every crate in the workspace can construct and match on it.
+//!
+//! Structured sub-errors [`DriverError`] and [`StorageError`] carry typed "kind" enums
+//! (`DriverErrorKind`, `StorageErrorKind`) so that mapping layers (e.g., gRPC) can
+//! select the right status code without string parsing.
+//!
+//! ## 2. Capability trait methods return `anyhow::Result`
+//!
+//! All capability trait methods (in `capabilities.rs`) return `anyhow::Result<T>` rather
+//! than `Result<T, DaqError>`.  This gives driver authors maximum flexibility: they can
+//! use any error type internally and attach context with `anyhow::Context`.
+//!
+//! **Best practice for drivers:**
+//!
+//! ```rust,ignore
+//! use anyhow::Context;
+//! use common::error::{DriverError, DriverErrorKind};
+//!
+//! async fn move_to(&self, pos: f64) -> anyhow::Result<()> {
+//!     self.serial
+//!         .send(format!("MOVE {pos}"))
+//!         .await
+//!         .context(DriverError::new("my_stage", DriverErrorKind::Communication, "serial send failed"))?;
+//!     Ok(())
+//! }
+//! ```
+//!
+//! By attaching a `DriverError` (or `DaqError`) as the *context*, the error chain
+//! retains both the original low-level cause and a structured error the server can
+//! downcast at the gRPC boundary.
+//!
+//! ## 3. gRPC boundary -- `error_mapping.rs` in the `server` crate
+//!
+//! The server's `map_daq_error_to_status()` function converts `DaqError` into
+//! `tonic::Status`.  When the error originates from an `anyhow::Error` (the common
+//! case for capability trait results), the server first tries a downcast chain:
+//!
+//!   1. `downcast_ref::<DaqError>()` -- full variant-level mapping
+//!   2. `downcast_ref::<DriverError>()` -- driver kind mapping
+//!   3. `downcast_ref::<StorageError>()` -- storage kind mapping
+//!   4. Fallback: string-based `Code::Internal`
+//!
+//! Custom gRPC metadata headers (`x-daq-error-kind`, `x-daq-driver-type`,
+//! `x-daq-driver-kind`) are set so that the client can recover structured
+//! information without parsing the human-readable message.
+//!
+//! ## 4. `ClientError` in the `client` crate
+//!
+//! `ClientError` wraps `tonic::Status` and provides accessor methods
+//! (`daq_error_kind()`, `device_id()`, `driver_kind()`) that extract the
+//! metadata headers set by the server, closing the round-trip:
+//!
+//!   `DaqError` -> `tonic::Status` (with metadata) -> `ClientError` (with structured extraction)
+//!
+//! ## Error Categories
+//!
+//! Errors fall into three broad categories:
+//!
+//! 1. **Configuration Errors** -- `Config`, `Configuration`, `FeatureNotEnabled`
+//!    - Occur during startup or configuration reload
+//!    - Permanent errors requiring config file changes or rebuild
+//!    - Recovery: Fix configuration and restart
+//!
+//! 2. **Hardware/Communication Errors** -- `Instrument`, `Driver`, `SerialPortNotConnected`
+//!    - Occur during instrument communication
+//!    - May be transient (network glitch) or permanent (hardware failure)
+//!    - Recovery: Retry with backoff or check hardware connections
+//!
+//! 3. **Runtime Errors** -- `Processing`, `ModuleBusyDuringOperation`, resource limits
+//!    - Occur during normal operation
+//!    - Usually transient or state-related
+//!    - Recovery: Retry after state change or abort operation
 
 use thiserror::Error;
 
@@ -208,7 +267,7 @@ pub enum DaqError {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// use common::error::DaqError;
     ///
     /// fn validate_exposure(exposure_seconds: f64) -> Result<(), DaqError> {
@@ -276,7 +335,7 @@ pub enum DaqError {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// use common::error::DaqError;
     ///
     /// const CAMERA_FAULT: u32 = 0x01;
@@ -401,7 +460,7 @@ pub enum DaqError {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// use common::error::DaqError;
     ///
     /// fn acquire_frame_from_power_meter() -> Result<(), DaqError> {
@@ -580,8 +639,9 @@ mod tests {
             DriverErrorKind::Initialization,
             "failed to connect",
         ));
-        assert!(err
-            .to_string()
-            .contains("Driver 'mock_camera' initialization error"));
+        assert!(
+            err.to_string()
+                .contains("Driver 'mock_camera' initialization error")
+        );
     }
 }

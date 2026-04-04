@@ -1,9 +1,9 @@
 //! Mock camera implementation with trigger and streaming support.
 
-use crate::pattern::{generate_frame, MockCameraPattern};
+use crate::pattern::{MockCameraPattern, generate_frame};
 // Import common infrastructure (bd-1gdn.2)
 use crate::common::{ErrorConfig, MockMode, MockRng, TimingConfig};
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use common::capabilities::{
     ExposureControl, FrameObserver, FrameProducer, LoanedFrame, ObserverHandle, Parameterized,
@@ -16,10 +16,10 @@ use common::parameter::Parameter;
 use futures::future::BoxFuture;
 use pool::{FrameData, Pool};
 use serde::{Deserialize, Serialize};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tokio::sync::{Mutex, RwLock};
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 
 use std::sync::atomic::AtomicU8;
 

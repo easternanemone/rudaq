@@ -33,6 +33,8 @@
 
 use std::collections::HashMap;
 
+use common::device_id::DeviceId;
+
 use crate::plans::{Plan, PlanCommand};
 
 // =============================================================================
@@ -206,7 +208,7 @@ impl Plan for VoltageScan {
 
                 // Use Set command for AO voltage
                 PlanCommand::Set {
-                    device_id: self.ao_device.clone(),
+                    device_id: DeviceId::from(self.ao_device.as_str()),
                     parameter: "voltage".to_string(),
                     value: voltage.to_string(),
                 }
@@ -232,7 +234,7 @@ impl Plan for VoltageScan {
                     let ai_device = &all_ai[ai_idx];
                     self.current_step = VoltageScanStep::ReadAI { ai_idx: ai_idx + 1 };
                     PlanCommand::Read {
-                        device_id: ai_device.clone(),
+                        device_id: DeviceId::from(ai_device.as_str()),
                     }
                 } else {
                     self.current_step = VoltageScanStep::EmitEvent;
@@ -411,7 +413,7 @@ impl Plan for TimeSeries {
                     let ai_device = &all_ai[ai_idx];
                     self.current_step = TimeSeriesStep::ReadAI { ai_idx: ai_idx + 1 };
                     PlanCommand::Read {
-                        device_id: ai_device.clone(),
+                        device_id: DeviceId::from(ai_device.as_str()),
                     }
                 } else {
                     self.current_step = TimeSeriesStep::EmitEvent;
@@ -602,7 +604,7 @@ impl Plan for TriggeredAcquisition {
                 // The RunEngine will call device.trigger() which blocks until trigger arrives
                 self.current_step = TriggeredAcqStep::Checkpoint;
                 PlanCommand::Trigger {
-                    device_id: self.trigger_source.clone(),
+                    device_id: DeviceId::from(self.trigger_source.as_str()),
                 }
             }
 
@@ -618,7 +620,7 @@ impl Plan for TriggeredAcquisition {
                     let ai_device = &self.ai_channels[ai_idx];
                     self.current_step = TriggeredAcqStep::ReadAI { ai_idx: ai_idx + 1 };
                     PlanCommand::Read {
-                        device_id: ai_device.clone(),
+                        device_id: DeviceId::from(ai_device.as_str()),
                     }
                 } else {
                     self.current_step = TriggeredAcqStep::EmitEvent;

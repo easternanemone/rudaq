@@ -23,7 +23,7 @@
 //! assert_eq!(cmd, "MOVE X 10.5");
 //! ```
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use std::collections::HashMap;
 use std::sync::OnceLock;
 

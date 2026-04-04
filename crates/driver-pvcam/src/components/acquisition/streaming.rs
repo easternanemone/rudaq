@@ -1,21 +1,21 @@
 //! Stream start/stop and mock streaming for PVCAM acquisition.
 
 #[cfg(feature = "pvcam_sdk")]
-use super::callback_context::SEQUENCE_BATCH_SIZE;
-#[cfg(feature = "pvcam_sdk")]
 use super::AcquisitionError;
 use super::PvcamAcquisition;
 use super::PvcamConnection;
 use super::StreamConfig;
 #[cfg(feature = "pvcam_sdk")]
-use super::{get_pvcam_error, PvcamFeatures};
-use anyhow::{anyhow, bail, Result};
+use super::callback_context::SEQUENCE_BATCH_SIZE;
+#[cfg(feature = "pvcam_sdk")]
+use super::{PvcamFeatures, get_pvcam_error};
+use anyhow::{Result, anyhow, bail};
 use common::core::Roi;
 use common::data::Frame;
 use common::parameter::Parameter;
 use pool::{FrameData, Pool};
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 use tokio::sync::MutexGuard;
 
@@ -25,7 +25,7 @@ use super::buffer::PageAlignedBuffer;
 use super::ffi_safe;
 #[cfg(feature = "pvcam_sdk")]
 use super::{
-    clear_global_callback_ctx, pvcam_eof_callback, set_global_callback_ctx, CallbackContext,
+    CallbackContext, clear_global_callback_ctx, pvcam_eof_callback, set_global_callback_ctx,
 };
 #[cfg(feature = "pvcam_sdk")]
 use pool::buffer_pool::BufferPool;
@@ -63,6 +63,8 @@ impl PvcamAcquisition {
             smart_stream_enabled,
             smart_stream_exposures,
             prime_locate_enabled,
+            prime_enhance_enabled,
+            multi_roi_regions,
         } = config;
 
         // Avoid unused parameter warnings when hardware feature is disabled.
@@ -73,6 +75,8 @@ impl PvcamAcquisition {
         let _ = &smart_stream_enabled;
         let _ = &smart_stream_exposures;
         let _ = &prime_locate_enabled;
+        let _ = &prime_enhance_enabled;
+        let _ = &multi_roi_regions;
         if self.streaming.get() {
             tracing::warn!("start_stream: already streaming");
             bail!("Already streaming");
@@ -125,6 +129,20 @@ impl PvcamAcquisition {
             // disabling metadata mid-acquisition risks data corruption.
             self.metadata_enabled.store(true, Ordering::Release);
             let use_metadata = true;
+
+            // bd-oqo7.3: Re-apply PrimeEnhance state before acquisition setup.
+            // The write callback sets PP state immediately on Parameter change,
+            // but camera power-cycles reset PP features. Re-apply on each start_stream
+            // to ensure the configured state is always active.
+            let use_prime_enhance = prime_enhance_enabled.get();
+            if use_prime_enhance {
+                tracing::info!("Re-applying PrimeEnhance enabled state for acquisition");
+                if let Err(e) = PvcamFeatures::set_prime_enhance(conn, true) {
+                    tracing::warn!(
+                        "Failed to re-apply PrimeEnhance: {e}. Continuing without denoising."
+                    );
+                }
+            }
 
             // bd-oqo7.1: Configure SMART Streaming before acquisition setup.
             // SMART Streaming lets the FPGA cycle through pre-programmed exposures,
@@ -478,16 +496,47 @@ impl PvcamAcquisition {
                 "Calling pl_exp_setup_cont"
             );
 
+            // bd-oqo7.4: Build region array for multi-ROI when configured.
+            // Uses validated RoiRegion → rgn_type conversion. Falls back to single ROI
+            // when multi_roi_regions is empty.
+            let use_multi_roi = !multi_roi_regions.is_empty();
+            let multi_regions: Vec<rgn_type> = if use_multi_roi {
+                tracing::info!(
+                    roi_count = multi_roi_regions.len(),
+                    "Multi-ROI acquisition: building {} regions",
+                    multi_roi_regions.len()
+                );
+                let mut regions = Vec::with_capacity(multi_roi_regions.len());
+                for roi_region in &multi_roi_regions {
+                    let rgn = unsafe {
+                        let mut r: rgn_type = std::mem::zeroed();
+                        r.s1 = roi_region.x;
+                        r.s2 = roi_region.x + roi_region.w - 1;
+                        r.sbin = x_bin;
+                        r.p1 = roi_region.y;
+                        r.p2 = roi_region.y + roi_region.h - 1;
+                        r.pbin = y_bin;
+                        r
+                    };
+                    regions.push(rgn);
+                }
+                regions
+            } else {
+                vec![region]
+            };
+
             // SAFETY: `h` is a valid camera handle. `region` is a stack-allocated
             // rgn_type. `frame_bytes` is a stack-allocated uns32 output parameter.
             // `selected_buffer_mode` is a valid CIRC_* constant. No acquisition
             // is active (we are in setup). On failure, we retry with NO_OVERWRITE.
             unsafe {
+                let rgn_count = multi_regions.len() as u16;
+                let rgn_ptr = multi_regions.as_ptr() as *const _;
                 // Try overwrite first
                 if pl_exp_setup_cont(
                     h,
-                    1,
-                    &region as *const _,
+                    rgn_count,
+                    rgn_ptr,
                     exp_mode,
                     exposure_ms as uns32,
                     &mut frame_bytes,
@@ -510,8 +559,8 @@ impl PvcamAcquisition {
                     frame_bytes = 0;
                     if pl_exp_setup_cont(
                         h,
-                        1,
-                        &region as *const _,
+                        rgn_count,
+                        rgn_ptr,
                         exp_mode,
                         exposure_ms as uns32,
                         &mut frame_bytes,
@@ -608,7 +657,6 @@ impl PvcamAcquisition {
             // Pool size = SDK buffer count + 50% headroom for consumer latency.
             let pool_size = (buffer_count as f64 * 1.5).ceil() as usize;
             let buffer_pool = BufferPool::new(pool_size, actual_frame_bytes);
-            *self.frame_pool.lock().await = Some(buffer_pool.clone());
             tracing::info!(
                 pool_size,
                 frame_capacity_mb = actual_frame_bytes as f64 / (1024.0 * 1024.0),
@@ -822,10 +870,9 @@ impl PvcamAcquisition {
                 );
             }
 
-            // CRITICAL: Store the page-aligned buffer passed to pl_exp_start_cont.
-            // The buffer MUST remain allocated for the entire acquisition lifetime.
+            // CRITICAL: circ_buf MUST remain allocated for the entire acquisition lifetime.
+            // It will be stored in SdkStreamingState::Streaming below.
             // DO NOT convert or transform - PVCAM holds a raw pointer to this memory.
-            *self.circ_buffer.lock().await = Some(circ_buf);
 
             // Reset shutdown flag before starting (in case of restart after stop)
             self.shutdown.store(false, Ordering::SeqCst);
@@ -851,7 +898,6 @@ impl PvcamAcquisition {
             // recv() is async-native (no polling needed in watcher task).
             let (error_tx, mut error_rx) =
                 tokio::sync::mpsc::unbounded_channel::<AcquisitionError>();
-            *self.error_tx.lock().await = Some(error_tx.clone());
 
             // Clone streaming parameter for error watcher task
             let streaming_for_watcher = self.streaming.clone();
@@ -901,13 +947,8 @@ impl PvcamAcquisition {
             // Drop will wait on this receiver before calling FFI cleanup functions,
             // preventing the race where pl_exp_stop_cont is called while
             // pl_exp_get_oldest_frame_ex is still executing.
+            // Stored in SdkStreamingState::Streaming below.
             let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
-            if let Ok(mut guard) = self.poll_thread_done_rx.lock() {
-                *guard = Some(done_rx);
-            }
-            if let Ok(mut guard) = self.poll_thread_done_tx.lock() {
-                *guard = Some(done_tx.clone());
-            }
 
             // bd-3gnv: circ_ptr_usize was converted from raw pointer at line 1110,
             // BEFORE any await points. We use it here for cross-thread transfer.
@@ -955,7 +996,20 @@ impl PvcamAcquisition {
                 );
             });
 
-            *self.poll_handle.lock().await = Some(poll_handle);
+            // Transition sdk_state: Idle -> Streaming with all resources.
+            // This single lock acquisition replaces 6 separate Arc<Mutex<Option<T>>> stores.
+            {
+                use super::SdkStreamingState;
+                let mut state = self.sdk_state.lock().await;
+                *state = SdkStreamingState::Streaming {
+                    poll_handle,
+                    circ_buffer: circ_buf,
+                    error_tx: error_tx.clone(),
+                    frame_pool: buffer_pool,
+                    poll_thread_done_rx: done_rx,
+                    poll_thread_done_tx: done_tx.clone(),
+                };
+            }
 
             // Gemini SDK review: Spawn error watcher to handle involuntary stops.
             // This prevents "zombie streaming" where fatal errors leave streaming=true.
@@ -1054,6 +1108,20 @@ impl PvcamAcquisition {
             smart_stream_enabled: smart_disabled,
             smart_stream_exposures: smart_empty,
             prime_locate_enabled,
+            prime_enhance_enabled: {
+                #[cfg(feature = "pvcam_sdk")]
+                {
+                    Parameter::new(
+                        "_single_frame_prime_enhance",
+                        PvcamFeatures::get_prime_enhance_enabled(conn).unwrap_or(false),
+                    )
+                }
+                #[cfg(not(feature = "pvcam_sdk"))]
+                {
+                    Parameter::new("_single_frame_prime_enhance", false)
+                }
+            },
+            multi_roi_regions: vec![], // Single-frame always uses single ROI
         };
         self.start_stream(conn, config).await?;
 
@@ -1129,7 +1197,7 @@ impl PvcamAcquisition {
                 }
 
                 // bd-5oss: Send through primary_tx if registered (pooled path)
-                if let (Some(ref p_tx), Some(ref pool)) = (&primary_tx, &frame_pool) {
+                if let (Some(p_tx), Some(pool)) = (&primary_tx, &frame_pool) {
                     if let Some(mut loaned_frame) = pool.try_acquire() {
                         let frame_data = loaned_frame.get_mut();
                         frame_data.width = binned_width;
@@ -1238,17 +1306,45 @@ impl PvcamAcquisition {
             tracing::debug!("PVCAM stop_stream: signaling callback context shutdown");
             self.callback_context.signal_shutdown();
 
-            // bd-hehw: Take handle under lock, then drop lock before awaiting
-            // This prevents holding the mutex guard across the .await point
+            // Transition sdk_state: Streaming -> Idle, extracting resources into
+            // locals. CRITICAL SAFETY: The circ_buffer MUST stay alive until AFTER
+            // FFI cleanup (pl_exp_stop_cont + callback deregistration) because the
+            // PVCAM SDK holds raw pointers into the buffer during acquisition.
+            tracing::debug!("PVCAM stop_stream: transitioning sdk_state to Idle");
+            let streaming_resources = {
+                use super::SdkStreamingState;
+                let mut state = self.sdk_state.lock().await;
+                let old_state = std::mem::replace(&mut *state, SdkStreamingState::Idle);
+                match old_state {
+                    SdkStreamingState::Streaming {
+                        poll_handle,
+                        circ_buffer,
+                        ..
+                    } => Some((poll_handle, circ_buffer)),
+                    SdkStreamingState::Idle => {
+                        tracing::debug!("PVCAM stop_stream: sdk_state already Idle");
+                        None
+                    }
+                }
+            };
+
+            // bd-hehw: Await poll handle outside the lock to avoid holding mutex across .await
             tracing::debug!("PVCAM stop_stream: waiting for poll thread to complete");
-            let handle = { self.poll_handle.lock().await.take() };
-            if let Some(handle) = handle {
+            // Extract poll_handle; keep _circ_buffer alive in scope until after FFI cleanup.
+            let _circ_buffer_guard = if let Some((handle, circ_buffer)) = streaming_resources {
                 tracing::debug!("PVCAM stop_stream: awaiting poll handle");
                 let _ = handle.await;
                 tracing::debug!("PVCAM stop_stream: poll handle completed");
+                Some(circ_buffer)
             } else {
                 tracing::debug!("PVCAM stop_stream: no poll handle to wait for");
-            }
+                None
+            };
+
+            // SAFETY: circ_buffer is kept alive by _circ_buffer_guard above.
+            // FFI cleanup (stop_acquisition, deregister_callback) runs here while
+            // the buffer is still valid. The buffer drops at the end of this block
+            // when _circ_buffer_guard goes out of scope.
             if let Some(h) = conn.handle() {
                 tracing::info!(hcam = h, "PVCAM stop_stream: issuing pl_exp_stop_cont");
                 // bd-g9gq: Use FFI safe wrappers with explicit safety contracts
@@ -1279,18 +1375,11 @@ impl PvcamAcquisition {
             } else {
                 tracing::debug!("PVCAM stop_stream: no camera handle, skipping SDK cleanup");
             }
-            // Clear stored state after cleanup
-            tracing::debug!("PVCAM stop_stream: clearing stored state");
+            // Clear remaining atomic state
+            tracing::debug!("PVCAM stop_stream: clearing atomic state");
             self.active_hcam.store(-1, Ordering::Release); // -1 = no active handle
-            *self.circ_buffer.lock().await = None;
-            // bd-g6pr: Clear completion channel so Drop doesn't try to wait again
-            if let Ok(mut guard) = self.poll_thread_done_rx.lock() {
-                *guard = None;
-            }
-            if let Ok(mut guard) = self.poll_thread_done_tx.lock() {
-                *guard = None;
-            }
             tracing::debug!("PVCAM stop_stream: cleanup complete");
+            // _circ_buffer_guard drops here — safe because FFI cleanup is complete.
         }
         tracing::info!("PVCAM stop_stream completed successfully");
         Ok(())
@@ -1380,12 +1469,14 @@ impl PvcamAcquisition {
 
         // Create completion channel for poll thread synchronization
         let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
-        if let Ok(mut guard) = self.poll_thread_done_rx.lock() {
-            *guard = Some(done_rx);
-        }
-        if let Ok(mut guard) = self.poll_thread_done_tx.lock() {
-            *guard = Some(done_tx.clone());
-        }
+
+        // Create a dummy error_tx for state machine (sequence mode doesn't use involuntary stop signaling,
+        // but we need a sender to satisfy the SdkStreamingState::Streaming variant).
+        let (seq_error_tx, _seq_error_rx) =
+            tokio::sync::mpsc::unbounded_channel::<AcquisitionError>();
+
+        // Create a dummy buffer pool (sequence mode allocates per-batch, not from a pool).
+        let dummy_pool = BufferPool::new(1, 1);
 
         // Spawn blocking task for sequence acquisition loop.
         // NOTE: frame_loop_sequence uses std::thread::sleep + blocking PVCAM FFI calls,
@@ -1415,7 +1506,23 @@ impl PvcamAcquisition {
             );
         });
 
-        *self.poll_handle.lock().await = Some(poll_handle);
+        // Transition sdk_state: Idle -> Streaming.
+        // Sequence mode doesn't use circ_buffer, but we need a PageAlignedBuffer
+        // to satisfy the Streaming variant. Use a minimal 4KB (one page) buffer
+        // since PVCAM doesn't DMA in sequence mode.
+        let seq_circ_buffer = PageAlignedBuffer::new(4096)?;
+        {
+            use super::SdkStreamingState;
+            let mut state = self.sdk_state.lock().await;
+            *state = SdkStreamingState::Streaming {
+                poll_handle,
+                circ_buffer: seq_circ_buffer,
+                error_tx: seq_error_tx,
+                frame_pool: dummy_pool,
+                poll_thread_done_rx: done_rx,
+                poll_thread_done_tx: done_tx.clone(),
+            };
+        }
         Ok(())
     }
 }
