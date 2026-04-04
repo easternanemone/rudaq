@@ -54,7 +54,7 @@ async fn test_adaptive_scan_feedback_integration() {
     // adaptive checkpoint.
     feedback_tx
         .send(FeedbackEvent::ThresholdCrossed {
-            device_id: "detector".to_string(),
+            device_id: "detector".into(),
             field: "intensity".to_string(),
             value: 100.0,
             threshold: 50.0,
