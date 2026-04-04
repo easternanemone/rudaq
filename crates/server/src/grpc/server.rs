@@ -1503,9 +1503,6 @@ impl ControlService for DaqServer {
     ) -> Result<Response<DaemonInfoResponse>, Status> {
         let mut features = Vec::new();
 
-        #[cfg(feature = "networking")]
-        features.push("networking".to_string());
-
         #[cfg(feature = "storage_hdf5")]
         features.push("storage_hdf5".to_string());
 

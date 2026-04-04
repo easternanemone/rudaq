@@ -29,6 +29,9 @@ members = [
 ]
 exclude = []
 
+[workspace.package]
+rust-version = "1.85.0"
+
 # Shared dependency versions across all crates
 [workspace.dependencies]
 # Async runtime and utilities

@@ -12,7 +12,7 @@
     missing_docs
 )]
 #![cfg(all(
-    feature = "networking",
+    feature = "server",
     feature = "storage_hdf5",
     feature = "storage_arrow"
 ))]
