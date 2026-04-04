@@ -77,7 +77,7 @@ impl SystemMetricsCollector {
                     .report_error(
                         "system_metrics",
                         ErrorSeverity::Warning,
-                        format!("High CPU usage: {:.1}%", cpu_usage),
+                        format!("High CPU usage: {cpu_usage:.1}%"),
                         vec![("metric", "cpu"), ("value", &cpu_usage.to_string())],
                     )
                     .await;
@@ -88,7 +88,7 @@ impl SystemMetricsCollector {
                     .report_error(
                         "system_metrics",
                         ErrorSeverity::Warning,
-                        format!("High memory usage: {:.1}%", memory_percent),
+                        format!("High memory usage: {memory_percent:.1}%"),
                         vec![("metric", "memory"), ("value", &memory_percent.to_string())],
                     )
                     .await;

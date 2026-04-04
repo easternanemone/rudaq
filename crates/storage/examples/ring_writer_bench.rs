@@ -63,7 +63,6 @@ fn main() {
     let rate = total as f64 / secs;
 
     println!(
-        "Ring write: {} frames in {:.3}s -> {:.0} writes/s (buffer {} MB, payload {} bytes, path {})",
-        total, secs, rate, buffer_mb, payload, path
+        "Ring write: {total} frames in {secs:.3}s -> {rate:.0} writes/s (buffer {buffer_mb} MB, payload {payload} bytes, path {path})"
     );
 }

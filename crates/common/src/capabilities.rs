@@ -915,7 +915,7 @@ pub trait Settable: Send + Sync {
     /// # Arguments
     /// * `name` - The identifier for the parameter to query.
     async fn get_value(&self, name: &str) -> Result<serde_json::Value> {
-        anyhow::bail!("Get value for '{}' not supported by this device", name)
+        anyhow::bail!("Get value for '{name}' not supported by this device")
     }
 }
 
@@ -951,7 +951,7 @@ pub trait Switchable: Send + Sync {
     /// - `Ok(false)` if the feature is off.
     /// - `Err` if the state cannot be determined or is not supported.
     async fn is_on(&self, name: &str) -> Result<bool> {
-        anyhow::bail!("State query for '{}' not supported by this device", name)
+        anyhow::bail!("State query for '{name}' not supported by this device")
     }
 }
 

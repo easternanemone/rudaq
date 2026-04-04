@@ -240,7 +240,7 @@ impl ScriptJournal {
     // --- Internal helpers ---
 
     fn entry_path(&self, execution_id: &str) -> PathBuf {
-        self.journal_dir.join(format!("{}.json", execution_id))
+        self.journal_dir.join(format!("{execution_id}.json"))
     }
 
     fn write_entry(&self, entry: &JournalEntry) -> Result<()> {

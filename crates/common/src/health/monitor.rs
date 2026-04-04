@@ -432,7 +432,7 @@ mod tests {
                 .report_error(
                     "test_module",
                     ErrorSeverity::Info,
-                    format!("Error {}", i),
+                    format!("Error {i}"),
                     Vec::<(&str, &str)>::new(),
                 )
                 .await;

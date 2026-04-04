@@ -30,9 +30,7 @@ impl CommandDispatcher<'_> {
         debug!(device = %device_id, position = %position, "Moving");
 
         let Some(device) = self.registry.get_movable(device_id) else {
-            anyhow::bail!(
-                "Device '{device_id}' not found or does not support Movable capability"
-            );
+            anyhow::bail!("Device '{device_id}' not found or does not support Movable capability");
         };
         device.move_abs(position).await?;
 
@@ -44,9 +42,7 @@ impl CommandDispatcher<'_> {
         debug!(device = %device_id, "Reading");
 
         let Some(device) = self.registry.get_readable(device_id) else {
-            anyhow::bail!(
-                "Device '{device_id}' not found or does not support Readable capability"
-            );
+            anyhow::bail!("Device '{device_id}' not found or does not support Readable capability");
         };
         let value = device.read().await?;
         Ok(value)
@@ -96,15 +92,11 @@ impl CommandDispatcher<'_> {
             .map_err(|e| anyhow::anyhow!("Invalid value format: {e}"))?;
 
         let Some(parameterized) = self.registry.get_parameterized(device_id) else {
-            anyhow::bail!(
-                "Device '{device_id}' not found or does not support parameter setting"
-            );
+            anyhow::bail!("Device '{device_id}' not found or does not support parameter setting");
         };
         let params = parameterized.parameters();
         let Some(param) = params.get(parameter) else {
-            anyhow::bail!(
-                "Parameter '{parameter}' not found on device '{device_id}'"
-            );
+            anyhow::bail!("Parameter '{parameter}' not found on device '{device_id}'");
         };
         param.set_json(json_value)?;
         Ok(())

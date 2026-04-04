@@ -70,7 +70,7 @@ fn module_not_found_status(module_id: &str) -> Status {
         DaqError::Driver(DriverError::new(
             "module_registry",
             DriverErrorKind::NotFound,
-            format!("Module not found: {}", module_id),
+            format!("Module not found: {module_id}"),
         ))
         .into(),
     )
@@ -501,7 +501,7 @@ impl ModuleService for ModuleServiceImpl {
                     return Ok(Response::new(CreateModuleResponse {
                         success: true,
                         module_id,
-                        error_message: format!("Created but config failed: {}", e),
+                        error_message: format!("Created but config failed: {e}"),
                     }));
                 }
 

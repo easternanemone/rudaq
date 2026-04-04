@@ -109,13 +109,13 @@ mod tests {
     #[test]
     fn test_redacted_debug() {
         let secret = Redacted::new("my-secret-key");
-        assert_eq!(format!("{:?}", secret), "[REDACTED]");
+        assert_eq!(format!("{secret:?}"), "[REDACTED]");
     }
 
     #[test]
     fn test_redacted_display() {
         let secret = Redacted::new("password123");
-        assert_eq!(format!("{}", secret), "[REDACTED]");
+        assert_eq!(format!("{secret}"), "[REDACTED]");
     }
 
     #[test]

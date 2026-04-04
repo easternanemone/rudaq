@@ -96,7 +96,7 @@ fn generate_format_string(segments: &[FormatSegment], state: &HashMap<String, Va
                         let formatted = if s.len() >= *n {
                             s[..*n].to_string()
                         } else {
-                            format!("{:<width$}", s, width = n)
+                            format!("{s:<n$}")
                         };
                         out.push_str(&formatted);
                     }
@@ -134,7 +134,7 @@ fn format_hex(value: i64, width: usize) -> String {
         8 => u64::from(value as u32),
         _ => value as u64,
     };
-    format!("{:0>width$X}", masked, width = width)
+    format!("{masked:0>width$X}")
 }
 
 // ---------------------------------------------------------------------------
@@ -378,9 +378,9 @@ fn value_as_string(val: &Value) -> String {
 /// Format f64 cleanly: avoid trailing ".0" only when value is exactly integral.
 fn format_float(f: f64) -> String {
     if f == f.trunc() && f.abs() < 1e15 {
-        format!("{:.1}", f) // e.g., "820.0"
+        format!("{f:.1}") // e.g., "820.0"
     } else {
-        format!("{}", f) // e.g., "3.14", "1.23e-6"
+        format!("{f}") // e.g., "3.14", "1.23e-6"
     }
 }
 

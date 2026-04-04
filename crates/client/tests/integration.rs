@@ -31,7 +31,7 @@ async fn test_connect_to_daemon() {
     let result = DaqClient::connect(&addr).await;
 
     if result.is_err() {
-        eprintln!("Skipping test: daemon not available at {}", url);
+        eprintln!("Skipping test: daemon not available at {url}");
         return;
     }
 
@@ -96,8 +96,7 @@ async fn test_get_device_info() {
 
     assert!(
         state.is_ok(),
-        "Should successfully get device state for {}",
-        device_id
+        "Should successfully get device state for {device_id}"
     );
 }
 
@@ -146,8 +145,7 @@ async fn test_read_value() {
 
     assert!(
         response.is_ok(),
-        "Should successfully read value from {}",
-        device_id
+        "Should successfully read value from {device_id}"
     );
 
     let response = response.unwrap();

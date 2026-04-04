@@ -73,7 +73,7 @@ async fn verify_metadata_parameters() {
 }
 
 fn assert_contains(names: &[&str], expected: &str) {
-    assert!(names.contains(&expected), "Missing parameter: {}", expected);
+    assert!(names.contains(&expected), "Missing parameter: {expected}");
 }
 
 #[tokio::test]

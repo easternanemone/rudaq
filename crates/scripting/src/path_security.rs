@@ -326,7 +326,7 @@ mod tests {
         // The path should pass the traversal check (may fail later on containment
         // depending on OnceLock state, but it should NOT fail with "traversal")
         if let Err(ref e) = result {
-            let err_str = format!("{}", e);
+            let err_str = format!("{e}");
             assert!(
                 !err_str.contains("traversal"),
                 "Filename 'my..data.h5' should not be rejected as traversal: {err_str}"

@@ -534,7 +534,7 @@ pub mod mock {
             self.values
                 .get(channel as usize)
                 .map(|v| v.load(Ordering::SeqCst))
-                .ok_or_else(|| format!("Channel {} out of range", channel))
+                .ok_or_else(|| format!("Channel {channel} out of range"))
         }
 
         fn channel_count(&self) -> u32 {
@@ -580,7 +580,7 @@ pub mod mock {
             self.values
                 .get(channel as usize)
                 .map(|v| v.store(value, Ordering::SeqCst))
-                .ok_or_else(|| format!("Channel {} out of range", channel))
+                .ok_or_else(|| format!("Channel {channel} out of range"))
         }
 
         fn channel_count(&self) -> u32 {
@@ -612,7 +612,7 @@ pub mod mock {
     impl DigitalIO for MockDigitalIO {
         fn read_pin(&self, pin: u32) -> Result<bool, String> {
             if pin >= self.pins {
-                return Err(format!("Pin {} out of range", pin));
+                return Err(format!("Pin {pin} out of range"));
             }
             let state = self.state.load(Ordering::SeqCst);
             Ok((state >> pin) & 1 != 0)
@@ -620,7 +620,7 @@ pub mod mock {
 
         fn write_pin(&self, pin: u32, state: bool) -> Result<(), String> {
             if pin >= self.pins {
-                return Err(format!("Pin {} out of range", pin));
+                return Err(format!("Pin {pin} out of range"));
             }
             let current = self.state.load(Ordering::SeqCst);
             let new = if state {
@@ -634,7 +634,7 @@ pub mod mock {
 
         fn set_direction(&self, pin: u32, output: bool) -> Result<(), String> {
             if pin >= self.pins {
-                return Err(format!("Pin {} out of range", pin));
+                return Err(format!("Pin {pin} out of range"));
             }
             let current = self.direction.load(Ordering::SeqCst);
             let new = if output {
@@ -648,7 +648,7 @@ pub mod mock {
 
         fn get_direction(&self, pin: u32) -> Result<bool, String> {
             if pin >= self.pins {
-                return Err(format!("Pin {} out of range", pin));
+                return Err(format!("Pin {pin} out of range"));
             }
             let dir = self.direction.load(Ordering::SeqCst);
             Ok((dir >> pin) & 1 != 0)
@@ -694,14 +694,14 @@ pub mod mock {
             self.counts
                 .get(counter as usize)
                 .map(|c| c.load(Ordering::SeqCst))
-                .ok_or_else(|| format!("Counter {} out of range", counter))
+                .ok_or_else(|| format!("Counter {counter} out of range"))
         }
 
         fn reset(&self, counter: u32) -> Result<(), String> {
             self.counts
                 .get(counter as usize)
                 .map(|c| c.store(0, Ordering::SeqCst))
-                .ok_or_else(|| format!("Counter {} out of range", counter))
+                .ok_or_else(|| format!("Counter {counter} out of range"))
         }
 
         fn counter_count(&self) -> u32 {
@@ -710,14 +710,14 @@ pub mod mock {
 
         fn arm(&self, counter: u32) -> Result<(), String> {
             if counter >= self.counters {
-                return Err(format!("Counter {} out of range", counter));
+                return Err(format!("Counter {counter} out of range"));
             }
             Ok(()) // Mock: no-op
         }
 
         fn disarm(&self, counter: u32) -> Result<(), String> {
             if counter >= self.counters {
-                return Err(format!("Counter {} out of range", counter));
+                return Err(format!("Counter {counter} out of range"));
             }
             Ok(()) // Mock: no-op
         }

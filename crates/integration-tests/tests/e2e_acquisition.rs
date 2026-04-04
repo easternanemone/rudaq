@@ -72,7 +72,7 @@ impl Movable for FailableStage {
 
         let count = self.moves_count.fetch_add(1, Ordering::SeqCst);
         if count >= self.fail_after_moves.load(Ordering::SeqCst) {
-            anyhow::bail!("FailableStage: Failed after {} moves", count);
+            anyhow::bail!("FailableStage: Failed after {count} moves");
         }
 
         self.inner.move_abs(target).await
@@ -143,7 +143,7 @@ impl Triggerable for FailableCamera {
         let count = self.inner.get_frame_count();
         #[allow(clippy::cast_lossless)] // usize → u64: safe on 64-bit targets
         if count >= self.fail_after_frames.load(Ordering::SeqCst) as u64 {
-            anyhow::bail!("FailableCamera: Failed after {} frames", count);
+            anyhow::bail!("FailableCamera: Failed after {count} frames");
         }
 
         self.inner.trigger().await
@@ -235,9 +235,7 @@ async fn test_full_acquisition_session() {
         let actual_pos = stage.position().await.unwrap();
         assert!(
             (actual_pos - pos).abs() < 0.001,
-            "Position mismatch: expected {}, got {}",
-            pos,
-            actual_pos
+            "Position mismatch: expected {pos}, got {actual_pos}"
         );
 
         // Read power
@@ -502,10 +500,7 @@ async fn test_graceful_shutdown() {
     // Wait for task to complete
     let completed = acquisition_task.await.unwrap();
 
-    println!(
-        "Graceful shutdown: {} frames completed before shutdown",
-        completed
-    );
+    println!("Graceful shutdown: {completed} frames completed before shutdown");
 
     // Should have completed some frames but not all 100
     assert!(completed > 0, "Should have completed some frames");
@@ -536,8 +531,7 @@ async fn test_high_throughput_acquisition() {
     let samples_per_sec = f64::from(num_samples) / elapsed.as_secs_f64();
 
     println!(
-        "High-throughput test: {} samples in {:?} ({:.1} samples/sec, simulated time)",
-        num_samples, elapsed, samples_per_sec
+        "High-throughput test: {num_samples} samples in {elapsed:?} ({samples_per_sec:.1} samples/sec, simulated time)"
     );
 
     // With start_paused, time is deterministic:
@@ -588,17 +582,13 @@ async fn test_data_integrity() {
         // Position should match expected
         assert!(
             (*pos - expected_positions[i]).abs() < 0.001,
-            "Position {} mismatch at index {}",
-            pos,
-            i
+            "Position {pos} mismatch at index {i}"
         );
 
         // Power should be in valid range
         assert!(
             *power > 0.0 && *power < 10.0,
-            "Power {} out of range at index {}",
-            power,
-            i
+            "Power {power} out of range at index {i}"
         );
 
         // Frame count should be sequential

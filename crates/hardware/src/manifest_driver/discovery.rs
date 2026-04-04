@@ -112,7 +112,7 @@ impl std::fmt::Display for Version {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}.{}.{}", self.major, self.minor, self.patch)?;
         if let Some(ref pre) = self.prerelease {
-            write!(f, "-{}", pre)?;
+            write!(f, "-{pre}")?;
         }
         Ok(())
     }
@@ -386,7 +386,7 @@ impl PluginScanner {
             Err(e) => {
                 errors.push(DiscoveryError {
                     path: path.to_path_buf(),
-                    message: format!("Failed to read directory: {}", e),
+                    message: format!("Failed to read directory: {e}"),
                     source: Some(Box::new(e)),
                 });
                 return (plugins, errors);
@@ -776,7 +776,7 @@ impl PluginRegistry {
                 unresolved.push(UnresolvedDep {
                     requirer: name.to_string(),
                     dependency: dep_name.clone(),
-                    requirement: format!("Invalid requirement: {}", dep_req),
+                    requirement: format!("Invalid requirement: {dep_req}"),
                 });
             }
         }

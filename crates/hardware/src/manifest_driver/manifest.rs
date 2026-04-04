@@ -419,7 +419,7 @@ impl PluginManifest {
             "lib"
         };
 
-        Some(plugin_dir.join(format!("{}{}.{}", lib_prefix, library_name, extension)))
+        Some(plugin_dir.join(format!("{lib_prefix}{library_name}.{extension}")))
     }
 }
 
@@ -554,7 +554,7 @@ impl PluginManifest {
             for (i, role) in module.roles.iter().enumerate() {
                 if role.role_id.is_empty() {
                     errors.push(ValidationError {
-                        path: format!("module.roles[{}].role_id", i),
+                        path: format!("module.roles[{i}].role_id"),
                         message: "Role role_id cannot be empty".to_string(),
                     });
                 }
@@ -564,7 +564,7 @@ impl PluginManifest {
             for (i, param) in module.parameters.iter().enumerate() {
                 if param.param_id.is_empty() {
                     errors.push(ValidationError {
-                        path: format!("module.parameters[{}].param_id", i),
+                        path: format!("module.parameters[{i}].param_id"),
                         message: "Parameter param_id cannot be empty".to_string(),
                     });
                 }
@@ -572,7 +572,7 @@ impl PluginManifest {
                 // Enum parameters must have values
                 if param.param_type == ParameterType::Enum && param.enum_values.is_empty() {
                     errors.push(ValidationError {
-                        path: format!("module.parameters[{}].enum_values", i),
+                        path: format!("module.parameters[{i}].enum_values"),
                         message: "Enum parameters must have enum_values defined".to_string(),
                     });
                 }
@@ -584,10 +584,9 @@ impl PluginManifest {
                     if let (Ok(min), Ok(max)) = (min_str.parse::<f64>(), max_str.parse::<f64>()) {
                         if min >= max {
                             errors.push(ValidationError {
-                                path: format!("module.parameters[{}]", i),
+                                path: format!("module.parameters[{i}]"),
                                 message: format!(
-                                    "min_value ({}) must be less than max_value ({})",
-                                    min, max
+                                    "min_value ({min}) must be less than max_value ({max})"
                                 ),
                             });
                         }
@@ -845,7 +844,7 @@ enum_values = ["A", "B", "C"]
     fn test_validation_valid_manifest() {
         let manifest = PluginManifest::from_toml(MINIMAL_MANIFEST).unwrap();
         let errors = manifest.validate();
-        assert!(errors.is_empty(), "Expected no errors, got: {:?}", errors);
+        assert!(errors.is_empty(), "Expected no errors, got: {errors:?}");
     }
 
     #[test]

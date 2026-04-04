@@ -38,14 +38,14 @@ pub fn fixed_shape_tensor_metadata(shape: &[u64], dim_names: &[&str]) -> HashMap
         "[{}]",
         dim_names
             .iter()
-            .map(|n| format!("\"{}\"", n))
+            .map(|n| format!("\"{n}\""))
             .collect::<Vec<_>>()
             .join(",")
     );
 
     meta.insert(
         "ARROW:extension:metadata".into(),
-        format!(r#"{{"shape":{},"dim_names":{}}}"#, shape_json, names_json),
+        format!(r#"{{"shape":{shape_json},"dim_names":{names_json}}}"#),
     );
     meta
 }

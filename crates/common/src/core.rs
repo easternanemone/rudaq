@@ -810,14 +810,14 @@ pub enum ParameterValue {
 impl fmt::Display for ParameterValue {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ParameterValue::Bool(b) => write!(f, "{}", b),
-            ParameterValue::Int(i) => write!(f, "{}", i),
-            ParameterValue::Float(fl) => write!(f, "{}", fl),
-            ParameterValue::String(s) => write!(f, "{}", s),
-            ParameterValue::FloatArray(arr) => write!(f, "{:?}", arr),
-            ParameterValue::IntArray(arr) => write!(f, "{:?}", arr),
-            ParameterValue::Array(arr) => write!(f, "{:?}", arr),
-            ParameterValue::Object(obj) => write!(f, "{:?}", obj),
+            ParameterValue::Bool(b) => write!(f, "{b}"),
+            ParameterValue::Int(i) => write!(f, "{i}"),
+            ParameterValue::Float(fl) => write!(f, "{fl}"),
+            ParameterValue::String(s) => write!(f, "{s}"),
+            ParameterValue::FloatArray(arr) => write!(f, "{arr:?}"),
+            ParameterValue::IntArray(arr) => write!(f, "{arr:?}"),
+            ParameterValue::Array(arr) => write!(f, "{arr:?}"),
+            ParameterValue::Object(obj) => write!(f, "{obj:?}"),
             ParameterValue::Null => write!(f, "null"),
         }
     }

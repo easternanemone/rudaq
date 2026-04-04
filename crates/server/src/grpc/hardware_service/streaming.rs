@@ -190,8 +190,7 @@ impl StreamLimiter {
                 "Client exceeded maximum concurrent streams"
             );
             return Err(Status::resource_exhausted(format!(
-                "Maximum concurrent streams ({}) exceeded for client {}",
-                MAX_STREAMS_PER_CLIENT, client_ip
+                "Maximum concurrent streams ({MAX_STREAMS_PER_CLIENT}) exceeded for client {client_ip}"
             )));
         }
 

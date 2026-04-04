@@ -96,7 +96,7 @@ async fn mock_camera_initialization() {
 
     // Verify resolution
     let (width, height) = camera.resolution();
-    println!("  Resolution: {}x{}", width, height);
+    println!("  Resolution: {width}x{height}");
     assert!(width > 0, "Width should be positive");
     assert!(height > 0, "Height should be positive");
 
@@ -119,7 +119,7 @@ async fn mock_camera_exposure_control() {
 
     // Get exposure
     let exposure = camera.get_exposure().await.expect("Failed to get exposure");
-    println!("  Exposure: {} seconds", exposure);
+    println!("  Exposure: {exposure} seconds");
     assert!((exposure - 0.001).abs() < 1e-6, "Exposure should be ~1ms");
 
     println!("=== Mock Exposure Control Test PASSED ===");
@@ -318,7 +318,7 @@ async fn mock_spectrograph_multi_port_slit() {
             .auto_slit_is_present(port)
             .await
             .expect("Failed to check slit presence");
-        assert!(present, "Mock should report slit port {:?} present", port);
+        assert!(present, "Mock should report slit port {port:?} present");
     }
 
     // Set and get slit width on a specific port

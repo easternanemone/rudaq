@@ -54,7 +54,7 @@ fn hex_filter(value: i64, width: usize) -> String {
         8 => u64::from(value as u32),
         _ => value as u64,
     };
-    format!("{:0>width$X}", masked, width = width)
+    format!("{masked:0>width$X}")
 }
 
 /// MiniJinja filter: pad string to given width with a fill character.

@@ -240,10 +240,7 @@ impl HealthService for HealthServiceImpl {
             match registry.get_device_health(&device_id) {
                 Some(state) => vec![health_state_to_proto(&device_id, &state)],
                 None => {
-                    return Err(Status::not_found(format!(
-                        "Device '{}' not found",
-                        device_id
-                    )));
+                    return Err(Status::not_found(format!("Device '{device_id}' not found")));
                 }
             }
         } else {
@@ -458,8 +455,7 @@ mod tests {
         let health = monitor.get_system_health().await;
         assert!(
             matches!(health, SystemHealth::Degraded),
-            "System health should be Degraded after DB warning, got {:?}",
-            health
+            "System health should be Degraded after DB warning, got {health:?}"
         );
     }
 

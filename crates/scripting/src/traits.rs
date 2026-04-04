@@ -117,13 +117,13 @@ impl fmt::Debug for ScriptValue {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // Try to format common types for debugging
         if let Some(s) = self.downcast_ref::<String>() {
-            write!(f, "ScriptValue(String: {:?})", s)
+            write!(f, "ScriptValue(String: {s:?})")
         } else if let Some(i) = self.downcast_ref::<i64>() {
-            write!(f, "ScriptValue(i64: {})", i)
+            write!(f, "ScriptValue(i64: {i})")
         } else if let Some(fl) = self.downcast_ref::<f64>() {
-            write!(f, "ScriptValue(f64: {})", fl)
+            write!(f, "ScriptValue(f64: {fl})")
         } else if let Some(b) = self.downcast_ref::<bool>() {
-            write!(f, "ScriptValue(bool: {})", b)
+            write!(f, "ScriptValue(bool: {b})")
         } else if self.downcast_ref::<()>().is_some() {
             write!(f, "ScriptValue(())")
         } else {
@@ -157,7 +157,7 @@ pub enum ScriptError {
     ///
     /// Indicates an error occurred while executing a valid script, such as
     /// division by zero, type mismatch, or hardware operation failure.
-    #[error("Runtime error: {message}{}", .backtrace.as_ref().map(|b| format!("\n{}", b)).unwrap_or_default())]
+    #[error("Runtime error: {message}{}", .backtrace.as_ref().map(|b| format!("\n{b}")).unwrap_or_default())]
     RuntimeError {
         /// Human-readable description of the runtime error
         message: String,
@@ -352,7 +352,7 @@ mod tests {
     #[test]
     fn test_script_value_debug() {
         let value = ScriptValue::new(42_i64);
-        let debug_str = format!("{:?}", value);
+        let debug_str = format!("{value:?}");
         assert!(debug_str.contains("i64"));
         assert!(debug_str.contains("42"));
     }

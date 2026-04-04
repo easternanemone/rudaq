@@ -361,7 +361,7 @@ impl RunEngine {
     pub async fn start(&self) -> anyhow::Result<()> {
         let current_state = *self.state.read().await;
         if current_state != EngineState::Idle {
-            anyhow::bail!("Cannot start: engine is {}", current_state);
+            anyhow::bail!("Cannot start: engine is {current_state}");
         }
 
         let readiness_issues = self.next_plan_readiness_issues().await;
@@ -401,7 +401,7 @@ impl RunEngine {
     pub async fn pause(&self) -> anyhow::Result<()> {
         let current_state = *self.state.read().await;
         if current_state != EngineState::Running {
-            anyhow::bail!("Cannot pause: engine is {}", current_state);
+            anyhow::bail!("Cannot pause: engine is {current_state}");
         }
 
         info!("Pause requested");
@@ -415,7 +415,7 @@ impl RunEngine {
     pub async fn resume(&self) -> anyhow::Result<()> {
         let current_state = *self.state.read().await;
         if current_state != EngineState::Paused {
-            anyhow::bail!("Cannot resume: engine is {}", current_state);
+            anyhow::bail!("Cannot resume: engine is {current_state}");
         }
 
         info!("Resuming from pause");
@@ -452,7 +452,7 @@ impl RunEngine {
                         self.set_state(EngineState::Aborting).await;
                         Ok(())
                     }
-                    _ => anyhow::bail!("Cannot abort: engine is {}", current_state),
+                    _ => anyhow::bail!("Cannot abort: engine is {current_state}"),
                 }
             }
             Some(uid) => {
@@ -477,7 +477,7 @@ impl RunEngine {
                 }
 
                 // Not found
-                anyhow::bail!("Run '{}' not found (not current and not queued)", uid)
+                anyhow::bail!("Run '{uid}' not found (not current and not queued)")
             }
         }
     }

@@ -196,18 +196,13 @@ pub fn parse_response(
                 let lit_chars: Vec<char> = lit.chars().collect();
                 if pos + lit_chars.len() > chars.len() {
                     anyhow::bail!(
-                        "expected literal '{}' at position {} but input is too short",
-                        lit,
-                        pos
+                        "expected literal '{lit}' at position {pos} but input is too short"
                     );
                 }
                 let actual: String = chars[pos..pos + lit_chars.len()].iter().collect();
                 if actual != *lit {
                     anyhow::bail!(
-                        "expected literal '{}' at position {} but found '{}'",
-                        lit,
-                        pos,
-                        actual
+                        "expected literal '{lit}' at position {pos} but found '{actual}'"
                     );
                 }
                 pos += lit_chars.len();
@@ -225,11 +220,7 @@ pub fn parse_response(
     // Reject unexpected trailing non-whitespace
     if pos < chars.len() && !chars[pos..].iter().all(|c| c.is_whitespace()) {
         let trailing: String = chars[pos..].iter().collect();
-        anyhow::bail!(
-            "unexpected trailing input at position {}: '{}'",
-            pos,
-            trailing
-        );
+        anyhow::bail!("unexpected trailing input at position {pos}: '{trailing}'");
     }
 
     Ok(result)

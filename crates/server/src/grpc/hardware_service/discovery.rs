@@ -20,8 +20,7 @@ pub(super) fn list_devices(
             "exposure_control" | "exposurecontrol" => Capability::ExposureControl,
             _ => {
                 return Err(Status::invalid_argument(format!(
-                    "Unknown capability: {}",
-                    capability_filter
+                    "Unknown capability: {capability_filter}"
                 )));
             }
         };
@@ -191,10 +190,7 @@ pub(super) fn subscribe_device_state(
         // Validate all requested device IDs exist
         for device_id in &req.device_ids {
             if !svc.registry.contains(device_id) {
-                return Err(Status::not_found(format!(
-                    "Device '{}' not found",
-                    device_id
-                )));
+                return Err(Status::not_found(format!("Device '{device_id}' not found")));
             }
         }
         req.device_ids.clone()

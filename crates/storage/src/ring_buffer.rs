@@ -327,8 +327,7 @@ impl RingBuffer {
             return Err(DaqError::Storage(StorageError::new(
                 StorageErrorKind::Configuration,
                 format!(
-                    "Ring buffer capacity exceeds maximum ({}), got {} MB",
-                    MAX_CAPACITY_MB, capacity_mb
+                    "Ring buffer capacity exceeds maximum ({MAX_CAPACITY_MB}), got {capacity_mb} MB"
                 ),
             )));
         }
@@ -341,8 +340,7 @@ impl RingBuffer {
                 DaqError::Storage(StorageError::new(
                     StorageErrorKind::Configuration,
                     format!(
-                        "Capacity calculation overflowed: {} MB exceeds maximum allocatable size",
-                        capacity_mb
+                        "Capacity calculation overflowed: {capacity_mb} MB exceeds maximum allocatable size"
                     ),
                 ))
             })?;
@@ -351,8 +349,7 @@ impl RingBuffer {
             DaqError::Storage(StorageError::new(
                 StorageErrorKind::Configuration,
                 format!(
-                    "Total size calculation overflowed after adding header ({} bytes)",
-                    HEADER_SIZE
+                    "Total size calculation overflowed after adding header ({HEADER_SIZE} bytes)"
                 ),
             ))
         })?;
@@ -376,7 +373,7 @@ impl RingBuffer {
         let file = opts.open(path).map_err(|e| {
             DaqError::Storage(StorageError::new(
                 StorageErrorKind::Io,
-                format!("Failed to create/open ring buffer file {:?}: {}", path, e),
+                format!("Failed to create/open ring buffer file {path:?}: {e}"),
             ))
         })?;
 
@@ -391,9 +388,8 @@ impl RingBuffer {
             return Err(DaqError::Storage(StorageError::new(
                 StorageErrorKind::Configuration,
                 format!(
-                    "Ring buffer capacity mismatch: file has {} bytes but requested {} bytes. \
-                 Delete the existing file or use matching capacity.",
-                    existing_size, total_size
+                    "Ring buffer capacity mismatch: file has {existing_size} bytes but requested {total_size} bytes. \
+                 Delete the existing file or use matching capacity."
                 ),
             )));
         }
@@ -404,7 +400,7 @@ impl RingBuffer {
             MmapOptions::new().map_mut(&file).map_err(|e| {
                 DaqError::Storage(StorageError::new(
                     StorageErrorKind::Io,
-                    format!("Failed to create memory mapping: {}", e),
+                    format!("Failed to create memory mapping: {e}"),
                 ))
             })?
         };
@@ -478,7 +474,7 @@ impl RingBuffer {
             .map_err(|e| {
                 DaqError::Storage(StorageError::new(
                     StorageErrorKind::Io,
-                    format!("Failed to open ring buffer file {:?}: {}", path, e),
+                    format!("Failed to open ring buffer file {path:?}: {e}"),
                 ))
             })?;
 
@@ -496,8 +492,7 @@ impl RingBuffer {
             return Err(DaqError::Storage(StorageError::new(
                 StorageErrorKind::Configuration,
                 format!(
-                    "Ring buffer file too small: {} bytes, minimum {} bytes required for header",
-                    file_size, HEADER_SIZE
+                    "Ring buffer file too small: {file_size} bytes, minimum {HEADER_SIZE} bytes required for header"
                 ),
             )));
         }
@@ -509,7 +504,7 @@ impl RingBuffer {
             MmapOptions::new().map_mut(&file).map_err(|e| {
                 DaqError::Storage(StorageError::new(
                     StorageErrorKind::Io,
-                    format!("Failed to map ring buffer file: {}", e),
+                    format!("Failed to map ring buffer file: {e}"),
                 ))
             })?
         };
@@ -536,9 +531,8 @@ impl RingBuffer {
             return Err(DaqError::Storage(StorageError::new(
                 StorageErrorKind::Configuration,
                 format!(
-                    "Invalid ring buffer magic number: expected 0x{:016X}, got 0x{:016X}. \
-                 File may be corrupted or not a valid ring buffer.",
-                    MAGIC, magic
+                    "Invalid ring buffer magic number: expected 0x{MAGIC:016X}, got 0x{magic:016X}. \
+                 File may be corrupted or not a valid ring buffer."
                 ),
             )));
         }
@@ -551,9 +545,8 @@ impl RingBuffer {
             return Err(DaqError::Storage(StorageError::new(
                 StorageErrorKind::Configuration,
                 format!(
-                    "Ring buffer file size mismatch: file is {} bytes but header indicates \
-                 {} bytes capacity (expected {} total bytes). File may be truncated or corrupted.",
-                    file_size, capacity, expected_size
+                    "Ring buffer file size mismatch: file is {file_size} bytes but header indicates \
+                 {capacity} bytes capacity (expected {expected_size} total bytes). File may be truncated or corrupted."
                 ),
             )));
         }
@@ -801,7 +794,7 @@ impl RingBuffer {
         let rx = self.taps.register(id.clone(), nth_frame).map_err(|e| {
             DaqError::Storage(StorageError::new(
                 StorageErrorKind::RingBuffer,
-                format!("Failed to register tap '{}': {}", id, e),
+                format!("Failed to register tap '{id}': {e}"),
             ))
         })?;
 
@@ -850,7 +843,7 @@ impl RingBuffer {
         let removed = self.taps.unregister(id).map_err(|e| {
             DaqError::Storage(StorageError::new(
                 StorageErrorKind::RingBuffer,
-                format!("Failed to unregister tap '{}': {}", id, e),
+                format!("Failed to unregister tap '{id}': {e}"),
             ))
         })?;
 
@@ -1662,20 +1655,20 @@ impl RingBuffer {
         let mut writer = FileWriter::try_new(&mut buffer, &batch.schema()).map_err(|e| {
             DaqError::Storage(StorageError::new(
                 StorageErrorKind::Arrow,
-                format!("Failed to create Arrow IPC writer: {}", e),
+                format!("Failed to create Arrow IPC writer: {e}"),
             ))
         })?;
 
         writer.write(batch).map_err(|e| {
             DaqError::Storage(StorageError::new(
                 StorageErrorKind::Arrow,
-                format!("Failed to write Arrow batch: {}", e),
+                format!("Failed to write Arrow batch: {e}"),
             ))
         })?;
         writer.finish().map_err(|e| {
             DaqError::Storage(StorageError::new(
                 StorageErrorKind::Arrow,
-                format!("Failed to finish Arrow writer: {}", e),
+                format!("Failed to finish Arrow writer: {e}"),
             ))
         })?;
 
@@ -1690,7 +1683,7 @@ impl RingBuffer {
         self.write(&framed).map_err(|e| {
             DaqError::Storage(StorageError::new(
                 StorageErrorKind::RingBuffer,
-                format!("Failed to write Arrow IPC data to ring buffer: {}", e),
+                format!("Failed to write Arrow IPC data to ring buffer: {e}"),
             ))
         })
     }
@@ -1792,8 +1785,7 @@ mod tests {
         let err_msg = result.unwrap_err().to_string();
         assert!(
             err_msg.contains("must be at least 1 MB") || err_msg.contains("capacity"),
-            "Error should mention zero capacity is invalid: {}",
-            err_msg
+            "Error should mention zero capacity is invalid: {err_msg}"
         );
     }
 
@@ -1810,8 +1802,7 @@ mod tests {
         let err_msg = result.unwrap_err().to_string();
         assert!(
             err_msg.contains("exceeds maximum") || err_msg.contains("capacity"),
-            "Error should mention capacity exceeds maximum: {}",
-            err_msg
+            "Error should mention capacity exceeds maximum: {err_msg}"
         );
     }
 
@@ -1835,8 +1826,7 @@ mod tests {
                 // Either exceeds limit or allocation fails, both are acceptable
                 assert!(
                     msg.contains("exceeds") || msg.contains("Failed") || msg.contains("allocation"),
-                    "Error should be about exceeds limit or allocation: {}",
-                    msg
+                    "Error should be about exceeds limit or allocation: {msg}"
                 );
             }
             Ok(_) => {
@@ -1950,7 +1940,7 @@ mod tests {
         let rb_writer = Arc::clone(&rb);
         let writer = thread::spawn(move || {
             for i in 0..1000 {
-                let data = format!("Message {}", i);
+                let data = format!("Message {i}");
                 rb_writer.write(data.as_bytes()).unwrap();
             }
         });
@@ -2027,13 +2017,12 @@ mod tests {
         let elapsed = start.elapsed();
 
         let ops_per_sec = f64::from(iterations) / elapsed.as_secs_f64();
-        println!("Write performance: {:.0} ops/sec", ops_per_sec);
+        println!("Write performance: {ops_per_sec:.0} ops/sec");
 
         // Should achieve 10k+ writes/sec
         assert!(
             ops_per_sec > 10_000.0,
-            "Performance too low: {} ops/sec",
-            ops_per_sec
+            "Performance too low: {ops_per_sec} ops/sec"
         );
     }
 
@@ -2082,7 +2071,7 @@ mod tests {
 
         // Write 10 frames
         for i in 0..10 {
-            let data = format!("frame_{}", i);
+            let data = format!("frame_{i}");
             rb.write(data.as_bytes()).unwrap();
         }
 
@@ -2110,7 +2099,7 @@ mod tests {
         // Write more frames than the channel can hold
         // Channel size is DEFAULT_TAP_CHANNEL_SIZE (16)
         for i in 0..50 {
-            let data = format!("frame_{:03}", i);
+            let data = format!("frame_{i:03}");
             rb.write(data.as_bytes()).unwrap();
         }
 
@@ -2135,7 +2124,7 @@ mod tests {
 
         // Write 10 frames
         for i in 0..10 {
-            let data = format!("frame_{}", i);
+            let data = format!("frame_{i}");
             rb.write(data.as_bytes()).unwrap();
         }
 
@@ -2219,8 +2208,7 @@ mod tests {
         let err_msg = result.unwrap_err().to_string();
         assert!(
             err_msg.contains("too small") || err_msg.contains("minimum"),
-            "Error should mention file is too small: {}",
-            err_msg
+            "Error should mention file is too small: {err_msg}"
         );
     }
 
@@ -2246,8 +2234,7 @@ mod tests {
         let err_msg = result.unwrap_err().to_string();
         assert!(
             err_msg.contains("magic") || err_msg.contains("Invalid"),
-            "Error should mention invalid magic: {}",
-            err_msg
+            "Error should mention invalid magic: {err_msg}"
         );
     }
 
@@ -2282,8 +2269,7 @@ mod tests {
         let err_msg = result.unwrap_err().to_string();
         assert!(
             err_msg.contains("mismatch") || err_msg.contains("truncated"),
-            "Error should mention size mismatch: {}",
-            err_msg
+            "Error should mention size mismatch: {err_msg}"
         );
     }
 
@@ -2322,7 +2308,7 @@ mod tests {
             let arb = async_rb.clone();
             let handle = tokio::spawn(async move {
                 for j in 0..100 {
-                    let data = format!("Writer {} Message {}", i, j);
+                    let data = format!("Writer {i} Message {j}");
                     arb.write(data.as_bytes()).await.unwrap();
                 }
             });
@@ -2452,7 +2438,7 @@ mod tests {
         let async_rb = AsyncRingBuffer::new(rb);
 
         // Test Debug implementation
-        let debug_str = format!("{:?}", async_rb);
+        let debug_str = format!("{async_rb:?}");
         assert!(debug_str.contains("AsyncRingBuffer"));
     }
 
@@ -2830,7 +2816,7 @@ mod tests {
         let tap_rb = async_rb.clone();
         let tap_task = tokio::spawn(async move {
             for cycle in 0..num_tap_cycles {
-                let tap_id = format!("stress_tap_{}", cycle);
+                let tap_id = format!("stress_tap_{cycle}");
                 if let Ok(mut rx) = tap_rb.register_tap(tap_id.clone(), 1) {
                     for _ in 0..5 {
                         match tokio::time::timeout(Duration::from_millis(10), rx.recv()).await {
@@ -2901,9 +2887,7 @@ mod tests {
         let dropped = health.map_or(0, |h| h.dropped_frames);
         assert!(
             dropped > 0 || received < 500,
-            "expected backpressure evidence: dropped_frames={}, received={}",
-            dropped,
-            received
+            "expected backpressure evidence: dropped_frames={dropped}, received={received}"
         );
     }
 
@@ -2927,7 +2911,7 @@ mod tests {
             let arb = async_rb.clone();
             handles.push(tokio::spawn(async move {
                 for i in 0..writes_per {
-                    let data = format!("W{}:{}", w, i);
+                    let data = format!("W{w}:{i}");
                     arb.write(data.as_bytes()).await.unwrap();
                 }
             }));
@@ -2963,7 +2947,7 @@ mod tests {
         let cycles = 50;
 
         for i in 0..cycles {
-            let path = temp_dir.path().join(format!("lifecycle_{}.buf", i));
+            let path = temp_dir.path().join(format!("lifecycle_{i}.buf"));
             let rb = RingBuffer::create(&path, 1).unwrap();
 
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -2974,8 +2958,8 @@ mod tests {
             let snapshot = rb.read_snapshot();
             assert_eq!(snapshot, data);
 
-            let _rx = rb.register_tap(format!("tap_{}", i), 1).unwrap();
-            rb.unregister_tap(&format!("tap_{}", i)).unwrap();
+            let _rx = rb.register_tap(format!("tap_{i}"), 1).unwrap();
+            rb.unregister_tap(&format!("tap_{i}")).unwrap();
         }
     }
 

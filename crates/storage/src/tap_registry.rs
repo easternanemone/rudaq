@@ -282,7 +282,7 @@ impl TapRegistry {
             .map_err(|_| anyhow!("Tap registry lock poisoned"))?;
 
         if taps.contains_key(&id) {
-            return Err(anyhow!("Tap with ID '{}' already exists", id));
+            return Err(anyhow!("Tap with ID '{id}' already exists"));
         }
 
         let channel_capacity = self.channel_capacity.load(Ordering::Relaxed).max(1);

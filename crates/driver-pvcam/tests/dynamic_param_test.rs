@@ -34,7 +34,7 @@ fn assert_enum_param(driver: &PvcamDriver, name: &str) {
     let param = driver
         .parameters()
         .get(name)
-        .unwrap_or_else(|| panic!("Parameter '{}' not found", name));
+        .unwrap_or_else(|| panic!("Parameter '{name}' not found"));
     let meta = param.metadata();
     assert_eq!(
         meta.dtype, "enum",
@@ -43,8 +43,7 @@ fn assert_enum_param(driver: &PvcamDriver, name: &str) {
     );
     assert!(
         !meta.enum_values.is_empty(),
-        "Parameter '{}' should have non-empty enum_values for dropdown options",
-        name
+        "Parameter '{name}' should have non-empty enum_values for dropdown options"
     );
 }
 
@@ -52,7 +51,7 @@ fn get_enum_values(driver: &PvcamDriver, name: &str) -> Vec<String> {
     driver
         .parameters()
         .get(name)
-        .unwrap_or_else(|| panic!("Parameter '{}' not found", name))
+        .unwrap_or_else(|| panic!("Parameter '{name}' not found"))
         .metadata()
         .enum_values
 }
@@ -61,9 +60,9 @@ fn get_param_value(driver: &PvcamDriver, name: &str) -> serde_json::Value {
     driver
         .parameters()
         .get(name)
-        .unwrap_or_else(|| panic!("Parameter '{}' not found", name))
+        .unwrap_or_else(|| panic!("Parameter '{name}' not found"))
         .get_json()
-        .unwrap_or_else(|e| panic!("Failed to get JSON for '{}': {}", name, e))
+        .unwrap_or_else(|e| panic!("Failed to get JSON for '{name}': {e}"))
 }
 
 // =============================================================================
@@ -94,9 +93,9 @@ mod mock_dynamic_params {
         let speeds = get_enum_values(&driver, "readout.speed_mode");
         let gains = get_enum_values(&driver, "readout.gain_mode");
 
-        println!("Readout ports: {:?}", ports);
-        println!("Speed modes: {:?}", speeds);
-        println!("Gain modes: {:?}", gains);
+        println!("Readout ports: {ports:?}");
+        println!("Speed modes: {speeds:?}");
+        println!("Gain modes: {gains:?}");
     }
 
     // -------------------------------------------------------------------------
@@ -145,10 +144,7 @@ mod mock_dynamic_params {
             let value_str = value.as_str().unwrap_or("");
             assert!(
                 choices.contains(&value_str.to_string()),
-                "Current value '{}' for '{}' should be in choices {:?}",
-                value_str,
-                name,
-                choices
+                "Current value '{value_str}' for '{name}' should be in choices {choices:?}"
             );
         }
     }
@@ -258,10 +254,7 @@ mod mock_dynamic_params {
         let pixel_time = get_param_value(&driver, "acquisition.pixel_time_ns");
         let bit_depth = get_param_value(&driver, "info.bit_depth");
 
-        println!(
-            "At 100 MHz: pixel_time_ns={}, bit_depth={}",
-            pixel_time, bit_depth
-        );
+        println!("At 100 MHz: pixel_time_ns={pixel_time}, bit_depth={bit_depth}");
 
         // Switch to "50 MHz" with pix_time_ns=20, bit_depth=12
         driver
@@ -277,10 +270,7 @@ mod mock_dynamic_params {
         let pixel_time_after = get_param_value(&driver, "acquisition.pixel_time_ns");
         let bit_depth_after = get_param_value(&driver, "info.bit_depth");
 
-        println!(
-            "At 50 MHz: pixel_time_ns={}, bit_depth={}",
-            pixel_time_after, bit_depth_after
-        );
+        println!("At 50 MHz: pixel_time_ns={pixel_time_after}, bit_depth={bit_depth_after}");
 
         assert_eq!(
             pixel_time_after,

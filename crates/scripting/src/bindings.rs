@@ -84,16 +84,14 @@ impl SoftLimits {
         if let Some(min) = self.min {
             if position < min {
                 return Err(format!(
-                    "Position {} is below soft limit minimum {}",
-                    position, min
+                    "Position {position} is below soft limit minimum {min}"
                 ));
             }
         }
         if let Some(max) = self.max {
             if position > max {
                 return Err(format!(
-                    "Position {} exceeds soft limit maximum {}",
-                    position, max
+                    "Position {position} exceeds soft limit maximum {max}"
                 ));
             }
         }
@@ -272,7 +270,7 @@ pub fn register_hardware(engine: &mut Engine) {
             // Validate soft limits BEFORE issuing hardware command (bd-jnfu.4)
             if let Err(e) = stage.soft_limits.validate(pos) {
                 return Err(Box::new(EvalAltResult::ErrorRuntime(
-                    format!("Stage move_abs: soft limit violation: {}", e).into(),
+                    format!("Stage move_abs: soft limit violation: {e}").into(),
                     Position::NONE,
                 )));
             }
@@ -319,8 +317,7 @@ pub fn register_hardware(engine: &mut Engine) {
             if let Err(e) = stage.soft_limits.validate(target_pos) {
                 return Err(Box::new(EvalAltResult::ErrorRuntime(
                     format!(
-                        "Stage move_rel: soft limit violation (current: {}, relative: {}, target: {}): {}",
-                        current_pos, dist, target_pos, e
+                        "Stage move_rel: soft limit violation (current: {current_pos}, relative: {dist}, target: {target_pos}): {e}"
                     ).into(),
                     Position::NONE,
                 )));
@@ -343,7 +340,7 @@ pub fn register_hardware(engine: &mut Engine) {
                 use tokio::time::{timeout, Duration};
                 match timeout(Duration::from_secs(3), driver.position()).await {
                     Ok(Ok(pos)) => Ok(pos),
-                    Ok(Err(e)) => Err(anyhow::anyhow!("position query failed: {}", e)),
+                    Ok(Err(e)) => Err(anyhow::anyhow!("position query failed: {e}")),
                     Err(_) => Err(anyhow::anyhow!(
                         "position query timed out (device not responding)"
                     )),
@@ -361,7 +358,7 @@ pub fn register_hardware(engine: &mut Engine) {
                 use tokio::time::{timeout, Duration};
                 match timeout(Duration::from_secs(15), driver.wait_settled()).await {
                     Ok(Ok(())) => Ok(()),
-                    Ok(Err(e)) => Err(anyhow::anyhow!("wait_settled failed: {}", e)),
+                    Ok(Err(e)) => Err(anyhow::anyhow!("wait_settled failed: {e}")),
                     Err(_) => Err(anyhow::anyhow!("wait_settled timed out after 15s")),
                 }
             })?;
@@ -545,13 +542,13 @@ pub fn register_hardware(engine: &mut Engine) {
                 timeout(Duration::from_secs(5), driver.move_abs(0.0))
                     .await
                     .map_err(|_| anyhow::anyhow!("home move_abs timed out after 5s"))?
-                    .map_err(|e| anyhow::anyhow!("home move_abs failed: {}", e))?;
+                    .map_err(|e| anyhow::anyhow!("home move_abs failed: {e}"))?;
 
                 // Wait settled with 15s timeout
                 timeout(Duration::from_secs(15), driver.wait_settled())
                     .await
                     .map_err(|_| anyhow::anyhow!("home wait_settled timed out after 15s"))?
-                    .map_err(|e| anyhow::anyhow!("home wait_settled failed: {}", e))?;
+                    .map_err(|e| anyhow::anyhow!("home wait_settled failed: {e}"))?;
 
                 Ok::<_, anyhow::Error>(())
             })?;

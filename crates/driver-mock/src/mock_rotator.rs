@@ -613,7 +613,7 @@ mod tests {
         // Slow should be approximately 2x fast (with some tolerance)
         #[allow(clippy::cast_precision_loss)]
         let ratio = slow_duration.as_millis() as f64 / fast_duration.as_millis() as f64;
-        assert!(ratio > 1.5 && ratio < 2.5, "Ratio: {}", ratio);
+        assert!(ratio > 1.5 && ratio < 2.5, "Ratio: {ratio}");
 
         Ok(())
     }

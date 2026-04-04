@@ -332,7 +332,7 @@ async fn test_concurrent_parameter_access_no_deadlock() -> Result<()> {
             let request = Request::new(SetParameterRequest {
                 device_id: "mock_camera".to_string(),
                 parameter_name: "exposure_s".to_string(),
-                value: format!("{}", exposure_value),
+                value: format!("{exposure_value}"),
             });
 
             // This acquires: Registry RwLock → Parameter Lock → Driver Mutex (via callback)
@@ -356,13 +356,10 @@ async fn test_concurrent_parameter_access_no_deadlock() -> Result<()> {
             println!("✓ Concurrency test passed: 1000 iterations completed without deadlock");
         }
         Ok(Err(e)) => {
-            panic!("Task failed: {}", e);
+            panic!("Task failed: {e}");
         }
         Err(err) => {
-            panic!(
-                "DEADLOCK DETECTED: Test timed out after 30 seconds: {}",
-                err
-            );
+            panic!("DEADLOCK DETECTED: Test timed out after 30 seconds: {err}");
         }
     }
 

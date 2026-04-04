@@ -72,13 +72,13 @@ impl PresetServiceImpl {
 
     /// Get path to a preset file
     fn preset_path(&self, preset_id: &str) -> PathBuf {
-        self.storage_path.join(format!("{}.json", preset_id))
+        self.storage_path.join(format!("{preset_id}.json"))
     }
 
     /// Get path to a preset backup file
     fn backup_path(&self, preset_id: &str, backup_num: usize) -> PathBuf {
         self.storage_path
-            .join(format!("{}.backup{}.json", preset_id, backup_num))
+            .join(format!("{preset_id}.backup{backup_num}.json"))
     }
 
     /// Get path to manifest file
@@ -105,11 +105,11 @@ impl PresetServiceImpl {
     async fn save_manifest(&self, presets: &[PresetMetadata]) -> Result<(), Status> {
         let entries: Vec<ManifestEntry> = presets.iter().map(ManifestEntry::from_proto).collect();
         let json = serde_json::to_string_pretty(&entries)
-            .map_err(|e| Status::internal(format!("Failed to serialize manifest: {}", e)))?;
+            .map_err(|e| Status::internal(format!("Failed to serialize manifest: {e}")))?;
 
         fs::write(self.manifest_path(), json)
             .await
-            .map_err(|e| Status::internal(format!("Failed to write manifest: {}", e)))?;
+            .map_err(|e| Status::internal(format!("Failed to write manifest: {e}")))?;
 
         Ok(())
     }
@@ -184,24 +184,24 @@ impl PresetServiceImpl {
 
         // Serialize preset to JSON
         let json = serde_json::to_string_pretty(&PresetFile::from_proto(preset))
-            .map_err(|e| Status::internal(format!("Failed to serialize preset: {}", e)))?;
+            .map_err(|e| Status::internal(format!("Failed to serialize preset: {e}")))?;
 
         // Write with hash verification
         let hash = Self::hash_content(json.as_bytes());
 
         let mut file = fs::File::create(&path)
             .await
-            .map_err(|e| Status::internal(format!("Failed to create preset file: {}", e)))?;
+            .map_err(|e| Status::internal(format!("Failed to create preset file: {e}")))?;
 
         file.write_all(json.as_bytes())
             .await
-            .map_err(|e| Status::internal(format!("Failed to write preset: {}", e)))?;
+            .map_err(|e| Status::internal(format!("Failed to write preset: {e}")))?;
 
         // Write hash file
         let hash_path = path.with_extension("json.sha256");
         fs::write(&hash_path, &hash)
             .await
-            .map_err(|e| Status::internal(format!("Failed to write hash file: {}", e)))?;
+            .map_err(|e| Status::internal(format!("Failed to write hash file: {e}")))?;
 
         // Update manifest for O(1) listing
         if let Some(meta) = &preset.meta {
@@ -255,34 +255,30 @@ impl PresetServiceImpl {
         let path = self.preset_path(preset_id);
 
         if !fs::try_exists(&path).await.unwrap_or(false) {
-            return Err(Status::not_found(format!(
-                "Preset '{}' not found",
-                preset_id
-            )));
+            return Err(Status::not_found(format!("Preset '{preset_id}' not found")));
         }
 
         let content = fs::read(&path)
             .await
-            .map_err(|e| Status::internal(format!("Failed to read preset file: {}", e)))?;
+            .map_err(|e| Status::internal(format!("Failed to read preset file: {e}")))?;
 
         // Verify hash if available
         let hash_path = path.with_extension("json.sha256");
         if fs::try_exists(&hash_path).await.unwrap_or(false) {
             let stored_hash = fs::read_to_string(&hash_path)
                 .await
-                .map_err(|e| Status::internal(format!("Failed to read hash file: {}", e)))?;
+                .map_err(|e| Status::internal(format!("Failed to read hash file: {e}")))?;
 
             let computed_hash = Self::hash_content(&content);
             if stored_hash.trim() != computed_hash {
                 return Err(Status::data_loss(format!(
-                    "Preset '{}' failed integrity check (corrupted)",
-                    preset_id
+                    "Preset '{preset_id}' failed integrity check (corrupted)"
                 )));
             }
         }
 
         let preset_file: PresetFile = serde_json::from_slice(&content)
-            .map_err(|e| Status::internal(format!("Failed to parse preset: {}", e)))?;
+            .map_err(|e| Status::internal(format!("Failed to parse preset: {e}")))?;
 
         Ok(preset_file.to_proto())
     }
@@ -310,11 +306,13 @@ impl PresetServiceImpl {
 
         let mut entries = fs::read_dir(&self.storage_path)
             .await
-            .map_err(|e| Status::internal(format!("Failed to read preset directory: {}", e)))?;
+            .map_err(|e| Status::internal(format!("Failed to read preset directory: {e}")))?;
 
-        while let Some(entry) = entries.next_entry().await.map_err(|e| {
-            Status::internal(format!("Failed to read preset directory entry: {}", e))
-        })? {
+        while let Some(entry) = entries
+            .next_entry()
+            .await
+            .map_err(|e| Status::internal(format!("Failed to read preset directory entry: {e}")))?
+        {
             let path = entry.path();
 
             // Only process .json files (not backups, hash files, or manifest)
@@ -358,16 +356,13 @@ impl PresetServiceImpl {
         let path = self.preset_path(preset_id);
 
         if !fs::try_exists(&path).await.unwrap_or(false) {
-            return Err(Status::not_found(format!(
-                "Preset '{}' not found",
-                preset_id
-            )));
+            return Err(Status::not_found(format!("Preset '{preset_id}' not found")));
         }
 
         // Remove main file
         fs::remove_file(&path)
             .await
-            .map_err(|e| Status::internal(format!("Failed to delete preset: {}", e)))?;
+            .map_err(|e| Status::internal(format!("Failed to delete preset: {e}")))?;
 
         // Remove hash file
         let hash_path = path.with_extension("json.sha256");
@@ -396,7 +391,7 @@ impl PresetServiceImpl {
             // Check if device exists
             let device_info = self.registry.get_device_info(device_id);
             if device_info.is_none() {
-                errors.push(format!("Device '{}' not found", device_id));
+                errors.push(format!("Device '{device_id}' not found"));
                 continue;
             }
 
@@ -404,7 +399,7 @@ impl PresetServiceImpl {
             let config: serde_json::Value = match serde_json::from_str(config_json) {
                 Ok(v) => v,
                 Err(e) => {
-                    errors.push(format!("Invalid config for '{}': {}", device_id, e));
+                    errors.push(format!("Invalid config for '{device_id}': {e}"));
                     continue;
                 }
             };
@@ -415,7 +410,7 @@ impl PresetServiceImpl {
             {
                 match movable.move_abs(pos).await {
                     Ok(()) => applied_count += 1,
-                    Err(e) => errors.push(format!("Failed to move '{}': {}", device_id, e)),
+                    Err(e) => errors.push(format!("Failed to move '{device_id}': {e}")),
                 }
             }
 
@@ -425,7 +420,7 @@ impl PresetServiceImpl {
             {
                 match exposure_ctrl.set_exposure(exp).await {
                     Ok(()) => applied_count += 1,
-                    Err(e) => errors.push(format!("Failed to set exposure '{}': {}", device_id, e)),
+                    Err(e) => errors.push(format!("Failed to set exposure '{device_id}': {e}")),
                 }
             }
 
@@ -443,8 +438,7 @@ impl PresetServiceImpl {
                             match parameter.set_json(value.clone()) {
                                 Ok(()) => applied_count += 1,
                                 Err(e) => errors.push(format!(
-                                    "Failed to set parameter '{}.{}': {}",
-                                    device_id, param_name, e
+                                    "Failed to set parameter '{device_id}.{param_name}': {e}"
                                 )),
                             }
                         }
@@ -454,7 +448,7 @@ impl PresetServiceImpl {
         }
 
         if errors.is_empty() {
-            Ok(format!("Applied {} device configurations", applied_count))
+            Ok(format!("Applied {applied_count} device configurations"))
         } else {
             Ok(format!(
                 "Applied {} configurations with {} errors: {}",
@@ -497,8 +491,7 @@ impl PresetService for PresetServiceImpl {
             return Ok(Response::new(SavePresetResponse {
                 saved: false,
                 message: format!(
-                    "Preset '{}' already exists. Set overwrite=true to replace.",
-                    preset_id
+                    "Preset '{preset_id}' already exists. Set overwrite=true to replace."
                 ),
             }));
         }
@@ -523,7 +516,7 @@ impl PresetService for PresetServiceImpl {
 
         Ok(Response::new(SavePresetResponse {
             saved: true,
-            message: format!("Preset '{}' saved successfully", preset_id),
+            message: format!("Preset '{preset_id}' saved successfully"),
         }))
     }
 
@@ -688,7 +681,7 @@ mod tests {
         Preset {
             meta: Some(PresetMetadata {
                 preset_id: id.to_string(),
-                name: format!("Test Preset {}", id),
+                name: format!("Test Preset {id}"),
                 description: "A test preset".to_string(),
                 author: "test".to_string(),
                 created_at_ns: 0,

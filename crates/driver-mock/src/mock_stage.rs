@@ -883,11 +883,7 @@ mod tests {
 
         // Should take approximately 1 second (10mm at 10mm/s)
         // Allow some tolerance for test execution overhead
-        assert!(
-            duration.as_millis() > 800,
-            "Motion too fast: {:?}",
-            duration
-        );
+        assert!(duration.as_millis() > 800, "Motion too fast: {duration:?}");
     }
 
     #[tokio::test]
@@ -908,8 +904,7 @@ mod tests {
         // Should be roughly base settling time (using default distance estimate)
         assert!(
             duration.as_millis() >= 10,
-            "Settling too fast: {:?}",
-            duration
+            "Settling too fast: {duration:?}"
         );
     }
 
@@ -1001,7 +996,7 @@ mod tests {
         let duration = start.elapsed();
 
         // Instant mode should be very fast (<10ms)
-        assert!(duration.as_millis() < 10, "Not instant: {:?}", duration);
+        assert!(duration.as_millis() < 10, "Not instant: {duration:?}");
     }
 
     // =========================================================================

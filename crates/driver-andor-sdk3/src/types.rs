@@ -42,7 +42,7 @@ impl TryFrom<&str> for TriggerMode {
             "Software" => Ok(Self::Software),
             "External Start" | "ExternalStart" => Ok(Self::ExternalStart),
             "External Exposure" | "ExternalExposure" => Ok(Self::ExternalExposure),
-            _ => Err(format!("Invalid trigger mode: {}", s)),
+            _ => Err(format!("Invalid trigger mode: {s}")),
         }
     }
 }
@@ -91,7 +91,7 @@ impl TryFrom<&str> for GateMode {
             "Gate Only" | "GateOnly" => Ok(Self::GateOnly),
             "Fire and Gate" | "FireAndGate" => Ok(Self::FireAndGate),
             "DDG" => Ok(Self::DDG),
-            _ => Err(format!("Invalid gate mode: {}", s)),
+            _ => Err(format!("Invalid gate mode: {s}")),
         }
     }
 }
@@ -124,7 +124,7 @@ impl TryFrom<&str> for InsertionDelay {
         match s {
             "Normal" => Ok(Self::Normal),
             "Fast" => Ok(Self::Fast),
-            _ => Err(format!("Invalid insertion delay: {}", s)),
+            _ => Err(format!("Invalid insertion delay: {s}")),
         }
     }
 }
@@ -170,7 +170,7 @@ impl TryFrom<&str> for DeviceState {
             "streaming" => Ok(Self::Streaming),
             "error" => Ok(Self::Error),
             "shutting_down" | "ShuttingDown" => Ok(Self::ShuttingDown),
-            _ => Err(format!("Invalid device state: {}", s)),
+            _ => Err(format!("Invalid device state: {s}")),
         }
     }
 }
@@ -202,7 +202,7 @@ impl TryFrom<&str> for ElectronicShutteringMode {
         match s {
             "Rolling" => Ok(Self::Rolling),
             "Global" => Ok(Self::Global),
-            _ => Err(format!("Invalid electronic shuttering mode: {}", s)),
+            _ => Err(format!("Invalid electronic shuttering mode: {s}")),
         }
     }
 }
@@ -242,7 +242,7 @@ impl TryFrom<i32> for Grating {
             1 => Ok(Self::Grating1),
             2 => Ok(Self::Grating2),
             3 => Ok(Self::Grating3),
-            _ => Err(format!("Invalid grating index: {}", value)),
+            _ => Err(format!("Invalid grating index: {value}")),
         }
     }
 }
@@ -272,7 +272,7 @@ impl TryFrom<i32> for FlipperMirror {
         match value {
             0 => Ok(Self::Direct),
             1 => Ok(Self::Side),
-            _ => Err(format!("Invalid flipper mirror position: {}", value)),
+            _ => Err(format!("Invalid flipper mirror position: {value}")),
         }
     }
 }
@@ -522,7 +522,7 @@ impl TryFrom<i32> for SlitPort {
             2 => Ok(Self::InputDirect),
             3 => Ok(Self::OutputSide),
             4 => Ok(Self::OutputDirect),
-            _ => Err(format!("Invalid slit port: {}", value)),
+            _ => Err(format!("Invalid slit port: {value}")),
         }
     }
 }

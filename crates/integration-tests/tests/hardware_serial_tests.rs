@@ -114,7 +114,7 @@ async fn test_serial_multiple_queries() {
 
         for i in 1..=3 {
             reader
-                .write_all(format!("QUERY{}\r", i).as_bytes())
+                .write_all(format!("QUERY{i}\r").as_bytes())
                 .await
                 .unwrap();
             let mut response = String::new();
@@ -143,7 +143,7 @@ async fn test_serial_flow_control_simulation() {
         // Send multiple commands rapidly
         for i in 0..5 {
             reader
-                .write_all(format!("CMD{}\r", i).as_bytes())
+                .write_all(format!("CMD{i}\r").as_bytes())
                 .await
                 .unwrap();
         }
@@ -160,10 +160,10 @@ async fn test_serial_flow_control_simulation() {
 
     // Device processes commands with delays (simulating flow control)
     for i in 0..5 {
-        harness.expect_write(format!("CMD{}\r", i).as_bytes()).await;
+        harness.expect_write(format!("CMD{i}\r").as_bytes()).await;
         tokio::time::sleep(Duration::from_millis(10)).await; // Simulate processing delay
         harness
-            .send_response(format!("ACK{}\r\n", i).as_bytes())
+            .send_response(format!("ACK{i}\r\n").as_bytes())
             .unwrap();
     }
 
@@ -216,7 +216,7 @@ async fn test_serial_partial_response() {
 
         match result {
             Ok(Ok(_)) => Ok(response),
-            Ok(Err(e)) => Err(format!("IO error: {}", e)),
+            Ok(Err(e)) => Err(format!("IO error: {e}")),
             Err(_) => Err("Timeout".to_string()),
         }
     });
@@ -241,7 +241,7 @@ async fn test_serial_rapid_commands() {
         // Send 10 commands as fast as possible
         for i in 0..10 {
             reader
-                .write_all(format!("FAST{}\r", i).as_bytes())
+                .write_all(format!("FAST{i}\r").as_bytes())
                 .await
                 .unwrap();
         }
@@ -261,17 +261,15 @@ async fn test_serial_rapid_commands() {
 
     // Device handles rapid commands
     for i in 0..10 {
+        harness.expect_write(format!("FAST{i}\r").as_bytes()).await;
         harness
-            .expect_write(format!("FAST{}\r", i).as_bytes())
-            .await;
-        harness
-            .send_response(format!("OK{}\r\n", i).as_bytes())
+            .send_response(format!("OK{i}\r\n").as_bytes())
             .unwrap();
     }
 
     let responses = app_task.await.unwrap();
     assert_eq!(responses.len(), 10);
     for i in 0..10 {
-        assert_eq!(responses[i], format!("OK{}", i));
+        assert_eq!(responses[i], format!("OK{i}"));
     }
 }

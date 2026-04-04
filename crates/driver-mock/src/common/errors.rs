@@ -135,7 +135,7 @@ impl ErrorConfig {
                         return Err(DriverError::new(
                             driver_type,
                             DriverErrorKind::Hardware,
-                            format!("Injected failure after {} operations", count),
+                            format!("Injected failure after {count} operations"),
                         ));
                     }
                 }
@@ -143,7 +143,7 @@ impl ErrorConfig {
                     return Err(DriverError::new(
                         driver_type,
                         DriverErrorKind::Timeout,
-                        format!("Operation '{}' timed out", operation),
+                        format!("Operation '{operation}' timed out"),
                     ));
                 }
                 ErrorScenario::CommunicationLoss => {
@@ -164,7 +164,7 @@ impl ErrorConfig {
                         return Err(DriverError::new(
                             driver_type,
                             DriverErrorKind::Hardware,
-                            format!("Hardware fault: {}", code),
+                            format!("Hardware fault: {code}"),
                         ));
                     }
                 }
@@ -184,7 +184,7 @@ impl ErrorConfig {
             return Err(DriverError::new(
                 driver_type,
                 DriverErrorKind::Hardware,
-                format!("Random failure on operation '{}'", operation),
+                format!("Random failure on operation '{operation}'"),
             ));
         }
 
@@ -233,11 +233,7 @@ mod tests {
             }
         }
         // Expect roughly 50% failures
-        assert!(
-            failures > 400 && failures < 600,
-            "Got {} failures",
-            failures
-        );
+        assert!(failures > 400 && failures < 600, "Got {failures} failures");
     }
 
     #[test]

@@ -582,7 +582,7 @@ impl PluginService for PluginServiceImpl {
 
         let inst = instances
             .get(&instance_id)
-            .ok_or_else(|| Status::not_found(format!("Instance '{}' not found", instance_id)))?;
+            .ok_or_else(|| Status::not_found(format!("Instance '{instance_id}' not found")))?;
 
         #[allow(clippy::cast_possible_truncation)]
         // SAFETY: value is bounded and fits in target type
@@ -700,7 +700,7 @@ mod tests {
         let service = PluginServiceImpl::new_stub();
         // Stub service should be created successfully
         assert_eq!(
-            format!("{:?}", service),
+            format!("{service:?}"),
             "PluginServiceImpl { instances: \"<Arc<RwLock<HashMap>>>\" }"
         );
     }
@@ -724,7 +724,7 @@ mod tests {
             driver: None,
         };
 
-        let debug_str = format!("{:?}", instance);
+        let debug_str = format!("{instance:?}");
         assert!(debug_str.contains("instance_id"));
         assert!(debug_str.contains("test-instance"));
         assert!(debug_str.contains("plugin_id"));

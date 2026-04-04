@@ -738,8 +738,7 @@ mod tests {
         );
         assert!(
             result.is_ok(),
-            "gated camera DDG support query failed: {:?}",
-            result
+            "gated camera DDG support query failed: {result:?}"
         );
     }
 
@@ -754,8 +753,7 @@ mod tests {
         );
         assert!(
             result.is_ok(),
-            "legacy create_andor_camera factory failed: {:?}",
-            result
+            "legacy create_andor_camera factory failed: {result:?}"
         );
     }
 
@@ -770,8 +768,7 @@ mod tests {
         );
         assert!(
             result.is_ok(),
-            "spectrograph grating query failed: {:?}",
-            result
+            "spectrograph grating query failed: {result:?}"
         );
     }
 
@@ -785,7 +782,7 @@ mod tests {
             stage.position()
         "#,
         );
-        assert!(result.is_ok(), "stage move failed: {:?}", result);
+        assert!(result.is_ok(), "stage move failed: {result:?}");
         assert!((result.expect("test verified Ok above") - 5.0).abs() < 0.001);
     }
 
@@ -799,7 +796,7 @@ mod tests {
             stage.top_enabled()
         "#,
         );
-        assert!(result.is_ok(), "TOP enable failed: {:?}", result);
+        assert!(result.is_ok(), "TOP enable failed: {result:?}");
         assert!(
             result.expect("test verified Ok above"),
             "TOP should be enabled after enable_top"
@@ -816,7 +813,7 @@ mod tests {
             stage.move_abs(2.0);
         "#,
         );
-        assert!(result.is_ok(), "set_velocity + move failed: {:?}", result);
+        assert!(result.is_ok(), "set_velocity + move failed: {result:?}");
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -830,8 +827,7 @@ mod tests {
         );
         assert!(
             result.is_ok(),
-            "legacy create_dover_axis factory failed: {:?}",
-            result
+            "legacy create_dover_axis factory failed: {result:?}"
         );
     }
 
@@ -889,7 +885,7 @@ mod tests {
         register_libs_hardware(&mut engine);
 
         let result: Result<Array, _> = engine.eval(&script);
-        assert!(result.is_ok(), "calibrate Rhai call failed: {:?}", result);
+        assert!(result.is_ok(), "calibrate Rhai call failed: {result:?}");
         let arr = result.expect("test verified Ok above");
         for v in arr {
             let val = v.cast::<f64>();

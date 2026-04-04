@@ -245,8 +245,7 @@ impl NiDaqServiceImpl {
             Ok(Ok(value)) => Ok(value),
             Ok(Err(err)) => Err(Status::internal(err.to_string())),
             Err(_) => Err(Status::deadline_exceeded(format!(
-                "{} timed out after {:?}",
-                operation, RPC_TIMEOUT
+                "{operation} timed out after {RPC_TIMEOUT:?}"
             ))),
         }
     }
@@ -699,7 +698,7 @@ impl NiDaqService for NiDaqServiceImpl {
             settable.set_value(&param_name, voltage_json).await
         })
         .await
-        .map_err(|e| Status::internal(format!("Failed to set voltage: {}", e)))?;
+        .map_err(|e| Status::internal(format!("Failed to set voltage: {e}")))?;
 
         // Read back the actual voltage
         // Note: Comedi Settable doesn't implement get_value for voltage yet,
@@ -773,8 +772,7 @@ impl NiDaqService for NiDaqServiceImpl {
                 .find(|r| r.index == range_index)
                 .ok_or_else(|| {
                     Status::invalid_argument(format!(
-                        "Invalid range_index {} for channel {}",
-                        range_index, channel
+                        "Invalid range_index {range_index} for channel {channel}"
                     ))
                 })?;
 
@@ -1470,7 +1468,7 @@ impl NiDaqService for NiDaqServiceImpl {
         let _device_info = self
             .registry
             .get_device_info(&device_id)
-            .ok_or_else(|| Status::not_found(format!("Device '{}' not found", device_id)))?;
+            .ok_or_else(|| Status::not_found(format!("Device '{device_id}' not found")))?;
 
         // Use the generic DeviceIntrospection trait (bd-sa9p) instead of direct Comedi FFI.
         // This works for any driver that wires DeviceIntrospection into its DeviceComponents.
@@ -1479,8 +1477,7 @@ impl NiDaqService for NiDaqServiceImpl {
             .get_device_introspection(&device_id)
             .ok_or_else(|| {
                 Status::unimplemented(format!(
-                    "Device '{}' does not support DeviceIntrospection",
-                    device_id
+                    "Device '{device_id}' does not support DeviceIntrospection"
                 ))
             })?;
 
@@ -1492,10 +1489,7 @@ impl NiDaqService for NiDaqServiceImpl {
             .unwrap_or_default();
 
         let info = introspection.introspect().await.map_err(|e| {
-            Status::internal(format!(
-                "DeviceIntrospection failed for '{}': {}",
-                device_id, e
-            ))
+            Status::internal(format!("DeviceIntrospection failed for '{device_id}': {e}"))
         })?;
 
         // Map generic subdevice info to proto SubdeviceSummary.

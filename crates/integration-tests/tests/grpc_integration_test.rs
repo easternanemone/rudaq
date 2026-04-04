@@ -339,7 +339,7 @@ mod camera_integration_tests {
                     last_metrics = frame.metrics.clone();
                     frames.push(frame);
                 }
-                Ok(Some(Err(err))) => panic!("stream error: {}", err),
+                Ok(Some(Err(err))) => panic!("stream error: {err}"),
                 Ok(None) => break,
                 Err(_) if !first_frame => break,
                 Err(_) => {
@@ -353,7 +353,7 @@ mod camera_integration_tests {
         #[allow(clippy::cast_precision_loss)]
         // SAFETY: test/benchmark values are bounded
         let fps = frames.len() as f64 / elapsed;
-        assert!(fps <= 14.0, "rate limiter should cap fps, got {}", fps);
+        assert!(fps <= 14.0, "rate limiter should cap fps, got {fps}");
         // At least some frames should arrive (relaxed for CI variability)
         assert!(
             !frames.is_empty(),
@@ -405,7 +405,7 @@ mod camera_integration_tests {
                     last_metrics = frame.metrics.clone();
                     frames_received = frames_received.saturating_add(1);
                 }
-                Ok(Some(Err(err))) => panic!("stream error: {}", err),
+                Ok(Some(Err(err))) => panic!("stream error: {err}"),
                 Ok(None) => break,
                 Err(_) => {}
             }

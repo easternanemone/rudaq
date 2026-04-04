@@ -233,9 +233,7 @@ async fn test_continuous_streaming() {
     // Mock FPS is limited by gradient generation overhead (~50ms/frame for 2048x2048)
     assert!(
         fps >= MOCK_MIN_FPS,
-        "FPS {:.1} too low (expected >= {:.1})",
-        fps,
-        MOCK_MIN_FPS
+        "FPS {fps:.1} too low (expected >= {MOCK_MIN_FPS:.1})"
     );
 
     assert_eq!(
@@ -390,7 +388,7 @@ async fn test_frame_numbering_sequence() {
     println!("Frame Number Analysis:");
     println!("  Total frames: {}", frame_numbers.len());
     if let (Some(first), Some(last)) = (tracker.first_frame_nr, tracker.last_frame_nr) {
-        println!("  Frame range: {} to {}", first, last);
+        println!("  Frame range: {first} to {last}");
     }
     println!("  Skipped: {}", tracker.skipped);
     println!("  Duplicates: {}", tracker.duplicates);
@@ -441,8 +439,8 @@ async fn test_stress_sustained_streaming() {
         .await
         .expect("Failed to set exposure");
 
-    println!("Stress test: {} frames target", TARGET_FRAMES);
-    println!("Sensor: {}x{}", sensor_width, sensor_height);
+    println!("Stress test: {TARGET_FRAMES} frames target");
+    println!("Sensor: {sensor_width}x{sensor_height}");
 
     let (tx, mut rx) = tokio::sync::mpsc::channel(32);
     cam.register_primary_output(tx)
@@ -494,11 +492,11 @@ async fn test_stress_sustained_streaming() {
 
     println!("\nStress Test Results:");
     println!("  Frames: {}/{}", tracker.frame_count, TARGET_FRAMES);
-    println!("  Duration: {:?}", duration);
-    println!("  FPS: {:.1}", fps);
+    println!("  Duration: {duration:?}");
+    println!("  FPS: {fps:.1}");
     println!("  Skipped: {}", tracker.skipped);
     println!("  Duplicates: {}", tracker.duplicates);
-    println!("  Timeouts: {}", timeout_errors);
+    println!("  Timeouts: {timeout_errors}");
 
     assert!(
         tracker.frame_count >= TARGET_FRAMES,
@@ -513,9 +511,7 @@ async fn test_stress_sustained_streaming() {
     // FPS sanity check (mock overhead makes actual FPS much lower than 1/exposure)
     assert!(
         fps >= MOCK_MIN_FPS,
-        "FPS {:.1} too low (expected >= {:.1})",
-        fps,
-        MOCK_MIN_FPS
+        "FPS {fps:.1} too low (expected >= {MOCK_MIN_FPS:.1})"
     );
 }
 
@@ -561,15 +557,11 @@ async fn test_frame_loss_under_backpressure() {
     // We should have received at least one frame
     assert!(
         received >= 1,
-        "Should receive at least 1 frame under backpressure, got {}",
-        received
+        "Should receive at least 1 frame under backpressure, got {received}"
     );
 
     // The key assertion: no panics, no errors — graceful degradation
-    println!(
-        "Backpressure test: received {} frames (many dropped gracefully)",
-        received
-    );
+    println!("Backpressure test: received {received} frames (many dropped gracefully)");
 }
 
 /// Verify frame numbering starts at 0 and resets on restart.

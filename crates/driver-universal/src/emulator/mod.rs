@@ -910,8 +910,7 @@ mod tests {
         let elapsed = start.elapsed();
         assert!(
             elapsed.as_millis() >= 5,
-            "realistic profile should add transport delay, elapsed={:?}",
-            elapsed
+            "realistic profile should add transport delay, elapsed={elapsed:?}"
         );
     }
 
@@ -926,15 +925,13 @@ mod tests {
 
         assert!(
             fault_indices.len() >= 3,
-            "expected multiple injected faults in 80 calls, got {:?}",
-            fault_indices
+            "expected multiple injected faults in 80 calls, got {fault_indices:?}"
         );
         for w in fault_indices.windows(2) {
             assert_eq!(
                 w[1] - w[0],
                 20,
-                "fault injection should repeat every 20 calls, got {:?}",
-                fault_indices
+                "fault injection should repeat every 20 calls, got {fault_indices:?}"
             );
         }
     }

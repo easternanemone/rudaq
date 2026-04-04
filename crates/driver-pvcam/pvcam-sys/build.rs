@@ -7,15 +7,15 @@ use std::path::PathBuf;
 fn print_env_error(title: &str, details: &[&str], fixes: &[&str]) {
     eprintln!();
     eprintln!("╔══════════════════════════════════════════════════════════════════╗");
-    eprintln!("║ PVCAM BUILD ERROR: {:<46} ║", title);
+    eprintln!("║ PVCAM BUILD ERROR: {title:<46} ║");
     eprintln!("╠══════════════════════════════════════════════════════════════════╣");
     for detail in details {
-        eprintln!("║ {:<66} ║", detail);
+        eprintln!("║ {detail:<66} ║");
     }
     eprintln!("╠══════════════════════════════════════════════════════════════════╣");
     eprintln!("║ HOW TO FIX:                                                      ║");
     for fix in fixes {
-        eprintln!("║   {:<64} ║", fix);
+        eprintln!("║   {fix:<64} ║");
     }
     eprintln!("╠══════════════════════════════════════════════════════════════════╣");
     eprintln!("║ Quick setup on maitai:                                           ║");

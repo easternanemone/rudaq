@@ -97,7 +97,7 @@ async fn test_andor_mock_produces_frames() {
     for i in 0..3 {
         let frame = tokio::time::timeout(Duration::from_secs(5), stream.next())
             .await
-            .unwrap_or_else(|_| panic!("Timeout waiting for frame {}", i))
+            .unwrap_or_else(|_| panic!("Timeout waiting for frame {i}"))
             .expect("Stream should not end early")
             .expect("Frame should not be an error");
 
@@ -185,8 +185,7 @@ async fn test_andor_frame_metadata() {
     if let Some(exp_ms) = frame.exposure_ms {
         assert!(
             (exp_ms - 25.0).abs() < 1.0,
-            "Expected ~25ms exposure, got {}",
-            exp_ms
+            "Expected ~25ms exposure, got {exp_ms}"
         );
     }
 
@@ -240,7 +239,7 @@ async fn test_andor_stream_stop_restart() {
     for i in 0..3 {
         let frame = tokio::time::timeout(Duration::from_secs(5), stream.next())
             .await
-            .unwrap_or_else(|_| panic!("Timeout on frame {}", i))
+            .unwrap_or_else(|_| panic!("Timeout on frame {i}"))
             .expect("Stream should not end")
             .expect("Frame should be ok");
         first_run_numbers.push(frame.frame_number);
@@ -292,7 +291,7 @@ async fn test_andor_stream_stop_restart() {
     for i in 0..3 {
         let frame = tokio::time::timeout(Duration::from_secs(5), stream2.next())
             .await
-            .unwrap_or_else(|_| panic!("Timeout on restart frame {}", i))
+            .unwrap_or_else(|_| panic!("Timeout on restart frame {i}"))
             .expect("Stream should not end")
             .expect("Frame should be ok");
         assert_eq!(frame.width, 2048, "Restarted frame should be 2048 wide");
@@ -403,7 +402,7 @@ async fn test_andor_parameter_control_during_streaming() {
     for i in 0..3 {
         let frame = tokio::time::timeout(Duration::from_secs(5), stream.next())
             .await
-            .unwrap_or_else(|_| panic!("Timeout on frame {} after param changes", i))
+            .unwrap_or_else(|_| panic!("Timeout on frame {i} after param changes"))
             .expect("Stream should not end after param changes")
             .expect("Frame should be ok after param changes");
         assert_eq!(frame.width, 2048);
@@ -461,29 +460,22 @@ async fn test_andor_streaming_performance() {
             .expect("Frame should not be an error");
 
         // Validate every frame
-        assert_eq!(frame.width, 2048, "frame {} width", received);
-        assert_eq!(frame.height, 2048, "frame {} height", received);
-        assert_eq!(frame.bit_depth, 12, "frame {} bit_depth", received);
+        assert_eq!(frame.width, 2048, "frame {received} width");
+        assert_eq!(frame.height, 2048, "frame {received} height");
+        assert_eq!(frame.bit_depth, 12, "frame {received} bit_depth");
         // Data may be LZ4-compressed; verify uncompressed_size if present
         let expected_raw = 2048 * 2048 * 2;
         if frame.uncompressed_size > 0 {
             assert_eq!(
                 frame.uncompressed_size as usize, expected_raw,
-                "frame {} uncompressed size",
-                received
+                "frame {received} uncompressed size"
             );
         } else {
-            assert_eq!(
-                frame.data.len(),
-                expected_raw,
-                "frame {} data size",
-                received
-            );
+            assert_eq!(frame.data.len(), expected_raw, "frame {received} data size");
         }
         assert!(
             frame.timestamp_ns > 0,
-            "frame {} timestamp should be nonzero",
-            received
+            "frame {received} timestamp should be nonzero"
         );
 
         // Frame numbers should be non-decreasing

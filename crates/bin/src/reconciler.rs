@@ -149,20 +149,14 @@ async fn repair_driver_metadata(
             }
             (Some(existing_driver), None) => {
                 if existing_driver.capabilities.is_empty() && existing_driver.commands.is_empty() {
-                    let msg = format!(
-                        "metadata '{}': no factory and metadata is empty",
-                        driver_type
-                    );
+                    let msg = format!("metadata '{driver_type}': no factory and metadata is empty");
                     warn!(driver_type = %driver_type, "reconciler: {}", msg);
                     report.errors.push(msg);
                     blocked.insert(driver_type);
                 }
             }
             (None, None) => {
-                let msg = format!(
-                    "metadata '{}': missing driver record and factory",
-                    driver_type
-                );
+                let msg = format!("metadata '{driver_type}': missing driver record and factory");
                 warn!(driver_type = %driver_type, "reconciler: {}", msg);
                 report.errors.push(msg);
                 blocked.insert(driver_type);
@@ -173,7 +167,7 @@ async fn repair_driver_metadata(
     for driver in to_upsert {
         let driver_type = driver.driver_type.clone();
         if let Err(err) = db.upsert_drivers(&[driver]).await {
-            let msg = format!("metadata '{}': repair failed: {err}", driver_type);
+            let msg = format!("metadata '{driver_type}': repair failed: {err}");
             warn!(driver_type = %driver_type, error = %err, "reconciler: metadata repair failed");
             report.errors.push(msg);
             blocked.insert(driver_type);
@@ -413,7 +407,7 @@ pub async fn reconcile_once(
             if let Err(e) = registry.unregister(id).await {
                 report
                     .errors
-                    .push(format!("update '{}' (unregister): {e}", id));
+                    .push(format!("update '{id}' (unregister): {e}"));
                 continue;
             }
             // Re-register with new config (falls through to the add logic below).
@@ -438,9 +432,7 @@ pub async fn reconcile_once(
         // Convert DB instrument to DeviceConfig via bridge.
         let hw_config = db_bridge::db_to_hardware_config(&[(*inst).clone()]);
         let Some(device_config) = hw_config.devices.into_iter().next() else {
-            report
-                .errors
-                .push(format!("add '{}': conversion failed", id));
+            report.errors.push(format!("add '{id}': conversion failed"));
             continue;
         };
 
@@ -458,7 +450,7 @@ pub async fn reconcile_once(
             }
             Err(e) => {
                 warn!(device_id = id, error = %e, "reconciler: failed to add");
-                report.errors.push(format!("add '{}': {e}", id));
+                report.errors.push(format!("add '{id}': {e}"));
             }
         }
     }

@@ -133,8 +133,7 @@ async fn test_wait_interruptible_by_abort() {
     // The chunked sleep checks every 100ms, so abort should complete in ~200ms max
     assert!(
         abort_elapsed < Duration::from_millis(500),
-        "Abort took too long: {:?} (expected < 500ms)",
-        abort_elapsed
+        "Abort took too long: {abort_elapsed:?} (expected < 500ms)"
     );
 }
 
@@ -184,15 +183,11 @@ async fn test_wait_completes_normally() {
 
     assert!(
         elapsed >= expected_min,
-        "Wait completed too fast: {:?} (expected >= {:?})",
-        elapsed,
-        expected_min
+        "Wait completed too fast: {elapsed:?} (expected >= {expected_min:?})"
     );
     assert!(
         elapsed < expected_max,
-        "Wait took too long: {:?} (expected < {:?})",
-        elapsed,
-        expected_max
+        "Wait took too long: {elapsed:?} (expected < {expected_max:?})"
     );
 }
 

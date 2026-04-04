@@ -505,8 +505,7 @@ mod tests {
             let pixel = u16::from_le_bytes([result[i * 2], result[i * 2 + 1]]);
             assert_eq!(
                 pixel, 100,
-                "Pixel {} should be 100 (cropped pixels should be ignored)",
-                i
+                "Pixel {i} should be 100 (cropped pixels should be ignored)"
             );
         }
     }
@@ -538,8 +537,7 @@ mod tests {
             let pixel = u16::from_le_bytes([result[i * 2], result[i * 2 + 1]]);
             assert_eq!(
                 pixel, 200,
-                "Pixel {} should be 200 (cropped pixels should be ignored)",
-                i
+                "Pixel {i} should be 200 (cropped pixels should be ignored)"
             );
         }
     }
@@ -687,8 +685,7 @@ mod tests {
         let ratio = input_bytes as f64 / result.len() as f64;
         assert!(
             (ratio - 4.0).abs() < 0.01,
-            "Expected 4x compression, got {:.2}x",
-            ratio
+            "Expected 4x compression, got {ratio:.2}x"
         );
     }
 
@@ -719,8 +716,7 @@ mod tests {
         let ratio = input_bytes as f64 / result.len() as f64;
         assert!(
             (ratio - 4.0).abs() < 0.01,
-            "Expected 4x compression, got {:.2}x",
-            ratio
+            "Expected 4x compression, got {ratio:.2}x"
         );
     }
 
@@ -751,8 +747,7 @@ mod tests {
         let ratio = input_bytes as f64 / result.len() as f64;
         assert!(
             (ratio - 4.0).abs() < 0.01,
-            "Expected 4x compression, got {:.2}x",
-            ratio
+            "Expected 4x compression, got {ratio:.2}x"
         );
     }
 
@@ -783,8 +778,7 @@ mod tests {
         let ratio = input_bytes as f64 / result.len() as f64;
         assert!(
             (ratio - 16.0).abs() < 0.01,
-            "Expected 16x compression, got {:.2}x",
-            ratio
+            "Expected 16x compression, got {ratio:.2}x"
         );
     }
 
@@ -815,8 +809,7 @@ mod tests {
         let ratio = input_bytes as f64 / result.len() as f64;
         assert!(
             (ratio - 16.0).abs() < 0.01,
-            "Expected 16x compression, got {:.2}x",
-            ratio
+            "Expected 16x compression, got {ratio:.2}x"
         );
     }
 
@@ -847,8 +840,7 @@ mod tests {
         let ratio = input_bytes as f64 / result.len() as f64;
         assert!(
             (ratio - 16.0).abs() < 0.01,
-            "Expected 16x compression, got {:.2}x",
-            ratio
+            "Expected 16x compression, got {ratio:.2}x"
         );
     }
 
@@ -879,8 +871,7 @@ mod tests {
         let ratio = input_bytes as f64 / result.len() as f64;
         assert!(
             (ratio - 4.0).abs() < 0.01,
-            "Expected 4x compression, got {:.2}x",
-            ratio
+            "Expected 4x compression, got {ratio:.2}x"
         );
     }
 
@@ -911,8 +902,7 @@ mod tests {
         let ratio = input_bytes as f64 / result.len() as f64;
         assert!(
             (ratio - 16.0).abs() < 0.01,
-            "Expected 16x compression, got {:.2}x",
-            ratio
+            "Expected 16x compression, got {ratio:.2}x"
         );
     }
 
@@ -985,8 +975,7 @@ mod tests {
         let ratio = input_bytes as f64 / result.len() as f64;
         assert!(
             ratio > 4.0,
-            "Compression ratio should be slightly better than 4x due to cropping, got {:.2}x",
-            ratio
+            "Compression ratio should be slightly better than 4x due to cropping, got {ratio:.2}x"
         );
     }
 
@@ -1013,8 +1002,7 @@ mod tests {
         let ratio = input_bytes as f64 / result.len() as f64;
         assert!(
             ratio > 16.0,
-            "Compression ratio should be slightly better than 16x due to cropping, got {:.2}x",
-            ratio
+            "Compression ratio should be slightly better than 16x due to cropping, got {ratio:.2}x"
         );
     }
 
@@ -1305,9 +1293,7 @@ mod tests {
                 assert_eq!(
                     read_pixel(&result, x, y, 2),
                     500,
-                    "Checkerboard block ({},{}) should average to 500",
-                    x,
-                    y
+                    "Checkerboard block ({x},{y}) should average to 500"
                 );
             }
         }
@@ -1464,9 +1450,7 @@ mod tests {
             assert_eq!(
                 read_pixel(&result, 0, 0, 1),
                 test_val,
-                "Uniform value {} should average to {}",
-                test_val,
-                test_val
+                "Uniform value {test_val} should average to {test_val}"
             );
         }
     }
@@ -1484,9 +1468,7 @@ mod tests {
             assert_eq!(
                 read_pixel(&result, 0, 0, 1),
                 test_val,
-                "Uniform value {} should average to {}",
-                test_val,
-                test_val
+                "Uniform value {test_val} should average to {test_val}"
             );
         }
     }

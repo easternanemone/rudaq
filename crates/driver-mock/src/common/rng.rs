@@ -134,9 +134,7 @@ mod tests {
         let tolerance = (expected as f64 * 0.1) as usize;
         assert!(
             failures > expected - tolerance && failures < expected + tolerance,
-            "Expected ~{} failures, got {}",
-            expected,
-            failures
+            "Expected ~{expected} failures, got {failures}"
         );
     }
 

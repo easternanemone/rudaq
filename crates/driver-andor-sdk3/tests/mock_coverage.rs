@@ -165,13 +165,11 @@ mod mock_camera_unit {
         let names = params.names();
         assert!(
             names.contains(&"exposure_s"),
-            "should have exposure_s parameter, got: {:?}",
-            names
+            "should have exposure_s parameter, got: {names:?}"
         );
         assert!(
             names.contains(&"mcp_gain"),
-            "should have mcp_gain parameter, got: {:?}",
-            names
+            "should have mcp_gain parameter, got: {names:?}"
         );
     }
 
@@ -303,13 +301,11 @@ mod mock_spectrograph_unit {
         let names = params.names();
         assert!(
             names.contains(&"wavelength_nm"),
-            "should have wavelength_nm parameter, got: {:?}",
-            names
+            "should have wavelength_nm parameter, got: {names:?}"
         );
         assert!(
             names.contains(&"grating"),
-            "should have grating parameter, got: {:?}",
-            names
+            "should have grating parameter, got: {names:?}"
         );
     }
 
@@ -358,8 +354,7 @@ mod mock_spectrograph_unit {
         let center_wl = wavelengths[1024];
         assert!(
             (center_wl - 310.0).abs() < 5.0,
-            "center wavelength should be near 310nm, got {}",
-            center_wl
+            "center wavelength should be near 310nm, got {center_wl}"
         );
     }
 
@@ -378,8 +373,7 @@ mod mock_spectrograph_unit {
         let center_wl = wavelengths[512];
         assert!(
             (center_wl - 500.0).abs() < 5.0,
-            "calibration center should track wavelength, got {}",
-            center_wl
+            "calibration center should track wavelength, got {center_wl}"
         );
     }
 
@@ -518,9 +512,7 @@ mod andor_camera_mock {
         ] {
             assert!(
                 names.contains(expected),
-                "missing parameter '{}', have: {:?}",
-                expected,
-                names
+                "missing parameter '{expected}', have: {names:?}"
             );
         }
     }
@@ -725,9 +717,7 @@ mod andor_spectrograph_mock {
         ] {
             assert!(
                 names.contains(expected),
-                "missing parameter '{}', have: {:?}",
-                expected,
-                names
+                "missing parameter '{expected}', have: {names:?}"
             );
         }
     }

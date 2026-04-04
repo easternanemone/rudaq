@@ -24,28 +24,28 @@ async fn main() -> Result<()> {
 
     // Query initial position
     let pos = axis.position().await?;
-    println!("Initial position: {} mm", pos);
+    println!("Initial position: {pos} mm");
 
     // Perform absolute move
     println!("\nMoving to absolute position 10.0 mm...");
     axis.move_abs(10.0).await?;
     axis.wait_settled().await?;
     let pos = axis.position().await?;
-    println!("Current position: {} mm", pos);
+    println!("Current position: {pos} mm");
 
     // Perform relative move
     println!("\nMoving relative +5.0 mm...");
     axis.move_rel(5.0).await?;
     axis.wait_settled().await?;
     let pos = axis.position().await?;
-    println!("Current position: {} mm", pos);
+    println!("Current position: {pos} mm");
 
     // Perform relative move in opposite direction
     println!("\nMoving relative -3.0 mm...");
     axis.move_rel(-3.0).await?;
     axis.wait_settled().await?;
     let pos = axis.position().await?;
-    println!("Current position: {} mm", pos);
+    println!("Current position: {pos} mm");
 
     println!("\nDone!");
     Ok(())

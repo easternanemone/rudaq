@@ -524,7 +524,7 @@ where
         let value = self.get();
         let name = self.metadata().name.clone();
         serde_json::to_value(&value)
-            .map_err(|e| anyhow!("Failed to serialize parameter '{}': {}", name, e))
+            .map_err(|e| anyhow!("Failed to serialize parameter '{name}': {e}"))
     }
 
     /// Set the value from JSON
@@ -639,10 +639,7 @@ where
         self.shared.write().validator = Some(Arc::new(move |value: &T| {
             if value < &min_clone || value > &max_clone {
                 Err(anyhow!(
-                    "Value {:?} out of range [{:?}, {:?}]",
-                    value,
-                    min_clone,
-                    max_clone
+                    "Value {value:?} out of range [{min_clone:?}, {max_clone:?}]"
                 ))
             } else {
                 Ok(())
@@ -701,11 +698,9 @@ impl Observable<f64> {
         // Validate bounds are finite and ordered at construction time
         assert!(
             min.is_finite() && max.is_finite(),
-            "Range bounds must be finite: min={}, max={}",
-            min,
-            max
+            "Range bounds must be finite: min={min}, max={max}"
         );
-        assert!(min <= max, "min must be <= max: min={}, max={}", min, max);
+        assert!(min <= max, "min must be <= max: min={min}, max={max}");
 
         // Populate introspectable metadata for GUI and add validator
         {
@@ -718,15 +713,10 @@ impl Observable<f64> {
             guard.validator = Some(Arc::new(move |value: &f64| {
                 // Reject NaN and Infinity to prevent JSON serialization issues
                 if !value.is_finite() {
-                    return Err(anyhow!("Value must be finite, got {:?}", value));
+                    return Err(anyhow!("Value must be finite, got {value:?}"));
                 }
                 if *value < min || *value > max {
-                    Err(anyhow!(
-                        "Value {:?} out of range [{:?}, {:?}]",
-                        value,
-                        min,
-                        max
-                    ))
+                    Err(anyhow!("Value {value:?} out of range [{min:?}, {max:?}]"))
                 } else {
                     Ok(())
                 }
@@ -796,7 +786,7 @@ impl Observable<i64> {
     // SAFETY: i64 range limits may lose precision in f64 but this is only for GUI display metadata
     pub fn with_range_introspectable(self, min: i64, max: i64) -> Self {
         // Validate bounds ordering at construction time
-        assert!(min <= max, "min must be <= max: min={}, max={}", min, max);
+        assert!(min <= max, "min must be <= max: min={min}, max={max}");
 
         // Populate introspectable metadata for GUI and add validator
         {
@@ -808,12 +798,7 @@ impl Observable<i64> {
             // Add validator using exact i64 comparison
             guard.validator = Some(Arc::new(move |value: &i64| {
                 if *value < min || *value > max {
-                    Err(anyhow!(
-                        "Value {:?} out of range [{:?}, {:?}]",
-                        value,
-                        min,
-                        max
-                    ))
+                    Err(anyhow!("Value {value:?} out of range [{min:?}, {max:?}]"))
                 } else {
                     Ok(())
                 }
@@ -885,7 +870,7 @@ impl Observable<String> {
                 if choices.iter().any(|c| c == value) {
                     Ok(())
                 } else {
-                    Err(anyhow!("Value {:?} not in choices {:?}", value, choices))
+                    Err(anyhow!("Value {value:?} not in choices {choices:?}"))
                 }
             }));
         }
@@ -945,7 +930,7 @@ impl Observable<String> {
             if choices.iter().any(|c| c == value) {
                 Ok(())
             } else {
-                Err(anyhow!("Value {:?} not in choices {:?}", value, choices))
+                Err(anyhow!("Value {value:?} not in choices {choices:?}"))
             }
         }));
     }

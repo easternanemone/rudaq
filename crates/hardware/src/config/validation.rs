@@ -43,8 +43,7 @@ pub fn validate_regex_string(pattern: &str) -> Result<(), ValidationError> {
     match regex::Regex::new(pattern) {
         Ok(_) => Ok(()),
         Err(e) => Err(ValidationError::Custom(format!(
-            "Invalid regex pattern '{}': {}",
-            pattern, e
+            "Invalid regex pattern '{pattern}': {e}"
         ))),
     }
 }
@@ -71,8 +70,7 @@ pub fn validate_evalexpr_formula(formula: &String) -> Result<(), ValidationError
     match evalexpr::build_operator_tree(formula) {
         Ok(_) => Ok(()),
         Err(e) => Err(ValidationError::Custom(format!(
-            "Invalid formula '{}': {}",
-            formula, e
+            "Invalid formula '{formula}': {e}"
         ))),
     }
 }
@@ -86,8 +84,7 @@ pub fn validate_baud_rate(baud_rate: u32) -> Result<(), ValidationError> {
 
     if !(MIN_BAUD..=MAX_BAUD).contains(&baud_rate) {
         return Err(ValidationError::Custom(format!(
-            "Baud rate {} is out of range ({}-{})",
-            baud_rate, MIN_BAUD, MAX_BAUD
+            "Baud rate {baud_rate} is out of range ({MIN_BAUD}-{MAX_BAUD})"
         )));
     }
     Ok(())
@@ -100,8 +97,7 @@ pub fn validate_timeout_ms(timeout_ms: u32) -> Result<(), ValidationError> {
 
     if !(MIN_TIMEOUT..=MAX_TIMEOUT).contains(&timeout_ms) {
         return Err(ValidationError::Custom(format!(
-            "Timeout {} ms is out of range ({}-{} ms)",
-            timeout_ms, MIN_TIMEOUT, MAX_TIMEOUT
+            "Timeout {timeout_ms} ms is out of range ({MIN_TIMEOUT}-{MAX_TIMEOUT} ms)"
         )));
     }
     Ok(())
@@ -112,8 +108,7 @@ pub fn validate_range(range: &Option<(f64, f64)>) -> Result<(), ValidationError>
     if let Some((min, max)) = range {
         if min > max {
             return Err(ValidationError::Custom(format!(
-                "Invalid range: min ({}) is greater than max ({})",
-                min, max
+                "Invalid range: min ({min}) is greater than max ({max})"
             )));
         }
     }
@@ -133,10 +128,7 @@ pub fn validate_device_config(
     for (name, response) in &config.responses {
         if let Some(ref pattern) = response.pattern {
             if let Err(e) = validate_regex_string(pattern) {
-                errors.push(ValidationError::Custom(format!(
-                    "Response '{}': {}",
-                    name, e
-                )));
+                errors.push(ValidationError::Custom(format!("Response '{name}': {e}")));
             }
         }
     }
@@ -144,20 +136,14 @@ pub fn validate_device_config(
     // Validate all conversion formulas
     for (name, conversion) in &config.conversions {
         if let Err(e) = validate_evalexpr_formula(&conversion.formula) {
-            errors.push(ValidationError::Custom(format!(
-                "Conversion '{}': {}",
-                name, e
-            )));
+            errors.push(ValidationError::Custom(format!("Conversion '{name}': {e}")));
         }
     }
 
     // Validate parameter ranges
     for (name, param) in &config.parameters {
         if let Err(e) = validate_range(&param.range) {
-            errors.push(ValidationError::Custom(format!(
-                "Parameter '{}': {}",
-                name, e
-            )));
+            errors.push(ValidationError::Custom(format!("Parameter '{name}': {e}")));
         }
     }
 
@@ -168,8 +154,7 @@ pub fn validate_device_config(
             if let Some(ref command) = method.command {
                 if !config.commands.contains_key(command) {
                     errors.push(ValidationError::Custom(format!(
-                        "Trait mapping '{}.{}': references non-existent command '{}'",
-                        name, method_name, command
+                        "Trait mapping '{name}.{method_name}': references non-existent command '{command}'"
                     )));
                 }
             }
@@ -178,8 +163,7 @@ pub fn validate_device_config(
             if let Some(ref conv) = method.input_conversion {
                 if !config.conversions.contains_key(conv) {
                     errors.push(ValidationError::Custom(format!(
-                        "Trait mapping '{}.{}': references non-existent conversion '{}'",
-                        name, method_name, conv
+                        "Trait mapping '{name}.{method_name}': references non-existent conversion '{conv}'"
                     )));
                 }
             }
@@ -187,8 +171,7 @@ pub fn validate_device_config(
             if let Some(ref conv) = method.output_conversion {
                 if !config.conversions.contains_key(conv) {
                     errors.push(ValidationError::Custom(format!(
-                        "Trait mapping '{}.{}': references non-existent conversion '{}'",
-                        name, method_name, conv
+                        "Trait mapping '{name}.{method_name}': references non-existent conversion '{conv}'"
                     )));
                 }
             }
@@ -200,8 +183,7 @@ pub fn validate_device_config(
         if let Some(ref response_name) = cmd.response {
             if !config.responses.contains_key(response_name) {
                 errors.push(ValidationError::Custom(format!(
-                    "Command '{}': references non-existent response '{}'",
-                    name, response_name
+                    "Command '{name}': references non-existent response '{response_name}'"
                 )));
             }
         }
@@ -231,8 +213,7 @@ mod tests {
         for pattern in valid_patterns {
             assert!(
                 validate_regex_string(pattern).is_ok(),
-                "Pattern should be valid: {}",
-                pattern
+                "Pattern should be valid: {pattern}"
             );
         }
     }
@@ -250,8 +231,7 @@ mod tests {
         for pattern in invalid_patterns {
             assert!(
                 validate_regex_string(pattern).is_err(),
-                "Pattern should be invalid: {}",
-                pattern
+                "Pattern should be invalid: {pattern}"
             );
         }
     }
@@ -272,8 +252,7 @@ mod tests {
         for formula in valid_formulas {
             assert!(
                 validate_evalexpr_formula(&formula).is_ok(),
-                "Formula should be valid: {}",
-                formula
+                "Formula should be valid: {formula}"
             );
         }
     }
@@ -292,8 +271,7 @@ mod tests {
         for formula in invalid_formulas {
             assert!(
                 validate_evalexpr_formula(&formula).is_err(),
-                "Formula should be invalid: {}",
-                formula
+                "Formula should be invalid: {formula}"
             );
         }
     }

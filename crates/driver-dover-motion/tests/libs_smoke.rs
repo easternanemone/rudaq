@@ -100,7 +100,7 @@ async fn mock_basic_motion() {
 
     // Test position query
     let pos = driver.position().await.expect("Failed to get position");
-    println!("  Current position: {} mm", pos);
+    println!("  Current position: {pos} mm");
 
     // Test stop
     driver.stop().await.expect("Failed to stop");

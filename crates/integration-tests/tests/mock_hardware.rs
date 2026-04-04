@@ -56,8 +56,7 @@ async fn test_mock_stage_timing() {
     // Realistic mode simulates motion; just verify it takes non-zero time
     assert!(
         elapsed.as_millis() > 0,
-        "Expected non-zero duration for 20mm move, got {:?}",
-        elapsed
+        "Expected non-zero duration for 20mm move, got {elapsed:?}"
     );
 }
 
@@ -76,8 +75,7 @@ async fn test_mock_stage_settle_timing() {
     // Settle time is base (10ms) + distance * coefficient
     assert!(
         elapsed.as_millis() > 0,
-        "Expected non-zero settle time, got {:?}",
-        elapsed
+        "Expected non-zero settle time, got {elapsed:?}"
     );
 }
 
@@ -146,7 +144,7 @@ async fn test_mock_camera_trigger_timing() {
     camera.trigger().await.unwrap();
     let elapsed = start.elapsed();
 
-    println!("Frame readout took: {:?} (simulated time)", elapsed);
+    println!("Frame readout took: {elapsed:?} (simulated time)");
 
     // With start_paused, time is deterministic - MockCamera uses 33ms frame readout
     assert_eq!(

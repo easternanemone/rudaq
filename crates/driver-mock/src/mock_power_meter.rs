@@ -743,8 +743,7 @@ mod tests {
         let reading = meter.read().await.unwrap();
         assert!(
             reading > 2.4 && reading < 2.6,
-            "Reading {} not in expected range",
-            reading
+            "Reading {reading} not in expected range"
         );
     }
 
@@ -759,8 +758,7 @@ mod tests {
         let reading = meter.read().await.unwrap();
         assert!(
             (reading - 1000.0).abs() < 1.0,
-            "Expected ~1000 mW, got {}",
-            reading
+            "Expected ~1000 mW, got {reading}"
         );
     }
 
@@ -775,8 +773,7 @@ mod tests {
         let reading = meter.read().await.unwrap();
         assert!(
             (reading - 0.0).abs() < 0.1,
-            "Expected ~0 dBm (1mW), got {}",
-            reading
+            "Expected ~0 dBm (1mW), got {reading}"
         );
     }
 
@@ -808,8 +805,7 @@ mod tests {
         let reading = meter.read().await.unwrap();
         assert!(
             reading > 0.65 && reading < 0.75,
-            "Expected ~0.70 with Si response at 900nm, got {}",
-            reading
+            "Expected ~0.70 with Si response at 900nm, got {reading}"
         );
     }
 
@@ -839,8 +835,7 @@ mod tests {
         // Mean should be close to base power
         assert!(
             (mean - 1.0).abs() < 0.1,
-            "Mean {} should be near base power 1.0",
-            mean
+            "Mean {mean} should be near base power 1.0"
         );
 
         // Should have variance (not zero)
@@ -866,10 +861,7 @@ mod tests {
             let reading = meter.read().await.unwrap();
             assert!(
                 (reading - expected_factor).abs() < 1e-6,
-                "Attenuator {:?} should give {}, got {}",
-                attenuator,
-                expected_factor,
-                reading
+                "Attenuator {attenuator:?} should give {expected_factor}, got {reading}"
             );
         }
     }
@@ -891,8 +883,7 @@ mod tests {
 
         assert!(
             elapsed.as_millis() >= 10,
-            "Fast filter should delay ~10ms, got {:?}",
-            elapsed
+            "Fast filter should delay ~10ms, got {elapsed:?}"
         );
     }
 
@@ -913,8 +904,7 @@ mod tests {
         let reading = meter.read().await.unwrap();
         assert!(
             (reading - 0.1).abs() < 0.01,
-            "Expected ~0.1 mW, got {}",
-            reading
+            "Expected ~0.1 mW, got {reading}"
         );
     }
 
@@ -1028,8 +1018,7 @@ mod tests {
         let reading = meter.read().await.unwrap();
         assert!(
             (reading - 1.0).abs() < 1e-6,
-            "Relative unit should normalize to 1.0, got {}",
-            reading
+            "Relative unit should normalize to 1.0, got {reading}"
         );
     }
 
@@ -1110,8 +1099,7 @@ mod tests {
         let reading = meter.read().await.unwrap();
         assert!(
             (reading - 10.0).abs() < 1e-3,
-            "Expected 10 mW (1W * 0.01 * 1000), got {}",
-            reading
+            "Expected 10 mW (1W * 0.01 * 1000), got {reading}"
         );
     }
 
@@ -1165,8 +1153,7 @@ mod tests {
         // Reading should be near 1.0 W (with noise)
         assert!(
             reading > 0.5 && reading < 1.5,
-            "Power reading should be near 1.0 W (got {})",
-            reading
+            "Power reading should be near 1.0 W (got {reading})"
         );
 
         // Reading should have changed from initial (unlikely to stay exactly 1.0)

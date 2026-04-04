@@ -17,7 +17,7 @@ fn main() {
     if let Ok(output) = Command::new("git").args(["status", "--porcelain"]).output() {
         if output.status.success() {
             let is_dirty = !output.stdout.is_empty();
-            println!("cargo:rustc-env=VERGEN_GIT_DIRTY={}", is_dirty);
+            println!("cargo:rustc-env=VERGEN_GIT_DIRTY={is_dirty}");
         }
     } else {
         println!("cargo:rustc-env=VERGEN_GIT_DIRTY=false");
@@ -40,7 +40,7 @@ fn main() {
         .duration_since(std::time::UNIX_EPOCH)
         .expect("System time should be after UNIX epoch")
         .as_secs();
-    println!("cargo:rustc-env=VERGEN_BUILD_TIMESTAMP={}", now);
+    println!("cargo:rustc-env=VERGEN_BUILD_TIMESTAMP={now}");
 
     // Rerun if .git/HEAD or .git/index changes
     println!("cargo:rerun-if-changed=.git/HEAD");

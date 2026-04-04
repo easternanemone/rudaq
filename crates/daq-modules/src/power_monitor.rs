@@ -293,7 +293,7 @@ impl Module for PowerMonitor {
                         self.config.sample_rate_hz = rate;
                     }
                 }
-                Err(_) => warnings.push(format!("Invalid sample_rate_hz: {}", val)),
+                Err(_) => warnings.push(format!("Invalid sample_rate_hz: {val}")),
             }
         }
 
@@ -304,7 +304,7 @@ impl Module for PowerMonitor {
             } else {
                 match val.parse::<f64>() {
                     Ok(thresh) => self.config.low_threshold = Some(thresh),
-                    Err(_) => warnings.push(format!("Invalid low_threshold: {}", val)),
+                    Err(_) => warnings.push(format!("Invalid low_threshold: {val}")),
                 }
             }
         }
@@ -316,7 +316,7 @@ impl Module for PowerMonitor {
             } else {
                 match val.parse::<f64>() {
                     Ok(thresh) => self.config.high_threshold = Some(thresh),
-                    Err(_) => warnings.push(format!("Invalid high_threshold: {}", val)),
+                    Err(_) => warnings.push(format!("Invalid high_threshold: {val}")),
                 }
             }
         }
@@ -327,7 +327,7 @@ impl Module for PowerMonitor {
                 Ok(window) => {
                     self.config.averaging_window_s = window.clamp(0.1, 60.0);
                 }
-                Err(_) => warnings.push(format!("Invalid averaging_window_s: {}", val)),
+                Err(_) => warnings.push(format!("Invalid averaging_window_s: {val}")),
             }
         }
 
@@ -349,10 +349,10 @@ impl Module for PowerMonitor {
         let rate_u32 = self.config.sample_rate_hz as u32;
         config.insert("sample_rate_hz".to_string(), format!("{rate_u32}"));
         if let Some(low) = self.config.low_threshold {
-            config.insert("low_threshold".to_string(), format!("{}", low));
+            config.insert("low_threshold".to_string(), format!("{low}"));
         }
         if let Some(high) = self.config.high_threshold {
-            config.insert("high_threshold".to_string(), format!("{}", high));
+            config.insert("high_threshold".to_string(), format!("{high}"));
         }
         config.insert(
             "averaging_window_s".to_string(),
@@ -488,7 +488,7 @@ async fn power_monitor_task(
                 ctx.emit_event(
                     "read_error",
                     ModuleEventSeverity::Warning,
-                    &format!("Failed to read: {}", e),
+                    &format!("Failed to read: {e}"),
                 )
                 .await;
                 continue;
@@ -550,15 +550,15 @@ async fn emit_threshold_event(
     value: f64,
 ) {
     let mut data = HashMap::new();
-    data.insert("value".to_string(), format!("{:.3}", value));
-    data.insert("previous_state".to_string(), format!("{:?}", old_state));
+    data.insert("value".to_string(), format!("{value:.3}"));
+    data.insert("previous_state".to_string(), format!("{old_state:?}"));
 
     match new_state {
         ThresholdState::Low => {
             ctx.emit_event_with_data(
                 "threshold_low",
                 ModuleEventSeverity::Warning,
-                &format!("Power dropped below threshold: {:.3} mW", value),
+                &format!("Power dropped below threshold: {value:.3} mW"),
                 data,
             )
             .await;
@@ -567,7 +567,7 @@ async fn emit_threshold_event(
             ctx.emit_event_with_data(
                 "threshold_high",
                 ModuleEventSeverity::Warning,
-                &format!("Power exceeded threshold: {:.3} mW", value),
+                &format!("Power exceeded threshold: {value:.3} mW"),
                 data,
             )
             .await;
@@ -576,7 +576,7 @@ async fn emit_threshold_event(
             ctx.emit_event_with_data(
                 "threshold_normal",
                 ModuleEventSeverity::Info,
-                &format!("Power returned to normal: {:.3} mW", value),
+                &format!("Power returned to normal: {value:.3} mW"),
                 data,
             )
             .await;

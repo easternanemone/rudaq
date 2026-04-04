@@ -433,11 +433,11 @@ async fn main() -> Result<()> {
             let (runtime_mode, mode_source) = resolve_runtime_mode(runtime_mode);
 
             // Log resolved values (use println for always-visible startup info)
-            println!("Port: {} ({})", port, port_source);
+            println!("Port: {port} ({port_source})");
             if let Some(ref cfg) = hardware_config {
                 println!("Hardware config: {} ({})", cfg.display(), config_source);
             } else {
-                println!("Hardware config: none ({})", config_source);
+                println!("Hardware config: none ({config_source})");
             }
             if let Some(ref ui) = web_ui_path {
                 println!("Web UI path: {} (CLI/Env)", ui.display());
@@ -635,12 +635,12 @@ async fn run_script_once(script_path: PathBuf, config: Option<PathBuf>) -> Resul
         Ok(result) => {
             println!();
             println!("✅ Script completed successfully");
-            println!("   Result: {:?}", result);
+            println!("   Result: {result:?}");
             Ok(())
         }
         Err(e) => {
             eprintln!();
-            eprintln!("❌ Script error: {}", e);
+            eprintln!("❌ Script error: {e}");
             Err(anyhow::Error::from(e))
         }
     }
@@ -773,7 +773,7 @@ async fn start_daemon(
         resolved_hardware_config = Some(PathBuf::from("config/maitai_universal.toml"));
     }
 
-    println!("🧭 Runtime mode: {}", resolved_runtime_mode);
+    println!("🧭 Runtime mode: {resolved_runtime_mode}");
     #[cfg(feature = "db-surreal")]
     if let Some(path) = db_path.as_ref() {
         println!("🗃️  Database path: {}", path.display());
@@ -808,7 +808,7 @@ async fn handle_client_command(cmd: ClientCommands) -> Result<()> {
 
     match cmd {
         ClientCommands::Upload { script, name, addr } => {
-            println!("📤 Uploading script to daemon at {}", addr);
+            println!("📤 Uploading script to daemon at {addr}");
             let mut client = ControlServiceClient::connect(addr).await?;
             let content = tokio::fs::read_to_string(&script).await?;
 
@@ -834,7 +834,7 @@ async fn handle_client_command(cmd: ClientCommands) -> Result<()> {
         }
 
         ClientCommands::Start { script_id, addr } => {
-            println!("▶️  Starting script {} on daemon at {}", script_id, addr);
+            println!("▶️  Starting script {script_id} on daemon at {addr}");
             let mut client = ControlServiceClient::connect(addr).await?;
             let response = client
                 .start_script(StartRequest {
@@ -857,10 +857,7 @@ async fn handle_client_command(cmd: ClientCommands) -> Result<()> {
         }
 
         ClientCommands::Stop { execution_id, addr } => {
-            println!(
-                "⏹️  Stopping execution {} on daemon at {}",
-                execution_id, addr
-            );
+            println!("⏹️  Stopping execution {execution_id} on daemon at {addr}");
             let mut client = ControlServiceClient::connect(addr).await?;
             let response = client
                 .stop_script(StopRequest {
@@ -879,10 +876,7 @@ async fn handle_client_command(cmd: ClientCommands) -> Result<()> {
         }
 
         ClientCommands::Status { execution_id, addr } => {
-            println!(
-                "📊 Checking status of execution {} on daemon at {}",
-                execution_id, addr
-            );
+            println!("📊 Checking status of execution {execution_id} on daemon at {addr}");
             let mut client = ControlServiceClient::connect(addr).await?;
             let response = client
                 .get_script_status(StatusRequest { execution_id })
@@ -904,8 +898,8 @@ async fn handle_client_command(cmd: ClientCommands) -> Result<()> {
         }
 
         ClientCommands::Stream { channels, addr } => {
-            println!("📡 Streaming data from daemon at {}", addr);
-            println!("   Channels: {:?}", channels);
+            println!("📡 Streaming data from daemon at {addr}");
+            println!("   Channels: {channels:?}");
             println!("   Press Ctrl+C to stop");
             println!();
 
@@ -932,10 +926,7 @@ async fn handle_client_command(cmd: ClientCommands) -> Result<()> {
         } => {
             use protocol::daq::hardware_service_client::HardwareServiceClient;
 
-            println!(
-                "🔄 Moving device {} to {} on daemon at {}",
-                device_id, value, addr
-            );
+            println!("🔄 Moving device {device_id} to {value} on daemon at {addr}");
             let mut client = HardwareServiceClient::connect(addr).await?;
             let _response = client
                 .move_absolute(MoveRequest {
@@ -1033,10 +1024,7 @@ async fn config_import(file: PathBuf, db_path: Option<PathBuf>) -> Result<()> {
         .await
         .map_err(|e| anyhow::anyhow!("Import failed: {e}"))?;
 
-    println!(
-        "Imported {} driver(s), {} instrument(s)",
-        drivers, instruments
-    );
+    println!("Imported {drivers} driver(s), {instruments} instrument(s)");
     Ok(())
 }
 
@@ -1177,7 +1165,7 @@ async fn client_config_delete(device_id: String, addr: String) -> Result<()> {
 #[cfg(all(feature = "networking", feature = "db-surreal"))]
 async fn client_config_watch(addr: String) -> Result<()> {
     let mut client = config_client(&addr).await?;
-    println!("Watching config changes on {}... (Ctrl+C to stop)", addr);
+    println!("Watching config changes on {addr}... (Ctrl+C to stop)");
     println!();
 
     let mut stream = client

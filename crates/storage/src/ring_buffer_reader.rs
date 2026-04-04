@@ -487,7 +487,7 @@ mod tests {
         let (_tx, rx) = mpsc::channel(16);
         let reader = RingBufferReader::new(rx);
 
-        let debug_str = format!("{:?}", reader);
+        let debug_str = format!("{reader:?}");
         assert!(debug_str.contains("RingBufferReader"));
         assert!(debug_str.contains("frames_received"));
     }

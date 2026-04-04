@@ -20,10 +20,7 @@ pub(super) async fn fetch_device_state(
     );
 
     if !exists {
-        return Err(Status::not_found(format!(
-            "Device not found: {}",
-            device_id
-        )));
+        return Err(Status::not_found(format!("Device not found: {device_id}")));
     }
 
     // Populate health fields from registry (bd-vgrj)
@@ -145,14 +142,13 @@ pub(super) fn validate_parameter_value(
 
     if meta.read_only {
         return Err(Status::invalid_argument(format!(
-            "Parameter '{}' is read-only",
-            name
+            "Parameter '{name}' is read-only"
         )));
     }
 
     if !meta.enum_values.is_empty() || meta.dtype == "enum" {
         let value_str = value.as_str().ok_or_else(|| {
-            Status::invalid_argument(format!("Parameter '{}' expects an enum string value", name))
+            Status::invalid_argument(format!("Parameter '{name}' expects an enum string value"))
         })?;
         if !meta.enum_values.iter().any(|v| v == value_str) {
             return Err(Status::invalid_argument(format!(
@@ -164,22 +160,20 @@ pub(super) fn validate_parameter_value(
 
     if meta.min_value.is_some() || meta.max_value.is_some() {
         let numeric = extract_numeric_value(value).ok_or_else(|| {
-            Status::invalid_argument(format!("Parameter '{}' expects a numeric value", name))
+            Status::invalid_argument(format!("Parameter '{name}' expects a numeric value"))
         })?;
         if let Some(min) = meta.min_value
             && numeric < min
         {
             return Err(Status::invalid_argument(format!(
-                "Parameter '{}' value {} below minimum {}",
-                name, numeric, min
+                "Parameter '{name}' value {numeric} below minimum {min}"
             )));
         }
         if let Some(max) = meta.max_value
             && numeric > max
         {
             return Err(Status::invalid_argument(format!(
-                "Parameter '{}' value {} exceeds max {}",
-                name, numeric, max
+                "Parameter '{name}' value {numeric} exceeds max {max}"
             )));
         }
         if let Some(step) = meta.step {
@@ -189,8 +183,7 @@ pub(super) fn validate_parameter_value(
             // Use a small epsilon for floating point comparison
             if rem.abs() > 1e-10 && (rem - step).abs() > 1e-10 {
                 return Err(Status::invalid_argument(format!(
-                    "Parameter '{}' value {} is not a multiple of step {}",
-                    name, numeric, step
+                    "Parameter '{name}' value {numeric} is not a multiple of step {step}"
                 )));
             }
         }

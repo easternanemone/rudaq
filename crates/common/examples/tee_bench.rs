@@ -45,7 +45,7 @@ async fn main() {
         while let Ok(_m) = lossy_rx.recv().await {
             count += 1;
         }
-        println!("Lossy received: {}", count);
+        println!("Lossy received: {count}");
     });
 
     // Drain reliable path
@@ -96,11 +96,8 @@ async fn main() {
     // SAFETY: test/benchmark values are bounded
     let rate = total as f64 / secs;
 
-    println!(
-        "Sent {} messages in {:.3}s -> {:.0} msgs/s (payload {} bytes)",
-        total, secs, rate, payload
-    );
-    println!("Reliable received: {}", reliable_count);
+    println!("Sent {total} messages in {secs:.3}s -> {rate:.0} msgs/s (payload {payload} bytes)");
+    println!("Reliable received: {reliable_count}");
 
     if collect_latency && !lats.is_empty() {
         lats.sort_unstable();

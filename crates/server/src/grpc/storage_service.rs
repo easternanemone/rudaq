@@ -359,7 +359,7 @@ impl StorageService for StorageServiceImpl {
         {
             return Ok(Response::new(ConfigureStorageResponse {
                 success: false,
-                error_message: format!("Failed to create output directory: {}", e),
+                error_message: format!("Failed to create output directory: {e}"),
                 resolved_output_directory: String::new(),
             }));
         }
@@ -463,7 +463,7 @@ impl StorageService for StorageServiceImpl {
                     tracing::error!("Path validation failed for recording '{}': {}", req.name, e);
                     return Ok(Response::new(StartRecordingResponse {
                         success: false,
-                        error_message: format!("Invalid output path: {}", e),
+                        error_message: format!("Invalid output path: {e}"),
                         recording_id: String::new(),
                         output_path: String::new(),
                     }));
@@ -577,7 +577,7 @@ impl StorageService for StorageServiceImpl {
                     {
                         return Ok(Response::new(StopRecordingResponse {
                             success: false,
-                            error_message: format!("Recording {} not found", id),
+                            error_message: format!("Recording {id} not found"),
                             acquisition_id: String::new(),
                             output_path: String::new(),
                             file_size_bytes: 0,
@@ -876,7 +876,7 @@ impl StorageService for StorageServiceImpl {
             acquisitions.insert(req.acquisition_id, record);
             return Ok(Response::new(DeleteAcquisitionResponse {
                 success: false,
-                error_message: format!("Failed to delete file: {}", e),
+                error_message: format!("Failed to delete file: {e}"),
                 bytes_freed: 0,
             }));
         }
@@ -1085,7 +1085,7 @@ impl StorageService for StorageServiceImpl {
             if let Some(h) = ring_buffer.tap_health_for(&tap_id) {
                 vec![h]
             } else {
-                return Err(Status::not_found(format!("Tap '{}' not found", tap_id)));
+                return Err(Status::not_found(format!("Tap '{tap_id}' not found")));
             }
         } else {
             ring_buffer.tap_health()

@@ -612,14 +612,13 @@ impl ModuleRegistry {
         let factory = self.module_types.get(type_id).ok_or_else(|| {
             if self.type_info_cache.contains_key(type_id) {
                 anyhow::Error::from(DaqError::Configuration(format!(
-                    "Module type '{}' is a plugin type. Use create_plugin_module() instead.",
-                    type_id
+                    "Module type '{type_id}' is a plugin type. Use create_plugin_module() instead."
                 )))
             } else {
                 anyhow::Error::from(DaqError::Driver(DriverError::new(
                     "module_registry",
                     DriverErrorKind::NotFound,
-                    format!("Unknown module type: {}", type_id),
+                    format!("Unknown module type: {type_id}"),
                 )))
             }
         })?;
@@ -647,7 +646,7 @@ impl ModuleRegistry {
             return Err(DaqError::Driver(DriverError::new(
                 "module_registry",
                 DriverErrorKind::NotFound,
-                format!("Module not found: {}", module_id),
+                format!("Module not found: {module_id}"),
             ))
             .into());
         }
@@ -698,7 +697,7 @@ impl ModuleRegistry {
             DaqError::Driver(DriverError::new(
                 "module_registry",
                 DriverErrorKind::NotFound,
-                format!("Module not found: {}", module_id),
+                format!("Module not found: {module_id}"),
             ))
         })?;
 
@@ -716,7 +715,7 @@ impl ModuleRegistry {
             return Err(DaqError::Driver(DriverError::new(
                 "module_registry",
                 DriverErrorKind::NotFound,
-                format!("Device not found: {}", device_id),
+                format!("Device not found: {device_id}"),
             ))
             .into());
         }
@@ -725,7 +724,7 @@ impl ModuleRegistry {
             DaqError::Driver(DriverError::new(
                 "module_registry",
                 DriverErrorKind::NotFound,
-                format!("Module not found: {}", module_id),
+                format!("Module not found: {module_id}"),
             ))
         })?;
 
@@ -735,7 +734,7 @@ impl ModuleRegistry {
             DaqError::Driver(DriverError::new(
                 "module_registry",
                 DriverErrorKind::NotFound,
-                format!("Module type info not found: {}", type_id),
+                format!("Module type info not found: {type_id}"),
             ))
         })?;
 
@@ -763,8 +762,7 @@ impl ModuleRegistry {
             };
 
             return Err(DaqError::Configuration(format!(
-                "Invalid role '{}' for module type '{}'. Valid roles: {}",
-                role_id, type_id, valid_roles_str
+                "Invalid role '{role_id}' for module type '{type_id}'. Valid roles: {valid_roles_str}"
             ))
             .into());
         };
@@ -775,8 +773,7 @@ impl ModuleRegistry {
             && !device_has_capability(&self.device_registry, device_id, required_cap)
         {
             return Err(DaqError::Configuration(format!(
-                "Device '{}' does not have the '{}' capability required by role '{}'",
-                device_id, required_cap, role_id
+                "Device '{device_id}' does not have the '{required_cap}' capability required by role '{role_id}'"
             ))
             .into());
         }
@@ -795,7 +792,7 @@ impl ModuleRegistry {
             DaqError::Driver(DriverError::new(
                 "module_registry",
                 DriverErrorKind::NotFound,
-                format!("Module not found: {}", module_id),
+                format!("Module not found: {module_id}"),
             ))
         })?;
 
@@ -916,7 +913,7 @@ fn module_not_found(module_id: &str) -> DaqError {
     DaqError::Driver(DriverError::new(
         "module_registry",
         DriverErrorKind::NotFound,
-        format!("Module not found: {}", module_id),
+        format!("Module not found: {module_id}"),
     ))
 }
 

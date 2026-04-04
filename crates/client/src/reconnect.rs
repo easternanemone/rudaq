@@ -730,7 +730,7 @@ impl ConnectionManager {
                 "Max reconnect attempts ({}) reached",
                 self.config.max_attempts
             );
-            self.open_circuit(format!("{} (max retries exceeded)", error));
+            self.open_circuit(format!("{error} (max retries exceeded)"));
             return;
         }
 
@@ -1026,7 +1026,7 @@ pub fn friendly_error_message(error: &str) -> String {
     }
 
     // Fallback: return original error with prefix
-    format!("Connection failed: {}", error)
+    format!("Connection failed: {error}")
 }
 
 #[cfg(test)]

@@ -427,7 +427,7 @@ impl ComediStreamWriter {
                 .write_scalar(&metadata.hardware_id.parse::<VarLenUnicode>().map_err(|e| {
                     DaqError::Storage(StorageError::new(
                         StorageErrorKind::Hdf5,
-                        format!("VarLenUnicode parse: {}", e),
+                        format!("VarLenUnicode parse: {e}"),
                     ))
                 })?)?;
             meta_group
@@ -436,7 +436,7 @@ impl ComediStreamWriter {
                 .write_scalar(&metadata.device_path.parse::<VarLenUnicode>().map_err(|e| {
                     DaqError::Storage(StorageError::new(
                         StorageErrorKind::Hdf5,
-                        format!("VarLenUnicode parse: {}", e),
+                        format!("VarLenUnicode parse: {e}"),
                     ))
                 })?)?;
             meta_group
@@ -454,7 +454,7 @@ impl ComediStreamWriter {
                         .write_scalar(&value.parse::<VarLenUnicode>().map_err(|e| {
                             DaqError::Storage(StorageError::new(
                                 StorageErrorKind::Hdf5,
-                                format!("VarLenUnicode parse: {}", e),
+                                format!("VarLenUnicode parse: {e}"),
                             ))
                         })?)?;
                 }
@@ -506,7 +506,7 @@ impl ComediStreamWriter {
                     .write_scalar(&ch.units.parse::<VarLenUnicode>().map_err(|e| {
                         DaqError::Storage(StorageError::new(
                             StorageErrorKind::Hdf5,
-                            format!("VarLenUnicode parse: {}", e),
+                            format!("VarLenUnicode parse: {e}"),
                         ))
                     })?)?;
 
@@ -517,7 +517,7 @@ impl ComediStreamWriter {
                         .write_scalar(&desc.parse::<VarLenUnicode>().map_err(|e| {
                             DaqError::Storage(StorageError::new(
                                 StorageErrorKind::Hdf5,
-                                format!("VarLenUnicode parse: {}", e),
+                                format!("VarLenUnicode parse: {e}"),
                             ))
                         })?)?;
                 }

@@ -146,7 +146,7 @@ fn print_results(results: &[BenchmarkResult], baseline: &BenchmarkResult) {
         let speedup_str = if (speedup - 1.0).abs() < 0.01 {
             "baseline".to_string()
         } else {
-            format!("{:.1}x", speedup)
+            format!("{speedup:.1}x")
         };
 
         println!(
@@ -167,8 +167,8 @@ fn test_allocation_benchmark() {
     println!();
     println!("Running allocation benchmarks...");
     println!("  Frame size: {} MB", FRAME_SIZE / (1024 * 1024));
-    println!("  Iterations: {}", ITERATIONS);
-    println!("  Pool size:  {}", POOL_SIZE);
+    println!("  Iterations: {ITERATIONS}");
+    println!("  Pool size:  {POOL_SIZE}");
     println!();
 
     // Run benchmarks
@@ -207,8 +207,7 @@ fn test_allocation_benchmark() {
     // (typically much faster, 10-100x, but being conservative for CI)
     assert!(
         speedup >= 1.5,
-        "Pool should be at least 1.5x faster than Vec allocation, got {:.2}x",
-        speedup
+        "Pool should be at least 1.5x faster than Vec allocation, got {speedup:.2}x"
     );
 }
 
@@ -234,8 +233,8 @@ fn test_frame_acquisition_pattern() {
         frame_size,
         frame_size as f64 / (1024.0 * 1024.0)
     );
-    println!("  Pool size: {} frames", num_frames);
-    println!("  Acquiring: {} frames", acquisition_count);
+    println!("  Pool size: {num_frames} frames");
+    println!("  Acquiring: {acquisition_count} frames");
 
     let start = Instant::now();
 
@@ -263,15 +262,14 @@ fn test_frame_acquisition_pattern() {
     let elapsed = start.elapsed();
     let fps = f64::from(acquisition_count) / elapsed.as_secs_f64();
 
-    println!("  Total time: {:?}", elapsed);
-    println!("  Effective FPS: {:.0}", fps);
+    println!("  Total time: {elapsed:?}");
+    println!("  Effective FPS: {fps:.0}");
     println!();
 
     // Should achieve high FPS with pool reuse
     assert!(
         fps > 1000.0,
-        "Should achieve >1000 FPS with pool reuse, got {:.0}",
-        fps
+        "Should achieve >1000 FPS with pool reuse, got {fps:.0}"
     );
 }
 

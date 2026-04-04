@@ -1252,17 +1252,15 @@ mod tests {
         let slow_percentage = (slow_count as f64 / total_count as f64) * 100.0;
 
         println!(
-            "RwLock contention test: {} slow accesses (>{} us) out of {} total ({:.2}%)",
-            slow_count, SLOW_THRESHOLD_MICROS, total_count, slow_percentage
+            "RwLock contention test: {slow_count} slow accesses (>{SLOW_THRESHOLD_MICROS} us) out of {total_count} total ({slow_percentage:.2}%)"
         );
 
         // Allow up to 1% slow accesses (mostly from OS scheduling, not lock contention)
         // With lock contention, we'd see 10%+ slow accesses
         assert!(
             slow_percentage < 1.0,
-            "Too many slow accesses: {:.2}% (expected < 1%). \
-             This suggests RwLock contention in get() - the cached pointer optimization may not be working.",
-            slow_percentage
+            "Too many slow accesses: {slow_percentage:.2}% (expected < 1%). \
+             This suggests RwLock contention in get() - the cached pointer optimization may not be working."
         );
     }
 
@@ -1330,14 +1328,13 @@ mod tests {
         }
 
         let max_latency_us = max_latency.load(Ordering::Relaxed) / 1000;
-        println!("Max access latency: {} us", max_latency_us);
+        println!("Max access latency: {max_latency_us} us");
 
         // Max latency should be under 1ms (mostly OS scheduling)
         // With RwLock contention, we'd see multi-millisecond spikes
         assert!(
             max_latency_us < 1000,
-            "Max latency {} us exceeds 1ms - possible lock contention",
-            max_latency_us
+            "Max latency {max_latency_us} us exceeds 1ms - possible lock contention"
         );
     }
 
@@ -1478,12 +1475,12 @@ mod pool_timing_tests {
         let mean: Duration = times.iter().sum::<Duration>() / times.len() as u32;
 
         println!("\n{name} ({} samples):", times.len());
-        println!("  Min:  {:?}", min);
-        println!("  Mean: {:?}", mean);
-        println!("  P50:  {:?}", p50);
-        println!("  P95:  {:?}", p95);
-        println!("  P99:  {:?}", p99);
-        println!("  Max:  {:?}", max);
+        println!("  Min:  {min:?}");
+        println!("  Mean: {mean:?}");
+        println!("  P50:  {p50:?}");
+        println!("  P95:  {p95:?}");
+        println!("  P99:  {p99:?}");
+        println!("  Max:  {max:?}");
     }
 
     #[cfg_attr(miri, ignore)] // Miri is too slow for timing assertions
@@ -1525,8 +1522,7 @@ mod pool_timing_tests {
         let p99 = percentile(&cycle_times, 99.0);
         assert!(
             p99 < Duration::from_millis(1),
-            "P99 cycle time too slow: {:?}",
-            p99
+            "P99 cycle time too slow: {p99:?}"
         );
     }
 
@@ -1548,15 +1544,14 @@ mod pool_timing_tests {
 
         println!("\nSlot reuse test:");
         println!("  Pool size: {}", pool.size());
-        println!("  Unique indices seen: {:?}", seen_indices);
+        println!("  Unique indices seen: {seen_indices:?}");
         println!("  Cycles: 100");
 
         // Verify we only saw the 4 allocated slots
         assert_eq!(
             seen_indices.len(),
             4,
-            "Expected 4 unique slots, saw: {:?}",
-            seen_indices
+            "Expected 4 unique slots, saw: {seen_indices:?}"
         );
         assert!(
             seen_indices.iter().all(|&idx| idx < 4),
@@ -1617,11 +1612,11 @@ mod pool_timing_tests {
         let total_cycles = completed.load(Ordering::Relaxed);
 
         println!("\nConcurrent access test:");
-        println!("  Tasks: {}", num_tasks);
+        println!("  Tasks: {num_tasks}");
         println!("  Pool size: {}", pool.size());
-        println!("  Cycles per task: {}", cycles_per_task);
-        println!("  Total cycles: {}", total_cycles);
-        println!("  Total time: {:?}", total_elapsed);
+        println!("  Cycles per task: {cycles_per_task}");
+        println!("  Total cycles: {total_cycles}");
+        println!("  Total time: {total_elapsed:?}");
         println!(
             "  Throughput: {:.0} cycles/sec",
             total_cycles as f64 / total_elapsed.as_secs_f64()
@@ -1665,8 +1660,7 @@ mod pool_timing_tests {
         let p99 = percentile(&times, 99.0);
         assert!(
             p99 < Duration::from_micros(100),
-            "try_acquire P99 too slow: {:?}",
-            p99
+            "try_acquire P99 too slow: {p99:?}"
         );
     }
 
@@ -1754,10 +1748,10 @@ mod pool_timing_tests {
 
         println!("\nContention test (high pressure):");
         println!("  Pool size: 4");
-        println!("  Concurrent tasks: {}", num_tasks);
+        println!("  Concurrent tasks: {num_tasks}");
         println!("  Total cycles: {}", num_tasks * cycles_per_task);
-        println!("  Total time: {:?}", total_elapsed);
-        println!("  Worst wait time: {:?}", worst_wait);
+        println!("  Total time: {total_elapsed:?}");
+        println!("  Worst wait time: {worst_wait:?}");
         println!(
             "  Throughput: {:.0} cycles/sec",
             f64::from(num_tasks * cycles_per_task) / total_elapsed.as_secs_f64()
@@ -1768,8 +1762,7 @@ mod pool_timing_tests {
         // Allow generous margin for test reliability
         assert!(
             worst_wait < Duration::from_millis(50),
-            "Worst wait time too high: {:?}",
-            worst_wait
+            "Worst wait time too high: {worst_wait:?}"
         );
     }
 
@@ -1813,18 +1806,16 @@ mod pool_timing_tests {
             - direct_time.as_nanos() as f64 / iterations as f64;
 
         println!("\nLock-free access overhead test:");
-        println!("  Iterations: {}", iterations);
-        println!("  Loaned access: {:?}", loaned_time);
-        println!("  Direct Vec access: {:?}", direct_time);
+        println!("  Iterations: {iterations}");
+        println!("  Loaned access: {loaned_time:?}");
+        println!("  Direct Vec access: {direct_time:?}");
         println!("  Per-access overhead: {:.1}ns", overhead_ns.max(0.0));
 
         // Loaned access should have minimal overhead (<10ns per access)
         // Since we're measuring noisy operations, allow 2x margin
         assert!(
             loaned_time < direct_time * 3,
-            "Loaned access too slow: {:?} vs direct {:?}",
-            loaned_time,
-            direct_time
+            "Loaned access too slow: {loaned_time:?} vs direct {direct_time:?}"
         );
     }
 }

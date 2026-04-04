@@ -235,14 +235,14 @@ impl ScriptPluginLoader {
         let info = self
             .modules
             .get(type_id)
-            .ok_or_else(|| anyhow!("Unknown script module type: {}", type_id))?;
+            .ok_or_else(|| anyhow!("Unknown script module type: {type_id}"))?;
 
         // Get cached source or reload
         let source = self
             .script_cache
             .get(&info.script_path)
             .cloned()
-            .ok_or_else(|| anyhow!("Script source not cached for {}", type_id))?;
+            .ok_or_else(|| anyhow!("Script source not cached for {type_id}"))?;
 
         match info.language {
             ScriptLanguage::Rhai => {
@@ -264,7 +264,7 @@ impl ScriptPluginLoader {
 
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
         let language = ScriptLanguage::from_extension(ext)
-            .ok_or_else(|| anyhow!("Unsupported script extension: {}", ext))?;
+            .ok_or_else(|| anyhow!("Unsupported script extension: {ext}"))?;
 
         match language {
             ScriptLanguage::Rhai => ScriptModule::from_file(path).await,

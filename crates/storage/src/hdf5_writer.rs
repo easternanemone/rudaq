@@ -292,7 +292,7 @@ impl HDF5Writer {
                         .write_scalar(&json_str.parse::<VarLenUnicode>().map_err(|e| {
                             DaqError::Storage(StorageError::new(
                                 StorageErrorKind::Hdf5,
-                                format!("VarLenUnicode parse: {}", e),
+                                format!("VarLenUnicode parse: {e}"),
                             ))
                         })?)
                         .map_err(map_hdf5_err)?;
@@ -304,7 +304,7 @@ impl HDF5Writer {
                         .write_scalar(&json_str.parse::<VarLenUnicode>().map_err(|e| {
                             DaqError::Storage(StorageError::new(
                                 StorageErrorKind::Hdf5,
-                                format!("VarLenUnicode parse: {}", e),
+                                format!("VarLenUnicode parse: {e}"),
                             ))
                         })?)
                         .map_err(map_hdf5_err)?;
@@ -371,7 +371,7 @@ impl HDF5Writer {
                     }
                     Err(e) => {
                         self.write_errors.fetch_add(1, Ordering::Relaxed);
-                        eprintln!("HDF5 flush error: {}", e);
+                        eprintln!("HDF5 flush error: {e}");
                         // Reset timer to back off on error
                         last_flush = tokio::time::Instant::now();
                     }
@@ -428,7 +428,7 @@ impl HDF5Writer {
             };
 
             // Create batch group with unique name
-            let batch_name = format!("batch_{:06}", batch_id);
+            let batch_name = format!("batch_{batch_id:06}");
             let batch_group = measurements
                 .create_group(&batch_name)
                 .map_err(map_hdf5_err)?;
@@ -614,7 +614,7 @@ impl HDF5Writer {
         let value = value.parse::<VarLenUnicode>().map_err(|e| {
             DaqError::Storage(StorageError::new(
                 StorageErrorKind::Hdf5,
-                format!("VarLenUnicode parse: {}", e),
+                format!("VarLenUnicode parse: {e}"),
             ))
         })?;
 
@@ -890,7 +890,7 @@ impl HDF5Writer {
                         .map_err(|e| {
                             DaqError::Storage(StorageError::new(
                                 StorageErrorKind::Hdf5,
-                                format!("VarLenUnicode parse: {}", e),
+                                format!("VarLenUnicode parse: {e}"),
                             ))
                         })?,
                 )
@@ -908,7 +908,7 @@ impl HDF5Writer {
                         .map_err(|e| {
                             DaqError::Storage(StorageError::new(
                                 StorageErrorKind::Hdf5,
-                                format!("VarLenUnicode parse: {}", e),
+                                format!("VarLenUnicode parse: {e}"),
                             ))
                         })?,
                 )
@@ -926,7 +926,7 @@ impl HDF5Writer {
                         .map_err(|e| {
                             DaqError::Storage(StorageError::new(
                                 StorageErrorKind::Hdf5,
-                                format!("VarLenUnicode parse: {}", e),
+                                format!("VarLenUnicode parse: {e}"),
                             ))
                         })?,
                 )
@@ -965,7 +965,7 @@ impl HDF5Writer {
                             |e| {
                                 DaqError::Storage(StorageError::new(
                                     StorageErrorKind::Hdf5,
-                                    format!("VarLenUnicode parse: {}", e),
+                                    format!("VarLenUnicode parse: {e}"),
                                 ))
                             },
                         )?)
@@ -990,7 +990,7 @@ impl HDF5Writer {
                     .write_scalar(&value.parse::<hdf5::types::VarLenUnicode>().map_err(|e| {
                         DaqError::Storage(StorageError::new(
                             StorageErrorKind::Hdf5,
-                            format!("VarLenUnicode parse: {}", e),
+                            format!("VarLenUnicode parse: {e}"),
                         ))
                     })?)
                     .map_err(map_hdf5_err)?;
@@ -1013,7 +1013,7 @@ impl HDF5Writer {
                     .write_scalar(&value.parse::<hdf5::types::VarLenUnicode>().map_err(|e| {
                         DaqError::Storage(StorageError::new(
                             StorageErrorKind::Hdf5,
-                            format!("VarLenUnicode parse: {}", e),
+                            format!("VarLenUnicode parse: {e}"),
                         ))
                     })?)
                     .map_err(map_hdf5_err)?;
@@ -1048,7 +1048,7 @@ impl HDF5Writer {
             .write_scalar(&value.parse::<VarLenUnicode>().map_err(|e| {
                 DaqError::Storage(StorageError::new(
                     StorageErrorKind::Hdf5,
-                    format!("VarLenUnicode parse: {}", e),
+                    format!("VarLenUnicode parse: {e}"),
                 ))
             })?)
             .map_err(map_hdf5_err)?;
@@ -1069,7 +1069,7 @@ impl HDF5Writer {
         let mut reader = FileReader::try_new(cursor, None).map_err(|e| {
             DaqError::Storage(StorageError::new(
                 StorageErrorKind::Arrow,
-                format!("Failed to create Arrow reader: {}", e),
+                format!("Failed to create Arrow reader: {e}"),
             ))
         })?;
 
@@ -1077,7 +1077,7 @@ impl HDF5Writer {
         if let Some(batch) = reader.next().transpose().map_err(|e| {
             DaqError::Storage(StorageError::new(
                 StorageErrorKind::Arrow,
-                format!("Failed to read Arrow batch: {}", e),
+                format!("Failed to read Arrow batch: {e}"),
             ))
         })? {
             let schema = batch.schema();

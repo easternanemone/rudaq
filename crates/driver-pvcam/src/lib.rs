@@ -1878,8 +1878,7 @@ impl PvcamDriver {
                         }
 
                         Err(DaqError::Instrument(format!(
-                            "Invalid trigger mode: {}",
-                            requested_name
+                            "Invalid trigger mode: {requested_name}"
                         )))
                     })
                     .await
@@ -2128,8 +2127,7 @@ impl PvcamDriver {
                                 .map_err(|e| DaqError::Instrument(e.to_string()))
                         } else {
                             Err(DaqError::Instrument(format!(
-                                "Invalid readout port: {}",
-                                name
+                                "Invalid readout port: {name}"
                             )))
                         }
                     })
@@ -2165,10 +2163,7 @@ impl PvcamDriver {
                             PvcamFeatures::set_speed_index(&conn_guard, mode.index)
                                 .map_err(|e| DaqError::Instrument(e.to_string()))
                         } else {
-                            Err(DaqError::Instrument(format!(
-                                "Invalid speed mode: {}",
-                                name
-                            )))
+                            Err(DaqError::Instrument(format!("Invalid speed mode: {name}")))
                         }
                     })
                     .await
@@ -2203,7 +2198,7 @@ impl PvcamDriver {
                             PvcamFeatures::set_gain_index(&conn_guard, mode.index)
                                 .map_err(|e| DaqError::Instrument(e.to_string()))
                         } else {
-                            Err(DaqError::Instrument(format!("Invalid gain mode: {}", name)))
+                            Err(DaqError::Instrument(format!("Invalid gain mode: {name}")))
                         }
                     })
                     .await
@@ -3295,7 +3290,7 @@ impl Commandable for PvcamDriver {
                 PvcamFeatures::upload_smart_stream(&conn, &exposures_u32)?;
                 Ok(serde_json::json!({ "success": true, "count": exposures_u32.len() }))
             }
-            _ => anyhow::bail!("Unknown command: {}", command),
+            _ => anyhow::bail!("Unknown command: {command}"),
         }
     }
 }

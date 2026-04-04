@@ -74,10 +74,7 @@ impl Readable for MockNewportPowerMeter {
         // Simulate power reading that depends on angle (polarizer effect: cos^2)
         let power = (pos.to_radians().cos()).powi(2);
 
-        println!(
-            "Newport 1830-C: Read #{} @ angle {:.1}° = {:.6}W",
-            count, pos, power
-        );
+        println!("Newport 1830-C: Read #{count} @ angle {pos:.1}° = {power:.6}W");
 
         Ok(power)
     }
@@ -125,15 +122,14 @@ impl MockESP300 {
         let delay_ms = (total_distance / self.speed_mm_per_sec * 1000.0) as u64;
 
         println!(
-            "ESP300: Move #{} from ({:.2}, {:.2}) to ({:.2}, {:.2}) distance={:.2}mm ({}ms)",
-            move_num, x_current, y_current, target_x, target_y, total_distance, delay_ms
+            "ESP300: Move #{move_num} from ({x_current:.2}, {y_current:.2}) to ({target_x:.2}, {target_y:.2}) distance={total_distance:.2}mm ({delay_ms}ms)"
         );
 
         sleep(Duration::from_millis(delay_ms)).await;
         *self.x_position.write().await = target_x;
         *self.y_position.write().await = target_y;
 
-        println!("ESP300: Move #{} complete", move_num);
+        println!("ESP300: Move #{move_num} complete");
         Ok(())
     }
 }
@@ -207,14 +203,13 @@ impl Movable for MockElliptecRotator {
         let delay_ms = (delta.abs() / self.speed_deg_per_sec * 1000.0) as u64;
 
         println!(
-            "Elliptec ELL14: Rotate #{} from {:.1}° to {:.1}° ({}ms)",
-            rotate_num, current, angle_normalized, delay_ms
+            "Elliptec ELL14: Rotate #{rotate_num} from {current:.1}° to {angle_normalized:.1}° ({delay_ms}ms)"
         );
 
         sleep(Duration::from_millis(delay_ms)).await;
         *self.angle.write().await = angle_normalized;
 
-        println!("Elliptec ELL14: Rotate #{} complete", rotate_num);
+        println!("Elliptec ELL14: Rotate #{rotate_num} complete");
         Ok(())
     }
 
@@ -261,7 +256,7 @@ async fn test_rotate_and_measure() -> Result<()> {
 
         let power = meter_with_rotator.read().await?;
         measurements.push((angle, power));
-        println!("Measurement: {:.0}° → {:.6}W", angle, power);
+        println!("Measurement: {angle:.0}° → {power:.6}W");
     }
 
     // Verify measurements
@@ -304,7 +299,7 @@ async fn test_coordinated_motion_and_measurement() -> Result<()> {
     println!("Rotator at 45°");
 
     let power = meter.read().await?;
-    println!("Power at stage 10mm, rotator 45°: {:.6}W", power);
+    println!("Power at stage 10mm, rotator 45°: {power:.6}W");
 
     // Move back to origin
     stage.move_abs(0.0).await?;
@@ -382,10 +377,7 @@ async fn test_parallel_device_operations() -> Result<()> {
         "Parallel execution completed in {:.2}s",
         elapsed.as_secs_f64()
     );
-    println!(
-        "Results: {} rotations, {} stage moves, {} readings",
-        rotate_count, move_count, read_count
-    );
+    println!("Results: {rotate_count} rotations, {move_count} stage moves, {read_count} readings");
 
     assert_eq!(rotate_count, 5);
     assert_eq!(move_count, 5);
@@ -422,10 +414,7 @@ async fn test_sequential_sweep() -> Result<()> {
             let power = meter.read().await?;
             data_points.push((x, angle, power));
 
-            println!(
-                "Data: x={:.1}mm, angle={:.0}°, power={:.6}W",
-                x, angle, power
-            );
+            println!("Data: x={x:.1}mm, angle={angle:.0}°, power={power:.6}W");
         }
     }
 
@@ -485,21 +474,16 @@ async fn test_find_maximum_power_angle() -> Result<()> {
         }
     }
 
-    println!(
-        "Maximum power: {:.6}W at angle {:.0}°",
-        max_power, best_angle
-    );
+    println!("Maximum power: {max_power:.6}W at angle {best_angle:.0}°");
 
     // Max power should be at 0 or 180 degrees (both give cos(0)^2 = 1)
     assert!(
         (best_angle - 0.0).abs() < 1e-6 || (best_angle - 180.0).abs() < 1e-6,
-        "Expected max at 0° or 180°, got {:.0}°",
-        best_angle
+        "Expected max at 0° or 180°, got {best_angle:.0}°"
     );
     assert!(
         (max_power - 1.0).abs() < 1e-6,
-        "Expected power ~1.0, got {:.6}",
-        max_power
+        "Expected power ~1.0, got {max_power:.6}"
     );
 
     Ok(())
@@ -519,13 +503,13 @@ async fn test_polarization_extinction_ratio() -> Result<()> {
     rotator.move_abs(0.0).await?;
     rotator.wait_settled().await?;
     let max_power = meter.read().await?;
-    println!("Maximum transmission at 0°: {:.6}W", max_power);
+    println!("Maximum transmission at 0°: {max_power:.6}W");
 
     // Measure at transmission minimum (crossed polarizers)
     rotator.move_abs(90.0).await?;
     rotator.wait_settled().await?;
     let min_power = meter.read().await?;
-    println!("Minimum transmission at 90°: {:.9}W", min_power);
+    println!("Minimum transmission at 90°: {min_power:.9}W");
 
     // Calculate extinction ratio
     // In ideal case with perfect polarization: ratio = inf
@@ -536,7 +520,7 @@ async fn test_polarization_extinction_ratio() -> Result<()> {
         f64::INFINITY
     };
 
-    println!("Extinction ratio: {:.2}", extinction_ratio);
+    println!("Extinction ratio: {extinction_ratio:.2}");
 
     // Check basic properties
     assert!((max_power - 1.0).abs() < 1e-6, "Max power should be ~1.0");

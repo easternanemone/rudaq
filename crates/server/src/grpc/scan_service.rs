@@ -185,8 +185,7 @@ impl ScanServiceImpl {
         match tokio::time::timeout(RPC_TIMEOUT, fut).await {
             Ok(result) => result,
             Err(_) => Err(Status::deadline_exceeded(format!(
-                "{} timed out after {:?}",
-                operation, RPC_TIMEOUT
+                "{operation} timed out after {RPC_TIMEOUT:?}"
             ))),
         }
     }
@@ -324,14 +323,13 @@ impl ScanServiceImpl {
         // Validate acquire devices
         for device_id in &config.acquire_device_ids {
             if !self.registry.contains(device_id) {
-                return Err(format!("Acquire device not found: {}", device_id));
+                return Err(format!("Acquire device not found: {device_id}"));
             }
             if self.registry.get_readable(device_id).is_none()
                 && self.registry.get_frame_producer(device_id).is_none()
             {
                 return Err(format!(
-                    "Acquire device is not readable or frame producer: {}",
-                    device_id
+                    "Acquire device is not readable or frame producer: {device_id}"
                 ));
             }
         }
@@ -339,10 +337,10 @@ impl ScanServiceImpl {
         // Validate camera if specified
         if let Some(camera_id) = &config.camera_device_id {
             if !self.registry.contains(camera_id) {
-                return Err(format!("Camera device not found: {}", camera_id));
+                return Err(format!("Camera device not found: {camera_id}"));
             }
             if self.registry.get_triggerable(camera_id).is_none() {
-                return Err(format!("Camera is not triggerable: {}", camera_id));
+                return Err(format!("Camera is not triggerable: {camera_id}"));
             }
         }
 
@@ -401,7 +399,7 @@ impl ScanServiceImpl {
             && config.arm_camera.unwrap_or(false)
             && let Err(e) = trig.arm().await
         {
-            Self::set_scan_error(&scans, &scan_id, format!("Failed to arm camera: {}", e)).await;
+            Self::set_scan_error(&scans, &scan_id, format!("Failed to arm camera: {e}")).await;
             return;
         }
 
@@ -441,7 +439,7 @@ impl ScanServiceImpl {
                     Self::set_scan_error(
                         &scans,
                         &scan_id,
-                        format!("Move failed on {}: {}", device_id, e),
+                        format!("Move failed on {device_id}: {e}"),
                     )
                     .await;
                     return;
@@ -455,7 +453,7 @@ impl ScanServiceImpl {
                     Self::set_scan_error(
                         &scans,
                         &scan_id,
-                        format!("Settle failed on {}: {}", device_id, e),
+                        format!("Settle failed on {device_id}: {e}"),
                     )
                     .await;
                     return;
@@ -474,7 +472,7 @@ impl ScanServiceImpl {
                 if let Some((_, ref trig)) = triggerable
                     && let Err(e) = trig.trigger().await
                 {
-                    Self::set_scan_error(&scans, &scan_id, format!("Trigger failed: {}", e)).await;
+                    Self::set_scan_error(&scans, &scan_id, format!("Trigger failed: {e}")).await;
                     return;
                 }
 
@@ -500,7 +498,7 @@ impl ScanServiceImpl {
                             Self::set_scan_error(
                                 &scans,
                                 &scan_id,
-                                format!("Read failed on {}: {}", device_id, e),
+                                format!("Read failed on {device_id}: {e}"),
                             )
                             .await;
                             return;
@@ -540,7 +538,7 @@ impl ScanServiceImpl {
                 // Write length prefix (4 bytes, little-endian)
                 buf.extend_from_slice(&(msg_len as u32).to_le_bytes());
                 if let Err(e) = progress.encode(&mut buf) {
-                    warn!("Failed to encode scan progress for persistence: {}", e);
+                    warn!("Failed to encode scan progress for persistence: {e}");
                 } else {
                     let rb = rb.clone();
                     // Offload blocking mmap write to avoid stalling Tokio
@@ -549,7 +547,7 @@ impl ScanServiceImpl {
                         .await
                         .expect("ring buffer write task panicked")
                     {
-                        warn!("Failed to write scan data to ring buffer: {}", e);
+                        warn!("Failed to write scan data to ring buffer: {e}");
                     }
                 }
             }
@@ -560,16 +558,14 @@ impl ScanServiceImpl {
                     // Channel full - client is slow, drop this update
                     // Client can use GetScanStatus to poll current state
                     warn!(
-                        "Progress channel full for {} at point {}/{}, dropping update",
-                        scan_id, point_idx, total_points
+                        "Progress channel full for {scan_id} at point {point_idx}/{total_points}, dropping update"
                     );
                 }
                 Err(mpsc::error::TrySendError::Closed(_)) => {
                     // Channel closed - client disconnected, but don't fail the scan
                     // The scan should continue to completion even without a listener
                     warn!(
-                        "Progress channel closed for {} at point {}/{}, continuing scan",
-                        scan_id, point_idx, total_points
+                        "Progress channel closed for {scan_id} at point {point_idx}/{total_points}, continuing scan"
                     );
                 }
             }
@@ -1106,7 +1102,7 @@ mod tests {
         match tx.try_send(progress3) {
             Err(mpsc::error::TrySendError::Full(_)) => {} // Expected
             Ok(()) => panic!("Expected channel to be full"),
-            Err(e) => panic!("Expected Full error, got {:?}", e),
+            Err(e) => panic!("Expected Full error, got {e:?}"),
         }
 
         // Drain one message
@@ -1134,7 +1130,7 @@ mod tests {
         match tx.try_send(progress5) {
             Err(mpsc::error::TrySendError::Closed(_)) => {} // Expected
             Ok(()) => panic!("Expected channel to be closed"),
-            Err(e) => panic!("Expected Closed error, got {:?}", e),
+            Err(e) => panic!("Expected Closed error, got {e:?}"),
         }
     }
 }

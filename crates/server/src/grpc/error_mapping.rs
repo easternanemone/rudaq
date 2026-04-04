@@ -77,17 +77,16 @@ pub fn map_daq_error_to_status(err: DaqError) -> Status {
     match err {
         // Configuration errors → InvalidArgument
         // Client provided bad configuration that cannot be accepted
-        DaqError::Config(e) => Status::new(Code::InvalidArgument, format!("Config error: {}", e)),
-        DaqError::Configuration(msg) => Status::new(
-            Code::InvalidArgument,
-            format!("Configuration error: {}", msg),
-        ),
+        DaqError::Config(e) => Status::new(Code::InvalidArgument, format!("Config error: {e}")),
+        DaqError::Configuration(msg) => {
+            Status::new(Code::InvalidArgument, format!("Configuration error: {msg}"))
+        }
 
         // Hardware/connection errors → Unavailable
         // Resource is temporarily unavailable, client may retry
         DaqError::Instrument(msg) => status_with_metadata(
             Code::Unavailable,
-            format!("Instrument error: {}", msg),
+            format!("Instrument error: {msg}"),
             "instrument",
             None,
         ),
@@ -150,35 +149,29 @@ pub fn map_daq_error_to_status(err: DaqError) -> Status {
             max_dimension,
         } => Status::new(
             Code::ResourceExhausted,
-            format!(
-                "Frame dimensions {}x{} exceed maximum {}",
-                width, height, max_dimension
-            ),
+            format!("Frame dimensions {width}x{height} exceed maximum {max_dimension}"),
         ),
         DaqError::FrameTooLarge { bytes, max_bytes } => Status::new(
             Code::ResourceExhausted,
-            format!("Frame size {} bytes exceeds maximum {}", bytes, max_bytes),
+            format!("Frame size {bytes} bytes exceeds maximum {max_bytes}"),
         ),
         DaqError::ResponseTooLarge { bytes, max_bytes } => Status::new(
             Code::ResourceExhausted,
-            format!(
-                "Response size {} bytes exceeds maximum {}",
-                bytes, max_bytes
-            ),
+            format!("Response size {bytes} bytes exceeds maximum {max_bytes}"),
         ),
         DaqError::ScriptTooLarge { bytes, max_bytes } => Status::new(
             Code::ResourceExhausted,
-            format!("Script size {} bytes exceeds maximum {}", bytes, max_bytes),
+            format!("Script size {bytes} bytes exceeds maximum {max_bytes}"),
         ),
         DaqError::SizeOverflow { context } => Status::new(
             Code::ResourceExhausted,
-            format!("Size overflow in {}", context),
+            format!("Size overflow in {context}"),
         ),
 
         // Module state errors → FailedPrecondition or Unimplemented
         DaqError::ModuleOperationNotSupported(op) => Status::new(
             Code::Unimplemented,
-            format!("Operation not supported: {}", op),
+            format!("Operation not supported: {op}"),
         ),
         DaqError::CameraNotAssigned => {
             Status::new(Code::FailedPrecondition, "Camera not assigned to module")
@@ -187,11 +180,11 @@ pub fn map_daq_error_to_status(err: DaqError) -> Status {
         // Feature availability → Unimplemented
         DaqError::FeatureNotEnabled(feature) => Status::new(
             Code::Unimplemented,
-            format!("Feature not enabled: {}", feature),
+            format!("Feature not enabled: {feature}"),
         ),
         DaqError::FeatureIncomplete(feature, reason) => Status::new(
             Code::Unimplemented,
-            format!("Feature '{}' incomplete: {}", feature, reason),
+            format!("Feature '{feature}' incomplete: {reason}"),
         ),
 
         // Shutdown errors → Internal (aggregated failures)
@@ -221,12 +214,12 @@ pub fn map_daq_error_to_status(err: DaqError) -> Status {
 
         // I/O errors → Internal
         // These are server-side failures that shouldn't happen in normal operation
-        DaqError::Io(e) => Status::new(Code::Internal, format!("I/O error: {}", e)),
-        DaqError::Tokio(e) => Status::new(Code::Internal, format!("Tokio I/O error: {}", e)),
+        DaqError::Io(e) => Status::new(Code::Internal, format!("I/O error: {e}")),
+        DaqError::Tokio(e) => Status::new(Code::Internal, format!("Tokio I/O error: {e}")),
 
         // Processing errors → Internal
         DaqError::Processing(msg) => {
-            Status::new(Code::Internal, format!("Processing error: {}", msg))
+            Status::new(Code::Internal, format!("Processing error: {msg}"))
         }
 
         // Storage errors
@@ -243,12 +236,12 @@ pub fn map_daq_error_to_status(err: DaqError) -> Status {
 
         // Feature-specific errors
         #[cfg(feature = "storage_hdf5")]
-        DaqError::Hdf5(e) => Status::new(Code::Internal, format!("HDF5 error: {}", e)),
+        DaqError::Hdf5(e) => Status::new(Code::Internal, format!("HDF5 error: {e}")),
         #[cfg(feature = "storage_arrow")]
-        DaqError::Arrow(e) => Status::new(Code::Internal, format!("Arrow error: {}", e)),
+        DaqError::Arrow(e) => Status::new(Code::Internal, format!("Arrow error: {e}")),
 
-        DaqError::Serde(e) => Status::new(Code::Internal, format!("Serialization error: {}", e)),
-        DaqError::TaskJoin(e) => Status::new(Code::Internal, format!("Task join error: {}", e)),
+        DaqError::Serde(e) => Status::new(Code::Internal, format!("Serialization error: {e}")),
+        DaqError::TaskJoin(e) => Status::new(Code::Internal, format!("Task join error: {e}")),
     }
 }
 

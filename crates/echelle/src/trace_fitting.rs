@@ -1128,8 +1128,7 @@ mod tests {
             let err = (f64::from(*peak) - true_y).abs();
             assert!(
                 err <= 1.0,
-                "peak at {} too far from true position {true_y}",
-                peak
+                "peak at {peak} too far from true position {true_y}"
             );
         }
     }
@@ -1297,8 +1296,7 @@ mod tests {
         for pair in order_nums.windows(2) {
             assert!(
                 pair[0] < pair[1],
-                "order numbers should increase top-to-bottom: {:?}",
-                order_nums
+                "order numbers should increase top-to-bottom: {order_nums:?}"
             );
         }
 

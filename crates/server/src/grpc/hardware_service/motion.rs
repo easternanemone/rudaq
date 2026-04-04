@@ -52,7 +52,7 @@ pub(super) async fn move_absolute(
                 Ok(Ok(())) => {
                     let pos = movable.position().await.map_err(|e| {
                         tracing::error!(device_id = %req.device_id, error = %e, "Failed to verify position after move");
-                        Status::unavailable(format!("Move completed but position verification failed: {}", e))
+                        Status::unavailable(format!("Move completed but position verification failed: {e}"))
                     })?;
                     (pos, Some(true))
                 }
@@ -75,8 +75,7 @@ pub(super) async fn move_absolute(
             let pos = movable.position().await.map_err(|e| {
                 tracing::error!(device_id = %req.device_id, error = %e, "Failed to verify position after move");
                 Status::unavailable(format!(
-                    "Move completed but position verification failed: {}",
-                    e
+                    "Move completed but position verification failed: {e}"
                 ))
             })?;
             (pos, Some(true))
@@ -85,8 +84,7 @@ pub(super) async fn move_absolute(
         let pos = movable.position().await.map_err(|e| {
             tracing::error!(device_id = %req.device_id, error = %e, "Failed to read position after move");
             Status::unavailable(format!(
-                "Move initiated but position read failed: {}",
-                e
+                "Move initiated but position read failed: {e}"
             ))
         })?;
         (pos, None)
@@ -124,8 +122,7 @@ pub(super) async fn move_relative(
                         && target < min
                     {
                         return Err(Status::invalid_argument(format!(
-                            "Relative move to {} is below minimum {}",
-                            target, min
+                            "Relative move to {target} is below minimum {min}"
                         )));
                     }
 
@@ -133,8 +130,7 @@ pub(super) async fn move_relative(
                         && target > max
                     {
                         return Err(Status::invalid_argument(format!(
-                            "Relative move to {} is above maximum {}",
-                            target, max
+                            "Relative move to {target} is above maximum {max}"
                         )));
                     }
                 }
@@ -145,8 +141,7 @@ pub(super) async fn move_relative(
                         "Failed to read current position for bounds validation"
                     );
                     return Err(Status::unavailable(format!(
-                        "Cannot validate relative move: failed to read current position: {}",
-                        e
+                        "Cannot validate relative move: failed to read current position: {e}"
                     )));
                 }
             }
@@ -167,7 +162,7 @@ pub(super) async fn move_relative(
                 Ok(Ok(())) => {
                     let pos = movable.position().await.map_err(|e| {
                         tracing::error!(device_id = %req.device_id, error = %e, "Failed to verify position after relative move");
-                        Status::unavailable(format!("Move completed but position verification failed: {}", e))
+                        Status::unavailable(format!("Move completed but position verification failed: {e}"))
                     })?;
                     (pos, Some(true))
                 }
@@ -190,8 +185,7 @@ pub(super) async fn move_relative(
             let pos = movable.position().await.map_err(|e| {
                 tracing::error!(device_id = %req.device_id, error = %e, "Failed to verify position after relative move");
                 Status::unavailable(format!(
-                    "Move completed but position verification failed: {}",
-                    e
+                    "Move completed but position verification failed: {e}"
                 ))
             })?;
             (pos, Some(true))
@@ -200,8 +194,7 @@ pub(super) async fn move_relative(
         let pos = movable.position().await.map_err(|e| {
             tracing::error!(device_id = %req.device_id, error = %e, "Failed to read position after relative move");
             Status::unavailable(format!(
-                "Move initiated but position read failed: {}",
-                e
+                "Move initiated but position read failed: {e}"
             ))
         })?;
         (pos, None)
@@ -230,8 +223,7 @@ pub(super) async fn stop_motion(
     let position = movable.position().await.map_err(|e| {
         tracing::error!(device_id = %req.device_id, error = %e, "Failed to read position after stop");
         Status::unavailable(format!(
-            "Stop completed but position read failed: {}",
-            e
+            "Stop completed but position read failed: {e}"
         ))
     })?;
     Ok(Response::new(StopMotionResponse {
@@ -273,8 +265,7 @@ pub(super) async fn wait_settled(
     let position = movable.position().await.map_err(|e| {
         tracing::error!(device_id = %req.device_id, error = %e, "Failed to read position after wait_settled");
         Status::unavailable(format!(
-            "Wait settled completed but position read failed: {}",
-            e
+            "Wait settled completed but position read failed: {e}"
         ))
     })?;
     Ok(Response::new(WaitSettledResponse {
@@ -296,8 +287,7 @@ pub(super) fn stream_position(
     // Verify device exists and is movable
     if svc.registry.get_movable(&device_id).is_none() {
         return Err(Status::not_found(format!(
-            "Device '{}' not found or not movable",
-            device_id
+            "Device '{device_id}' not found or not movable"
         )));
     }
 
@@ -402,8 +392,7 @@ pub(super) fn stream_values(
     // Verify device exists and is readable
     if svc.registry.get_readable(&device_id).is_none() {
         return Err(Status::not_found(format!(
-            "Device '{}' not found or not readable",
-            device_id
+            "Device '{device_id}' not found or not readable"
         )));
     }
 
@@ -449,7 +438,7 @@ pub(super) fn stream_values(
                     Err(e) => {
                         registry.report_device_failure(
                             &device_id,
-                            format!("stream_values read failed: {}", e),
+                            format!("stream_values read failed: {e}"),
                         );
                     }
                 }

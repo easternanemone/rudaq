@@ -70,8 +70,7 @@ async fn test_t1_daemon_startup_mock_maitai_lab() {
     assert_eq!(
         driver_types.len(),
         5,
-        "should have 5 driver types, got: {:?}",
-        driver_types
+        "should have 5 driver types, got: {driver_types:?}"
     );
 }
 

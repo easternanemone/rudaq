@@ -374,7 +374,7 @@ impl ScriptPlanRunner {
             Err(e) => {
                 error!("Script task panicked: {}", e);
                 Ok(ScriptRunReport::failure(
-                    format!("Script task panicked: {}", e),
+                    format!("Script task panicked: {e}"),
                     plans_executed,
                     total_events,
                     start_time.elapsed(),
@@ -414,7 +414,7 @@ impl ScriptPlanRunner {
             }
             Err(e) => {
                 let _ = yield_handle.signal_error(e.to_string());
-                Err(anyhow!("Script error: {}", e))
+                Err(anyhow!("Script error: {e}"))
             }
         }
     }

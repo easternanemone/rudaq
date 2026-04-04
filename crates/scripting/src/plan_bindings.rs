@@ -100,16 +100,13 @@ fn validate_points(points: i64) -> Result<usize, Box<EvalAltResult>> {
     if points <= 0 {
         return Err(rhai_error(
             "validate_points",
-            format!("points must be positive, got {}", points),
+            format!("points must be positive, got {points}"),
         ));
     }
     if points > MAX_SCAN_POINTS {
         return Err(rhai_error(
             "validate_points",
-            format!(
-                "points exceeds maximum ({}), got {}",
-                MAX_SCAN_POINTS, points
-            ),
+            format!("points exceeds maximum ({MAX_SCAN_POINTS}), got {points}"),
         ));
     }
     #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
@@ -390,7 +387,7 @@ mod tests {
         "#;
 
         let result = engine.execute_script(script).await;
-        assert!(result.is_ok(), "Plan creation should work: {:?}", result);
+        assert!(result.is_ok(), "Plan creation should work: {result:?}");
     }
 
     #[tokio::test]
@@ -414,8 +411,7 @@ mod tests {
         let result = engine.execute_script(script).await;
         assert!(
             result.is_ok(),
-            "RunEngine operations should work: {:?}",
-            result
+            "RunEngine operations should work: {result:?}"
         );
     }
 

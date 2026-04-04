@@ -558,8 +558,7 @@ async fn test_andor_parameters_have_group_assignments() {
     let dynamic_with_group = params.iter().filter(|p| p.group_name.is_some()).count();
     assert!(
         dynamic_with_group >= 30,
-        "Expected at least 30 parameters with group assignments, got {}",
-        dynamic_with_group
+        "Expected at least 30 parameters with group assignments, got {dynamic_with_group}"
     );
 
     // Verify the group_name is also present in nested ParameterMetadata.
