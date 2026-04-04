@@ -1687,4 +1687,61 @@ mod tests {
         let (alloc_result, _, _) = downsample_2x2(&data_small, 4, 4);
         assert_eq!(buf, alloc_result);
     }
+
+    // ============================================================
+    // Realistic camera dimension tests
+    // ============================================================
+
+    #[test]
+    fn test_prime_bsi_2048x2048_2x2() {
+        // Photometrics Prime BSI: 2048x2048, 16-bit
+        let width = 2048u32;
+        let height = 2048u32;
+        let data: Vec<u8> = (0..width * height)
+            .flat_map(|i| {
+                #[allow(clippy::cast_possible_truncation)]
+                let val = (i % 65536) as u16;
+                val.to_le_bytes()
+            })
+            .collect();
+
+        let mut buf = Vec::new();
+        let (w, h) = downsample_2x2_into(&data, width, height, &mut buf);
+        assert_eq!(w, 1024);
+        assert_eq!(h, 1024);
+        assert_eq!(buf.len(), 1024 * 1024 * 2);
+    }
+
+    #[test]
+    fn test_istar_2560x2160_4x4() {
+        // Andor iStar: 2560x2160, 16-bit
+        let width = 2560u32;
+        let height = 2160u32;
+        let data = vec![128u8; (width * height * 2) as usize];
+
+        let mut buf = Vec::new();
+        let (w, h) = downsample_4x4_into(&data, width, height, &mut buf);
+        assert_eq!(w, 640);
+        assert_eq!(h, 540);
+        assert_eq!(buf.len(), 640 * 540 * 2);
+    }
+
+    #[test]
+    fn test_into_variant_retains_capacity() {
+        let mut buf = Vec::new();
+
+        // First: large frame grows buffer
+        let large = vec![0u8; 2048 * 2048 * 2];
+        downsample_2x2_into(&large, 2048, 2048, &mut buf);
+        let cap = buf.capacity();
+
+        // Second: small frame — capacity must not shrink
+        let small = vec![0u8; 100 * 100 * 2];
+        downsample_2x2_into(&small, 100, 100, &mut buf);
+        assert!(
+            buf.capacity() >= cap,
+            "Buffer capacity should not shrink: was {cap}, now {}",
+            buf.capacity()
+        );
+    }
 }
