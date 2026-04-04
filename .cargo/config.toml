@@ -3,11 +3,10 @@
 
 [build]
 # Sparse registry protocol is default since Cargo 1.68+
-# CRITICAL: Share target dir across all git worktrees.
-# Without this, each worktree creates its own target/ (10-15GB each),
-# and parallel agents exhaust disk quota within minutes.
-# Cargo uses file locks to coordinate concurrent builds safely.
-target-dir = "/home/brian/code/rust-daq/target"
+# Worktree target sharing: Set CARGO_TARGET_DIR=/home/brian/code/rust-daq/target
+# in your shell profile to share build artifacts across git worktrees.
+# This prevents N × 10GB duplication when running parallel agents.
+# NOT set here because absolute paths break CI runners.
 
 [profile.dev]
 incremental = true
