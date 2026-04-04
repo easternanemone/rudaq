@@ -106,18 +106,22 @@ fn status_with_metadata(
 /// Service handlers receiving `anyhow::Result` from capability traits should use
 /// this function instead of manually converting to `Status`.
 pub fn anyhow_to_status(err: anyhow::Error) -> Status {
-    // Try DaqError first (most specific application error)
-    if let Ok(daq_err) = err.downcast::<DaqError>() {
-        return map_daq_error_to_status(daq_err);
-    }
+    // Try DaqError first (most specific application error).
+    // `downcast` consumes `err`, so we recover it from the `Err` case.
+    let err = match err.downcast::<DaqError>() {
+        Ok(daq_err) => return map_daq_error_to_status(daq_err),
+        Err(e) => e,
+    };
     // Try DriverError (common from driver trait methods)
-    if let Ok(driver_err) = err.downcast::<DriverError>() {
-        return map_daq_error_to_status(DaqError::Driver(driver_err));
-    }
+    let err = match err.downcast::<DriverError>() {
+        Ok(driver_err) => return map_daq_error_to_status(DaqError::Driver(driver_err)),
+        Err(e) => e,
+    };
     // Try StorageError
-    if let Ok(storage_err) = err.downcast::<StorageError>() {
-        return map_daq_error_to_status(DaqError::Storage(storage_err));
-    }
+    let err = match err.downcast::<StorageError>() {
+        Ok(storage_err) => return map_daq_error_to_status(DaqError::Storage(storage_err)),
+        Err(e) => e,
+    };
     // Fallback: opaque internal error with the full anyhow display chain
     status_with_metadata(Code::Internal, err.to_string(), "unknown", None)
 }
