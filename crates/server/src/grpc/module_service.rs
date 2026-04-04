@@ -16,7 +16,7 @@
 //! - **With `modules` feature**: Full integration with ModuleRegistry
 
 #[cfg(feature = "modules")]
-use crate::grpc::map_daq_error_to_status;
+use crate::grpc::anyhow_to_status;
 use crate::grpc::proto::{
     AssignDeviceRequest, AssignDeviceResponse, ConfigureModuleRequest, ConfigureModuleResponse,
     CreateModuleRequest, CreateModuleResponse, DeleteModuleRequest, DeleteModuleResponse,
@@ -49,15 +49,13 @@ use tonic::{Request, Response, Status};
 
 /// Map an `anyhow::Error` from the module registry to a gRPC `Status`.
 ///
-/// Attempts to downcast to `DaqError` for structured mapping via
-/// `map_daq_error_to_status`. Falls back to `Status::internal` for
-/// unstructured errors.
+/// Uses `anyhow_to_status` to scan the full error chain for structured
+/// errors (`DaqError`, `DriverError`, `StorageError`). Falls back to
+/// `Status::internal` for unstructured errors.
 #[cfg(feature = "modules")]
 fn map_module_error_to_status(err: anyhow::Error) -> Status {
-    match err.downcast::<DaqError>() {
-        Ok(daq_err) => map_daq_error_to_status(daq_err),
-        Err(err) => Status::internal(err.to_string()),
-    }
+    // Use anyhow_to_status which scans the full error chain
+    anyhow_to_status(err)
 }
 
 /// Create a gRPC `Status` for a module not found by ID.

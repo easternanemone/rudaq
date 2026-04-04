@@ -58,8 +58,9 @@ pub mod log_scrubbing;
 
 // Canonical source for traits, data types, error types, and reactive parameters
 // is the common-traits crate. Re-exported here for backward compatibility so
-// all consumers continue to use `common::capabilities`, `common::data`, etc.
-// without any import changes.
+// downstream crates continue to use `common::capabilities`, `common::data`, etc.
+// Note: `common::processing` was removed (moved to the echelle crate) and
+// `common::device_id` was added.
 pub use common_traits::capabilities;
 pub use common_traits::data;
 pub use common_traits::device_id;
