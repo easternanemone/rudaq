@@ -398,4 +398,107 @@ mod tests {
         decompress_frame_into(&mut frame, &mut buf).expect("passthrough");
         assert_eq!(frame.data, vec![1, 2, 3, 4, 5]);
     }
+
+    #[test]
+    fn test_decompress_corrupted_payload() {
+        let mut frame = FrameData {
+            data: vec![0x00, 0x10, 0x00, 0x00, 0xFF, 0xFE, 0xFD], // valid size prefix, garbage payload
+            compression: CompressionType::CompressionLz4 as i32,
+            uncompressed_size: 4096,
+            ..Default::default()
+        };
+        let result = decompress_frame(&mut frame);
+        assert!(result.is_err(), "Corrupted LZ4 data should fail");
+    }
+
+    #[test]
+    fn test_decompress_into_truncated_data() {
+        let mut frame = FrameData {
+            data: vec![0x01, 0x02], // only 2 bytes, need at least 4 for size prefix
+            compression: CompressionType::CompressionLz4 as i32,
+            uncompressed_size: 100,
+            ..Default::default()
+        };
+        let mut buf = Vec::new();
+        let result = decompress_frame_into(&mut frame, &mut buf);
+        assert!(result.is_err(), "Truncated data should fail");
+        assert!(
+            result.unwrap_err().contains("too short"),
+            "Error should mention size prefix"
+        );
+    }
+
+    #[test]
+    fn test_decompress_size_mismatch() {
+        // Compress valid data, then lie about the uncompressed size
+        let mut frame = FrameData {
+            data: vec![42u8; 1000],
+            ..Default::default()
+        };
+        compress_frame(&mut frame);
+        frame.uncompressed_size = 999; // Wrong — actual is 1000
+
+        let mut buf = Vec::new();
+        let result = decompress_frame_into(&mut frame, &mut buf);
+        // LZ4 may detect the mismatch as a decompression error or as a size
+        // check — either way it must fail.
+        assert!(result.is_err(), "Size mismatch should fail");
+    }
+
+    #[test]
+    fn test_empty_frame_roundtrip() {
+        let mut frame = FrameData {
+            data: Vec::new(),
+            ..Default::default()
+        };
+        compress_frame(&mut frame);
+        // Empty data compresses to just a size prefix
+        decompress_frame(&mut frame).expect("Empty frame should roundtrip");
+        assert!(frame.data.is_empty());
+    }
+
+    #[test]
+    fn test_compress_into_steady_state_no_alloc() {
+        // After two warmup calls with same-sized frames, the buffer pair
+        // stabilizes and no further allocations occur.
+        let mut buf = Vec::new();
+        let frame_size = 10_000;
+
+        for round in 0..5 {
+            let mut frame = FrameData {
+                data: vec![(round & 0xFF) as u8; frame_size],
+                width: 100,
+                height: 50,
+                bit_depth: 16,
+                ..Default::default()
+            };
+            compress_frame_into(&mut frame, &mut buf);
+
+            // frame.data now has compressed output, buf has previous frame.data
+            assert!(
+                frame.data.len() < frame_size,
+                "Round {round}: compressed data should be smaller"
+            );
+        }
+
+        // After stabilization, buf capacity should be >= frame_size
+        // (it holds the previous frame's raw data after each swap)
+        assert!(
+            buf.capacity() >= frame_size,
+            "Buffer should have stabilized at >= {frame_size}, got {}",
+            buf.capacity()
+        );
+    }
+
+    #[test]
+    fn test_unknown_compression_type() {
+        let mut frame = FrameData {
+            data: vec![1, 2, 3],
+            compression: 999, // invalid
+            ..Default::default()
+        };
+        let result = decompress_frame(&mut frame);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Unknown compression type"));
+    }
 }

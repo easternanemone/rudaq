@@ -707,4 +707,58 @@ mod tests {
             "Default RetryPolicy should use Constant backoff"
         );
     }
+
+    #[test]
+    fn test_exponential_backoff_max_attempt_saturates() {
+        // u32::MAX should clamp to i32::MAX via try_from, not wrap to negative
+        let backoff = ExponentialBackoff {
+            initial_delay: Duration::from_millis(100),
+            max_delay: Duration::from_secs(30),
+            multiplier: 2.0,
+            jitter: false,
+        };
+        let delay = backoff.delay_for_attempt(u32::MAX);
+        // With multiplier=2.0 and exponent=i32::MAX, the result overflows to
+        // infinity, which clamps to max_delay
+        assert_eq!(delay, Duration::from_secs(30));
+    }
+
+    #[tokio::test]
+    async fn test_zero_max_attempts_fails_immediately() {
+        let mut recoverable = MockRecoverable {
+            attempts: RefCell::new(0),
+            succeed_on_attempt: 1,
+        };
+        let policy = RetryPolicy {
+            max_attempts: 0,
+            backoff_delay: Duration::from_millis(10),
+            backoff_strategy: BackoffStrategy::Constant,
+        };
+        let result = handle_recoverable_error(&mut recoverable, &policy).await;
+        assert!(result.is_err(), "Zero max_attempts should fail immediately");
+        assert_eq!(
+            *recoverable.attempts.borrow(),
+            0,
+            "No attempts should be made"
+        );
+    }
+
+    #[test]
+    fn test_exponential_backoff_monotonically_increasing() {
+        let backoff = ExponentialBackoff {
+            initial_delay: Duration::from_millis(50),
+            max_delay: Duration::from_secs(60),
+            multiplier: 1.5,
+            jitter: false,
+        };
+        let mut prev = Duration::ZERO;
+        for attempt in 0..20 {
+            let delay = backoff.delay_for_attempt(attempt);
+            assert!(
+                delay >= prev,
+                "Delay should be monotonically increasing: attempt {attempt}, prev {prev:?}, got {delay:?}"
+            );
+            prev = delay;
+        }
+    }
 }
