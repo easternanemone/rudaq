@@ -203,7 +203,7 @@ impl Plan for ImperativePlan {
         self.commands
             .iter()
             .filter_map(|cmd| match cmd {
-                PlanCommand::MoveTo { device_id, .. } => Some(device_id.clone()),
+                PlanCommand::MoveTo { device_id, .. } => Some(device_id.to_string()),
                 _ => None,
             })
             .collect()
@@ -213,8 +213,8 @@ impl Plan for ImperativePlan {
         self.commands
             .iter()
             .filter_map(|cmd| match cmd {
-                PlanCommand::Read { device_id } => Some(device_id.clone()),
-                PlanCommand::Trigger { device_id } => Some(device_id.clone()),
+                PlanCommand::Read { device_id } => Some(device_id.to_string()),
+                PlanCommand::Trigger { device_id } => Some(device_id.to_string()),
                 _ => None,
             })
             .collect()
