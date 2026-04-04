@@ -162,7 +162,7 @@ pub enum PlanCommand {
     /// Wait until a device reports settled/stable
     WaitSettled {
         /// Device to wait on
-        device_id: String,
+        device_id: DeviceId,
         /// Maximum time to wait in seconds
         timeout_seconds: f64,
     },
