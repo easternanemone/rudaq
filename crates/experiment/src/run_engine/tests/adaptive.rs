@@ -119,7 +119,7 @@ async fn test_adapt_scan_point_decisions() {
 
     // ValueUpdate should return None (no adjustment).
     let value_event = FeedbackEvent::ValueUpdate {
-        device_id: "det".to_string(),
+        device_id: "det".into(),
         field: "value".to_string(),
         value: 42.0,
     };
