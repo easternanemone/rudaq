@@ -496,16 +496,47 @@ impl PvcamAcquisition {
                 "Calling pl_exp_setup_cont"
             );
 
+            // bd-oqo7.4: Build region array for multi-ROI when configured.
+            // Uses validated RoiRegion → rgn_type conversion. Falls back to single ROI
+            // when multi_roi_regions is empty.
+            let use_multi_roi = !multi_roi_regions.is_empty();
+            let multi_regions: Vec<rgn_type> = if use_multi_roi {
+                tracing::info!(
+                    roi_count = multi_roi_regions.len(),
+                    "Multi-ROI acquisition: building {} regions",
+                    multi_roi_regions.len()
+                );
+                let mut regions = Vec::with_capacity(multi_roi_regions.len());
+                for roi_region in &multi_roi_regions {
+                    let rgn = unsafe {
+                        let mut r: rgn_type = std::mem::zeroed();
+                        r.s1 = roi_region.x;
+                        r.s2 = roi_region.x + roi_region.w - 1;
+                        r.sbin = x_bin;
+                        r.p1 = roi_region.y;
+                        r.p2 = roi_region.y + roi_region.h - 1;
+                        r.pbin = y_bin;
+                        r
+                    };
+                    regions.push(rgn);
+                }
+                regions
+            } else {
+                vec![region]
+            };
+
             // SAFETY: `h` is a valid camera handle. `region` is a stack-allocated
             // rgn_type. `frame_bytes` is a stack-allocated uns32 output parameter.
             // `selected_buffer_mode` is a valid CIRC_* constant. No acquisition
             // is active (we are in setup). On failure, we retry with NO_OVERWRITE.
             unsafe {
+                let rgn_count = multi_regions.len() as u16;
+                let rgn_ptr = multi_regions.as_ptr() as *const _;
                 // Try overwrite first
                 if pl_exp_setup_cont(
                     h,
-                    1,
-                    &region as *const _,
+                    rgn_count,
+                    rgn_ptr,
                     exp_mode,
                     exposure_ms as uns32,
                     &mut frame_bytes,
@@ -528,8 +559,8 @@ impl PvcamAcquisition {
                     frame_bytes = 0;
                     if pl_exp_setup_cont(
                         h,
-                        1,
-                        &region as *const _,
+                        rgn_count,
+                        rgn_ptr,
                         exp_mode,
                         exposure_ms as uns32,
                         &mut frame_bytes,
