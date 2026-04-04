@@ -9,8 +9,8 @@ use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 
 use protocol::daq::{
-    hardware_service_client::HardwareServiceClient, SetExposureRequest, StartStreamRequest,
-    StopStreamRequest, StreamFramesRequest, StreamQuality,
+    SetExposureRequest, StartStreamRequest, StopStreamRequest, StreamFramesRequest, StreamQuality,
+    hardware_service_client::HardwareServiceClient,
 };
 
 /// Maximum gRPC message size (64 MB, matches server config).

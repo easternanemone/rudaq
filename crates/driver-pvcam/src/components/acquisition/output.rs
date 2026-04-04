@@ -1,12 +1,12 @@
 //! Output channel registration and buffer management for PVCAM acquisition.
 
-#[cfg(feature = "pvcam_sdk")]
-use super::get_pvcam_error;
 use super::PvcamAcquisition;
 use super::PvcamConnection;
 #[cfg(feature = "pvcam_sdk")]
-use anyhow::anyhow;
+use super::get_pvcam_error;
 use anyhow::Result;
+#[cfg(feature = "pvcam_sdk")]
+use anyhow::anyhow;
 #[cfg(feature = "pvcam_sdk")]
 use pvcam_sys::*;
 

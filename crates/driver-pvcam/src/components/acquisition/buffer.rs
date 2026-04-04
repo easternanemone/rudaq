@@ -1,9 +1,9 @@
 //! Frame metadata and page-aligned buffer types for PVCAM acquisition.
 
 #[cfg(feature = "pvcam_sdk")]
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 #[cfg(feature = "pvcam_sdk")]
-use std::alloc::{alloc_zeroed, dealloc, Layout};
+use std::alloc::{Layout, alloc_zeroed, dealloc};
 
 /// Hardware frame metadata decoded from PVCAM embedded metadata (Gemini SDK review).
 ///

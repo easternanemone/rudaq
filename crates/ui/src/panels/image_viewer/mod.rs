@@ -38,9 +38,9 @@ use crate::time::{Duration, Instant};
 use eframe::egui;
 use egui_extras::{Size, StripBuilder};
 use egui_plot::{Line, Plot, PlotPoints, Points};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
-use std::sync::Arc;
 
 use crate::device_ext::DeviceInfoExt;
 use crate::icons;
@@ -828,7 +828,7 @@ mod histogram_tests {
         assert_eq!(hist.len(), 256);
         assert!(hist[0] > 0); // Should have bin for 0
         assert!(hist[255] > 0); // Should have bin for 65535
-                                // 32768 * (255/65535) = 127.5, truncates to bin 127
+        // 32768 * (255/65535) = 127.5, truncates to bin 127
         assert!(hist[127] > 0); // Should have bin for 32768
     }
 

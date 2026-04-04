@@ -662,8 +662,8 @@ mod tests {
     #[cfg(feature = "storage_hdf5")]
     #[test]
     fn test_recover_file_with_parameters_group() {
-        use hdf5::types::VarLenUnicode;
         use hdf5::File;
+        use hdf5::types::VarLenUnicode;
 
         let dir = tempfile::TempDir::new().expect("tempdir");
         let src_path = dir.path().join("with_params.h5");

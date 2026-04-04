@@ -44,7 +44,7 @@
 //! TiffWriter::write_stack(&frames, "stack.tiff")?;
 //! ```
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use common::data::Frame;
 use image::{GrayImage, ImageBuffer, Luma};
 use pool::FrameData;

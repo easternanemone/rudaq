@@ -12,9 +12,9 @@
 //! Gated behind the `metrics` feature flag.
 
 use prometheus::{
+    Histogram, HistogramOpts, IntCounter, IntCounterVec, Opts, Registry,
     register_histogram_with_registry, register_int_counter_vec_with_registry,
-    register_int_counter_with_registry, Histogram, HistogramOpts, IntCounter, IntCounterVec, Opts,
-    Registry,
+    register_int_counter_with_registry,
 };
 use std::sync::OnceLock;
 

@@ -51,9 +51,9 @@ use crate::device_ext::DeviceInfoExt;
 use crate::panels::ComediPanel;
 use crate::time::Instant;
 use crate::widgets::{
-    offline_notice, AndorCameraPanel, DeviceControlWidget, DoverStagePanel, GenericDevicePanel,
-    MaiTaiControlPanel, OfflineContext, PowerMeterControlPanel, RotatorControlPanel,
-    SmartStreamEditor, SpectrographPanel, StageControlPanel,
+    AndorCameraPanel, DeviceControlWidget, DoverStagePanel, GenericDevicePanel, MaiTaiControlPanel,
+    OfflineContext, PowerMeterControlPanel, RotatorControlPanel, SmartStreamEditor,
+    SpectrographPanel, StageControlPanel, offline_notice,
 };
 use client::DaqClient;
 use protocol::daq::DeviceInfo;

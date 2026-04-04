@@ -18,11 +18,11 @@ mod common;
 
 use common::circ_buffer_fixtures::*;
 use pvcam_sys::*;
-use std::alloc::{alloc, alloc_zeroed, dealloc, Layout};
-use std::ffi::{c_void, CStr, CString};
+use std::alloc::{Layout, alloc, alloc_zeroed, dealloc};
+use std::ffi::{CStr, CString, c_void};
 use std::ptr;
-use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 
 // ============================================================================
 // TEST 17: Minimal SDK-style callback test (bd-callback-isolation)

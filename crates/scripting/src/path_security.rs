@@ -121,10 +121,10 @@ pub fn validate_hdf5_path(user_path: &str) -> Result<PathBuf, Box<EvalAltResult>
     }
 
     // NOW it is safe to create directories (path is under data_dir)
-    if let Some(parent) = candidate.parent() {
-        if !parent.exists() {
-            let _ = std::fs::create_dir_all(parent);
-        }
+    if let Some(parent) = candidate.parent()
+        && !parent.exists()
+    {
+        let _ = std::fs::create_dir_all(parent);
     }
 
     // Canonicalize the parent to resolve symlinks, then re-append filename.
@@ -159,16 +159,15 @@ pub fn validate_hdf5_path(user_path: &str) -> Result<PathBuf, Box<EvalAltResult>
     // Defense-in-depth: if the target file already exists as a symlink, reject it.
     // This prevents an attacker from pre-creating a symlink that points outside data_dir.
     // Note: TOCTOU is inherent here, but this raises the bar for exploitation.
-    if canonical.exists() {
-        if let Ok(meta) = std::fs::symlink_metadata(&canonical) {
-            if meta.file_type().is_symlink() {
-                tracing::warn!(
-                    path = %canonical.display(),
-                    "SECURITY: Rejected HDF5 path — target is a symlink"
-                );
-                return Err(security_reject("Path rejected: symlinks are not allowed."));
-            }
-        }
+    if canonical.exists()
+        && let Ok(meta) = std::fs::symlink_metadata(&canonical)
+        && meta.file_type().is_symlink()
+    {
+        tracing::warn!(
+            path = %canonical.display(),
+            "SECURITY: Rejected HDF5 path — target is a symlink"
+        );
+        return Err(security_reject("Path rejected: symlinks are not allowed."));
     }
 
     // Post-canonicalization containment check (resolves symlink escapes)

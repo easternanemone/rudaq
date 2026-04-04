@@ -20,7 +20,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, unused_imports, dead_code)]
 
 use pvcam_sys::*;
-use std::ffi::{c_void, CStr, CString};
+use std::ffi::{CStr, CString, c_void};
 
 // Use constants from pvcam_sys (CIRC_OVERWRITE, CIRC_NO_OVERWRITE, CCS_HALT,
 // PL_CALLBACK_EOF, ATTR_AVAIL, ATTR_CURRENT, ATTR_COUNT, ATTR_DEFAULT)

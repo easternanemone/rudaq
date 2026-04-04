@@ -32,10 +32,10 @@
 #![cfg(feature = "hardware")]
 
 use common::capabilities::{Readable, Settable};
+use driver_comedi::ComediDevice;
 use driver_comedi::hal::{
     ReadableAnalogInput, ReadableCounter, SettableAnalogOutput, SwitchableDigitalIO,
 };
-use driver_comedi::ComediDevice;
 use serde_json::json;
 use std::env;
 use tokio::runtime::Runtime;

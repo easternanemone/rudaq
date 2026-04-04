@@ -57,21 +57,21 @@ pub fn parse_manifest(raw: RawManifest) -> Result<DeviceManifest, Vec<ConfigErro
 
     // 6. Cross-validate: command -> response refs
     for (cmd_name, cmd_cfg) in &raw.commands {
-        if let Some(ref resp_name) = cmd_cfg.response {
-            if !raw.responses.contains_key(resp_name) {
-                errors.push(ConfigError::UnknownResponse(format!(
-                    "command '{cmd_name}' references unknown response '{resp_name}'"
-                )));
-            }
+        if let Some(ref resp_name) = cmd_cfg.response
+            && !raw.responses.contains_key(resp_name)
+        {
+            errors.push(ConfigError::UnknownResponse(format!(
+                "command '{cmd_name}' references unknown response '{resp_name}'"
+            )));
         }
         // Validate response_type if present
-        if let Some(ref rt_str) = cmd_cfg.response_type {
-            if ScpiResponseType::parse(rt_str).is_none() {
-                errors.push(ConfigError::Other(format!(
-                    "command '{cmd_name}' has unknown response_type '{rt_str}' \
+        if let Some(ref rt_str) = cmd_cfg.response_type
+            && ScpiResponseType::parse(rt_str).is_none()
+        {
+            errors.push(ConfigError::Other(format!(
+                "command '{cmd_name}' has unknown response_type '{rt_str}' \
                      (expected: float, integer, string, boolean, array_float)"
-                )));
-            }
+            )));
         }
     }
 
@@ -257,12 +257,12 @@ fn validate_connection(
             };
 
             // Validate serial config fields
-            if let Some(db) = data_bits {
-                if !(5..=8).contains(db) {
-                    errors.push(ConfigError::Other(format!(
-                        "data_bits must be 5, 6, 7, or 8 (got {db})"
-                    )));
-                }
+            if let Some(db) = data_bits
+                && !(5..=8).contains(db)
+            {
+                errors.push(ConfigError::Other(format!(
+                    "data_bits must be 5, 6, 7, or 8 (got {db})"
+                )));
             }
             let validated_parity = parity
                 .as_ref()
@@ -278,12 +278,12 @@ fn validate_connection(
                     }
                 })
                 .and_then(|r| r.ok());
-            if let Some(sb) = stop_bits {
-                if !matches!(sb, 1 | 2) {
-                    errors.push(ConfigError::Other(format!(
-                        "stop_bits must be 1 or 2 (got {sb})"
-                    )));
-                }
+            if let Some(sb) = stop_bits
+                && !matches!(sb, 1 | 2)
+            {
+                errors.push(ConfigError::Other(format!(
+                    "stop_bits must be 1 or 2 (got {sb})"
+                )));
             }
             let validated_flow_control = flow_control
                 .as_ref()
@@ -1189,9 +1189,10 @@ regex = "[invalid("
 "#;
         let raw: RawManifest = toml::from_str(toml_str).unwrap();
         let errs = parse_manifest(raw).unwrap_err();
-        assert!(errs
-            .iter()
-            .any(|e| matches!(e, ConfigError::InvalidRegex { .. })));
+        assert!(
+            errs.iter()
+                .any(|e| matches!(e, ConfigError::InvalidRegex { .. }))
+        );
     }
 
     #[test]
@@ -1212,9 +1213,10 @@ template = "{{ unclosed"
 "#;
         let raw: RawManifest = toml::from_str(toml_str).unwrap();
         let errs = parse_manifest(raw).unwrap_err();
-        assert!(errs
-            .iter()
-            .any(|e| matches!(e, ConfigError::InvalidTemplate { .. })));
+        assert!(
+            errs.iter()
+                .any(|e| matches!(e, ConfigError::InvalidTemplate { .. }))
+        );
     }
 
     #[test]
@@ -1235,9 +1237,10 @@ formula = "((( unclosed"
 "#;
         let raw: RawManifest = toml::from_str(toml_str).unwrap();
         let errs = parse_manifest(raw).unwrap_err();
-        assert!(errs
-            .iter()
-            .any(|e| matches!(e, ConfigError::InvalidFormula { .. })));
+        assert!(
+            errs.iter()
+                .any(|e| matches!(e, ConfigError::InvalidFormula { .. }))
+        );
     }
 
     #[test]
@@ -1255,9 +1258,10 @@ baud_rate = 0
 "#;
         let raw: RawManifest = toml::from_str(toml_str).unwrap();
         let errs = parse_manifest(raw).unwrap_err();
-        assert!(errs
-            .iter()
-            .any(|e| matches!(e, ConfigError::InvalidBaudRate(0))));
+        assert!(
+            errs.iter()
+                .any(|e| matches!(e, ConfigError::InvalidBaudRate(0)))
+        );
     }
 
     #[test]
@@ -1276,9 +1280,10 @@ timeout_ms = 0
 "#;
         let raw: RawManifest = toml::from_str(toml_str).unwrap();
         let errs = parse_manifest(raw).unwrap_err();
-        assert!(errs
-            .iter()
-            .any(|e| matches!(e, ConfigError::InvalidTimeout(0))));
+        assert!(
+            errs.iter()
+                .any(|e| matches!(e, ConfigError::InvalidTimeout(0)))
+        );
     }
 
     #[test]

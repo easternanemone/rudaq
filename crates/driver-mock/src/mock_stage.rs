@@ -1,6 +1,6 @@
 //! Mock motion stage implementation.
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use common::capabilities::{Movable, Parameterized};
 use common::driver::{Capability, DeviceComponents, DeviceMetadata, DriverFactory};
@@ -10,7 +10,7 @@ use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 
 use crate::common::{ErrorConfig, MockMode, MockRng, TimingConfig};
 

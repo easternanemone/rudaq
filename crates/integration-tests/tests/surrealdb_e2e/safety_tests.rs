@@ -2,7 +2,7 @@
 // WP6: Safety (T13)
 // ============================================================================
 
-use db::config_store::{config_hash, DbInstrument};
+use db::config_store::{DbInstrument, config_hash};
 use db::{DaqDb, DbConfig};
 
 use super::helpers::*;

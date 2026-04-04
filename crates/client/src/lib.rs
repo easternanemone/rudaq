@@ -18,8 +18,8 @@ pub use client::ChannelConfig;
 pub use client::DaqClient;
 pub use client::Transport;
 pub use connection::{
-    normalize_url, resolve_address, AddressError, AddressSource, DaemonAddress, DEFAULT_DAEMON_URL,
-    DEFAULT_GRPC_PORT, STORAGE_KEY_DAEMON_ADDR,
+    AddressError, AddressSource, DEFAULT_DAEMON_URL, DEFAULT_GRPC_PORT, DaemonAddress,
+    STORAGE_KEY_DAEMON_ADDR, normalize_url, resolve_address,
 };
 pub use error::{ClientError, Result};
 #[cfg(not(target_arch = "wasm32"))]

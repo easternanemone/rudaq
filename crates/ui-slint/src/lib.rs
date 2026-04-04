@@ -6,9 +6,9 @@
 pub mod panels;
 
 #[cfg(not(target_arch = "wasm32"))]
-use panels::camera_panel::{render_frame, FpsTracker, FrameData};
+use panels::camera_panel::{FpsTracker, FrameData, render_frame};
 #[cfg(not(target_arch = "wasm32"))]
-use panels::plot_panel::{render_plot, PlotState};
+use panels::plot_panel::{PlotState, render_plot};
 #[cfg(not(target_arch = "wasm32"))]
 use rand::Rng;
 #[cfg(not(target_arch = "wasm32"))]
@@ -63,7 +63,7 @@ fn generate_demo_frame(n: u64) -> FrameData {
                 * (fy * 3.0 * std::f64::consts::PI + t * 0.7).cos()
                 + 1.0)
                 * 0.5;
-            let noise = rng.gen::<f64>() * 0.03;
+            let noise = rng.r#gen::<f64>() * 0.03;
             data.push(((v + noise) * 65535.0).clamp(0.0, 65535.0) as u16);
         }
     }
@@ -210,8 +210,8 @@ pub fn launch_floating(log: &Rc<slint::VecModel<slint::StandardListViewItem>>) {
 /// gRPC-web health check — WASM only. Appends status to the log model.
 #[cfg(target_arch = "wasm32")]
 async fn check_health(log: Rc<slint::VecModel<slint::StandardListViewItem>>) {
-    use protocol::health::health_client::HealthClient;
     use protocol::health::HealthCheckRequest;
+    use protocol::health::health_client::HealthClient;
     use tonic_web_wasm_client::Client;
 
     let client = Client::new(DEFAULT_DAEMON_URL.to_string());

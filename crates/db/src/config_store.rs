@@ -7,8 +7,8 @@
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
-use crate::error::Result;
 use crate::DaqDb;
+use crate::error::Result;
 
 // ---------------------------------------------------------------------------
 // DB-native types

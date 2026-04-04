@@ -441,7 +441,7 @@ fn reject_cosmic_rays(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rectification::{rectify_order, OrderSpec, RectifyConfig};
+    use crate::rectification::{OrderSpec, RectifyConfig, rectify_order};
     use crate::types::PolynomialBasis;
 
     fn flat_trace(center: f64) -> crate::types::EchelleTraceModel {

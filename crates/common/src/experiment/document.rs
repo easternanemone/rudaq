@@ -484,10 +484,10 @@ impl ExperimentManifest {
 
         // Capture hostname if available
         #[cfg(not(target_arch = "wasm32"))]
-        if let Ok(hostname) = hostname::get() {
-            if let Ok(hostname_str) = hostname.into_string() {
-                system_info.insert("hostname".to_string(), hostname_str);
-            }
+        if let Ok(hostname) = hostname::get()
+            && let Ok(hostname_str) = hostname.into_string()
+        {
+            system_info.insert("hostname".to_string(), hostname_str);
         }
 
         // Capture git provenance from build-time env vars

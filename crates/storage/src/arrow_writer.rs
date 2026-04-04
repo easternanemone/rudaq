@@ -44,7 +44,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 #[cfg(feature = "storage_arrow")]
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 #[cfg(feature = "storage_arrow")]
 use arrow::array::{ArrayRef, Float64Builder, UInt64Builder};
 #[cfg(feature = "storage_arrow")]
@@ -284,14 +284,14 @@ impl ArrowDocumentWriter {
                     }
                 }
                 Document::Stop(stop) => {
-                    if let Some(run) = guard.as_mut() {
-                        if run.run_uid == stop.run_uid {
-                            // Final flush
-                            flush_arrow_buffer(run)?;
+                    if let Some(run) = guard.as_mut()
+                        && run.run_uid == stop.run_uid
+                    {
+                        // Final flush
+                        flush_arrow_buffer(run)?;
 
-                            // Clear active run
-                            *guard = None;
-                        }
+                        // Clear active run
+                        *guard = None;
                     }
                 }
                 Document::Manifest(_) => {

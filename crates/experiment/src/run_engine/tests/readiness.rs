@@ -8,8 +8,8 @@ use tokio::time::Duration;
 
 use super::super::*;
 use super::helpers::{
-    make_echelle_registry, make_spectroscopy_registry,
-    make_spectroscopy_registry_with_spectrometer, MockEchelleCameraConfig,
+    MockEchelleCameraConfig, make_echelle_registry, make_spectroscopy_registry,
+    make_spectroscopy_registry_with_spectrometer,
 };
 use crate::plans::Count;
 use echelle::EchelleFrameCompatibility;

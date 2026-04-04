@@ -507,11 +507,11 @@ impl CalibrationData {
     ///
     /// Calibration is recommended to be refreshed annually for best accuracy.
     pub fn is_expired(&self) -> bool {
-        if let Some(date) = self.calibration_date {
-            if let Ok(elapsed) = date.elapsed() {
-                // Consider expired after 1 year
-                return elapsed.as_secs() > 365 * 24 * 60 * 60;
-            }
+        if let Some(date) = self.calibration_date
+            && let Ok(elapsed) = date.elapsed()
+        {
+            // Consider expired after 1 year
+            return elapsed.as_secs() > 365 * 24 * 60 * 60;
         }
         false
     }

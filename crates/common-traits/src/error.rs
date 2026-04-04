@@ -580,8 +580,9 @@ mod tests {
             DriverErrorKind::Initialization,
             "failed to connect",
         ));
-        assert!(err
-            .to_string()
-            .contains("Driver 'mock_camera' initialization error"));
+        assert!(
+            err.to_string()
+                .contains("Driver 'mock_camera' initialization error")
+        );
     }
 }

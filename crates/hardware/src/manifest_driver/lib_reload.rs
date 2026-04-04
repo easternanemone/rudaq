@@ -175,7 +175,7 @@
 //! This allows some flexibility in struct field changes (adding optional fields,
 //! removing fields) while maintaining compatibility.
 
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 use std::fs;
 use std::path::PathBuf;
 

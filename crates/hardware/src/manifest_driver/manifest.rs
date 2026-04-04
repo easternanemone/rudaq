@@ -580,18 +580,16 @@ impl PluginManifest {
                 // Validate numeric constraints
                 if let (Some(min_str), Some(max_str)) =
                     (param.min_value.as_ref(), param.max_value.as_ref())
+                    && let (Ok(min), Ok(max)) = (min_str.parse::<f64>(), max_str.parse::<f64>())
+                    && min >= max
                 {
-                    if let (Ok(min), Ok(max)) = (min_str.parse::<f64>(), max_str.parse::<f64>()) {
-                        if min >= max {
-                            errors.push(ValidationError {
-                                path: format!("module.parameters[{}]", i),
-                                message: format!(
-                                    "min_value ({}) must be less than max_value ({})",
-                                    min, max
-                                ),
-                            });
-                        }
-                    }
+                    errors.push(ValidationError {
+                        path: format!("module.parameters[{}]", i),
+                        message: format!(
+                            "min_value ({}) must be less than max_value ({})",
+                            min, max
+                        ),
+                    });
                 }
             }
         }
@@ -879,9 +877,11 @@ library = "test"
         )
         .unwrap();
         let errors = manifest.validate();
-        assert!(errors
-            .iter()
-            .any(|e| e.path == "plugin.name" && e.message.contains("spaces")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.path == "plugin.name" && e.message.contains("spaces"))
+        );
     }
 
     #[test]
@@ -898,9 +898,11 @@ library = "test"
         )
         .unwrap();
         let errors = manifest.validate();
-        assert!(errors
-            .iter()
-            .any(|e| e.path == "plugin.name" && e.message.contains("lowercase")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.path == "plugin.name" && e.message.contains("lowercase"))
+        );
     }
 
     #[test]

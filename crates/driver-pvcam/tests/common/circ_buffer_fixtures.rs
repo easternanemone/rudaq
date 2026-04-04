@@ -9,7 +9,7 @@
 #![allow(dead_code)]
 
 use pvcam_sys::*;
-use std::ffi::{c_void, CStr};
+use std::ffi::{CStr, c_void};
 use std::sync::atomic::{AtomicBool, AtomicI16, AtomicI32, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 
@@ -362,11 +362,7 @@ impl FullCallbackContext {
         let _ = self
             .pending_frames
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
-                if n > 0 {
-                    Some(n - 1)
-                } else {
-                    None
-                }
+                if n > 0 { Some(n - 1) } else { None }
             });
     }
 

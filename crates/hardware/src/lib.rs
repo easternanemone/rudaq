@@ -69,6 +69,6 @@ pub mod supervisor;
 pub use capabilities::*;
 #[cfg(not(target_arch = "wasm32"))]
 pub use registry::{
-    populate_registry_from_config, register_mock_factories, DeviceConfig, DeviceInfo,
-    DeviceRegistry, DriverConfig,
+    DeviceConfig, DeviceInfo, DeviceRegistry, DriverConfig, populate_registry_from_config,
+    register_mock_factories,
 };

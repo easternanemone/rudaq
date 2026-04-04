@@ -4,7 +4,7 @@ use crate::runtime::Runtime;
 use eframe::egui;
 use tokio::sync::mpsc;
 
-use crate::widgets::{offline_notice, OfflineContext};
+use crate::widgets::{OfflineContext, offline_notice};
 use client::DaqClient;
 
 /// Pending action for modules panel

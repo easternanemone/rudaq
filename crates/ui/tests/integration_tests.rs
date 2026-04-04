@@ -213,8 +213,8 @@ mod daemon_lifecycle_tests {
     #[tokio::test]
     #[ignore = "Requires running daemon - enable for full E2E testing"]
     async fn test_gui_connects_to_running_daemon() {
-        use protocol::daq::hardware_service_client::HardwareServiceClient;
         use protocol::daq::ListDevicesRequest;
+        use protocol::daq::hardware_service_client::HardwareServiceClient;
         use tonic::transport::Channel;
 
         // Assume daemon is running on default port (started externally)
@@ -265,12 +265,16 @@ mod app_state_tests {
 
         // Device with emission/shutter control should be classified as MaiTai
         // This tests the panel_kind_for_device logic indirectly
-        assert!(device
-            .capabilities
-            .contains(&"emission_controllable".to_string()));
-        assert!(device
-            .capabilities
-            .contains(&"shutter_controllable".to_string()));
+        assert!(
+            device
+                .capabilities
+                .contains(&"emission_controllable".to_string())
+        );
+        assert!(
+            device
+                .capabilities
+                .contains(&"shutter_controllable".to_string())
+        );
     }
 
     #[test]

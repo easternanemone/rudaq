@@ -12,8 +12,8 @@ use egui::Ui;
 use tokio::sync::mpsc;
 use tracing;
 
-use crate::widgets::device_controls::DeviceControlWidget;
 use crate::widgets::Gauge;
+use crate::widgets::device_controls::DeviceControlWidget;
 use client::DaqClient;
 use protocol::daq::DeviceInfo;
 

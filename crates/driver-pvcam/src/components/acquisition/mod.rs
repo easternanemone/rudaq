@@ -156,17 +156,17 @@ impl RoiRegion {
     }
 }
 
+use crate::components::connection::PvcamConnection;
 #[cfg(feature = "pvcam_sdk")]
 use crate::components::connection::get_pvcam_error;
-use crate::components::connection::PvcamConnection;
 #[cfg(feature = "pvcam_sdk")]
 use crate::components::features::PvcamFeatures;
 use crate::components::taps::TapRegistry;
 use common::parameter::Parameter;
 #[cfg(feature = "pvcam_sdk")]
 use pool::buffer_pool::BufferPool;
-use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
 use tokio::sync::Mutex;
 
 #[cfg(feature = "pvcam_sdk")]

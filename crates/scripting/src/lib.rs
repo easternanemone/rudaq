@@ -38,16 +38,16 @@ pub use coordinator_bindings::CoordinatorHandle;
 #[cfg(feature = "hdf5_scripting")]
 pub use bindings::Hdf5Handle;
 pub use comedi_bindings::{
-    register_comedi_hardware, AnalogInput, AnalogInputHandle, AnalogOutput, AnalogOutputHandle,
-    Counter, CounterHandle, DigitalIO, DigitalIOHandle,
+    AnalogInput, AnalogInputHandle, AnalogOutput, AnalogOutputHandle, Counter, CounterHandle,
+    DigitalIO, DigitalIOHandle, register_comedi_hardware,
 };
 pub use libs_bindings::{
-    register_libs_hardware, CalibratorHandle, DoverAxisHandle, GatedCameraHandle, ScanController,
-    SpectrographHandle,
+    CalibratorHandle, DoverAxisHandle, GatedCameraHandle, ScanController, SpectrographHandle,
+    register_libs_hardware,
 };
 pub use rhai_engine::RhaiEngine;
 pub use script_runner::{ScriptPlanRunner, ScriptRunConfig, ScriptRunReport};
-pub use shutter_safety::{HeartbeatShutterGuard, ShutterRegistry, DEFAULT_HEARTBEAT_TIMEOUT};
+pub use shutter_safety::{DEFAULT_HEARTBEAT_TIMEOUT, HeartbeatShutterGuard, ShutterRegistry};
 pub use traits::{ScriptEngine, ScriptError, ScriptValue};
 pub use yield_handle::{YieldChannelBuilder, YieldHandle, YieldResult, YieldedValue};
 

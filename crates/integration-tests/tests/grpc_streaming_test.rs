@@ -13,8 +13,8 @@ mod streaming_tests {
     use experiment::RunEngine;
     use hardware::registry::DeviceRegistry;
     use protocol::daq::MeasurementRequest;
-    use server::grpc::server::DaqServer;
     use server::grpc::ControlService;
+    use server::grpc::server::DaqServer;
     use std::sync::Arc;
     use tokio_stream::StreamExt;
     use tokio_util::sync::CancellationToken;

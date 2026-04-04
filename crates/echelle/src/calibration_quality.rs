@@ -204,12 +204,11 @@ pub fn compute_global_rms(
             .orders
             .iter()
             .find(|o| o.relative_index == line.relative_order)
+            && let Some(predicted) = eval_wavelength_model(&order.wavelength, line.pixel)
         {
-            if let Some(predicted) = eval_wavelength_model(&order.wavelength, line.pixel) {
-                let residual = line.atlas_wavelength_nm - predicted;
-                sum_sq += residual * residual;
-                count += 1;
-            }
+            let residual = line.atlas_wavelength_nm - predicted;
+            sum_sq += residual * residual;
+            count += 1;
         }
     }
 
@@ -465,11 +464,7 @@ pub fn compute_quality_report(
             .collect();
 
         let rms = leave_one_out_rms(&loo_data, loo_degree_x, loo_degree_m);
-        if rms.is_finite() {
-            Some(rms)
-        } else {
-            None
-        }
+        if rms.is_finite() { Some(rms) } else { None }
     } else {
         None
     };
@@ -534,11 +529,7 @@ pub fn compute_quality_report_from_2d(
             .collect();
 
         let rms = leave_one_out_rms(&loo_data, loo_degree_x, loo_degree_m);
-        if rms.is_finite() {
-            Some(rms)
-        } else {
-            None
-        }
+        if rms.is_finite() { Some(rms) } else { None }
     } else {
         None
     };

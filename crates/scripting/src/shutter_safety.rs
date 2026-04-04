@@ -154,14 +154,14 @@ impl ShutterRegistry {
 
     /// Unregister a shutter
     pub fn unregister(id: u64) {
-        if let Ok(mut shutters) = Self::global().shutters.lock() {
-            if shutters.remove(&id).is_some() {
-                info!(
-                    guard_id = id,
-                    remaining = shutters.len(),
-                    "Unregistered shutter from emergency registry"
-                );
-            }
+        if let Ok(mut shutters) = Self::global().shutters.lock()
+            && shutters.remove(&id).is_some()
+        {
+            info!(
+                guard_id = id,
+                remaining = shutters.len(),
+                "Unregistered shutter from emergency registry"
+            );
         }
     }
 
@@ -203,7 +203,9 @@ impl ShutterRegistry {
             match Self::global().shutters.try_lock() {
                 Ok(guard) => guard.values().filter_map(|weak| weak.upgrade()).collect(),
                 Err(_) => {
-                    error!("Failed to acquire shutter registry lock during emergency close (deadlock risk)");
+                    error!(
+                        "Failed to acquire shutter registry lock during emergency close (deadlock risk)"
+                    );
                     return;
                 }
             }
@@ -298,7 +300,9 @@ impl ShutterRegistry {
             match Self::global().hardware_registry.try_lock() {
                 Ok(guard) => guard.as_ref().and_then(|weak| weak.upgrade()),
                 Err(_) => {
-                    error!("Failed to acquire hardware registry lock during emergency shutter close (deadlock risk)");
+                    error!(
+                        "Failed to acquire hardware registry lock during emergency shutter close (deadlock risk)"
+                    );
                     return;
                 }
             }
@@ -388,7 +392,9 @@ impl ShutterRegistry {
             match Self::global().hardware_registry.try_lock() {
                 Ok(guard) => guard.as_ref().and_then(|weak| weak.upgrade()),
                 Err(_) => {
-                    error!("Failed to acquire hardware registry lock during emergency emission disable (deadlock risk)");
+                    error!(
+                        "Failed to acquire hardware registry lock during emergency emission disable (deadlock risk)"
+                    );
                     return;
                 }
             }
@@ -475,7 +481,9 @@ impl ShutterRegistry {
             match Self::global().hardware_registry.try_lock() {
                 Ok(guard) => guard.as_ref().and_then(|weak| weak.upgrade()),
                 Err(_) => {
-                    error!("Failed to acquire hardware registry lock during emergency stop (deadlock risk)");
+                    error!(
+                        "Failed to acquire hardware registry lock during emergency stop (deadlock risk)"
+                    );
                     return;
                 }
             }
@@ -559,7 +567,9 @@ impl ShutterRegistry {
             match Self::global().hardware_registry.try_lock() {
                 Ok(guard) => guard.as_ref().and_then(|weak| weak.upgrade()),
                 Err(_) => {
-                    error!("Failed to acquire hardware registry lock during emergency zero (deadlock risk)");
+                    error!(
+                        "Failed to acquire hardware registry lock during emergency zero (deadlock risk)"
+                    );
                     return;
                 }
             }
@@ -663,7 +673,7 @@ impl ShutterRegistry {
 
         // Spawn a task to handle signals
         std::thread::spawn(|| {
-            use tokio::signal::unix::{signal, SignalKind};
+            use tokio::signal::unix::{SignalKind, signal};
 
             let rt = match tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -1218,10 +1228,12 @@ mod tests {
         for id in registry.devices_with_capability(Capability::EmissionControl) {
             let emission = registry.get_emission_control(&id).expect("emission exists");
             emission.enable_emission().await.expect("enable emission");
-            assert!(emission
-                .is_emission_enabled()
-                .await
-                .expect("query emission"));
+            assert!(
+                emission
+                    .is_emission_enabled()
+                    .await
+                    .expect("query emission")
+            );
         }
 
         // Emergency disable all
@@ -1621,10 +1633,12 @@ mod tests {
             .enable_emission()
             .await
             .expect("enable normal emission");
-        assert!(normal_emission
-            .is_emission_enabled()
-            .await
-            .expect("query normal emission"));
+        assert!(
+            normal_emission
+                .is_emission_enabled()
+                .await
+                .expect("query normal emission")
+        );
 
         let registry = Arc::new(registry);
 

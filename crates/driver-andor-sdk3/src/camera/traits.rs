@@ -9,8 +9,8 @@ use common::capabilities::{
 };
 use common::data::FrameView;
 use common::observable::ParameterSet;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::Mutex;
 
 #[cfg(feature = "camera")]

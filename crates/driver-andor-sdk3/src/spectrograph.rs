@@ -52,14 +52,14 @@ use async_trait::async_trait;
 use common::capabilities::{Parameterized, ShutterControl, WavelengthTunable};
 use common::observable::ParameterSet;
 use common::parameter::Parameter;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::Mutex;
 
 #[cfg(feature = "spectrograph")]
-use std::sync::atomic::AtomicUsize;
-#[cfg(feature = "spectrograph")]
 use std::sync::Mutex as StdMutex;
+#[cfg(feature = "spectrograph")]
+use std::sync::atomic::AtomicUsize;
 
 #[cfg(feature = "spectrograph")]
 use andor_sdk3_sys::*;

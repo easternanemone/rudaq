@@ -15,7 +15,7 @@
 
 #![cfg(feature = "hardware")]
 
-use driver_comedi::{hal::ReadableAnalogInput, ComediDevice, ComediError};
+use driver_comedi::{ComediDevice, ComediError, hal::ReadableAnalogInput};
 use std::env;
 use std::thread;
 

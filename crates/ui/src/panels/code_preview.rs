@@ -1,6 +1,6 @@
 //! Code preview panel for displaying generated Rhai scripts.
 
-use crate::graph::{graph_to_rhai_script, ExperimentNode};
+use crate::graph::{ExperimentNode, graph_to_rhai_script};
 use egui_code_editor::{CodeEditor, ColorTheme, Syntax};
 use egui_snarl::Snarl;
 

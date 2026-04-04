@@ -12,13 +12,13 @@
 use anyhow::Result;
 
 #[cfg(feature = "pvcam_sdk")]
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 #[cfg(feature = "pvcam_sdk")]
 use std::ffi::CString;
 #[cfg(feature = "pvcam_sdk")]
-use std::sync::atomic::{AtomicU32, Ordering};
-#[cfg(feature = "pvcam_sdk")]
 use std::sync::Mutex;
+#[cfg(feature = "pvcam_sdk")]
+use std::sync::atomic::{AtomicU32, Ordering};
 
 #[cfg(any(feature = "pvcam_sdk", feature = "pvcam_hardware"))]
 use pvcam_sys::*;

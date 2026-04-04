@@ -1,6 +1,6 @@
 //! DriverFactory implementation for Dover Motion axis drivers.
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use common::driver::{Capability, DeviceComponents, DeviceMetadata, DriverFactory};
 use futures::future::BoxFuture;
 use serde::Deserialize;

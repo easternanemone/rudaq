@@ -322,39 +322,35 @@ pub fn resolve_address(
     preset_addr: Option<&str>,
 ) -> DaemonAddress {
     // 1. User input (highest priority)
-    if let Some(input) = user_input {
-        if !input.trim().is_empty() {
-            if let Ok(addr) = DaemonAddress::parse(input, AddressSource::UserInput) {
-                return addr;
-            }
-        }
+    if let Some(input) = user_input
+        && !input.trim().is_empty()
+        && let Ok(addr) = DaemonAddress::parse(input, AddressSource::UserInput)
+    {
+        return addr;
     }
 
     // 2. Persisted from previous session
-    if let Some(persisted) = persisted_addr {
-        if !persisted.trim().is_empty() {
-            if let Ok(addr) = DaemonAddress::parse(persisted, AddressSource::Persisted) {
-                return addr;
-            }
-        }
+    if let Some(persisted) = persisted_addr
+        && !persisted.trim().is_empty()
+        && let Ok(addr) = DaemonAddress::parse(persisted, AddressSource::Persisted)
+    {
+        return addr;
     }
 
     // 3. Config file preset
-    if let Some(preset) = preset_addr {
-        if !preset.trim().is_empty() {
-            if let Ok(addr) = DaemonAddress::parse(preset, AddressSource::Preset) {
-                return addr;
-            }
-        }
+    if let Some(preset) = preset_addr
+        && !preset.trim().is_empty()
+        && let Ok(addr) = DaemonAddress::parse(preset, AddressSource::Preset)
+    {
+        return addr;
     }
 
     // 4. Environment variable
-    if let Ok(env_url) = std::env::var("DAQ_DAEMON_URL") {
-        if !env_url.trim().is_empty() {
-            if let Ok(addr) = DaemonAddress::parse(&env_url, AddressSource::Environment) {
-                return addr;
-            }
-        }
+    if let Ok(env_url) = std::env::var("DAQ_DAEMON_URL")
+        && !env_url.trim().is_empty()
+        && let Ok(addr) = DaemonAddress::parse(&env_url, AddressSource::Environment)
+    {
+        return addr;
     }
 
     // 5. Default fallback
@@ -521,8 +517,10 @@ mod tests {
             AddressError::EmptyInput.to_string(),
             "Address cannot be empty"
         );
-        assert!(AddressError::UnsupportedScheme("ftp".to_string())
-            .to_string()
-            .contains("ftp"));
+        assert!(
+            AddressError::UnsupportedScheme("ftp".to_string())
+                .to_string()
+                .contains("ftp")
+        );
     }
 }

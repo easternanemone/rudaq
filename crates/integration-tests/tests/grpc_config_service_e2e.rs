@@ -19,7 +19,7 @@ use std::time::Duration;
 use tokio_stream::StreamExt;
 use tonic::Request;
 
-use db::config_store::{config_hash, toml_to_json, DbDriver, DbInstrument};
+use db::config_store::{DbDriver, DbInstrument, config_hash, toml_to_json};
 use db::{DaqDb, DbConfig};
 use hardware::registry::{DeviceRegistry, HardwareConfig};
 use server::grpc::config_service::ConfigServiceImpl;

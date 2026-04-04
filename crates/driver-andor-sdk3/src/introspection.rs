@@ -502,12 +502,12 @@ const FEATURE_TABLE: &[FeatureEntry] = &[
 // =============================================================================
 
 #[cfg(feature = "camera")]
-use andor_sdk3_sys::{from_wide_string, to_wide_string, wide_string_buffer};
-#[cfg(feature = "camera")]
 use andor_sdk3_sys::{
-    AT_GetEnumCount, AT_GetEnumStringByIndex, AT_GetFloatMax, AT_GetFloatMin, AT_GetIntMax,
-    AT_GetIntMin, AT_IsEnumIndexImplemented, AT_IsReadable, AT_BOOL, AT_FALSE, AT_H, AT_SUCCESS,
+    AT_BOOL, AT_FALSE, AT_GetEnumCount, AT_GetEnumStringByIndex, AT_GetFloatMax, AT_GetFloatMin,
+    AT_GetIntMax, AT_GetIntMin, AT_H, AT_IsEnumIndexImplemented, AT_IsReadable, AT_SUCCESS,
 };
+#[cfg(feature = "camera")]
+use andor_sdk3_sys::{from_wide_string, to_wide_string, wide_string_buffer};
 
 #[cfg(feature = "camera")]
 use crate::error::sdk_result;

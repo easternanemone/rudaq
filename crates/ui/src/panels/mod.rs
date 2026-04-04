@@ -32,8 +32,8 @@ pub use getting_started::GettingStartedPanel;
 pub use image_viewer::ImageViewerPanel;
 #[allow(unused_imports)] // Spectrum types will be consumed when UI wiring is complete
 pub use live_visualization::{
-    data_channel, frame_channel, spectrum_channel, DataUpdate, DataUpdateSender, FrameUpdate,
-    FrameUpdateSender, LiveVisualizationPanel, SpectrumUpdate, SpectrumUpdateSender,
+    DataUpdate, DataUpdateSender, FrameUpdate, FrameUpdateSender, LiveVisualizationPanel,
+    SpectrumUpdate, SpectrumUpdateSender, data_channel, frame_channel, spectrum_channel,
 };
 pub use logging::{ConnectionDiagnostics, ConnectionStatus, LogLevel, LoggingPanel};
 pub use modules::ModulesPanel;

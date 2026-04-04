@@ -5,7 +5,7 @@
 //! Uses `common::serial` (serial2-tokio) for async port opening.
 
 #[cfg(feature = "serial")]
-use common::serial::{open_serial_async, wrap_shared_unbuffered, SharedPortUnbuffered};
+use common::serial::{SharedPortUnbuffered, open_serial_async, wrap_shared_unbuffered};
 
 #[cfg(feature = "serial")]
 use anyhow::Result;

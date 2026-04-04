@@ -71,7 +71,7 @@ pub use state_machine::EngineState;
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{broadcast, mpsc, Mutex, RwLock};
+use tokio::sync::{Mutex, RwLock, broadcast, mpsc};
 use tokio::time::Duration;
 use tracing::{info, instrument, warn};
 

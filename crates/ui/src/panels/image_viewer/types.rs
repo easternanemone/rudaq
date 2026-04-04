@@ -7,8 +7,8 @@ use crate::time::Instant;
 use eframe::egui;
 use std::collections::HashMap;
 use std::fmt::Write as _;
-use std::sync::mpsc;
 use std::sync::Arc;
+use std::sync::mpsc;
 
 use crate::widgets::ParameterCache;
 use protocol::daq::FrameData;
