@@ -493,7 +493,7 @@ impl RunEngine {
                 self.watchdog.touch().await;
                 debug!(device = %device_id, param = %parameter, value = %value, "Setting parameter");
                 dispatcher
-                    .execute_set_parameter(&device_id, &parameter, &value)
+                    .execute_set_parameter(device_id.as_str(), &parameter, &value)
                     .await?;
                 Ok(false)
             }
