@@ -208,7 +208,7 @@ impl Plan for VoltageScan {
 
                 // Use Set command for AO voltage
                 PlanCommand::Set {
-                    device_id: self.ao_device.clone(),
+                    device_id: DeviceId::from(self.ao_device.as_str()),
                     parameter: "voltage".to_string(),
                     value: voltage.to_string(),
                 }
