@@ -103,6 +103,7 @@ use tokio::sync::{RwLock, watch};
 
 use crate::error::DaqError;
 use crate::observable::{Observable, ParameterAny, ParameterBase as ObservableParameterBase};
+use parking_lot::RwLock as SyncRwLock;
 
 // =============================================================================
 // Type Aliases for Complex Callback/Future Types
@@ -167,17 +168,17 @@ where
     /// Base reactive primitive (handles watch channels, validation, metadata)
     inner: Observable<T>,
 
-    /// Hardware write function (optional)
+    /// Hardware write function (optional, shared across clones)
     ///
-    /// When set, calling `set()` will write to hardware before updating
-    /// the internal value. Function should return error if write fails.
-    hardware_writer: Option<HardwareWriter<T>>,
+    /// Stored behind `Arc<SyncRwLock<...>>` so callbacks attached AFTER cloning
+    /// (e.g., in PVCAM's `connect_params()`) are visible to all clones including
+    /// those already registered in a `ParameterSet`.
+    hardware_writer: Arc<SyncRwLock<Option<HardwareWriter<T>>>>,
 
-    /// Hardware read function (optional)
+    /// Hardware read function (optional, shared across clones)
     ///
-    /// When set, calling `read_from_hardware()` will fetch the current
-    /// hardware value and update the internal value.
-    hardware_reader: Option<HardwareReader<T>>,
+    /// Same shared-state pattern as `hardware_writer`.
+    hardware_reader: Arc<SyncRwLock<Option<HardwareReader<T>>>>,
 
     /// Change listeners (called after value changes)
     ///
@@ -197,8 +198,8 @@ where
 
         Self {
             inner,
-            hardware_writer: None,
-            hardware_reader: None,
+            hardware_writer: Arc::new(SyncRwLock::new(None)),
+            hardware_reader: Arc::new(SyncRwLock::new(None)),
             change_listeners: Arc::new(RwLock::new(Vec::new())),
         }
     }
@@ -293,10 +294,10 @@ where
     /// });
     /// ```
     pub fn connect_to_hardware_write(
-        &mut self,
+        &self,
         writer: impl Fn(T) -> BoxFuture<'static, Result<(), DaqError>> + Send + Sync + 'static,
     ) {
-        self.hardware_writer = Some(Arc::new(writer));
+        *self.hardware_writer.write() = Some(Arc::new(writer));
     }
 
     /// Connect hardware read function
@@ -312,15 +313,15 @@ where
     /// });
     /// ```
     pub fn connect_to_hardware_read(
-        &mut self,
+        &self,
         reader: impl Fn() -> BoxFuture<'static, Result<T, DaqError>> + Send + Sync + 'static,
     ) {
-        self.hardware_reader = Some(Arc::new(reader));
+        *self.hardware_reader.write() = Some(Arc::new(reader));
     }
 
     /// Connect both hardware read and write functions
     pub fn connect_to_hardware(
-        &mut self,
+        &self,
         writer: impl Fn(T) -> BoxFuture<'static, Result<(), DaqError>> + Send + Sync + 'static,
         reader: impl Fn() -> BoxFuture<'static, Result<T, DaqError>> + Send + Sync + 'static,
     ) {
@@ -375,7 +376,9 @@ where
         }
 
         // Step 2: Write to hardware if connected (only after validation passes)
-        if let Some(writer) = &self.hardware_writer {
+        // Clone the Arc out of the lock so we don't hold the lock across the await.
+        let hw_writer = self.hardware_writer.read().clone();
+        if let Some(writer) = &hw_writer {
             tracing::debug!(param = %name, "Parameter::set writing to hardware");
             if let Err(e) = writer(value.clone()).await {
                 tracing::debug!(param = %name, error = %e, "Parameter::set hardware write failed");
@@ -405,8 +408,8 @@ where
     /// Only works if hardware reader is connected. Does NOT validate
     /// (assumes hardware value is valid).
     pub async fn read_from_hardware(&self) -> Result<()> {
-        let reader = self
-            .hardware_reader
+        let hw_reader = self.hardware_reader.read().clone();
+        let reader = hw_reader
             .as_ref()
             .ok_or(DaqError::ParameterNoHardwareReader)?;
 
@@ -1086,5 +1089,78 @@ mod tests {
             !hardware_write_called.load(Ordering::SeqCst),
             "Hardware write should NOT be called for read-only parameter"
         );
+    }
+
+    /// Regression test for bd-7me8q.1: hardware_writer callbacks must be
+    /// visible to clones even when attached AFTER cloning.
+    ///
+    /// This mimics the PVCAM driver pattern:
+    ///   1. Create Parameter
+    ///   2. Clone into ParameterSet (via params.register())
+    ///   3. Attach hardware callback (via connect_params())
+    ///   4. gRPC calls set() on the ParameterSet clone
+    ///
+    /// Previously, step 4 saw no callback because hardware_writer was a
+    /// plain field, not shared state.
+    #[tokio::test]
+    async fn test_hardware_write_visible_to_clones_after_late_attachment() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let hw_called = Arc::new(AtomicBool::new(false));
+        let hw_called_clone = hw_called.clone();
+
+        let param = Parameter::new("test_late_attach", 42.0);
+
+        // Clone BEFORE attaching callback (simulates ParameterSet registration)
+        let clone = param.clone();
+
+        // Attach callback to original AFTER cloning (simulates connect_params)
+        param.connect_to_hardware_write(move |_val| {
+            let flag = hw_called_clone.clone();
+            Box::pin(async move {
+                flag.store(true, Ordering::SeqCst);
+                Ok(())
+            })
+        });
+
+        // Call set on the CLONE (simulates gRPC path through ParameterSet)
+        clone.set(100.0).await.unwrap();
+
+        assert!(
+            hw_called.load(Ordering::SeqCst),
+            "Hardware callback should fire on clone after late attachment"
+        );
+        assert_eq!(clone.get(), 100.0);
+    }
+
+    /// Verify set_json through trait object also invokes hardware callbacks.
+    #[tokio::test]
+    async fn test_set_json_trait_object_invokes_hardware_write() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let hw_called = Arc::new(AtomicBool::new(false));
+        let hw_called_clone = hw_called.clone();
+
+        let param = Parameter::new("test_trait_obj", "initial".to_string());
+        let clone = param.clone();
+
+        param.connect_to_hardware_write(move |_val| {
+            let flag = hw_called_clone.clone();
+            Box::pin(async move {
+                flag.store(true, Ordering::SeqCst);
+                Ok(())
+            })
+        });
+
+        // Use set_json through the ParameterBase trait object (same path as gRPC)
+        clone
+            .set_json(serde_json::Value::String("updated".to_owned()))
+            .unwrap();
+
+        assert!(
+            hw_called.load(Ordering::SeqCst),
+            "Hardware callback should fire via set_json on trait object"
+        );
+        assert_eq!(clone.get(), "updated");
     }
 }
