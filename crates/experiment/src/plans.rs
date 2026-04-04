@@ -1335,7 +1335,7 @@ mod tests {
                 scan_indices: None,
             },
             PlanCommand::Set {
-                device_id: "laser".to_string(),
+                device_id: "laser".into(),
                 parameter: "wavelength".to_string(),
                 value: "800.0".to_string(),
             },
