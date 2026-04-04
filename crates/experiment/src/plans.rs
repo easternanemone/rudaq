@@ -1393,7 +1393,7 @@ mod tests {
                 scan_indices: None,
             },
             PlanCommand::MoveTo {
-                device_id: "stage".to_string(),
+                device_id: "stage".into(),
                 position: 10.0,
             },
             PlanCommand::EmitEvent {
