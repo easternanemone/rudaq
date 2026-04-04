@@ -488,6 +488,8 @@ pub struct MockCamera {
     device_state: Arc<AtomicU8>,
     // Observable temperature parameter (bd-34gs)
     sensor_temperature: Parameter<f64>,
+    // User-visible label for identifying the camera (bd-0lacj)
+    user_label: Parameter<String>,
     // Configurable frame metadata (bd-817q)
     gain_mode: String,
     readout_speed: String,
@@ -963,11 +965,17 @@ impl MockCamera {
             });
         }
 
+        // User-visible label (string parameter for testing roundtrip, bd-0lacj)
+        let user_label = Parameter::new("user_label", "default".to_string())
+            .with_description("User-defined camera label")
+            .with_dtype("string");
+
         params.register(exposure.clone());
         params.register(armed.clone());
         params.register(streaming.clone());
         params.register(staged.clone());
         params.register(sensor_temperature.clone());
+        params.register(user_label.clone());
 
         Self {
             resolution: (config.width, config.height),
@@ -1000,6 +1008,7 @@ impl MockCamera {
             max_fps,
             device_state: Arc::new(AtomicU8::new(CameraDeviceState::Ready as u8)),
             sensor_temperature,
+            user_label,
             gain_mode,
             readout_speed,
             trigger_mode,
