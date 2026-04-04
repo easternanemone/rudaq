@@ -44,7 +44,7 @@ defaults:
 jobs:
   security-audit:
     name: Security and dependency audit
-    runs-on: [self-hosted, Linux, X64, leabs]
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_security_audit)
     permissions:
@@ -83,7 +83,7 @@ jobs:
 
   release-please:
     name: Release Please (manual)
-    runs-on: [self-hosted, Linux, X64, leabs]
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     if: github.event_name == 'workflow_dispatch' && inputs.run_release_please
     steps:

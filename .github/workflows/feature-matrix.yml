@@ -31,8 +31,48 @@ defaults:
     shell: bash
 
 jobs:
+  change-detection:
+    name: Detect feature-matrix-relevant changes
+    runs-on: ubuntu-24.04
+    outputs:
+      wasm_check: ${{ steps.filter.outputs.wasm_check }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Classify changed files
+        id: filter
+        run: |
+          set -euo pipefail
+
+          wasm_check=true
+          if [[ "${GITHUB_EVENT_NAME}" != "workflow_dispatch" ]]; then
+            if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+              base_sha="${{ github.event.pull_request.base.sha }}"
+            else
+              base_sha="${{ github.event.before }}"
+            fi
+
+            if [[ -n "${base_sha}" && ! "${base_sha}" =~ ^0+$ ]]; then
+              wasm_check=false
+              while IFS= read -r path; do
+                case "${path}" in
+                  Cargo.toml|Cargo.lock|crates/ui/*|crates/ui/*/*|crates/ui/*/*/*|crates/ui-slint/*|crates/ui-slint/*/*|crates/ui-slint/*/*/*|.github/workflows/feature-matrix.yml|.github/actions/setup-daq/*)
+                    wasm_check=true
+                    break
+                    ;;
+                esac
+              done < <(git diff --name-only "${base_sha}" "${GITHUB_SHA}")
+            fi
+          fi
+
+          echo "wasm_check=${wasm_check}" >> "${GITHUB_OUTPUT}"
+
   feature-matrix:
     name: "${{ matrix.name }}"
+    if: github.event_name != 'pull_request'
     runs-on: [self-hosted, Linux, X64, leabs]
     timeout-minutes: ${{ matrix.timeout }}
     env:
@@ -128,6 +168,7 @@ jobs:
   # Catches cases where feature A accidentally depends on feature B being enabled
   feature-powerset:
     name: "cargo-hack / ${{ matrix.package }}"
+    if: github.event_name != 'pull_request'
     runs-on: [self-hosted, Linux, X64, leabs]
     timeout-minutes: 30
     env:
@@ -180,7 +221,9 @@ jobs:
 
   wasm-check:
     name: "ui / wasm32 lint + compilation"
-    runs-on: [self-hosted, Linux, X64, leabs]
+    needs: change-detection
+    if: needs.change-detection.outputs.wasm_check == 'true'
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
       CARGO_BUILD_JOBS: "2"
