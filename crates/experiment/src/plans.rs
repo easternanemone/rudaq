@@ -1486,15 +1486,15 @@ mod tests {
     fn test_serde_round_trip_repeat_while() {
         let cmd = PlanCommand::RepeatWhile {
             condition: EvalCondition::Comparison {
-                left_device_id: "sensor_a".to_string(),
+                left_device_id: "sensor_a".into(),
                 left_field: "value".to_string(),
-                right_device_id: "sensor_b".to_string(),
+                right_device_id: "sensor_b".into(),
                 right_field: "value".to_string(),
                 operator: ComparisonOp::Lt,
             },
             body: vec![
                 PlanCommand::Read {
-                    device_id: "sensor_a".to_string(),
+                    device_id: "sensor_a".into(),
                 },
                 PlanCommand::Wait { seconds: 0.5 },
             ],
