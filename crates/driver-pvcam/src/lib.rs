@@ -816,12 +816,34 @@ impl PvcamDriver {
             .with_choices_introspectable(vec!["Start".into(), "Stop".into(), "Reset".into()])
             .with_group("I/O");
 
-        // Multi-ROI (bd-oqo7.4) — validated at set time via connect_to_hardware_write
+        // Multi-ROI (bd-oqo7.4) — validated at set time via with_validator()
+        //
+        // Value is a JSON string containing an array of ROI objects:
+        //   `[{"x":0,"y":0,"w":512,"h":512}, ...]`
+        //
+        // When setting via gRPC SetParameter, the value must be a JSON-encoded
+        // string (i.e., the JSON array is itself wrapped as a string value).
+        // For example, the gRPC string_value should be: `[{"x":0,"y":0,"w":512,"h":512}]`
+        // NOT a raw JSON array at the protobuf level.
+        let sensor_w = u16::try_from(width).unwrap_or(u16::MAX);
+        let sensor_h = u16::try_from(height).unwrap_or(u16::MAX);
         let multi_roi_config = Parameter::new("acquisition.multi_roi_config", "[]".to_string())
             .with_description(
                 "Multi-ROI configuration as JSON array of {x,y,w,h} objects. Max 16 ROIs. Empty = single ROI mode.",
             )
-            .with_group("Acquisition");
+            .with_group("Acquisition")
+            .with_validator(move |json: &String| {
+                use crate::components::acquisition::RoiRegion;
+                let trimmed = json.trim();
+                // Allow empty or empty-array as "single ROI mode"
+                if trimmed.is_empty() || trimmed == "[]" {
+                    return Ok(());
+                }
+                // Validate: parseable JSON, max 16 ROIs, positive dimensions, within sensor bounds
+                RoiRegion::parse_json(trimmed, sensor_w, sensor_h)
+                    .map(|_| ())
+                    .map_err(|e| anyhow::anyhow!("Invalid multi_roi_config: {e}"))
+            });
 
         // I/O Diagnostics (bd-oqo7.6)
         let io_bitdepth = Parameter::new("io.bitdepth", 8u16)
@@ -1498,6 +1520,7 @@ impl PvcamDriver {
         params.register(io_state.clone());
         params.register(frame_transfer_mode.clone());
         params.register(io_script_cmd.clone());
+        params.register(multi_roi_config.clone());
         if let Some(param) = &clear_cycles_param {
             params.register(param.clone());
         }

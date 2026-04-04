@@ -149,6 +149,85 @@ mod mock_driver {
     }
 
     #[tokio::test]
+    async fn driver_multi_roi_config_parameter() {
+        let driver = PvcamDriver::new_async("MockCamera".to_string())
+            .await
+            .unwrap();
+        let params = driver.parameters();
+        let names = params.names();
+
+        // multi_roi_config should appear in ListParameters
+        assert!(
+            names.contains(&"acquisition.multi_roi_config"),
+            "Should have acquisition.multi_roi_config parameter"
+        );
+
+        let param = params.get("acquisition.multi_roi_config").unwrap();
+
+        // Default value is empty array
+        assert_eq!(
+            param.get_json().unwrap(),
+            serde_json::json!("[]"),
+            "Default should be empty JSON array string"
+        );
+
+        // Set a valid ROI config and read it back
+        let valid_config = r#"[{"x":0,"y":0,"w":512,"h":512}]"#;
+        param
+            .set_json(serde_json::json!(valid_config))
+            .expect("Valid single ROI should be accepted");
+        assert_eq!(
+            param.get_json().unwrap(),
+            serde_json::json!(valid_config),
+            "Should round-trip valid ROI config"
+        );
+
+        // Multiple ROIs
+        let multi_config = r#"[{"x":0,"y":0,"w":512,"h":512},{"x":1024,"y":0,"w":256,"h":256}]"#;
+        param
+            .set_json(serde_json::json!(multi_config))
+            .expect("Valid multi-ROI should be accepted");
+        assert_eq!(
+            param.get_json().unwrap(),
+            serde_json::json!(multi_config),
+            "Should round-trip multi-ROI config"
+        );
+
+        // Reset to empty
+        param
+            .set_json(serde_json::json!("[]"))
+            .expect("Empty array should be accepted");
+
+        // Invalid: malformed JSON
+        let result = param.set_json(serde_json::json!("not valid json"));
+        assert!(result.is_err(), "Malformed JSON should be rejected");
+
+        // Invalid: zero-dimension ROI
+        let result = param.set_json(serde_json::json!(r#"[{"x":0,"y":0,"w":0,"h":512}]"#));
+        assert!(result.is_err(), "Zero-width ROI should be rejected");
+
+        // Invalid: ROI exceeds sensor bounds (mock sensor is 2048x2048)
+        let result = param.set_json(serde_json::json!(r#"[{"x":2000,"y":0,"w":100,"h":512}]"#));
+        assert!(
+            result.is_err(),
+            "ROI exceeding sensor width should be rejected"
+        );
+
+        // Invalid: too many ROIs (>16)
+        use std::fmt::Write;
+        let mut too_many = "[".to_string();
+        for i in 0..17 {
+            if i > 0 {
+                too_many.push(',');
+            }
+            let _ = write!(too_many, r#"{{"x":0,"y":{},"w":64,"h":64}}"#, i * 64);
+        }
+        too_many.push(']');
+        let result = param.set_json(serde_json::json!(too_many));
+        assert!(result.is_err(), "More than 16 ROIs should be rejected");
+    }
+
+    #[tokio::test]
     #[allow(deprecated)] // subscribe_frames() still works but register_primary_output() is preferred
     async fn driver_streaming_mock() {
         let driver = PvcamDriver::new_async("MockCamera".to_string())
