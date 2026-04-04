@@ -238,9 +238,9 @@ async fn test_evaluate_condition_threshold_missing_device() {
 
 fn comparison_condition(op: ComparisonOp) -> EvalCondition {
     EvalCondition::Comparison {
-        left_device_id: "left".to_string(),
+        left_device_id: "left".into(),
         left_field: "value".to_string(),
-        right_device_id: "right".to_string(),
+        right_device_id: "right".into(),
         right_field: "value".to_string(),
         operator: op,
     }
