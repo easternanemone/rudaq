@@ -124,12 +124,12 @@ impl ImageViewerPanel {
                             || d.category == protocol::daq::DeviceCategory::Camera as i32
                     }) {
                         let id = d.id.clone();
-                        if let Some(meta) = d.metadata {
-                            if let (Some(w), Some(h)) = (meta.frame_width, meta.frame_height) {
-                                if w > 0 && h > 0 {
-                                    full_frame_dims.insert(id.clone(), (w, h));
-                                }
-                            }
+                        if let Some(meta) = d.metadata
+                            && let (Some(w), Some(h)) = (meta.frame_width, meta.frame_height)
+                            && w > 0
+                            && h > 0
+                        {
+                            full_frame_dims.insert(id.clone(), (w, h));
                         }
                         cameras.push(id);
                     }
@@ -328,22 +328,22 @@ impl ImageViewerPanel {
     /// Poll for parameter async results
     pub(super) fn poll_param_results(&mut self, ctx: &egui::Context) {
         // Poll loads
-        if let Some(rx) = &self.param_load_rx {
-            if let Ok(result) = rx.try_recv() {
-                // If this result matches our current device, update
-                if Some(&result.device_id) == self.device_id.as_ref() {
-                    self.camera_params = result.params;
-                    self.param_favorites = result.favorites.into_iter().collect();
-                    self.loading_params_device = None;
+        if let Some(rx) = &self.param_load_rx
+            && let Ok(result) = rx.try_recv()
+        {
+            // If this result matches our current device, update
+            if Some(&result.device_id) == self.device_id.as_ref() {
+                self.camera_params = result.params;
+                self.param_favorites = result.favorites.into_iter().collect();
+                self.loading_params_device = None;
 
-                    for (name, err) in result.errors {
-                        self.param_errors
-                            .insert((result.device_id.clone(), name), err);
-                    }
+                for (name, err) in result.errors {
+                    self.param_errors
+                        .insert((result.device_id.clone(), name), err);
                 }
-                self.param_load_rx = None; // One-shot load
-                ctx.request_repaint();
             }
+            self.param_load_rx = None; // One-shot load
+            ctx.request_repaint();
         }
 
         // Poll sets (persistent channel - drain all available)
@@ -361,14 +361,13 @@ impl ImageViewerPanel {
 
             if result.success {
                 // Update cache if device matches
-                if Some(&result.device_id) == self.device_id.as_ref() {
-                    if let Some(param) = self
+                if Some(&result.device_id) == self.device_id.as_ref()
+                    && let Some(param) = self
                         .camera_params
                         .iter_mut()
                         .find(|p| p.descriptor.name == result.param_name)
-                    {
-                        param.update_value(result.actual_value.clone());
-                    }
+                {
+                    param.update_value(result.actual_value.clone());
                 }
                 // Update buffer
                 let unquoted = result.actual_value.trim_matches('"').to_string();
@@ -377,15 +376,14 @@ impl ImageViewerPanel {
             } else if let Some(err) = result.error {
                 // Revert edit buffer to server value so widgets (especially
                 // ComboBox/checkbox) don't stick on the rejected value (bd-oox7).
-                if Some(&result.device_id) == self.device_id.as_ref() {
-                    if let Some(param) = self
+                if Some(&result.device_id) == self.device_id.as_ref()
+                    && let Some(param) = self
                         .camera_params
                         .iter()
                         .find(|p| p.descriptor.name == result.param_name)
-                    {
-                        let reverted = param.current_value.trim_matches('"').to_string();
-                        self.param_edit_buffers.insert(key.clone(), reverted);
-                    }
+                {
+                    let reverted = param.current_value.trim_matches('"').to_string();
+                    self.param_edit_buffers.insert(key.clone(), reverted);
                 }
                 self.param_errors.insert(key, err);
             }
@@ -424,10 +422,11 @@ impl ImageViewerPanel {
         let is_temp = desc.name.to_lowercase().contains("temperature");
         let is_hundredths = desc.units == "hundredths_degC" || desc.units == "0.01°C";
 
-        if is_temp && is_hundredths {
-            if let Ok(hundredths) = raw.parse::<f64>() {
-                return format!("{:.2} \u{b0}C", hundredths / 100.0);
-            }
+        if is_temp
+            && is_hundredths
+            && let Ok(hundredths) = raw.parse::<f64>()
+        {
+            return format!("{:.2} \u{b0}C", hundredths / 100.0);
         }
 
         let mut value = raw.to_string();

@@ -90,13 +90,10 @@ impl RuntimeParameterEditor {
                     }
                     response
                 }
-                ParameterType::String => {
-                    let response = ui.add_enabled(
-                        enabled,
-                        egui::TextEdit::singleline(&mut param.value).desired_width(100.0),
-                    );
-                    response
-                }
+                ParameterType::String => ui.add_enabled(
+                    enabled,
+                    egui::TextEdit::singleline(&mut param.value).desired_width(100.0),
+                ),
                 ParameterType::Boolean => {
                     let mut value: bool = param.value.parse().unwrap_or(false);
                     let response =

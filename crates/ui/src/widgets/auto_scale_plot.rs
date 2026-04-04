@@ -149,15 +149,15 @@ impl AutoScalePlot {
         plot = plot.auto_bounds(auto_bounds_vec);
 
         // Enforce manual bounds for locked axes
-        if self.state.x_locked || self.state.y_locked {
-            if let (Some(x_bounds), Some(y_bounds)) = (&self.state.x_bounds, &self.state.y_bounds) {
-                // For locked axes, enforce the stored bounds using include_x/include_y
-                if self.state.x_locked {
-                    plot = plot.include_x(x_bounds[0]).include_x(x_bounds[1]);
-                }
-                if self.state.y_locked {
-                    plot = plot.include_y(y_bounds[0]).include_y(y_bounds[1]);
-                }
+        if (self.state.x_locked || self.state.y_locked)
+            && let (Some(x_bounds), Some(y_bounds)) = (&self.state.x_bounds, &self.state.y_bounds)
+        {
+            // For locked axes, enforce the stored bounds using include_x/include_y
+            if self.state.x_locked {
+                plot = plot.include_x(x_bounds[0]).include_x(x_bounds[1]);
+            }
+            if self.state.y_locked {
+                plot = plot.include_y(y_bounds[0]).include_y(y_bounds[1]);
             }
         }
 

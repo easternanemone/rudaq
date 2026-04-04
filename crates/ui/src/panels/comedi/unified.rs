@@ -372,10 +372,9 @@ impl ComediPanel {
                 self.connection_status,
                 ConnectionStatus::Disconnected | ConnectionStatus::Connecting
             )
+            && let Some(c) = client.as_mut()
         {
-            if let Some(c) = client.as_mut() {
-                self.fetch_daq_status(c, runtime);
-            }
+            self.fetch_daq_status(c, runtime);
         }
         ui.columns(2, |columns| {
             // Left column: Device info and subsystem summary

@@ -220,10 +220,10 @@ impl AnalogInputPanel {
             // Streaming controls
             match self.streaming_state {
                 StreamingState::Stopped => {
-                    if ui.button("Stream").clicked() {
-                        if let Some(c) = client.as_mut() {
-                            self.start_streaming(c, runtime);
-                        }
+                    if ui.button("Stream").clicked()
+                        && let Some(c) = client.as_mut()
+                    {
+                        self.start_streaming(c, runtime);
                     }
 
                     ui.separator();
@@ -291,10 +291,9 @@ impl AnalogInputPanel {
                     egui::Button::new("Read All"),
                 )
                 .clicked()
+                && let Some(c) = client.as_deref()
             {
-                if let Some(c) = client.as_deref() {
-                    self.read_all_channels(runtime, c);
-                }
+                self.read_all_channels(runtime, c);
             }
         });
 

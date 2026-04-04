@@ -357,16 +357,18 @@ impl DeviceControlWidget for AndorCameraPanel {
                 }
             }
 
-            if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) && !is_busy {
-                if let Ok(val) = self.exposure_input.parse::<f64>() {
-                    self.set_parameter(
-                        client.as_deref_mut(),
-                        runtime,
-                        &device_id,
-                        "exposure",
-                        &val.to_string(),
-                    );
-                }
+            if response.lost_focus()
+                && ui.input(|i| i.key_pressed(egui::Key::Enter))
+                && !is_busy
+                && let Ok(val) = self.exposure_input.parse::<f64>()
+            {
+                self.set_parameter(
+                    client.as_deref_mut(),
+                    runtime,
+                    &device_id,
+                    "exposure",
+                    &val.to_string(),
+                );
             }
         });
 

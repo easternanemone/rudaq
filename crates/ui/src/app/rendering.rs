@@ -221,10 +221,11 @@ impl DaqApp {
     #[cfg(not(target_arch = "wasm32"))]
     pub(super) fn render_version_warning(&self, ctx: &egui::Context) {
         // Only show warning if connected and versions don't match
-        if self.connection.state().is_connected() {
-            if let Some(ref daemon_ver) = self.daemon_version {
-                if daemon_ver != &self.gui_version {
-                    egui::TopBottomPanel::top("version_warning")
+        if self.connection.state().is_connected()
+            && let Some(ref daemon_ver) = self.daemon_version
+            && daemon_ver != &self.gui_version
+        {
+            egui::TopBottomPanel::top("version_warning")
                         .show_separator_line(false)
                         .show(ctx, |ui| {
                             ui.horizontal(|ui| {
@@ -237,8 +238,6 @@ impl DaqApp {
                             });
                             ui.add_space(2.0);
                         });
-                }
-            }
         }
     }
 

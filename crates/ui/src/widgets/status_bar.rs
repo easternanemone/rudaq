@@ -125,12 +125,11 @@ impl StatusBar {
 
     /// Check and clear expired status messages.
     fn check_status_expiry(&mut self) {
-        if let Some(ref msg) = self.status_message {
-            if let Some(duration) = msg.duration {
-                if msg.created_at.elapsed() >= duration {
-                    self.status_message = None;
-                }
-            }
+        if let Some(ref msg) = self.status_message
+            && let Some(duration) = msg.duration
+            && msg.created_at.elapsed() >= duration
+        {
+            self.status_message = None;
         }
     }
 
@@ -250,22 +249,22 @@ impl StatusBar {
         ui.add_space(8.0);
 
         // Error count (if any)
-        if let Some(count) = error_count {
-            if count > 0 {
-                ui.horizontal(|ui| {
-                    ui.label(
-                        egui::RichText::new(icons::status::ERROR)
-                            .color(colors::ERROR)
-                            .size(14.0),
-                    );
-                    ui.label(
-                        egui::RichText::new(format!("{}", count))
-                            .small()
-                            .color(colors::ERROR),
-                    );
-                });
-                ui.add_space(8.0);
-            }
+        if let Some(count) = error_count
+            && count > 0
+        {
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(icons::status::ERROR)
+                        .color(colors::ERROR)
+                        .size(14.0),
+                );
+                ui.label(
+                    egui::RichText::new(format!("{}", count))
+                        .small()
+                        .color(colors::ERROR),
+                );
+            });
+            ui.add_space(8.0);
         }
 
         // Connection indicator

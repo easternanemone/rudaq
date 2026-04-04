@@ -26,22 +26,15 @@ fn value_to_display_string(value: &serde_json::Value) -> String {
 /// - For known numeric/bool dtypes, attempt JSON parsing first, fall back to string.
 fn parse_value_string(value: &str, dtype: Option<&str>) -> serde_json::Value {
     match dtype {
-        // String-typed: accept JSON string literals (strips UI quotes) but reject
-        // arrays/objects/numbers to prevent coercion. The UI sends `"\"hello\""` for
-        // string params — `from_str` yields `Value::String("hello")` which we keep.
-        // But `"[{\"x\":0}]"` yields `Value::Array(...)` which we reject in favor
-        // of wrapping as a raw string.
-        Some("string") => match serde_json::from_str(value) {
-            Ok(serde_json::Value::String(s)) => serde_json::Value::String(s),
-            _ => serde_json::Value::String(value.to_owned()),
-        },
+        // Explicitly typed as string — always treat as raw string, never JSON-parse.
+        Some("string") => serde_json::Value::String(value.to_owned()),
 
         // Known non-string dtype — try JSON parse, fall back to string.
         Some(dt) if !dt.is_empty() => serde_json::from_str(value)
             .unwrap_or_else(|_| serde_json::Value::String(value.to_owned())),
 
-        // Empty or missing dtype — try JSON parse, fall back to string.
-        // Callers should infer dtype from the current value when metadata is empty.
+        // Empty or missing dtype (common for Parameter<String> with no explicit dtype).
+        // If the value is already valid JSON, use it as-is; otherwise wrap as string.
         _ => serde_json::from_str(value)
             .unwrap_or_else(|_| serde_json::Value::String(value.to_owned())),
     }
@@ -284,22 +277,9 @@ pub(super) async fn set_parameter(
                 .map(|v| value_to_display_string(&v))
                 .unwrap_or_default();
 
-            // Parse the value string to JSON, respecting dtype metadata (bd-4w33o).
-            // When metadata.dtype is empty, infer from the current value type to
-            // avoid misinterpreting JSON-shaped strings as arrays/objects.
-            let effective_dtype = if metadata.dtype.is_empty() {
-                match param.get_json() {
-                    Ok(serde_json::Value::String(_)) => "string",
-                    Ok(serde_json::Value::Bool(_)) => "bool",
-                    Ok(serde_json::Value::Number(n)) if n.is_i64() || n.is_u64() => "int",
-                    Ok(serde_json::Value::Number(_)) => "float",
-                    _ => "",
-                }
-            } else {
-                metadata.dtype.as_str()
-            };
+            // Parse the value string to JSON, respecting dtype metadata (bd-4w33o)
             let json_value: serde_json::Value =
-                parse_value_string(&req.value, Some(effective_dtype));
+                parse_value_string(&req.value, Some(metadata.dtype.as_str()));
 
             validate_parameter_value(&req.parameter_name, Some(&metadata), &json_value)?;
 
@@ -664,23 +644,6 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&result).expect("serialize"),
             "\"hello\""
-        );
-    }
-
-    #[test]
-    fn parse_value_string_string_dtype_strips_ui_json_quotes() {
-        // UI sends `"\"hello\""` for string params — should strip one layer of JSON quoting
-        let result = parse_value_string(r#""hello""#, Some("string"));
-        assert_eq!(result, serde_json::Value::String("hello".to_owned()));
-    }
-
-    #[test]
-    fn parse_value_string_string_dtype_rejects_json_array_coercion() {
-        // JSON array string should NOT be parsed as an array — wrap as raw string
-        let result = parse_value_string(r#"[{"x":0,"y":100}]"#, Some("string"));
-        assert_eq!(
-            result,
-            serde_json::Value::String(r#"[{"x":0,"y":100}]"#.to_owned())
         );
     }
 

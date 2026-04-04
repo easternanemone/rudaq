@@ -266,16 +266,16 @@ impl ConfigDrivenPanel {
                 }
                 ConfigPanelAction::ReadValue(res) => {
                     for section in &mut self.sections {
-                        if let SectionState::Sensor(s) = section {
-                            if let Ok((value, ref units)) = res {
-                                s.value = Some(value);
-                                s.units.clone_from(units);
-                                if let Some(start) = s.trend_start {
-                                    let t = start.elapsed().as_secs_f64();
-                                    s.trend_data.push((t, value));
-                                    if s.trend_data.len() > 300 {
-                                        s.trend_data.remove(0);
-                                    }
+                        if let SectionState::Sensor(s) = section
+                            && let Ok((value, ref units)) = res
+                        {
+                            s.value = Some(value);
+                            s.units.clone_from(units);
+                            if let Some(start) = s.trend_start {
+                                let t = start.elapsed().as_secs_f64();
+                                s.trend_data.push((t, value));
+                                if s.trend_data.len() > 300 {
+                                    s.trend_data.remove(0);
                                 }
                             }
                         }
@@ -287,10 +287,10 @@ impl ConfigDrivenPanel {
                 }
                 ConfigPanelAction::ShutterState(res, _) => {
                     for section in &mut self.sections {
-                        if let SectionState::Shutter(s) = section {
-                            if let Ok(is_open) = res {
-                                s.is_open = Some(is_open);
-                            }
+                        if let SectionState::Shutter(s) = section
+                            && let Ok(is_open) = res
+                        {
+                            s.is_open = Some(is_open);
                         }
                     }
                     match res {
@@ -310,13 +310,13 @@ impl ConfigDrivenPanel {
                 }
                 ConfigPanelAction::WavelengthValue(res, _) => {
                     for section in &mut self.sections {
-                        if let SectionState::Wavelength(s) = section {
-                            if let Ok(nm) = res {
-                                s.current_nm = Some(nm);
-                                if !s.dragging {
-                                    s.slider_value = nm;
-                                    s.input = format!("{nm:.1}");
-                                }
+                        if let SectionState::Wavelength(s) = section
+                            && let Ok(nm) = res
+                        {
+                            s.current_nm = Some(nm);
+                            if !s.dragging {
+                                s.slider_value = nm;
+                                s.input = format!("{nm:.1}");
                             }
                         }
                     }
@@ -1121,12 +1121,11 @@ impl ConfigDrivenPanel {
                 if response.lost_focus()
                     && ui.input(|i| i.key_pressed(egui::Key::Enter))
                     && !is_busy
+                    && let Ok(pos) = state.position_input.parse::<f64>()
                 {
-                    if let Ok(pos) = state.position_input.parse::<f64>() {
-                        state.moving = true;
-                        state.last_command_time = Some(Instant::now());
-                        self.dispatch_move_absolute(client.as_deref_mut(), runtime, device_id, pos);
-                    }
+                    state.moving = true;
+                    state.last_command_time = Some(Instant::now());
+                    self.dispatch_move_absolute(client.as_deref_mut(), runtime, device_id, pos);
                 }
             });
 
@@ -1471,25 +1470,16 @@ impl ConfigDrivenPanel {
                         state.input = format!("{:.1}", state.slider_value);
                     }
 
-                    if ui.add_enabled(!is_busy, egui::Button::new("Set")).clicked() {
-                        if let Ok(nm) = state.input.parse::<f64>() {
-                            self.dispatch_set_wavelength(
-                                client.as_deref_mut(),
-                                runtime,
-                                device_id,
-                                nm,
-                            );
-                        }
+                    if ui.add_enabled(!is_busy, egui::Button::new("Set")).clicked()
+                        && let Ok(nm) = state.input.parse::<f64>()
+                    {
+                        self.dispatch_set_wavelength(client.as_deref_mut(), runtime, device_id, nm);
                     }
-                    if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                        if let Ok(nm) = state.input.parse::<f64>() {
-                            self.dispatch_set_wavelength(
-                                client.as_deref_mut(),
-                                runtime,
-                                device_id,
-                                nm,
-                            );
-                        }
+                    if response.lost_focus()
+                        && ui.input(|i| i.key_pressed(egui::Key::Enter))
+                        && let Ok(nm) = state.input.parse::<f64>()
+                    {
+                        self.dispatch_set_wavelength(client.as_deref_mut(), runtime, device_id, nm);
                     }
                 });
             }

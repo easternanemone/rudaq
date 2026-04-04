@@ -326,10 +326,10 @@ impl CounterDisplayPanel {
             }
 
             // Reset selected counter
-            if ui.button("Reset").clicked() {
-                if let Some(counter) = self.counters.get_mut(self.selected_counter as usize) {
-                    counter.reset();
-                }
+            if ui.button("Reset").clicked()
+                && let Some(counter) = self.counters.get_mut(self.selected_counter as usize)
+            {
+                counter.reset();
             }
 
             // Reset all

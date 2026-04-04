@@ -363,12 +363,12 @@ impl GenericDevicePanel {
                     }
                 }
                 GenericAction::DeviceState(Ok(snap)) => {
-                    if let Some(ref mut m) = self.motion {
-                        if let Some(pos) = snap.position {
-                            m.position = Some(pos);
-                            if !m.moving {
-                                m.position_input = format!("{:.2}", pos);
-                            }
+                    if let Some(ref mut m) = self.motion
+                        && let Some(pos) = snap.position
+                    {
+                        m.position = Some(pos);
+                        if !m.moving {
+                            m.position_input = format!("{:.2}", pos);
                         }
                     }
                 }
@@ -757,22 +757,22 @@ impl GenericDevicePanel {
                     wl.input = format!("{:.1}", wl.slider_value);
                 }
 
-                if ui.button("Set").clicked() {
-                    if let Ok(nm) = wl.input.parse::<f64>() {
-                        if (wl_min..=wl_max).contains(&nm) {
-                            self.set_wavelength_rpc(client.as_deref_mut(), runtime, &device_id, nm);
-                        } else {
-                            self.error = Some(format!("Wavelength must be {wl_min}-{wl_max} nm"));
-                        }
+                if ui.button("Set").clicked()
+                    && let Ok(nm) = wl.input.parse::<f64>()
+                {
+                    if (wl_min..=wl_max).contains(&nm) {
+                        self.set_wavelength_rpc(client.as_deref_mut(), runtime, &device_id, nm);
+                    } else {
+                        self.error = Some(format!("Wavelength must be {wl_min}-{wl_max} nm"));
                     }
                 }
 
-                if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                    if let Ok(nm) = wl.input.parse::<f64>() {
-                        if (wl_min..=wl_max).contains(&nm) {
-                            self.set_wavelength_rpc(client.as_deref_mut(), runtime, &device_id, nm);
-                        }
-                    }
+                if response.lost_focus()
+                    && ui.input(|i| i.key_pressed(egui::Key::Enter))
+                    && let Ok(nm) = wl.input.parse::<f64>()
+                    && (wl_min..=wl_max).contains(&nm)
+                {
+                    self.set_wavelength_rpc(client.as_deref_mut(), runtime, &device_id, nm);
                 }
             });
             self.wavelength = Some(wl);
@@ -852,10 +852,9 @@ impl GenericDevicePanel {
                 if response.lost_focus()
                     && ui.input(|i| i.key_pressed(egui::Key::Enter))
                     && !motion_busy
+                    && let Ok(pos) = motion.position_input.parse::<f64>()
                 {
-                    if let Ok(pos) = motion.position_input.parse::<f64>() {
-                        self.move_absolute(client.as_deref_mut(), runtime, &device_id, pos);
-                    }
+                    self.move_absolute(client.as_deref_mut(), runtime, &device_id, pos);
                 }
 
                 if ui

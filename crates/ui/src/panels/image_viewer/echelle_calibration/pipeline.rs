@@ -421,15 +421,16 @@ impl ImageViewerPanel {
 
         #[cfg(not(target_arch = "wasm32"))]
         {
-            if let Some(parent) = path.parent() {
-                if !parent.as_os_str().is_empty() && !parent.exists() {
-                    std::fs::create_dir_all(parent).map_err(|e| {
-                        format!(
-                            "Failed to create calibration profile directory {}: {e}",
-                            parent.display()
-                        )
-                    })?;
-                }
+            if let Some(parent) = path.parent()
+                && !parent.as_os_str().is_empty()
+                && !parent.exists()
+            {
+                std::fs::create_dir_all(parent).map_err(|e| {
+                    format!(
+                        "Failed to create calibration profile directory {}: {e}",
+                        parent.display()
+                    )
+                })?;
             }
             profile.save_to_path(&path).map_err(|e| {
                 format!("Failed to save calibration profile {}: {e}", path.display())
@@ -605,15 +606,16 @@ impl ImageViewerPanel {
         for (i, (&w, &f)) in order.wavelengths.iter().zip(&order.flux).enumerate() {
             let _ = writeln!(out, "{i},{w},{f},{}", f / max_flux);
         }
-        if let Some(parent) = path.parent() {
-            if !parent.as_os_str().is_empty() && !parent.exists() {
-                std::fs::create_dir_all(parent).map_err(|e| {
-                    format!(
-                        "Failed to create blaze artifact directory {}: {e}",
-                        parent.display()
-                    )
-                })?;
-            }
+        if let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+            && !parent.exists()
+        {
+            std::fs::create_dir_all(parent).map_err(|e| {
+                format!(
+                    "Failed to create blaze artifact directory {}: {e}",
+                    parent.display()
+                )
+            })?;
         }
         std::fs::write(path, out)
             .map_err(|e| format!("Failed to write {}: {e}", path.display()))?;

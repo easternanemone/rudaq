@@ -511,10 +511,11 @@ impl DeviceControlWidget for PowerMeterControlPanel {
                 }
             }
 
-            if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                if let Ok(wl) = self.wavelength_input.parse::<f64>() {
-                    self.set_wavelength(client.as_deref_mut(), runtime, &device_id, wl);
-                }
+            if response.lost_focus()
+                && ui.input(|i| i.key_pressed(egui::Key::Enter))
+                && let Ok(wl) = self.wavelength_input.parse::<f64>()
+            {
+                self.set_wavelength(client.as_deref_mut(), runtime, &device_id, wl);
             }
         });
 
@@ -526,31 +527,31 @@ impl DeviceControlWidget for PowerMeterControlPanel {
         ui.separator();
 
         // Peak/Min hold display
-        if self.peak_hold_enabled {
-            if let Some(peak) = self.state.peak_mw {
-                let (v, unit) = Self::format_power(peak);
-                ui.horizontal(|ui| {
-                    ui.label("▲ Peak:");
-                    ui.label(
-                        egui::RichText::new(format!("{:.4} {}", v, unit))
-                            .monospace()
-                            .color(egui::Color32::from_rgb(255, 180, 50)),
-                    );
-                });
-            }
+        if self.peak_hold_enabled
+            && let Some(peak) = self.state.peak_mw
+        {
+            let (v, unit) = Self::format_power(peak);
+            ui.horizontal(|ui| {
+                ui.label("▲ Peak:");
+                ui.label(
+                    egui::RichText::new(format!("{:.4} {}", v, unit))
+                        .monospace()
+                        .color(egui::Color32::from_rgb(255, 180, 50)),
+                );
+            });
         }
-        if self.min_hold_enabled {
-            if let Some(min) = self.state.min_mw {
-                let (v, unit) = Self::format_power(min);
-                ui.horizontal(|ui| {
-                    ui.label("▼ Min:");
-                    ui.label(
-                        egui::RichText::new(format!("{:.4} {}", v, unit))
-                            .monospace()
-                            .color(egui::Color32::from_rgb(100, 180, 255)),
-                    );
-                });
-            }
+        if self.min_hold_enabled
+            && let Some(min) = self.state.min_mw
+        {
+            let (v, unit) = Self::format_power(min);
+            ui.horizontal(|ui| {
+                ui.label("▼ Min:");
+                ui.label(
+                    egui::RichText::new(format!("{:.4} {}", v, unit))
+                        .monospace()
+                        .color(egui::Color32::from_rgb(100, 180, 255)),
+                );
+            });
         }
 
         // Trend graph

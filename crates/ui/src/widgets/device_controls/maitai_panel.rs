@@ -604,12 +604,12 @@ impl DeviceControlWidget for MaiTaiControlPanel {
             }
 
             // Update text input on enter
-            if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                if let Ok(wl) = self.wavelength_input.parse::<f64>() {
-                    if (690.0..=1040.0).contains(&wl) {
-                        self.set_wavelength(client.as_deref_mut(), runtime, &device_id, wl);
-                    }
-                }
+            if response.lost_focus()
+                && ui.input(|i| i.key_pressed(egui::Key::Enter))
+                && let Ok(wl) = self.wavelength_input.parse::<f64>()
+                && (690.0..=1040.0).contains(&wl)
+            {
+                self.set_wavelength(client.as_deref_mut(), runtime, &device_id, wl);
             }
         });
 

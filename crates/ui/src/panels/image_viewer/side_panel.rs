@@ -160,8 +160,8 @@ impl ImageViewerPanel {
                                                         .to_string(),
                                                 );
                                             }
-                                        } else if let Some(roi) = self.roi_selector.roi() {
-                                            if let Some(dev_id) = self.device_id.clone() {
+                                        } else if let Some(roi) = self.roi_selector.roi()
+                                            && let Some(dev_id) = self.device_id.clone() {
                                                 use crate::widgets::roi_selector::RoiShape;
                                                 let roi_json = match roi {
                                                     RoiShape::Rectangle {
@@ -197,7 +197,6 @@ impl ImageViewerPanel {
                                                     roi_json.to_string(),
                                                 ));
                                             }
-                                        }
                                     }
 
                                     if ui
@@ -220,8 +219,8 @@ impl ImageViewerPanel {
                         egui::CollapsingHeader::new("Measurements")
                             .default_open(true)
                             .show(ui, |ui| {
-                                if let Some(selected) = self.selected_line_measurement {
-                                    if selected >= self.line_measurements.len() {
+                                if let Some(selected) = self.selected_line_measurement
+                                    && selected >= self.line_measurements.len() {
                                         self.selected_line_measurement = if self
                                             .line_measurements
                                             .is_empty()
@@ -231,7 +230,6 @@ impl ImageViewerPanel {
                                             Some(0)
                                         };
                                     }
-                                }
                                 ui.label(format!(
                                     "Active tool: {}",
                                     self.measurement_tool.label()
@@ -298,8 +296,8 @@ impl ImageViewerPanel {
                                     }
                                 }
 
-                                if let Some(selected_idx) = self.selected_line_measurement {
-                                    if let Some(measurement) =
+                                if let Some(selected_idx) = self.selected_line_measurement
+                                    && let Some(measurement) =
                                         self.line_measurements.get(selected_idx)
                                     {
                                         ui.add_space(8.0);
@@ -323,8 +321,9 @@ impl ImageViewerPanel {
                                                     "No profile samples available for the selected line.",
                                                 );
                                             } else {
-                                                let plot_points = PlotPoints::from_iter(
-                                                    profile.iter().map(|sample| {
+                                                let plot_points: PlotPoints = profile
+                                                    .iter()
+                                                    .map(|sample| {
                                                         [
                                                             sample
                                                                 .distance_physical
@@ -333,8 +332,8 @@ impl ImageViewerPanel {
                                                                 )),
                                                             f64::from(sample.intensity),
                                                         ]
-                                                    }),
-                                                );
+                                                    })
+                                                    .collect();
                                                 let x_label = if profile
                                                     .iter()
                                                     .any(|sample| sample.distance_physical.is_some())
@@ -368,7 +367,6 @@ impl ImageViewerPanel {
                                             );
                                         }
                                     }
-                                }
                                 ui.add_space(6.0);
                                 ui.horizontal(|ui| {
                                     if ui
@@ -647,31 +645,30 @@ impl ImageViewerPanel {
         if let (Some(selected_idx), Some(frame_data)) = (
             self.selected_line_measurement,
             self.last_frame_data.as_ref(),
-        ) {
-            if let Some(measurement) = self.line_measurements.get(selected_idx) {
-                out.push_str("profile_index,distance_pixels,distance_physical,intensity\n");
-                for sample in sample_line_profile(
-                    frame_data,
-                    self.width,
-                    self.height,
-                    self.bit_depth,
-                    measurement,
-                    self.pixel_scale_x,
-                    self.pixel_scale_y,
-                ) {
-                    let distance_physical = sample
-                        .distance_physical
-                        .map(|value| format!("{value:.6}"))
-                        .unwrap_or_default();
-                    let _ = writeln!(
-                        out,
-                        "{},{:.3},{},{}",
-                        selected_idx + 1,
-                        sample.distance_pixels,
-                        distance_physical,
-                        sample.intensity
-                    );
-                }
+        ) && let Some(measurement) = self.line_measurements.get(selected_idx)
+        {
+            out.push_str("profile_index,distance_pixels,distance_physical,intensity\n");
+            for sample in sample_line_profile(
+                frame_data,
+                self.width,
+                self.height,
+                self.bit_depth,
+                measurement,
+                self.pixel_scale_x,
+                self.pixel_scale_y,
+            ) {
+                let distance_physical = sample
+                    .distance_physical
+                    .map(|value| format!("{value:.6}"))
+                    .unwrap_or_default();
+                let _ = writeln!(
+                    out,
+                    "{},{:.3},{},{}",
+                    selected_idx + 1,
+                    sample.distance_pixels,
+                    distance_physical,
+                    sample.intensity
+                );
             }
         }
 

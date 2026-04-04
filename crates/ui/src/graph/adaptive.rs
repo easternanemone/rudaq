@@ -128,10 +128,10 @@ pub fn evaluate_triggers(
                 if let Some(peak) = peaks.first() {
                     // Add position if available
                     let mut peak_with_pos = peak.clone();
-                    if let Some(positions) = positions {
-                        if peak.index < positions.len() {
-                            peak_with_pos.position = Some(positions[peak.index]);
-                        }
+                    if let Some(positions) = positions
+                        && peak.index < positions.len()
+                    {
+                        peak_with_pos.position = Some(positions[peak.index]);
                     }
                     detected_peak = Some(peak_with_pos);
                     true

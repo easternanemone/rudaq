@@ -1135,20 +1135,20 @@ impl LiveVisualizationPanel {
                 ui.label(format!("pts: {} -> {}", raw, line_points.len()));
                 ui.label(format!("avg: {}", render_state.snapshots_used));
                 ui.label(format!("buf: {}", plot_state.selected_history_len()));
-                if let Some(xu) = &render_state.x_unit {
-                    if !xu.is_empty() {
-                        ui.label(format!("x: {}", xu));
-                    }
+                if let Some(xu) = &render_state.x_unit
+                    && !xu.is_empty()
+                {
+                    ui.label(format!("x: {}", xu));
                 }
-                if let Some(yu) = &render_state.y_unit {
-                    if !yu.is_empty() {
-                        ui.label(format!("y: {}", yu));
-                    }
+                if let Some(yu) = &render_state.y_unit
+                    && !yu.is_empty()
+                {
+                    ui.label(format!("y: {}", yu));
                 }
-                if let Some(profile_id) = &render_state.calibration_profile_id {
-                    if !profile_id.is_empty() {
-                        ui.label(format!("profile: {}", profile_id));
-                    }
+                if let Some(profile_id) = &render_state.calibration_profile_id
+                    && !profile_id.is_empty()
+                {
+                    ui.label(format!("profile: {}", profile_id));
                 }
                 ui.label(format!("ts: {}", render_state.timestamp_ns));
                 ui.colored_label(

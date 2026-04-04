@@ -180,17 +180,16 @@ impl eframe::App for DaqApp {
         // Check for a dragged device dropped onto the dock area.
         // Resolve the lightweight DeviceDragId payload to the full DeviceInfo here,
         // so the per-frame render path only clones a String (the device ID).
-        if let Some(device_id) = dropped_device_id {
-            if let Some(device_info) = self
+        if let Some(device_id) = dropped_device_id
+            && let Some(device_info) = self
                 .instrument_manager_panel
                 .find_device(&device_id)
                 .cloned()
-            {
-                self.ui_actions.push(UiAction::OpenDeviceControl {
-                    device_info: Box::new(device_info),
-                    dock_target: dropped_target,
-                });
-            }
+        {
+            self.ui_actions.push(UiAction::OpenDeviceControl {
+                device_info: Box::new(device_info),
+                dock_target: dropped_target,
+            });
         }
 
         // Check for image viewer navigation requests from InstrumentManagerPanel

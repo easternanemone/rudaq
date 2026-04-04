@@ -547,10 +547,10 @@ impl CounterPanel {
                         device_id: device_id.clone(),
                         counter: i,
                     };
-                    if let Ok(resp) = c.ni_daq_client().reset_counter(req).await {
-                        if resp.into_inner().success {
-                            let _ = tx.send(ActionResult::ResetSuccess { counter: i }).await;
-                        }
+                    if let Ok(resp) = c.ni_daq_client().reset_counter(req).await
+                        && resp.into_inner().success
+                    {
+                        let _ = tx.send(ActionResult::ResetSuccess { counter: i }).await;
                     }
                 }
             } else {

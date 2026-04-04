@@ -617,11 +617,11 @@ impl LoggingPanel {
     /// Export logs to file (synchronous version for internal use)
     fn export_to_file_sync(path: &str, content: String) -> Result<(usize, String), String> {
         // Create parent directories if needed
-        if let Some(parent) = std::path::Path::new(path).parent() {
-            if !parent.exists() {
-                std::fs::create_dir_all(parent)
-                    .map_err(|e| format!("Failed to create directory: {}", e))?;
-            }
+        if let Some(parent) = std::path::Path::new(path).parent()
+            && !parent.exists()
+        {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create directory: {}", e))?;
         }
 
         let line_count = content.lines().count().saturating_sub(4); // Subtract header lines

@@ -233,13 +233,13 @@ fn warn_relative_moves_in_loop(
 
     let body_nodes = find_loop_body_nodes(loop_id, snarl);
     for body_node_id in body_nodes {
-        if let Some(ExperimentNode::Move(config)) = snarl.get_node(body_node_id) {
-            if config.mode == MoveMode::Relative {
-                return Some(format!(
-                    "Warning: Relative move in loop body (node {:?}) - position will compound each iteration",
-                    body_node_id
-                ));
-            }
+        if let Some(ExperimentNode::Move(config)) = snarl.get_node(body_node_id)
+            && config.mode == MoveMode::Relative
+        {
+            return Some(format!(
+                "Warning: Relative move in loop body (node {:?}) - position will compound each iteration",
+                body_node_id
+            ));
         }
     }
     None

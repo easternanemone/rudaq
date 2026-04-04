@@ -706,10 +706,10 @@ impl OscilloscopePanel {
                         }
                     }
                     StreamingState::Running => {
-                        if ui.button("⏹ Stop").clicked() {
-                            if let Some(runtime) = runtime {
-                                self.stop_streaming(runtime);
-                            }
+                        if ui.button("⏹ Stop").clicked()
+                            && let Some(runtime) = runtime
+                        {
+                            self.stop_streaming(runtime);
                         }
                         ui.label(RichText::new("● STREAMING").color(Color32::GREEN));
                     }
@@ -928,12 +928,13 @@ impl OscilloscopePanel {
             }
 
             // Draw trigger time marker
-            if let Some(trigger_time) = self.last_trigger_time {
-                if trigger_time >= t_start && trigger_time <= t_end {
-                    let trigger_marker =
-                        VLine::new("trigger", trigger_time).color(Color32::from_rgb(255, 100, 0));
-                    plot_ui.vline(trigger_marker);
-                }
+            if let Some(trigger_time) = self.last_trigger_time
+                && trigger_time >= t_start
+                && trigger_time <= t_end
+            {
+                let trigger_marker =
+                    VLine::new("trigger", trigger_time).color(Color32::from_rgb(255, 100, 0));
+                plot_ui.vline(trigger_marker);
             }
         });
     }

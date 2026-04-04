@@ -71,15 +71,15 @@ impl GraphPlan {
         // Phase 4: Condition loops are now supported via RepeatWhile.
         // Infinite loops remain rejected — they require manual abort support.
         for (node_id, node) in snarl.node_ids() {
-            if let ExperimentNode::Loop(config) = node {
-                if let super::nodes::LoopTermination::Infinite { .. } = &config.termination {
-                    return Err(TranslationError::InvalidNode {
-                        node_id,
-                        reason: "Infinite loops are not supported. \
+            if let ExperimentNode::Loop(config) = node
+                && let super::nodes::LoopTermination::Infinite { .. } = &config.termination
+            {
+                return Err(TranslationError::InvalidNode {
+                    node_id,
+                    reason: "Infinite loops are not supported. \
                                 Use Count or Condition termination instead."
-                            .to_string(),
-                    });
-                }
+                        .to_string(),
+                });
             }
         }
 
@@ -293,14 +293,14 @@ fn translate_node_with_snarl(
             if !config.detector.is_empty() {
                 detectors.push(config.detector.clone());
                 // Set exposure if specified
-                if let Some(exposure_ms) = config.exposure_ms {
-                    if exposure_ms > 0.0 {
-                        commands.push(PlanCommand::Set {
-                            device_id: config.detector.clone().into(),
-                            parameter: "exposure_ms".to_string(),
-                            value: exposure_ms.to_string(),
-                        });
-                    }
+                if let Some(exposure_ms) = config.exposure_ms
+                    && exposure_ms > 0.0
+                {
+                    commands.push(PlanCommand::Set {
+                        device_id: config.detector.clone().into(),
+                        parameter: "exposure_ms".to_string(),
+                        value: exposure_ms.to_string(),
+                    });
                 }
                 // Generate Trigger+Read for each frame in burst
                 for _ in 0..config.frame_count {
@@ -753,10 +753,11 @@ fn find_loop_body_nodes(loop_node_id: NodeId, snarl: &Snarl<ExperimentNode>) -> 
         body_adjacency.insert(node_id, Vec::new());
     }
     for (out_pin, in_pin) in snarl.wires() {
-        if pure_body.contains(&out_pin.node) && pure_body.contains(&in_pin.node) {
-            if let Some(v) = body_adjacency.get_mut(&out_pin.node) {
-                v.push(in_pin.node);
-            }
+        if pure_body.contains(&out_pin.node)
+            && pure_body.contains(&in_pin.node)
+            && let Some(v) = body_adjacency.get_mut(&out_pin.node)
+        {
+            v.push(in_pin.node);
         }
     }
 

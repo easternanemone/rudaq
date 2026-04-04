@@ -829,10 +829,10 @@ fn validate_axis(
     if end_ok.is_none() {
         errors.push(format!("{label}end must be a valid number"));
     }
-    if let (Some(s), Some(e)) = (start_ok, end_ok) {
-        if (s - e).abs() < f64::EPSILON {
-            errors.push(format!("{label}start and end must be different"));
-        }
+    if let (Some(s), Some(e)) = (start_ok, end_ok)
+        && (s - e).abs() < f64::EPSILON
+    {
+        errors.push(format!("{label}start and end must be different"));
     }
     match points.parse::<usize>() {
         Ok(0) | Err(_) => {
