@@ -4,11 +4,18 @@
 //! - [`SerialTransport`] — real serial via `common::serial`
 //! - [`TcpTransport`] — real TCP via `tokio::net`
 //! - [`MockTransport`] — pre-programmed responses for testing
+//!
+//! `spawn_blocking` is used for custom serial-port open paths so the async
+//! runtime is not blocked. The timeout around that call only bounds how long
+//! the caller waits; it does not cancel a hung `SerialPort::open()` once it is
+//! already running.
 
 use anyhow::Result;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+const CUSTOM_SERIAL_OPEN_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Read a line terminated by `\r`, `\n`, or `\r\n`.
 ///
@@ -96,50 +103,58 @@ impl SerialTransport {
 
                 let port_path_owned = port_path.to_string();
                 let sc = serial_config.clone();
-                let port = spawn_blocking(move || {
-                    let mut port = serial2_tokio::SerialPort::open(&port_path_owned, baud_rate)
-                        .context(format!("Failed to open serial port: {port_path_owned}"))?;
+                // Timeout only bounds the awaiter; a wedged `SerialPort::open()`
+                // keeps running in the blocking pool even if this future returns.
+                let port = tokio::time::timeout(
+                    CUSTOM_SERIAL_OPEN_TIMEOUT,
+                    spawn_blocking(move || {
+                        let mut port = serial2_tokio::SerialPort::open(&port_path_owned, baud_rate)
+                            .context(format!("Failed to open serial port: {port_path_owned}"))?;
 
-                    // Read current settings and apply overrides
-                    let mut settings = port
-                        .get_configuration()
-                        .context("Failed to read serial port settings")?;
-                    if let Some(db) = sc.data_bits {
-                        settings.set_char_size(match db {
-                            5 => CharSize::Bits5,
-                            6 => CharSize::Bits6,
-                            7 => CharSize::Bits7,
-                            _ => CharSize::Bits8,
-                        });
-                    }
-                    if let Some(p) = sc.parity {
-                        use crate::config::validated::SerialParity;
-                        settings.set_parity(match p {
-                            SerialParity::Odd => Parity::Odd,
-                            SerialParity::Even => Parity::Even,
-                            SerialParity::None => Parity::None,
-                        });
-                    }
-                    if let Some(sb) = sc.stop_bits {
-                        settings.set_stop_bits(match sb {
-                            2 => StopBits::Two,
-                            _ => StopBits::One,
-                        });
-                    }
-                    if let Some(fc) = sc.flow_control {
-                        use crate::config::validated::SerialFlowControl;
-                        settings.set_flow_control(match fc {
-                            SerialFlowControl::Software => FlowControl::XonXoff,
-                            SerialFlowControl::Hardware => FlowControl::RtsCts,
-                            SerialFlowControl::None => FlowControl::None,
-                        });
-                    }
-                    port.set_configuration(&settings)
-                        .context("Failed to apply serial port settings")?;
+                        // Read current settings and apply overrides
+                        let mut settings = port
+                            .get_configuration()
+                            .context("Failed to read serial port settings")?;
+                        if let Some(db) = sc.data_bits {
+                            settings.set_char_size(match db {
+                                5 => CharSize::Bits5,
+                                6 => CharSize::Bits6,
+                                7 => CharSize::Bits7,
+                                _ => CharSize::Bits8,
+                            });
+                        }
+                        if let Some(p) = sc.parity {
+                            use crate::config::validated::SerialParity;
+                            settings.set_parity(match p {
+                                SerialParity::Odd => Parity::Odd,
+                                SerialParity::Even => Parity::Even,
+                                SerialParity::None => Parity::None,
+                            });
+                        }
+                        if let Some(sb) = sc.stop_bits {
+                            settings.set_stop_bits(match sb {
+                                2 => StopBits::Two,
+                                _ => StopBits::One,
+                            });
+                        }
+                        if let Some(fc) = sc.flow_control {
+                            use crate::config::validated::SerialFlowControl;
+                            settings.set_flow_control(match fc {
+                                SerialFlowControl::Software => FlowControl::XonXoff,
+                                SerialFlowControl::Hardware => FlowControl::RtsCts,
+                                SerialFlowControl::None => FlowControl::None,
+                            });
+                        }
+                        port.set_configuration(&settings)
+                            .context("Failed to apply serial port settings")?;
 
-                    Ok::<_, anyhow::Error>(port)
-                })
+                        Ok::<_, anyhow::Error>(port)
+                    }),
+                )
                 .await
+                .context(
+                    "serial port open timed out after 10s; underlying open may still be running",
+                )?
                 .context("spawn_blocking for serial port opening failed")??;
                 Box::new(port)
             }

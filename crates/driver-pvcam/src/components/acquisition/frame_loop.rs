@@ -67,6 +67,14 @@ impl PvcamAcquisition {
         let mut total_frames: u64 = 0;
         let mut batch_num: u64 = 0;
 
+        // bd-oqo7.7: Host frame summing accumulator.
+        // Accumulates pixel values as u32 to prevent overflow when summing
+        // multiple u16 frames (e.g. 256 × 65535 = 16M, fits in u32).
+        let pixel_count = (width * height) as usize;
+        let mut sum_accumulator: Vec<u32> = vec![0u32; pixel_count];
+        let mut sum_frames_collected: u32 = 0;
+        let mut summed_frames_emitted: u64 = 0;
+
         while !shutdown.load(Ordering::SeqCst) && streaming.get() {
             batch_num += 1;
 
@@ -145,49 +153,110 @@ impl PvcamAcquisition {
                         total_frames += 1;
                         frame_count.store(total_frames, Ordering::SeqCst);
 
-                        // Build frame (matching mock and hardware path patterns)
-                        // bd-oqo7.7: Include summing_count in frame metadata
-                        let summing_count = if host_summing_enabled.get() {
-                            let count = host_summing_count.get();
-                            if count > 1 {
-                                Some(count)
+                        // bd-oqo7.7: Host frame summing — accumulate N frames, emit 1.
+                        let summing_target = if host_summing_enabled.get() {
+                            host_summing_count.get().max(1)
+                        } else {
+                            1
+                        };
+
+                        if summing_target > 1 {
+                            // Accumulate pixels into u32 buffer
+                            for (i, &px) in pixel_data.iter().enumerate() {
+                                if i < sum_accumulator.len() {
+                                    sum_accumulator[i] += px as u32;
+                                }
+                            }
+                            sum_frames_collected += 1;
+
+                            if sum_frames_collected < summing_target {
+                                continue; // Keep accumulating — don't emit yet
+                            }
+
+                            // Emit averaged frame: divide accumulated u32 by count, truncate to u16
+                            let averaged: Vec<u16> = sum_accumulator
+                                .iter()
+                                .map(|&sum| {
+                                    (sum / summing_target as u32).min(u16::MAX as u32) as u16
+                                })
+                                .collect();
+
+                            // Reset accumulator for next cycle
+                            sum_accumulator.iter_mut().for_each(|v| *v = 0);
+                            sum_frames_collected = 0;
+                            summed_frames_emitted += 1;
+
+                            let extra = if smart_stream_count > 0 {
+                                let exposure_index =
+                                    ((summed_frames_emitted - 1) as usize) % smart_stream_count;
+                                let mut m = std::collections::HashMap::with_capacity(2);
+                                m.insert("smart_stream_index".into(), exposure_index.to_string());
+                                m.insert(
+                                    "smart_stream_count".into(),
+                                    smart_stream_count.to_string(),
+                                );
+                                m
                             } else {
-                                None
+                                std::collections::HashMap::new()
+                            };
+                            let ext_metadata = common::data::FrameMetadata {
+                                binning: Some(binning),
+                                summing_count: Some(summing_target),
+                                extra,
+                                ..Default::default()
+                            };
+                            let frame = Arc::new(
+                                Frame::from_u16(width, height, &averaged)
+                                    .with_frame_number(summed_frames_emitted)
+                                    .with_timestamp(Frame::timestamp_now())
+                                    .with_exposure(exposure_ms * summing_target as f64)
+                                    .with_roi_offset(roi_x, roi_y)
+                                    .with_metadata(ext_metadata),
+                            );
+
+                            tap_registry.apply_frame_with_pixels(&frame);
+                            let _ = frame_tx.send(frame.clone());
+                            if let Some(ref tx) = reliable_tx {
+                                let _ = tx.blocking_send(frame);
                             }
                         } else {
-                            None
-                        };
-                        let extra = if smart_stream_count > 0 {
-                            let exposure_index = ((total_frames - 1) as usize) % smart_stream_count;
-                            let mut m = std::collections::HashMap::with_capacity(2);
-                            m.insert("smart_stream_index".into(), exposure_index.to_string());
-                            m.insert("smart_stream_count".into(), smart_stream_count.to_string());
-                            m
-                        } else {
-                            std::collections::HashMap::new()
-                        };
-                        let ext_metadata = common::data::FrameMetadata {
-                            binning: Some(binning),
-                            summing_count,
-                            extra,
-                            ..Default::default()
-                        };
-                        let frame = Arc::new(
-                            Frame::from_u16(width, height, &pixel_data)
-                                .with_frame_number(total_frames)
-                                .with_timestamp(Frame::timestamp_now())
-                                .with_exposure(exposure_ms)
-                                .with_roi_offset(roi_x, roi_y)
-                                .with_metadata(ext_metadata),
-                        );
+                            // No summing — emit frame immediately (original path)
+                            let extra = if smart_stream_count > 0 {
+                                let exposure_index =
+                                    ((total_frames - 1) as usize) % smart_stream_count;
+                                let mut m = std::collections::HashMap::with_capacity(2);
+                                m.insert("smart_stream_index".into(), exposure_index.to_string());
+                                m.insert(
+                                    "smart_stream_count".into(),
+                                    smart_stream_count.to_string(),
+                                );
+                                m
+                            } else {
+                                std::collections::HashMap::new()
+                            };
+                            let ext_metadata = common::data::FrameMetadata {
+                                binning: Some(binning),
+                                summing_count: None,
+                                extra,
+                                ..Default::default()
+                            };
+                            let frame = Arc::new(
+                                Frame::from_u16(width, height, &pixel_data)
+                                    .with_frame_number(total_frames)
+                                    .with_timestamp(Frame::timestamp_now())
+                                    .with_exposure(exposure_ms)
+                                    .with_roi_offset(roi_x, roi_y)
+                                    .with_metadata(ext_metadata),
+                            );
 
-                        // bd-0dax.4: Run taps SYNCHRONOUSLY before broadcast
-                        tap_registry.apply_frame_with_pixels(&frame);
+                            // bd-0dax.4: Run taps SYNCHRONOUSLY before broadcast
+                            tap_registry.apply_frame_with_pixels(&frame);
 
-                        // Send to channels
-                        let _ = frame_tx.send(frame.clone());
-                        if let Some(ref tx) = reliable_tx {
-                            let _ = tx.blocking_send(frame);
+                            // Send to channels
+                            let _ = frame_tx.send(frame.clone());
+                            if let Some(ref tx) = reliable_tx {
+                                let _ = tx.blocking_send(frame);
+                            }
                         }
                     }
 
@@ -486,6 +555,13 @@ impl PvcamAcquisition {
         // Shutdown is set in Drop to ensure the loop exits before SDK uninit.
         // Use Acquire ordering to synchronize with Release store in Drop (bd-nfk6).
         let mut loop_iteration: u64 = 0;
+
+        // bd-oqo7.7: Host frame summing accumulator for continuous mode.
+        // Uses u32 per pixel to prevent overflow when summing many u16 frames.
+        let cont_pixel_count = (width * height) as usize;
+        let mut cont_sum_accumulator: Vec<u32> = vec![0u32; cont_pixel_count];
+        let mut cont_sum_frames_collected: u32 = 0;
+        let mut cont_summed_frames_emitted: u64 = 0;
 
         while streaming.get() && !shutdown.load(Ordering::Acquire) {
             loop_iteration += 1;
@@ -1226,13 +1302,73 @@ impl PvcamAcquisition {
                     }
                     m
                 };
-                let ext_metadata = common::data::FrameMetadata {
-                    binning: Some(binning),
-                    summing_count,
-                    extra,
-                    ..Default::default()
+                // bd-oqo7.7: Host frame summing in continuous mode.
+                // When summing_count > 1, accumulate pixel values and only emit
+                // every Nth frame with averaged pixel data.
+                let cont_summing_target = if host_summing_enabled.get() {
+                    host_summing_count.get().max(1)
+                } else {
+                    1
                 };
-                frame = frame.with_metadata(ext_metadata);
+
+                if cont_summing_target > 1 {
+                    // Accumulate u16 pixels from raw bytes into u32 buffer
+                    let raw = frame.data.as_ref();
+                    for (i, chunk) in raw.chunks_exact(2).enumerate() {
+                        if i < cont_sum_accumulator.len() {
+                            cont_sum_accumulator[i] +=
+                                u16::from_le_bytes([chunk[0], chunk[1]]) as u32;
+                        }
+                    }
+                    cont_sum_frames_collected += 1;
+
+                    if cont_sum_frames_collected < cont_summing_target {
+                        // Still accumulating — skip delivery, unlock frame, continue
+                        continue;
+                    }
+
+                    // Emit averaged frame
+                    let averaged_bytes: Vec<u8> = cont_sum_accumulator
+                        .iter()
+                        .flat_map(|&sum| {
+                            let avg =
+                                (sum / cont_summing_target as u32).min(u16::MAX as u32) as u16;
+                            avg.to_le_bytes()
+                        })
+                        .collect();
+
+                    cont_sum_accumulator.iter_mut().for_each(|v| *v = 0);
+                    cont_sum_frames_collected = 0;
+                    cont_summed_frames_emitted += 1;
+
+                    // Build summed frame with averaged data
+                    let ext_metadata = common::data::FrameMetadata {
+                        binning: Some(binning),
+                        summing_count: Some(cont_summing_target),
+                        extra,
+                        ..Default::default()
+                    };
+                    frame = Frame::from_bytes(
+                        width,
+                        height,
+                        frame_bit_depth,
+                        bytes::Bytes::from(averaged_bytes),
+                    )
+                    .with_frame_number(cont_summed_frames_emitted)
+                    .with_timestamp(Frame::timestamp_now())
+                    .with_exposure(exposure_ms * cont_summing_target as f64)
+                    .with_roi_offset(roi_x, roi_y)
+                    .with_metadata(ext_metadata);
+                } else {
+                    // No summing — original metadata path
+                    let ext_metadata = common::data::FrameMetadata {
+                        binning: Some(binning),
+                        summing_count,
+                        extra,
+                        ..Default::default()
+                    };
+                    frame = frame.with_metadata(ext_metadata);
+                }
 
                 let frame_arc = Arc::new(frame);
 
