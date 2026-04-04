@@ -1315,14 +1315,14 @@ mod tests {
     fn test_plan_command_serde_round_trip() {
         let commands = vec![
             PlanCommand::MoveTo {
-                device_id: "stage_x".to_string(),
+                device_id: "stage_x".into(),
                 position: 42.5,
             },
             PlanCommand::Read {
-                device_id: "power_meter".to_string(),
+                device_id: "power_meter".into(),
             },
             PlanCommand::Trigger {
-                device_id: "camera".to_string(),
+                device_id: "camera".into(),
             },
             PlanCommand::Wait { seconds: 0.1 },
             PlanCommand::Checkpoint {
