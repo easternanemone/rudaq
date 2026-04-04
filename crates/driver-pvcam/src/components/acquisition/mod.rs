@@ -332,54 +332,64 @@ impl Drop for PvcamAcquisition {
             // continue running until completion. We MUST wait for the thread to exit
             // naturally (via the shutdown flag) before calling any FFI cleanup.
             //
+            // Use blocking_lock() instead of try_lock() to ensure we reliably acquire
+            // the mutex during shutdown. try_lock() can fail if another task holds it,
+            // which would leak streaming resources and skip FFI cleanup.
+            //
             // Use recv_timeout to avoid hanging forever if something goes wrong.
             const POLL_THREAD_TIMEOUT: Duration = Duration::from_secs(5);
-            let poll_thread_exited = if let Ok(mut guard) = self.sdk_state.try_lock() {
-                // Transition to Idle, consuming all streaming resources.
-                let old_state = std::mem::replace(&mut *guard, SdkStreamingState::Idle);
-                match old_state {
-                    SdkStreamingState::Streaming {
-                        poll_thread_done_rx,
-                        poll_handle,
-                        ..
-                    } => {
-                        // Drop the poll_handle (don't abort - thread exits via shutdown flag)
-                        drop(poll_handle);
-                        match poll_thread_done_rx.recv_timeout(POLL_THREAD_TIMEOUT) {
-                            Ok(()) => {
-                                tracing::debug!("PVCAM poll thread exited cleanly in Drop");
-                                true
-                            }
-                            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                                tracing::error!(
-                                    "PVCAM poll thread did not exit within {:?} - proceeding with cleanup anyway (may cause UB)",
-                                    POLL_THREAD_TIMEOUT
-                                );
-                                false
-                            }
-                            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                                // Sender was dropped, which means the poll thread exited
-                                // (possibly before we could receive the signal)
-                                tracing::debug!(
-                                    "PVCAM poll thread completion channel disconnected (thread already exited)"
-                                );
-                                true
-                            }
+
+            // Extract streaming resources into a local. CRITICAL SAFETY: The
+            // circ_buffer must remain alive until AFTER pl_exp_stop_cont and
+            // callback deregistration complete, because the PVCAM SDK holds raw
+            // pointers into the buffer during acquisition.
+            let mut guard = self.sdk_state.blocking_lock();
+            let old_state = std::mem::replace(&mut *guard, SdkStreamingState::Idle);
+            // Release the lock immediately — we only needed it for the swap.
+            drop(guard);
+
+            let (poll_thread_exited, _circ_buffer_guard) = match old_state {
+                SdkStreamingState::Streaming {
+                    poll_thread_done_rx,
+                    poll_handle,
+                    circ_buffer,
+                    ..
+                } => {
+                    // Drop the poll_handle (don't abort - thread exits via shutdown flag)
+                    drop(poll_handle);
+                    let exited = match poll_thread_done_rx.recv_timeout(POLL_THREAD_TIMEOUT) {
+                        Ok(()) => {
+                            tracing::debug!("PVCAM poll thread exited cleanly in Drop");
+                            true
                         }
-                    }
-                    SdkStreamingState::Idle => {
-                        // No active poll thread (stream was never started or already stopped)
-                        tracing::debug!("No active PVCAM poll thread to wait for");
-                        true
-                    }
+                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                            tracing::error!(
+                                "PVCAM poll thread did not exit within {:?} - proceeding with cleanup anyway (may cause UB)",
+                                POLL_THREAD_TIMEOUT
+                            );
+                            false
+                        }
+                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                            // Sender was dropped, which means the poll thread exited
+                            // (possibly before we could receive the signal)
+                            tracing::debug!(
+                                "PVCAM poll thread completion channel disconnected (thread already exited)"
+                            );
+                            true
+                        }
+                    };
+                    // Keep circ_buffer alive until after FFI cleanup below
+                    (exited, Some(circ_buffer))
                 }
-            } else {
-                // Lock poisoned / contended - unusual but try to proceed
-                tracing::warn!("Could not acquire sdk_state lock in Drop");
-                false
+                SdkStreamingState::Idle => {
+                    // No active poll thread (stream was never started or already stopped)
+                    tracing::debug!("No active PVCAM poll thread to wait for");
+                    (true, None)
+                }
             };
 
             // CRITICAL SAFETY: Stop camera and deregister callback BEFORE buffer/context are freed.
+            // _circ_buffer_guard keeps the circular buffer alive through this entire block.
             // This prevents use-after-free where PVCAM might try to:
             // 1. Write to the circular buffer after it's deallocated
             // 2. Invoke the EOF callback after the context is freed (bd-d9nw.2)
@@ -455,9 +465,8 @@ impl Drop for PvcamAcquisition {
                 }
             }
 
-            // Now safe to drop circ_buffer and callback_context (happens automatically)
+            // _circ_buffer_guard drops here — safe because FFI cleanup is complete.
             // The buffer and context will be freed when Arc refs drop to zero.
-            // sdk_state (now Idle) has no resources to clean up.
         }
     }
 }

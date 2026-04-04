@@ -1243,17 +1243,21 @@ impl PvcamAcquisition {
             tracing::debug!("PVCAM stop_stream: signaling callback context shutdown");
             self.callback_context.signal_shutdown();
 
-            // Transition sdk_state: Streaming -> Idle, extracting the poll handle
-            // for awaiting. This single lock acquisition replaces multiple separate
-            // Arc<Mutex<Option<T>>> accesses. The circ_buffer, frame_pool, error_tx,
-            // and done channels are dropped when the Streaming variant is consumed.
+            // Transition sdk_state: Streaming -> Idle, extracting resources into
+            // locals. CRITICAL SAFETY: The circ_buffer MUST stay alive until AFTER
+            // FFI cleanup (pl_exp_stop_cont + callback deregistration) because the
+            // PVCAM SDK holds raw pointers into the buffer during acquisition.
             tracing::debug!("PVCAM stop_stream: transitioning sdk_state to Idle");
-            let poll_handle = {
+            let streaming_resources = {
                 use super::SdkStreamingState;
                 let mut state = self.sdk_state.lock().await;
                 let old_state = std::mem::replace(&mut *state, SdkStreamingState::Idle);
                 match old_state {
-                    SdkStreamingState::Streaming { poll_handle, .. } => Some(poll_handle),
+                    SdkStreamingState::Streaming {
+                        poll_handle,
+                        circ_buffer,
+                        ..
+                    } => Some((poll_handle, circ_buffer)),
                     SdkStreamingState::Idle => {
                         tracing::debug!("PVCAM stop_stream: sdk_state already Idle");
                         None
@@ -1263,13 +1267,21 @@ impl PvcamAcquisition {
 
             // bd-hehw: Await poll handle outside the lock to avoid holding mutex across .await
             tracing::debug!("PVCAM stop_stream: waiting for poll thread to complete");
-            if let Some(handle) = poll_handle {
+            // Extract poll_handle; keep _circ_buffer alive in scope until after FFI cleanup.
+            let _circ_buffer_guard = if let Some((handle, circ_buffer)) = streaming_resources {
                 tracing::debug!("PVCAM stop_stream: awaiting poll handle");
                 let _ = handle.await;
                 tracing::debug!("PVCAM stop_stream: poll handle completed");
+                Some(circ_buffer)
             } else {
                 tracing::debug!("PVCAM stop_stream: no poll handle to wait for");
-            }
+                None
+            };
+
+            // SAFETY: circ_buffer is kept alive by _circ_buffer_guard above.
+            // FFI cleanup (stop_acquisition, deregister_callback) runs here while
+            // the buffer is still valid. The buffer drops at the end of this block
+            // when _circ_buffer_guard goes out of scope.
             if let Some(h) = conn.handle() {
                 tracing::info!(hcam = h, "PVCAM stop_stream: issuing pl_exp_stop_cont");
                 // bd-g9gq: Use FFI safe wrappers with explicit safety contracts
@@ -1304,6 +1316,7 @@ impl PvcamAcquisition {
             tracing::debug!("PVCAM stop_stream: clearing atomic state");
             self.active_hcam.store(-1, Ordering::Release); // -1 = no active handle
             tracing::debug!("PVCAM stop_stream: cleanup complete");
+            // _circ_buffer_guard drops here — safe because FFI cleanup is complete.
         }
         tracing::info!("PVCAM stop_stream completed successfully");
         Ok(())
@@ -1431,8 +1444,9 @@ impl PvcamAcquisition {
         });
 
         // Transition sdk_state: Idle -> Streaming.
-        // Sequence mode doesn't use circ_buffer, but we need a PageAlignedBuffer.
-        // Use a minimal 1-byte buffer since PVCAM doesn't DMA in sequence mode.
+        // Sequence mode doesn't use circ_buffer, but we need a PageAlignedBuffer
+        // to satisfy the Streaming variant. Use a minimal 4KB (one page) buffer
+        // since PVCAM doesn't DMA in sequence mode.
         let seq_circ_buffer = PageAlignedBuffer::new(4096)?;
         {
             use super::SdkStreamingState;
