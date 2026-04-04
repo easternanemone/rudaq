@@ -3275,8 +3275,10 @@ impl FrameProducer for PvcamDriver {
                 if json.trim().is_empty() || json == "[]" {
                     vec![]
                 } else {
-                    // Parse with sensor bounds validation (2048x2048 for Prime BSI)
-                    RoiRegion::parse_json(&json, 2048, 2048).unwrap_or_else(|e| {
+                    // Parse with sensor bounds validation using actual sensor dimensions
+                    let sw = u16::try_from(self.sensor_width).unwrap_or(u16::MAX);
+                    let sh = u16::try_from(self.sensor_height).unwrap_or(u16::MAX);
+                    RoiRegion::parse_json(&json, sw, sh).unwrap_or_else(|e| {
                         tracing::warn!("Invalid multi_roi_config, using single ROI: {e}");
                         vec![]
                     })
