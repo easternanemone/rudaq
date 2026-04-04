@@ -1014,7 +1014,6 @@ impl PvcamDriver {
             let conn_guard = connection.lock().await;
 
             if let Ok(current_cycles) = PvcamFeatures::get_clear_cycles(&conn_guard) {
-                // TODO(bd-ldjy.4): read-only until clear_cycles write callback is validated
                 let param = Parameter::new("acquisition.clear_cycles", current_cycles)
                     .with_description("Number of sensor clearing cycles before exposure")
                     .read_only()
