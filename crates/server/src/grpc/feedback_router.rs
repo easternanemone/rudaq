@@ -84,7 +84,7 @@ impl FeedbackRouter {
     ) -> bool {
         if variance <= tolerance {
             let event = FeedbackEvent::StabilityReached {
-                device_id: device_id.to_string(),
+                device_id: device_id.into(),
                 field: field.to_string(),
                 variance,
             };
