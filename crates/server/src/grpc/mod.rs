@@ -93,8 +93,8 @@ pub use storage_service::StorageServiceImpl;
 
 // Error mapping (bd-cxvg)
 pub use error_mapping::{
-    AnyhowResultExt, DaqResultExt, anyhow_to_status, map_daq_error_to_status,
-    ERROR_KIND_HEADER, DRIVER_KIND_HEADER, DRIVER_TYPE_HEADER,
+    AnyhowResultExt, DRIVER_KIND_HEADER, DRIVER_TYPE_HEADER, DaqResultExt, ERROR_KIND_HEADER,
+    anyhow_to_status, map_daq_error_to_status,
 };
 
 // Re-export commonly used proto types - ControlService

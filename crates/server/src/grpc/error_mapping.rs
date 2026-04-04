@@ -146,9 +146,12 @@ pub fn map_daq_error_to_status(err: DaqError) -> Status {
     match err {
         // Configuration errors -> InvalidArgument
         // Client provided bad configuration that cannot be accepted
-        DaqError::Config(e) => {
-            status_with_metadata(Code::InvalidArgument, format!("Config error: {e}"), "config", None)
-        }
+        DaqError::Config(e) => status_with_metadata(
+            Code::InvalidArgument,
+            format!("Config error: {e}"),
+            "config",
+            None,
+        ),
         DaqError::Configuration(msg) => status_with_metadata(
             Code::InvalidArgument,
             format!("Configuration error: {msg}"),
@@ -316,9 +319,12 @@ pub fn map_daq_error_to_status(err: DaqError) -> Status {
         DaqError::Io(e) => {
             status_with_metadata(Code::Internal, format!("I/O error: {e}"), "io", None)
         }
-        DaqError::Tokio(e) => {
-            status_with_metadata(Code::Internal, format!("Tokio I/O error: {e}"), "tokio", None)
-        }
+        DaqError::Tokio(e) => status_with_metadata(
+            Code::Internal,
+            format!("Tokio I/O error: {e}"),
+            "tokio",
+            None,
+        ),
 
         // Processing errors -> Internal
         DaqError::Processing(msg) => status_with_metadata(
@@ -362,9 +368,12 @@ pub fn map_daq_error_to_status(err: DaqError) -> Status {
             "serde",
             None,
         ),
-        DaqError::TaskJoin(e) => {
-            status_with_metadata(Code::Internal, format!("Task join error: {e}"), "task_join", None)
-        }
+        DaqError::TaskJoin(e) => status_with_metadata(
+            Code::Internal,
+            format!("Task join error: {e}"),
+            "task_join",
+            None,
+        ),
     }
 }
 

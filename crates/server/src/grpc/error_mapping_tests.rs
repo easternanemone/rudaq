@@ -1,12 +1,10 @@
 #[cfg(test)]
 mod tests {
     use crate::grpc::error_mapping::{
-        anyhow_to_status, map_daq_error_to_status, ERROR_KIND_HEADER, DRIVER_KIND_HEADER,
-        DRIVER_TYPE_HEADER,
+        DRIVER_KIND_HEADER, DRIVER_TYPE_HEADER, ERROR_KIND_HEADER, anyhow_to_status,
+        map_daq_error_to_status,
     };
-    use common::error::{
-        DaqError, DriverError, DriverErrorKind, StorageError, StorageErrorKind,
-    };
+    use common::error::{DaqError, DriverError, DriverErrorKind, StorageError, StorageErrorKind};
     use tonic::Code;
 
     fn assert_status_code(err: DaqError, expected: Code) {
@@ -389,10 +387,7 @@ mod tests {
 
         #[test]
         fn shutdown_failed_has_metadata() {
-            assert_has_error_kind(
-                DaqError::ShutdownFailed(vec![]),
-                "shutdown_failed",
-            );
+            assert_has_error_kind(DaqError::ShutdownFailed(vec![]), "shutdown_failed");
         }
     }
 
@@ -484,19 +479,13 @@ mod tests {
 
         #[test]
         fn storage_io_error_maps_to_internal() {
-            let err = DaqError::Storage(StorageError::new(
-                StorageErrorKind::Io,
-                "disk full",
-            ));
+            let err = DaqError::Storage(StorageError::new(StorageErrorKind::Io, "disk full"));
             assert_status_code(err, Code::Internal);
         }
 
         #[test]
         fn storage_hdf5_error_maps_to_internal() {
-            let err = DaqError::Storage(StorageError::new(
-                StorageErrorKind::Hdf5,
-                "corrupt file",
-            ));
+            let err = DaqError::Storage(StorageError::new(StorageErrorKind::Hdf5, "corrupt file"));
             assert_status_code(err, Code::Internal);
         }
 
@@ -522,12 +511,8 @@ mod tests {
 
         #[test]
         fn anyhow_with_driver_error_downcasts_correctly() {
-            let err: anyhow::Error = DriverError::new(
-                "pvcam",
-                DriverErrorKind::Communication,
-                "usb error",
-            )
-            .into();
+            let err: anyhow::Error =
+                DriverError::new("pvcam", DriverErrorKind::Communication, "usb error").into();
             let status = anyhow_to_status(err);
             assert_eq!(status.code(), Code::Unavailable);
             assert_metadata(&status, ERROR_KIND_HEADER, "driver");
@@ -587,8 +572,7 @@ mod tests {
 
         #[test]
         fn serde_error_has_metadata() {
-            let err: serde_json::Error =
-                serde_json::from_str::<String>("bad").unwrap_err();
+            let err: serde_json::Error = serde_json::from_str::<String>("bad").unwrap_err();
             assert_has_error_kind(DaqError::Serde(err), "serde");
         }
     }
