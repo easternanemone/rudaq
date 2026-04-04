@@ -1471,7 +1471,7 @@ mod tests {
     #[test]
     fn test_serde_round_trip_wait_settled() {
         let cmd = PlanCommand::WaitSettled {
-            device_id: "stage_x".to_string(),
+            device_id: "stage_x".into(),
             timeout_seconds: 5.0,
         };
 
