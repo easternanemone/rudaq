@@ -13,6 +13,7 @@
 
 pub mod capabilities;
 pub mod data;
+pub mod device_id;
 pub mod driver;
 pub mod error;
 pub mod modules;
