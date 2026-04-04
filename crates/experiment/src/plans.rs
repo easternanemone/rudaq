@@ -356,9 +356,6 @@ impl Plan for LineScan {
                     // No detectors, skip to emit
                     self.current_step = LineScanStep::EmitEvent;
                     return self.next_command();
-                };
-                PlanCommand::Trigger {
-                    device_id: det.clone(),
                 }
             }
             LineScanStep::ReadDetectors { detector_idx } => {
