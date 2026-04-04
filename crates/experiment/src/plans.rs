@@ -766,9 +766,6 @@ impl Plan for Count {
                 } else {
                     self.current_step = CountStep::Emit;
                     return self.next_command();
-                };
-                PlanCommand::Trigger {
-                    device_id: det.clone(),
                 }
             }
             CountStep::Read { detector_idx } => {
