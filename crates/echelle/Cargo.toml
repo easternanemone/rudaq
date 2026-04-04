@@ -3,6 +3,7 @@ name = "echelle"
 version = "0.1.0"
 edition = "2024"
 description = "Echelle spectroscopy calibration, extraction, and simulation for rust-daq"
+license = "MIT"
 
 [dependencies]
 serde = { workspace = true, features = ["derive"] }
