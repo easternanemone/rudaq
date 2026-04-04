@@ -39,7 +39,7 @@ use common::error::{DaqError, StorageError, StorageErrorKind};
 use memmap2::{MmapMut, MmapOptions};
 use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{fence, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering, fence};
 use std::sync::{Arc, OnceLock, RwLock};
 use std::time::Instant;
 use tokio::sync::mpsc;
@@ -1707,38 +1707,38 @@ impl RingBuffer {
         }
 
         // Try to acquire write lock and store schema
-        if let Ok(mut guard) = self.arrow_schema_json.write() {
-            if guard.is_none() {
-                // Serialize schema to JSON
-                let schema_json = serde_json::json!({
-                    "fields": schema.fields().iter().map(|f| {
-                        serde_json::json!({
-                            "name": f.name(),
-                            "data_type": format!("{:?}", f.data_type()),
-                            "nullable": f.is_nullable(),
-                        })
-                    }).collect::<Vec<_>>(),
-                    "metadata": schema.metadata().clone(),
-                });
+        if let Ok(mut guard) = self.arrow_schema_json.write()
+            && guard.is_none()
+        {
+            // Serialize schema to JSON
+            let schema_json = serde_json::json!({
+                "fields": schema.fields().iter().map(|f| {
+                    serde_json::json!({
+                        "name": f.name(),
+                        "data_type": format!("{:?}", f.data_type()),
+                        "nullable": f.is_nullable(),
+                    })
+                }).collect::<Vec<_>>(),
+                "metadata": schema.metadata().clone(),
+            });
 
-                if let Ok(json_str) = serde_json::to_string(&schema_json) {
-                    let len = json_str.len();
-                    *guard = Some(json_str);
+            if let Ok(json_str) = serde_json::to_string(&schema_json) {
+                let len = json_str.len();
+                *guard = Some(json_str);
 
-                    // Update header schema_len (capped at u32::MAX)
-                    #[allow(clippy::cast_possible_truncation)]
-                    // SAFETY: value is bounded and fits in target type
-                    let schema_len = std::cmp::min(len, u32::MAX as usize) as u32;
-                    // SAFETY: header is valid for the lifetime of self
-                    unsafe {
-                        (*self.header).schema_len = schema_len;
-                    }
-
-                    tracing::debug!(
-                        schema_len = len,
-                        "Stored Arrow schema JSON in ring buffer (bd-1il7)"
-                    );
+                // Update header schema_len (capped at u32::MAX)
+                #[allow(clippy::cast_possible_truncation)]
+                // SAFETY: value is bounded and fits in target type
+                let schema_len = std::cmp::min(len, u32::MAX as usize) as u32;
+                // SAFETY: header is valid for the lifetime of self
+                unsafe {
+                    (*self.header).schema_len = schema_len;
                 }
+
+                tracing::debug!(
+                    schema_len = len,
+                    "Stored Arrow schema JSON in ring buffer (bd-1il7)"
+                );
             }
         }
     }
@@ -1774,6 +1774,7 @@ impl Drop for RingBuffer {
 }
 
 #[cfg(test)]
+#[allow(unsafe_code)] // edition 2024: env::set_var/remove_var + raw pointer ops require unsafe
 mod tests {
     use super::*;
     use std::sync::Arc;
@@ -1975,7 +1976,8 @@ mod tests {
     #[test]
     fn test_read_snapshot_times_out_on_stuck_epoch() {
         // Use a short timeout for testing (100ms instead of default 500ms)
-        std::env::set_var("DAQ_RINGBUFFER_TIMEOUT_MS", "100");
+        // SAFETY: This test runs single-threaded; no concurrent env access.
+        unsafe { std::env::set_var("DAQ_RINGBUFFER_TIMEOUT_MS", "100") };
 
         let temp_dir = tempfile::tempdir().unwrap();
         let path = temp_dir.path().join("stuck_epoch.buf");
@@ -1990,7 +1992,8 @@ mod tests {
         let elapsed = start.elapsed();
 
         // Restore default timeout
-        std::env::remove_var("DAQ_RINGBUFFER_TIMEOUT_MS");
+        // SAFETY: This test runs single-threaded; no concurrent env access.
+        unsafe { std::env::remove_var("DAQ_RINGBUFFER_TIMEOUT_MS") };
 
         assert!(snapshot.is_empty());
         assert!(elapsed < Duration::from_millis(200));

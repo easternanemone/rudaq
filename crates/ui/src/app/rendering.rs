@@ -383,8 +383,8 @@ impl DaqApp {
         use common::capabilities::{FrameObserver, FrameProducer};
         use common::data::FrameView;
         use driver_pvcam::PvcamDriver;
-        use rerun::archetypes::Tensor;
         use rerun::RecordingStreamBuilder;
+        use rerun::archetypes::Tensor;
         use std::sync::atomic::{AtomicU64, Ordering};
 
         /// Frame data with dimensions for channel transport

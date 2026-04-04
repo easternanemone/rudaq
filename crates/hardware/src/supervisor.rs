@@ -116,15 +116,15 @@ async fn check_and_restart(registry: &DeviceRegistry, config: &SupervisorConfig)
 
         // Check if enough time has passed since last failure (backoff)
         let required_delay = health.backoff_delay(config.base_backoff, config.max_backoff);
-        if let Some(last_failure) = health.last_failure {
-            if last_failure.elapsed() < required_delay {
-                tracing::debug!(
-                    device_id = %device_id,
-                    delay_remaining_secs = required_delay.saturating_sub(last_failure.elapsed()).as_secs(),
-                    "Device restart backoff — waiting"
-                );
-                continue;
-            }
+        if let Some(last_failure) = health.last_failure
+            && last_failure.elapsed() < required_delay
+        {
+            tracing::debug!(
+                device_id = %device_id,
+                delay_remaining_secs = required_delay.saturating_sub(last_failure.elapsed()).as_secs(),
+                "Device restart backoff — waiting"
+            );
+            continue;
         }
 
         tracing::info!(

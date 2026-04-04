@@ -3,8 +3,8 @@
 mod pipeline;
 mod rendering;
 
-use echelle::wavelength_fitting::{ArcDetectConfig, ArcLine, OrderWlSolution, WlFitConfig};
 use echelle::EchelleCalibrationProfile;
+use echelle::wavelength_fitting::{ArcDetectConfig, ArcLine, OrderWlSolution, WlFitConfig};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

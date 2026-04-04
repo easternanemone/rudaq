@@ -13,7 +13,7 @@
 // Only re-export types/functions used by sibling modules in image_viewer;
 // tests import additional symbols directly from `echelle::`.
 pub(super) use echelle::{
-    extract_preview_with_u16_scratch, order_sample_image_position, EchelleExtractionPreview,
+    EchelleExtractionPreview, extract_preview_with_u16_scratch, order_sample_image_position,
 };
 
 #[cfg(test)]
@@ -22,11 +22,11 @@ mod tests {
     use crate::panels::image_viewer::processing::get_pixel_value_inline;
     use chrono::Utc;
     use echelle::{
-        extract_preview, AxisDirection, DecodedIntensityFrame, DetectorAxis,
-        EchelleBackgroundConfig, EchelleCalibrationProfile, EchelleCorrections,
-        EchelleExtractionConfig, EchelleFrameCompatibility, EchelleOrderCalibration,
-        EchelleOrientation, EchelleProvenance, EchelleSchemaVersion, EchelleSummationMode,
-        EchelleTraceModel, EchelleWavelengthModel, PixelRegion, PolynomialBasis,
+        AxisDirection, DecodedIntensityFrame, DetectorAxis, EchelleBackgroundConfig,
+        EchelleCalibrationProfile, EchelleCorrections, EchelleExtractionConfig,
+        EchelleFrameCompatibility, EchelleOrderCalibration, EchelleOrientation, EchelleProvenance,
+        EchelleSchemaVersion, EchelleSummationMode, EchelleTraceModel, EchelleWavelengthModel,
+        PixelRegion, PolynomialBasis, extract_preview,
     };
     use protocol::compression::decompress_frame;
     use protocol::daq::{CompressionType, FrameData};

@@ -27,14 +27,14 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Barrier;
-use tonic::transport::Server;
 use tonic::Request;
+use tonic::transport::Server;
 
 use experiment::RunEngine;
 use hardware::registry::DeviceRegistry;
+use protocol::daq::DaemonInfoRequest;
 use protocol::daq::control_service_client::ControlServiceClient;
 use protocol::daq::control_service_server::ControlServiceServer;
-use protocol::daq::DaemonInfoRequest;
 use server::grpc::server::DaqServer;
 
 /// Timeout for individual gRPC requests to prevent test hangs.
@@ -236,7 +236,9 @@ async fn benchmark_grpc_latency_under_load() {
     assert!(
         p99_b > p99_c * 2 || degradation_vs_async > min_degradation,
         "Case B (Blocking) P99 {:?} should be worse than Case C (Async) P99 {:?} (degradation: {:?})",
-        p99_b, p99_c, degradation_vs_async
+        p99_b,
+        p99_c,
+        degradation_vs_async
     );
 
     println!("\n=== Summary ===");

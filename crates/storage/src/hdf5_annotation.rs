@@ -7,7 +7,7 @@ use anyhow::{Context, Result};
 use std::path::Path;
 
 #[cfg(feature = "storage_hdf5")]
-use hdf5::{types::VarLenUnicode, File};
+use hdf5::{File, types::VarLenUnicode};
 
 /// Annotation data for a run
 #[derive(Debug, Clone)]

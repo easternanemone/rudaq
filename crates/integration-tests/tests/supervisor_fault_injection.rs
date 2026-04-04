@@ -33,9 +33,9 @@ use common::driver::{Capability, DeviceComponents, DriverFactory};
 use common::health::DeviceHealth;
 use futures::future::BoxFuture;
 use hardware::registry::DeviceRegistry;
-use hardware::supervisor::{run_device_supervisor, SupervisorConfig};
-use std::sync::atomic::{AtomicU32, Ordering};
+use hardware::supervisor::{SupervisorConfig, run_device_supervisor};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 

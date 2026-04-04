@@ -99,7 +99,7 @@ use serde::{Deserialize, Serialize};
 use std::any::Any;
 use std::fmt::Debug;
 use std::sync::Arc;
-use tokio::sync::{watch, RwLock};
+use tokio::sync::{RwLock, watch};
 
 use crate::error::DaqError;
 use crate::observable::{Observable, ParameterAny, ParameterBase as ObservableParameterBase};

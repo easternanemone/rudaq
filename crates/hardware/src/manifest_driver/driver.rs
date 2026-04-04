@@ -5,7 +5,7 @@
 //! recompilation.
 
 use crate::manifest_driver::templating::render_command;
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use rand::Rng;
 use regex::Regex;
 use serde_json::Value;
@@ -786,10 +786,10 @@ impl GenericDriver {
         // Try to get from state first (assume cached after first read)
         {
             let state_read = self.state.read().await;
-            if let Some(val) = state_read.get(capability_name) {
-                if let Some(s) = val.as_str() {
-                    return Ok(s.to_string());
-                }
+            if let Some(val) = state_read.get(capability_name)
+                && let Some(s) = val.as_str()
+            {
+                return Ok(s.to_string());
             }
         }
 
@@ -995,15 +995,15 @@ impl GenericDriver {
             .ok_or_else(|| anyhow!("No exposure control capability configured"))?;
 
         // Validate range if specified
-        if let Some(min) = exposure_cap.min_seconds {
-            if seconds < min {
-                return Err(anyhow!("Exposure {} s is below minimum {} s", seconds, min));
-            }
+        if let Some(min) = exposure_cap.min_seconds
+            && seconds < min
+        {
+            return Err(anyhow!("Exposure {} s is below minimum {} s", seconds, min));
         }
-        if let Some(max) = exposure_cap.max_seconds {
-            if seconds > max {
-                return Err(anyhow!("Exposure {} s exceeds maximum {} s", seconds, max));
-            }
+        if let Some(max) = exposure_cap.max_seconds
+            && seconds > max
+        {
+            return Err(anyhow!("Exposure {} s exceeds maximum {} s", seconds, max));
         }
 
         if is_mocking {
@@ -1404,12 +1404,12 @@ impl GenericDriver {
 
         while self.is_streaming.load(std::sync::atomic::Ordering::SeqCst) {
             // Check frame limit
-            if let Some(limit) = frame_limit {
-                if frame_count >= limit {
-                    self.is_streaming
-                        .store(false, std::sync::atomic::Ordering::SeqCst);
-                    break;
-                }
+            if let Some(limit) = frame_limit
+                && frame_count >= limit
+            {
+                self.is_streaming
+                    .store(false, std::sync::atomic::Ordering::SeqCst);
+                break;
             }
 
             // Generate or acquire frame

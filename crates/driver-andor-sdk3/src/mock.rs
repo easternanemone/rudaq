@@ -26,8 +26,8 @@ use common::capabilities::{
 use common::data::{Frame, FrameView};
 use common::observable::ParameterSet;
 use common::parameter::Parameter;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use tokio::sync::Mutex;
 use tokio::time::Duration;
 

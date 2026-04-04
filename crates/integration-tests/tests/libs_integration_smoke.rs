@@ -46,8 +46,8 @@ use driver_andor_sdk3::AndorCamera;
 
 #[cfg(all(feature = "hardware_tests", feature = "libs_spirit_driver"))]
 use driver_spirit_laser::{
-    can::{SocketCanTransport, WindowsCanTransport},
     SpiritLaserDriver,
+    can::{SocketCanTransport, WindowsCanTransport},
 };
 
 // =============================================================================

@@ -329,8 +329,8 @@ fn jitter_ms(max_ms: u64) -> u64 {
 #[cfg(feature = "db-surreal-mem")]
 mod tests {
     use super::*;
-    use db::config_store::DbInstrument;
     use db::DbConfig;
+    use db::config_store::DbInstrument;
     use driver_mock::MockPowerMeterFactory;
 
     fn test_registry() -> DeviceRegistry {

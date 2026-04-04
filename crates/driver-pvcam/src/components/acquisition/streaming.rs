@@ -1,21 +1,21 @@
 //! Stream start/stop and mock streaming for PVCAM acquisition.
 
 #[cfg(feature = "pvcam_sdk")]
-use super::callback_context::SEQUENCE_BATCH_SIZE;
-#[cfg(feature = "pvcam_sdk")]
 use super::AcquisitionError;
 use super::PvcamAcquisition;
 use super::PvcamConnection;
 use super::StreamConfig;
 #[cfg(feature = "pvcam_sdk")]
-use super::{get_pvcam_error, PvcamFeatures};
-use anyhow::{anyhow, bail, Result};
+use super::callback_context::SEQUENCE_BATCH_SIZE;
+#[cfg(feature = "pvcam_sdk")]
+use super::{PvcamFeatures, get_pvcam_error};
+use anyhow::{Result, anyhow, bail};
 use common::core::Roi;
 use common::data::Frame;
 use common::parameter::Parameter;
 use pool::{FrameData, Pool};
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 use tokio::sync::MutexGuard;
 
@@ -25,7 +25,7 @@ use super::buffer::PageAlignedBuffer;
 use super::ffi_safe;
 #[cfg(feature = "pvcam_sdk")]
 use super::{
-    clear_global_callback_ctx, pvcam_eof_callback, set_global_callback_ctx, CallbackContext,
+    CallbackContext, clear_global_callback_ctx, pvcam_eof_callback, set_global_callback_ctx,
 };
 #[cfg(feature = "pvcam_sdk")]
 use pool::buffer_pool::BufferPool;
@@ -1192,7 +1192,7 @@ impl PvcamAcquisition {
                 }
 
                 // bd-5oss: Send through primary_tx if registered (pooled path)
-                if let (Some(ref p_tx), Some(ref pool)) = (&primary_tx, &frame_pool) {
+                if let (Some(p_tx), Some(pool)) = (&primary_tx, &frame_pool) {
                     if let Some(mut loaned_frame) = pool.try_acquire() {
                         let frame_data = loaned_frame.get_mut();
                         frame_data.width = binned_width;

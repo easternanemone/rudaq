@@ -83,11 +83,11 @@ use common::health::{DeviceHealth, DeviceHealthState};
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
-use tokio::sync::broadcast;
+use std::sync::atomic::{AtomicU32, Ordering};
 #[cfg(feature = "serial")]
 use tokio::sync::RwLock;
+use tokio::sync::broadcast;
 
 /// Event emitted when a device's health state changes.
 #[derive(Debug, Clone)]
@@ -1363,10 +1363,10 @@ impl DeviceRegistry {
             Ok(()) => {
                 // Success: restore restart_attempts on the fresh health state
                 // so the supervisor can still track the cumulative count.
-                if let Some(prev) = &preserved_health {
-                    if let Some(mut new_state) = self.device_health.get_mut(device_id) {
-                        new_state.restart_attempts = prev.restart_attempts;
-                    }
+                if let Some(prev) = &preserved_health
+                    && let Some(mut new_state) = self.device_health.get_mut(device_id)
+                {
+                    new_state.restart_attempts = prev.restart_attempts;
                 }
                 // Post-reconnection state refresh (bd-47p2): query all
                 // readable parameters from hardware to re-sync cached state.
@@ -1787,12 +1787,12 @@ impl DeviceRegistry {
         // Check for movable capability
         let movable: Option<Arc<dyn Movable>> = if plugin_config.capabilities.movable.is_some() {
             // Extract metadata from first axis
-            if let Some(movable_cap) = &plugin_config.capabilities.movable {
-                if let Some(first_axis) = movable_cap.axes.first() {
-                    metadata.position_units.clone_from(&first_axis.unit);
-                    metadata.min_position = first_axis.min;
-                    metadata.max_position = first_axis.max;
-                }
+            if let Some(movable_cap) = &plugin_config.capabilities.movable
+                && let Some(first_axis) = movable_cap.axes.first()
+            {
+                metadata.position_units.clone_from(&first_axis.unit);
+                metadata.min_position = first_axis.min;
+                metadata.max_position = first_axis.max;
             }
 
             // Create axis handle for the first axis (convention)
@@ -2352,7 +2352,7 @@ fn resolve_universal_factory_name(config: &toml::Value) -> Result<String, DaqErr
 #[allow(deprecated)]
 mod tests {
     use super::*;
-    use anyhow::{anyhow, Result};
+    use anyhow::{Result, anyhow};
 
     #[tokio::test]
     async fn test_register_mock_devices() {
@@ -2731,11 +2731,7 @@ initial_position = 0.0
             let fail = self.fail_on_unregister;
             Box::pin(async move {
                 counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                if fail {
-                    Err(anyhow!("boom"))
-                } else {
-                    Ok(())
-                }
+                if fail { Err(anyhow!("boom")) } else { Ok(()) }
             })
         }
     }
@@ -2928,13 +2924,17 @@ initial_position = 0.0
 
         // Verify device info includes all capabilities
         let device_info = registry.get_device_info("mock_camera").unwrap();
-        assert!(device_info
-            .capabilities
-            .contains(&Capability::FrameProducer));
+        assert!(
+            device_info
+                .capabilities
+                .contains(&Capability::FrameProducer)
+        );
         assert!(device_info.capabilities.contains(&Capability::Triggerable));
-        assert!(device_info
-            .capabilities
-            .contains(&Capability::ExposureControl));
+        assert!(
+            device_info
+                .capabilities
+                .contains(&Capability::ExposureControl)
+        );
         assert_eq!(device_info.driver_type, "mock_camera");
 
         // Test that we can get parameters (bd-pf31: use get_parameterized)

@@ -153,7 +153,7 @@ pub use continuous::{
     SinkReceiver,
 };
 pub use device::{
-    comedi_discover, ComediDevice, DeviceInfo, DiscoveredDevice, SubdeviceInfo, SubdeviceType,
+    ComediDevice, DeviceInfo, DiscoveredDevice, SubdeviceInfo, SubdeviceType, comedi_discover,
 };
 pub use error::{ComediError, Result};
 pub use hal::{
@@ -165,11 +165,11 @@ pub use streaming::{
     BackpressureMetrics, ChannelSpec, SharedStreamAcquisition, StopCondition, StreamAcquisition,
     StreamConfig, StreamConfigBuilder, StreamStats, TriggerSource,
 };
+pub use subsystem::Range;
 pub use subsystem::analog_input::{AnalogInput, AnalogInputConfig};
 pub use subsystem::analog_output::{AnalogOutput, AnalogOutputConfig};
 pub use subsystem::counter::{Counter, CounterMode};
 pub use subsystem::digital_io::{DigitalIO, DioDirection, DioPort};
-pub use subsystem::Range;
 pub use timing::{
     ClockPolarity, ClockSource, TimingCapabilities, TimingConfig, TimingConfigBuilder,
 };

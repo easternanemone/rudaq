@@ -520,7 +520,7 @@ mod tests {
     #[test]
     fn test_pipeline_on_simulated_arc() {
         use crate::calibration_pipeline::{
-            run_calibration_pipeline, CalibrationPipelineConfig, WavelengthSeed,
+            CalibrationPipelineConfig, WavelengthSeed, run_calibration_pipeline,
         };
         use crate::rectification::RectifyConfig;
         use crate::trace_fitting::TraceFitConfig;

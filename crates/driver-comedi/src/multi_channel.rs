@@ -36,11 +36,11 @@
 //! # }
 //! ```
 
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use parking_lot::Mutex;
 use tokio::task::{self, JoinHandle};
 use tracing::{debug, error, info, warn};

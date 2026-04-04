@@ -10,7 +10,7 @@ use protocol::ni_daq::ReadAnalogInputRequest;
 use std::collections::HashMap;
 use tokio::sync::mpsc;
 
-use crate::widgets::{offline_notice, OfflineContext};
+use crate::widgets::{OfflineContext, offline_notice};
 use client::DaqClient;
 
 use super::{AnalogReference, NI_VOLTAGE_RANGES};

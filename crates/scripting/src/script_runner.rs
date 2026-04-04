@@ -39,7 +39,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 // mpsc and watch channels used indirectly through YieldChannelBuilder
 use tracing::{debug, error, info, warn};
 
@@ -48,8 +48,8 @@ use experiment::plans::Plan;
 use experiment::plans_imperative::ImperativePlan;
 use experiment::run_engine::RunEngine;
 
-use crate::yield_handle::{YieldChannelBuilder, YieldResult, YieldedValue};
 use crate::RhaiEngine;
+use crate::yield_handle::{YieldChannelBuilder, YieldResult, YieldedValue};
 
 /// Report from a completed script execution
 #[derive(Debug, Clone)]

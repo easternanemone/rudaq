@@ -6,12 +6,12 @@ use crate::runtime::Runtime;
 use eframe::egui::{self, Color32, RichText, Ui};
 use tokio::sync::mpsc;
 
-use crate::widgets::{offline_notice, OfflineContext};
+use crate::widgets::{OfflineContext, offline_notice};
 use client::DaqClient;
 use protocol::ni_daq::{ReadCounterRequest, ResetCounterRequest};
 
-use super::counter_display::{CounterDisplaySender, CounterUpdate};
 use super::CounterMode;
+use super::counter_display::{CounterDisplaySender, CounterUpdate};
 
 /// Action results from async operations.
 #[derive(Debug)]

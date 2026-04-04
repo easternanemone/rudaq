@@ -1,7 +1,7 @@
 [package]
 name = "common-traits"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 description = "Capability traits, reactive parameters, and driver plugin API extracted from common"
 
 [dependencies]
@@ -23,7 +23,7 @@ hdf5 = { package = "hdf5-metno", version = "0.12.3", optional = true }
 tokio = { workspace = true, features = ["sync", "macros", "rt", "rt-multi-thread", "time"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-tokio = { workspace = true, default-features = false, features = ["sync", "macros"] }
+tokio = { workspace = true, default-features = false, features = ["sync", "macros", "rt"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "macros", "test-util"] }

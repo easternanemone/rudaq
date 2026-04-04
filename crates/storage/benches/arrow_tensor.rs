@@ -9,7 +9,7 @@
 //!   - Scalar-only baseline for comparison
 
 use bytes::Bytes;
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use std::collections::HashMap;
 
 use common::experiment::document::{DataKey, DescriptorDoc, Document, EventDoc, StartDoc, StopDoc};

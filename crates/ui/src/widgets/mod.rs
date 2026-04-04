@@ -51,4 +51,4 @@ pub use status_bar::*;
 pub use toast::*;
 
 #[allow(unused_imports)]
-pub use adaptive_alert::{show_adaptive_alert, AdaptiveAlertData, AdaptiveAlertResponse};
+pub use adaptive_alert::{AdaptiveAlertData, AdaptiveAlertResponse, show_adaptive_alert};

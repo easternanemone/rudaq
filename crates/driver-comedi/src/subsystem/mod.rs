@@ -59,7 +59,8 @@ impl Range {
             return None;
         }
 
-        let range = &*ptr;
+        // SAFETY: ptr is non-null (checked above) and points to a valid comedi_range
+        let range = unsafe { &*ptr };
         Some(Self {
             index,
             min: range.min,

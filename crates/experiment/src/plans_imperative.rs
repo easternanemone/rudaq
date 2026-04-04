@@ -222,11 +222,7 @@ impl Plan for ImperativePlan {
 
     fn num_points(&self) -> usize {
         // Imperative plans are typically single-shot
-        if self.emit_event {
-            1
-        } else {
-            0
-        }
+        if self.emit_event { 1 } else { 0 }
     }
 
     fn next_command(&mut self) -> Option<PlanCommand> {

@@ -6,8 +6,8 @@ use common::capabilities::Settable;
 use parking_lot::RwLock;
 use serde_json::Value;
 
-use crate::subsystem::analog_output::AnalogOutput;
 use crate::subsystem::Range;
+use crate::subsystem::analog_output::AnalogOutput;
 
 /// A wrapper that implements [`Settable`] for a Comedi analog output subsystem.
 ///

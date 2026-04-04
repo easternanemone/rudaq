@@ -145,10 +145,10 @@ fn platform_default_data_path() -> PathBuf {
     #[cfg(target_os = "linux")]
     {
         // Respect XDG_DATA_HOME if set
-        if let Ok(xdg) = std::env::var("XDG_DATA_HOME") {
-            if !xdg.is_empty() {
-                return PathBuf::from(xdg).join("daq").join("data");
-            }
+        if let Ok(xdg) = std::env::var("XDG_DATA_HOME")
+            && !xdg.is_empty()
+        {
+            return PathBuf::from(xdg).join("daq").join("data");
         }
         if let Some(home) = home_dir() {
             return home.join(".local").join("share").join("daq").join("data");
@@ -178,6 +178,7 @@ fn home_dir() -> Option<PathBuf> {
 }
 
 #[cfg(test)]
+#[allow(unsafe_code)] // edition 2024: env::set_var/remove_var require unsafe
 mod tests {
     use super::*;
 
@@ -205,9 +206,13 @@ mod tests {
 
     impl Drop for EnvGuard {
         fn drop(&mut self) {
-            match &self.original {
-                Some(val) => std::env::set_var(DAQ_DATA_PATH_ENV, val),
-                None => std::env::remove_var(DAQ_DATA_PATH_ENV),
+            // SAFETY: Tests using EnvGuard hold ENV_LOCK, ensuring single-threaded
+            // access to environment variables within this test module.
+            unsafe {
+                match &self.original {
+                    Some(val) => std::env::set_var(DAQ_DATA_PATH_ENV, val),
+                    None => std::env::remove_var(DAQ_DATA_PATH_ENV),
+                }
             }
         }
     }
@@ -232,7 +237,8 @@ mod tests {
     fn test_from_env_with_var() {
         let (_lock, _env) = EnvGuard::lock();
 
-        std::env::set_var(DAQ_DATA_PATH_ENV, "/env/data/path");
+        // SAFETY: Test holds ENV_LOCK via EnvGuard, ensuring exclusive access.
+        unsafe { std::env::set_var(DAQ_DATA_PATH_ENV, "/env/data/path") };
         let config = StorageConfig::from_env();
         assert_eq!(config.data_path(), Path::new("/env/data/path"));
     }
@@ -241,7 +247,8 @@ mod tests {
     fn test_from_env_empty_var_uses_default() {
         let (_lock, _env) = EnvGuard::lock();
 
-        std::env::set_var(DAQ_DATA_PATH_ENV, "");
+        // SAFETY: Test holds ENV_LOCK via EnvGuard, ensuring exclusive access.
+        unsafe { std::env::set_var(DAQ_DATA_PATH_ENV, "") };
         let config = StorageConfig::from_env();
         // Should not be empty -- should fall back to platform default
         assert!(!config.data_path().as_os_str().is_empty());
@@ -250,7 +257,8 @@ mod tests {
     #[test]
     fn test_default_is_from_env() {
         let (_lock, _env) = EnvGuard::lock();
-        std::env::remove_var(DAQ_DATA_PATH_ENV);
+        // SAFETY: Test holds ENV_LOCK via EnvGuard, ensuring exclusive access.
+        unsafe { std::env::remove_var(DAQ_DATA_PATH_ENV) };
 
         let default_config = StorageConfig::default();
         let env_config = StorageConfig::from_env();

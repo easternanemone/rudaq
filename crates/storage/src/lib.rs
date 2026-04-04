@@ -89,8 +89,8 @@ pub use config::StorageConfig;
 pub use document_sink::DocumentSink;
 pub use document_writer::DocumentWriter;
 #[cfg(feature = "storage_hdf5")]
-pub use hdf5_annotation::{add_run_annotation, read_run_annotations, RunAnnotation};
-pub use hdf5_recovery::{recover_hdf5, RecoveryError, RecoveryReport};
+pub use hdf5_annotation::{RunAnnotation, add_run_annotation, read_run_annotations};
+pub use hdf5_recovery::{RecoveryError, RecoveryReport, recover_hdf5};
 pub use hdf5_writer::{HDF5Writer, Hdf5Metrics};
 pub use ring_buffer::{AsyncRingBuffer, RingBuffer};
 pub use ring_buffer_reader::{ReaderStats, RingBufferReader};
@@ -99,7 +99,7 @@ pub use ring_buffer_reader::{ReaderStats, RingBufferReader};
 pub use arrow_writer::ParquetDocumentWriter;
 #[cfg(feature = "storage_arrow")]
 pub use arrow_writer::{
-    read_tensor_shape, ArrowDocumentWriter, TENSOR_DIM_NAMES_KEY, TENSOR_SHAPE_KEY,
+    ArrowDocumentWriter, TENSOR_DIM_NAMES_KEY, TENSOR_SHAPE_KEY, read_tensor_shape,
 };
 #[cfg(feature = "storage_parquet")]
 pub use parquet_writer::{ParquetCompression, ParquetWriter, ParquetWriterConfig};

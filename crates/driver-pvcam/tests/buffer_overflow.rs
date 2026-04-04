@@ -23,11 +23,11 @@ mod common;
 
 use common::circ_buffer_fixtures::*;
 use pvcam_sys::*;
-use std::alloc::{alloc_zeroed, dealloc, Layout};
-use std::ffi::{c_void, CStr, CString};
+use std::alloc::{Layout, alloc_zeroed, dealloc};
+use std::ffi::{CStr, CString, c_void};
 use std::ptr;
-use std::sync::atomic::AtomicI16;
 use std::sync::Arc;
+use std::sync::atomic::AtomicI16;
 
 #[tokio::test]
 #[ignore] // Requires physical PVCAM hardware — run with --ignored on maitai
@@ -678,7 +678,9 @@ async fn test_circ_buffer_capabilities() {
                     );
 
                     if start_result != 0 {
-                        println!("[OK] pl_exp_start_cont with 4KB ALIGNED buffer + CIRC_OVERWRITE succeeded!");
+                        println!(
+                            "[OK] pl_exp_start_cont with 4KB ALIGNED buffer + CIRC_OVERWRITE succeeded!"
+                        );
                         println!("\n*** 4KB ALIGNMENT WORKS! ***");
                         println!("*** SOLUTION: Use 4KB aligned buffers for CIRC_OVERWRITE! ***\n");
                         pl_exp_abort(hcam, CCS_HALT);

@@ -23,7 +23,7 @@ use serde_valid::validation::Error as ValidationError;
 /// * `Ok(())` if pattern is None or a valid regex
 /// * `Err(ValidationError)` if pattern is invalid
 pub fn validate_regex_pattern(pattern: &Option<String>) -> Result<(), ValidationError> {
-    if let Some(ref p) = pattern {
+    if let Some(p) = pattern {
         validate_regex_string(p)?;
     }
     Ok(())
@@ -109,13 +109,13 @@ pub fn validate_timeout_ms(timeout_ms: u32) -> Result<(), ValidationError> {
 
 /// Validate that a numeric range is valid (min <= max).
 pub fn validate_range(range: &Option<(f64, f64)>) -> Result<(), ValidationError> {
-    if let Some((min, max)) = range {
-        if min > max {
-            return Err(ValidationError::Custom(format!(
-                "Invalid range: min ({}) is greater than max ({})",
-                min, max
-            )));
-        }
+    if let Some((min, max)) = range
+        && min > max
+    {
+        return Err(ValidationError::Custom(format!(
+            "Invalid range: min ({}) is greater than max ({})",
+            min, max
+        )));
     }
     Ok(())
 }
@@ -131,13 +131,13 @@ pub fn validate_device_config(
 
     // Validate all regex patterns in responses
     for (name, response) in &config.responses {
-        if let Some(ref pattern) = response.pattern {
-            if let Err(e) = validate_regex_string(pattern) {
-                errors.push(ValidationError::Custom(format!(
-                    "Response '{}': {}",
-                    name, e
-                )));
-            }
+        if let Some(ref pattern) = response.pattern
+            && let Err(e) = validate_regex_string(pattern)
+        {
+            errors.push(ValidationError::Custom(format!(
+                "Response '{}': {}",
+                name, e
+            )));
         }
     }
 
@@ -165,45 +165,45 @@ pub fn validate_device_config(
     for (name, mapping) in &config.trait_mapping {
         for (method_name, method) in &mapping.methods {
             // Check command exists if specified (polling-only methods may not have a command)
-            if let Some(ref command) = method.command {
-                if !config.commands.contains_key(command) {
-                    errors.push(ValidationError::Custom(format!(
-                        "Trait mapping '{}.{}': references non-existent command '{}'",
-                        name, method_name, command
-                    )));
-                }
+            if let Some(ref command) = method.command
+                && !config.commands.contains_key(command)
+            {
+                errors.push(ValidationError::Custom(format!(
+                    "Trait mapping '{}.{}': references non-existent command '{}'",
+                    name, method_name, command
+                )));
             }
 
             // Check conversion exists if referenced
-            if let Some(ref conv) = method.input_conversion {
-                if !config.conversions.contains_key(conv) {
-                    errors.push(ValidationError::Custom(format!(
-                        "Trait mapping '{}.{}': references non-existent conversion '{}'",
-                        name, method_name, conv
-                    )));
-                }
+            if let Some(ref conv) = method.input_conversion
+                && !config.conversions.contains_key(conv)
+            {
+                errors.push(ValidationError::Custom(format!(
+                    "Trait mapping '{}.{}': references non-existent conversion '{}'",
+                    name, method_name, conv
+                )));
             }
 
-            if let Some(ref conv) = method.output_conversion {
-                if !config.conversions.contains_key(conv) {
-                    errors.push(ValidationError::Custom(format!(
-                        "Trait mapping '{}.{}': references non-existent conversion '{}'",
-                        name, method_name, conv
-                    )));
-                }
+            if let Some(ref conv) = method.output_conversion
+                && !config.conversions.contains_key(conv)
+            {
+                errors.push(ValidationError::Custom(format!(
+                    "Trait mapping '{}.{}': references non-existent conversion '{}'",
+                    name, method_name, conv
+                )));
             }
         }
     }
 
     // Validate command response references
     for (name, cmd) in &config.commands {
-        if let Some(ref response_name) = cmd.response {
-            if !config.responses.contains_key(response_name) {
-                errors.push(ValidationError::Custom(format!(
-                    "Command '{}': references non-existent response '{}'",
-                    name, response_name
-                )));
-            }
+        if let Some(ref response_name) = cmd.response
+            && !config.responses.contains_key(response_name)
+        {
+            errors.push(ValidationError::Custom(format!(
+                "Command '{}': references non-existent response '{}'",
+                name, response_name
+            )));
         }
     }
 

@@ -167,7 +167,9 @@ impl FrameData {
             self.pixels.capacity()
         );
 
-        std::ptr::copy_nonoverlapping(src, self.pixels.as_mut_ptr(), len);
+        // SAFETY: src is valid for `len` bytes (caller contract), dst has sufficient capacity
+        // (asserted above), and regions don't overlap.
+        unsafe { std::ptr::copy_nonoverlapping(src, self.pixels.as_mut_ptr(), len) };
         self.actual_len = len;
     }
 }

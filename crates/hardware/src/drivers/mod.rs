@@ -20,7 +20,7 @@ pub mod binary_protocol;
 pub use binary_protocol::{BinaryFrameBuilder, BinaryResponseParser, ParsedValue};
 
 #[cfg(feature = "binary_protocol")]
-pub use binary_protocol::{calculate_crc, validate_crc, CrcValue};
+pub use binary_protocol::{CrcValue, calculate_crc, validate_crc};
 
 /// Mock drivers for testing (legacy module, re-exports from driver-mock)
 pub mod mock;

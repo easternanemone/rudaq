@@ -21,8 +21,8 @@
 
 // Re-export all public items from driver-mock
 pub use driver_mock::{
-    generate_test_pattern, MockCamera, MockCameraFactory, MockPowerMeter, MockPowerMeterFactory,
-    MockStage, MockStageFactory,
+    MockCamera, MockCameraFactory, MockPowerMeter, MockPowerMeterFactory, MockStage,
+    MockStageFactory, generate_test_pattern,
 };
 
 #[cfg(test)]

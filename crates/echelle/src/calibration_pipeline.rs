@@ -28,10 +28,10 @@ use std::sync::Arc;
 
 use chrono::Utc;
 
-use crate::optimal_extraction::{optimal_extract, OptimalExtractionConfig};
-use crate::rectification::{rectify_order, OrderSpec, RectifyConfig};
-use crate::scattered_light::{subtract_scattered_light, ScatteredLightConfig, TraceInfo};
-use crate::trace_fitting::{detect_orders, OrderTrace, TraceFitConfig};
+use crate::optimal_extraction::{OptimalExtractionConfig, optimal_extract};
+use crate::rectification::{OrderSpec, RectifyConfig, rectify_order};
+use crate::scattered_light::{ScatteredLightConfig, TraceInfo, subtract_scattered_light};
+use crate::trace_fitting::{OrderTrace, TraceFitConfig, detect_orders};
 use crate::types::{
     AxisDirection, DetectorAxis, EchelleCalibrationProfile, EchelleCorrections,
     EchelleExtractionConfig, EchelleFrameCompatibility, EchelleOrderCalibration,
@@ -39,9 +39,9 @@ use crate::types::{
     EchelleWavelengthModel, PolynomialBasis,
 };
 use crate::wavelength_fitting::{
+    ArcDetectConfig, ArcLine, AtlasLine, OrderWlSolution, TwoPhaseMatchConfig, WlFitConfig,
     detect_arc_lines, fit_order_wavelength, match_lines_to_atlas, match_lines_two_phase,
-    merge_arc_lines_hdr, ArcDetectConfig, ArcLine, AtlasLine, OrderWlSolution, TwoPhaseMatchConfig,
-    WlFitConfig,
+    merge_arc_lines_hdr,
 };
 
 // ─── Configuration ───────────────────────────────────────────────────────────
@@ -284,16 +284,16 @@ fn run_calibration_pipeline_impl(
     }
 
     // Validate flat frame dimensions if provided.
-    if let Some(flat) = flat_frame {
-        if flat.len() < w * h {
-            return Err(format!(
-                "flat frame too small: {} pixels for {}x{} = {}",
-                flat.len(),
-                width,
-                height,
-                w * h
-            ));
-        }
+    if let Some(flat) = flat_frame
+        && flat.len() < w * h
+    {
+        return Err(format!(
+            "flat frame too small: {} pixels for {}x{} = {}",
+            flat.len(),
+            width,
+            height,
+            w * h
+        ));
     }
 
     for (i, ex) in config.hdr_extra_arc_frames.iter().enumerate() {
@@ -550,15 +550,15 @@ fn run_calibration_pipeline_impl(
             wl_solution: None,
         });
 
-        if final_diag.success {
-            if let Some(ref sol) = final_diag.wl_solution {
-                let order_cal = build_order_calibration(trace, sol, oi, width, grating_constant_nm);
-                eprintln!(
-                    "Pass 1: Order {} matched physical order {:?}",
-                    oi, order_cal.physical_order_number
-                );
-                order_calibrations.push(order_cal);
-            }
+        if final_diag.success
+            && let Some(ref sol) = final_diag.wl_solution
+        {
+            let order_cal = build_order_calibration(trace, sol, oi, width, grating_constant_nm);
+            eprintln!(
+                "Pass 1: Order {} matched physical order {:?}",
+                oi, order_cal.physical_order_number
+            );
+            order_calibrations.push(order_cal);
         }
 
         diagnostics.push(final_diag);
@@ -625,15 +625,15 @@ fn run_calibration_pipeline_impl(
                     Some(&tp_config_p2),
                 );
 
-                if diag.success {
-                    if let Some(ref sol) = diag.wl_solution {
-                        let order_cal = build_order_calibration(trace, sol, oi, width, Some(gc));
-                        eprintln!(
-                            "Pass 2: Order {} matched physical order {:?}",
-                            oi, order_cal.physical_order_number
-                        );
-                        order_calibrations.push(order_cal);
-                    }
+                if diag.success
+                    && let Some(ref sol) = diag.wl_solution
+                {
+                    let order_cal = build_order_calibration(trace, sol, oi, width, Some(gc));
+                    eprintln!(
+                        "Pass 2: Order {} matched physical order {:?}",
+                        oi, order_cal.physical_order_number
+                    );
+                    order_calibrations.push(order_cal);
                 }
                 diagnostics[order_idx] = diag;
             }
@@ -669,16 +669,16 @@ fn run_calibration_pipeline_impl(
     {
         let mut seen_m: std::collections::HashSet<i32> = std::collections::HashSet::new();
         for cal in &mut order_calibrations {
-            if let Some(m) = cal.physical_order_number {
-                if !seen_m.insert(m) {
-                    eprintln!(
-                        "Deduplicator: Clearing order {} because physical order {} is duplicate",
-                        cal.relative_index, m
-                    );
-                    cal.physical_order_number = None;
-                    if let Some(notes) = cal.notes.as_mut() {
-                        notes.push_str(" [physical_order_number cleared: duplicate]");
-                    }
+            if let Some(m) = cal.physical_order_number
+                && !seen_m.insert(m)
+            {
+                eprintln!(
+                    "Deduplicator: Clearing order {} because physical order {} is duplicate",
+                    cal.relative_index, m
+                );
+                cal.physical_order_number = None;
+                if let Some(notes) = cal.notes.as_mut() {
+                    notes.push_str(" [physical_order_number cleared: duplicate]");
                 }
             }
         }
@@ -2567,12 +2567,12 @@ mod tests {
         {
             let mut seen_m: std::collections::HashSet<i32> = std::collections::HashSet::new();
             for cal in &mut cals {
-                if let Some(m) = cal.physical_order_number {
-                    if !seen_m.insert(m) {
-                        cal.physical_order_number = None;
-                        if let Some(ref mut notes) = cal.notes {
-                            notes.push_str(" [physical_order_number cleared: duplicate]");
-                        }
+                if let Some(m) = cal.physical_order_number
+                    && !seen_m.insert(m)
+                {
+                    cal.physical_order_number = None;
+                    if let Some(ref mut notes) = cal.notes {
+                        notes.push_str(" [physical_order_number cleared: duplicate]");
                     }
                 }
             }
