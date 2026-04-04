@@ -761,7 +761,7 @@ impl Plan for Count {
                 self.current_step = CountStep::Read { detector_idx: 0 };
                 if let Some(det) = self.detectors.first() {
                     PlanCommand::Trigger {
-                        device_id: det.clone(),
+                        device_id: DeviceId::from(det.as_str()),
                     }
                 } else {
                     self.current_step = CountStep::Emit;
@@ -775,7 +775,7 @@ impl Plan for Count {
                         detector_idx: detector_idx + 1,
                     };
                     PlanCommand::Read {
-                        device_id: det.clone(),
+                        device_id: DeviceId::from(det.as_str()),
                     }
                 } else {
                     self.current_step = CountStep::Emit;
