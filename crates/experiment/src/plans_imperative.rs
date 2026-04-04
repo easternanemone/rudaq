@@ -122,17 +122,17 @@ impl ImperativePlan {
 
     /// Create an ImperativePlan for a parameter set command
     pub fn set_parameter(
-        device_id: impl Into<String>,
+        device_id: impl Into<DeviceId>,
         parameter: impl Into<String>,
         value: impl Into<String>,
     ) -> Self {
-        let device = device_id.into();
+        let device: DeviceId = device_id.into();
         Self::new(vec![PlanCommand::Set {
             device_id: device.clone(),
             parameter: parameter.into(),
             value: value.into(),
         }])
-        .with_primary_device(device)
+        .with_primary_device(device.to_string())
     }
 
     /// Set whether to emit an event after commands complete
