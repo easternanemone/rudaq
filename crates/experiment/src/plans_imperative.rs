@@ -87,32 +87,32 @@ impl ImperativePlan {
     }
 
     /// Create an ImperativePlan for a single move command
-    pub fn move_to(device_id: impl Into<String>, position: f64) -> Self {
-        let device = device_id.into();
+    pub fn move_to(device_id: impl Into<DeviceId>, position: f64) -> Self {
+        let device: DeviceId = device_id.into();
         Self::new(vec![PlanCommand::MoveTo {
             device_id: device.clone(),
             position,
         }])
-        .with_primary_device(device)
+        .with_primary_device(device.to_string())
     }
 
     /// Create an ImperativePlan for a single read command
-    pub fn read(device_id: impl Into<String>) -> Self {
-        let device = device_id.into();
+    pub fn read(device_id: impl Into<DeviceId>) -> Self {
+        let device: DeviceId = device_id.into();
         Self::new(vec![PlanCommand::Read {
             device_id: device.clone(),
         }])
-        .with_primary_device(device)
+        .with_primary_device(device.to_string())
         .with_emit_event(true) // Reads typically want event emission
     }
 
     /// Create an ImperativePlan for a single trigger command
-    pub fn trigger(device_id: impl Into<String>) -> Self {
-        let device = device_id.into();
+    pub fn trigger(device_id: impl Into<DeviceId>) -> Self {
+        let device: DeviceId = device_id.into();
         Self::new(vec![PlanCommand::Trigger {
             device_id: device.clone(),
         }])
-        .with_primary_device(device)
+        .with_primary_device(device.to_string())
     }
 
     /// Create an ImperativePlan for a wait command
