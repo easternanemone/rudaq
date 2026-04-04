@@ -49,16 +49,7 @@ pub fn compress_frame_into(frame: &mut FrameData, buffer: &mut Vec<u8>) {
     // 4-byte LE size prefix + worst-case compressed output
     let max_compressed = lz4_flex::block::get_maximum_output_size(frame.data.len());
     let required = 4 + max_compressed;
-    buffer.reserve(required.saturating_sub(buffer.len()));
-    // SAFETY: The entire buffer[..required] range is immediately overwritten:
-    // - bytes 0..4 by copy_from_slice (size prefix)
-    // - bytes 4..required by lz4_flex::compress_into (compressed payload)
-    // The buffer is then truncated to the actual compressed length.
-    // No uninitialized memory is ever read.
-    #[allow(clippy::uninit_vec, unsafe_code)]
-    unsafe {
-        buffer.set_len(required);
-    }
+    buffer.resize(required, 0);
 
     // Write uncompressed size as 4-byte LE prefix (same format as compress_prepend_size)
     #[allow(clippy::cast_possible_truncation)]

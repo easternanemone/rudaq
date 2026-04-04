@@ -226,25 +226,6 @@ pub(super) fn monitor_parameter<T: std::fmt::Display + Clone + Send + Sync + 'st
     });
 }
 
-/// Map anyhow errors to gRPC Status, preferring structured DaqError mapping.
-///
-/// Scans the full error chain so that `anyhow::Context` wrappers don't hide
-/// structured errors (`DaqError`, `DriverError`, `StorageError`).
-pub(super) fn map_anyhow_error_to_status(err: AnyError) -> Status {
-    for cause in err.chain() {
-        if let Some(daq_err) = cause.downcast_ref::<DaqError>() {
-            return map_daq_error_to_status(daq_err);
-        }
-        if let Some(driver_err) = cause.downcast_ref::<DriverError>() {
-            return map_daq_error_to_status(&DaqError::Driver(driver_err.clone()));
-        }
-        if let Some(storage_err) = cause.downcast_ref::<StorageError>() {
-            return map_daq_error_to_status(&DaqError::Storage(storage_err.clone()));
-        }
-    }
-    map_hardware_error_to_status(&err.to_string())
-}
-
 /// Map hardware errors to canonical gRPC Status codes
 ///
 /// This function provides consistent error semantics across all hardware RPCs.
