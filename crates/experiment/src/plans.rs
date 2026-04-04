@@ -756,13 +756,12 @@ impl Plan for Count {
             }
             CountStep::Trigger => {
                 self.current_step = CountStep::Read { detector_idx: 0 };
-                if let Some(det) = self.detectors.first() {
-                    PlanCommand::Trigger {
-                        device_id: det.clone(),
-                    }
-                } else {
+                let Some(det) = self.detectors.first() else {
                     self.current_step = CountStep::Emit;
                     return self.next_command();
+                };
+                PlanCommand::Trigger {
+                    device_id: det.clone(),
                 }
             }
             CountStep::Read { detector_idx } => {
