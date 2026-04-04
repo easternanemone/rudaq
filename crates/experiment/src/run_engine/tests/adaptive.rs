@@ -5,6 +5,8 @@ use std::sync::Arc;
 
 use tokio::time::Duration;
 
+use common::device_id::DeviceId;
+
 use super::super::*;
 use super::helpers::{make_readable_registry, make_two_readable_registry};
 use crate::feedback::FeedbackEvent;
