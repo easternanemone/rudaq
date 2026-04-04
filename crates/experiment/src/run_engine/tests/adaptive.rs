@@ -128,7 +128,7 @@ async fn test_adapt_scan_point_decisions() {
 
     // StabilityReached should return None.
     let stability_event = FeedbackEvent::StabilityReached {
-        device_id: "det".to_string(),
+        device_id: "det".into(),
         field: "value".to_string(),
         variance: 0.001,
     };
