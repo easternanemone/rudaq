@@ -1511,7 +1511,7 @@ mod tests {
     #[test]
     fn test_serde_round_trip_eval_condition_variants() {
         let threshold = EvalCondition::Threshold {
-            device_id: "det".to_string(),
+            device_id: "det".into(),
             field: "intensity".to_string(),
             threshold: 42.0,
             above: false,
