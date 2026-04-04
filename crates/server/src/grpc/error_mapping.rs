@@ -140,180 +140,227 @@ pub fn anyhow_to_status(err: anyhow::Error) -> Status {
 /// ```
 pub fn map_daq_error_to_status(err: DaqError) -> Status {
     match err {
-        // Configuration errors → InvalidArgument
+        // Configuration errors -> InvalidArgument
         // Client provided bad configuration that cannot be accepted
-        DaqError::Config(e) => Status::new(Code::InvalidArgument, format!("Config error: {}", e)),
-        DaqError::Configuration(msg) => Status::new(
+        DaqError::Config(e) => {
+            status_with_metadata(Code::InvalidArgument, format!("Config error: {e}"), "config", None)
+        }
+        DaqError::Configuration(msg) => status_with_metadata(
             Code::InvalidArgument,
-            format!("Configuration error: {}", msg),
+            format!("Configuration error: {msg}"),
+            "configuration",
+            None,
         ),
 
-        // Hardware/connection errors → Unavailable
+        // Hardware/connection errors -> Unavailable
         // Resource is temporarily unavailable, client may retry
         DaqError::Instrument(msg) => status_with_metadata(
             Code::Unavailable,
-            format!("Instrument error: {}", msg),
+            format!("Instrument error: {msg}"),
             "instrument",
             None,
         ),
-        DaqError::Driver(ref err) => match err.kind {
-            common::error::DriverErrorKind::Configuration
-            | common::error::DriverErrorKind::InvalidParameter => {
-                status_with_metadata(Code::InvalidArgument, err.to_string(), "driver", Some(err))
-            }
-            common::error::DriverErrorKind::Initialization => status_with_metadata(
-                Code::FailedPrecondition,
-                err.to_string(),
-                "driver",
-                Some(err),
-            ),
-            common::error::DriverErrorKind::Communication
-            | common::error::DriverErrorKind::Hardware => {
-                status_with_metadata(Code::Unavailable, err.to_string(), "driver", Some(err))
-            }
-            common::error::DriverErrorKind::Timeout => {
-                status_with_metadata(Code::DeadlineExceeded, err.to_string(), "driver", Some(err))
-            }
-            common::error::DriverErrorKind::Permission => {
-                status_with_metadata(Code::PermissionDenied, err.to_string(), "driver", Some(err))
-            }
-            common::error::DriverErrorKind::Busy => {
-                status_with_metadata(Code::Unavailable, err.to_string(), "driver", Some(err))
-            }
-            common::error::DriverErrorKind::NotFound => {
-                status_with_metadata(Code::NotFound, err.to_string(), "driver", Some(err))
-            }
-            common::error::DriverErrorKind::Safety => status_with_metadata(
-                Code::FailedPrecondition,
-                err.to_string(),
-                "driver",
-                Some(err),
-            ),
-            common::error::DriverErrorKind::Shutdown | common::error::DriverErrorKind::Unknown => {
-                status_with_metadata(Code::Internal, err.to_string(), "driver", Some(err))
-            }
-        },
-        DaqError::SerialPortNotConnected => {
-            Status::new(Code::Unavailable, "Serial port not connected")
+        DaqError::Driver(ref driver_err) => {
+            use common::error::DriverErrorKind;
+            let code = match driver_err.kind {
+                DriverErrorKind::Configuration | DriverErrorKind::InvalidParameter => {
+                    Code::InvalidArgument
+                }
+                DriverErrorKind::Initialization | DriverErrorKind::Safety => {
+                    Code::FailedPrecondition
+                }
+                DriverErrorKind::Communication
+                | DriverErrorKind::Hardware
+                | DriverErrorKind::Busy => Code::Unavailable,
+                DriverErrorKind::Timeout => Code::DeadlineExceeded,
+                DriverErrorKind::Permission => Code::PermissionDenied,
+                DriverErrorKind::NotFound => Code::NotFound,
+                DriverErrorKind::Shutdown | DriverErrorKind::Unknown => Code::Internal,
+            };
+            status_with_metadata(code, driver_err.to_string(), "driver", Some(driver_err))
         }
-        DaqError::ModuleBusyDuringOperation => {
-            Status::new(Code::Unavailable, "Module busy during operation")
-        }
+        DaqError::SerialPortNotConnected => status_with_metadata(
+            Code::Unavailable,
+            "Serial port not connected",
+            "serial",
+            None,
+        ),
+        DaqError::ModuleBusyDuringOperation => status_with_metadata(
+            Code::Unavailable,
+            "Module busy during operation",
+            "module_busy",
+            None,
+        ),
 
         // Serial protocol errors
-        DaqError::SerialUnexpectedEof => {
-            Status::new(Code::Aborted, "Serial communication: unexpected EOF")
-        }
-        DaqError::SerialFeatureDisabled => {
-            Status::new(Code::Unimplemented, "Serial feature is disabled")
-        }
+        DaqError::SerialUnexpectedEof => status_with_metadata(
+            Code::Aborted,
+            "Serial communication: unexpected EOF",
+            "serial_eof",
+            None,
+        ),
+        DaqError::SerialFeatureDisabled => status_with_metadata(
+            Code::Unimplemented,
+            "Serial feature is disabled",
+            "serial_disabled",
+            None,
+        ),
 
-        // Resource limit errors → ResourceExhausted
+        // Resource limit errors -> ResourceExhausted
         DaqError::FrameDimensionsTooLarge {
             width,
             height,
             max_dimension,
-        } => Status::new(
+        } => status_with_metadata(
             Code::ResourceExhausted,
-            format!(
-                "Frame dimensions {}x{} exceed maximum {}",
-                width, height, max_dimension
-            ),
+            format!("Frame dimensions {width}x{height} exceed maximum {max_dimension}"),
+            "frame_dimensions",
+            None,
         ),
-        DaqError::FrameTooLarge { bytes, max_bytes } => Status::new(
+        DaqError::FrameTooLarge { bytes, max_bytes } => status_with_metadata(
             Code::ResourceExhausted,
-            format!("Frame size {} bytes exceeds maximum {}", bytes, max_bytes),
+            format!("Frame size {bytes} bytes exceeds maximum {max_bytes}"),
+            "frame_too_large",
+            None,
         ),
-        DaqError::ResponseTooLarge { bytes, max_bytes } => Status::new(
+        DaqError::ResponseTooLarge { bytes, max_bytes } => status_with_metadata(
             Code::ResourceExhausted,
-            format!(
-                "Response size {} bytes exceeds maximum {}",
-                bytes, max_bytes
-            ),
+            format!("Response size {bytes} bytes exceeds maximum {max_bytes}"),
+            "response_too_large",
+            None,
         ),
-        DaqError::ScriptTooLarge { bytes, max_bytes } => Status::new(
+        DaqError::ScriptTooLarge { bytes, max_bytes } => status_with_metadata(
             Code::ResourceExhausted,
-            format!("Script size {} bytes exceeds maximum {}", bytes, max_bytes),
+            format!("Script size {bytes} bytes exceeds maximum {max_bytes}"),
+            "script_too_large",
+            None,
         ),
-        DaqError::SizeOverflow { context } => Status::new(
+        DaqError::SizeOverflow { context } => status_with_metadata(
             Code::ResourceExhausted,
-            format!("Size overflow in {}", context),
+            format!("Size overflow in {context}"),
+            "size_overflow",
+            None,
         ),
 
-        // Module state errors → FailedPrecondition or Unimplemented
-        DaqError::ModuleOperationNotSupported(op) => Status::new(
+        // Module state errors -> FailedPrecondition or Unimplemented
+        DaqError::ModuleOperationNotSupported(op) => status_with_metadata(
             Code::Unimplemented,
-            format!("Operation not supported: {}", op),
+            format!("Operation not supported: {op}"),
+            "module_unsupported",
+            None,
         ),
-        DaqError::CameraNotAssigned => {
-            Status::new(Code::FailedPrecondition, "Camera not assigned to module")
-        }
-
-        // Feature availability → Unimplemented
-        DaqError::FeatureNotEnabled(feature) => Status::new(
-            Code::Unimplemented,
-            format!("Feature not enabled: {}", feature),
-        ),
-        DaqError::FeatureIncomplete(feature, reason) => Status::new(
-            Code::Unimplemented,
-            format!("Feature '{}' incomplete: {}", feature, reason),
+        DaqError::CameraNotAssigned => status_with_metadata(
+            Code::FailedPrecondition,
+            "Camera not assigned to module",
+            "camera_not_assigned",
+            None,
         ),
 
-        // Shutdown errors → Internal (aggregated failures)
+        // Feature availability -> Unimplemented
+        DaqError::FeatureNotEnabled(feature) => status_with_metadata(
+            Code::Unimplemented,
+            format!("Feature not enabled: {feature}"),
+            "feature_not_enabled",
+            None,
+        ),
+        DaqError::FeatureIncomplete(feature, reason) => status_with_metadata(
+            Code::Unimplemented,
+            format!("Feature '{feature}' incomplete: {reason}"),
+            "feature_incomplete",
+            None,
+        ),
+
+        // Shutdown errors -> Internal (aggregated failures)
         DaqError::ShutdownFailed(errors) => {
             let messages: Vec<String> = errors.into_iter().map(|e| e.to_string()).collect();
-            Status::new(
+            status_with_metadata(
                 Code::Internal,
                 format!("Shutdown failed: {}", messages.join("; ")),
+                "shutdown_failed",
+                None,
             )
         }
 
         // Parameter errors
-        DaqError::ParameterNoSubscribers => Status::new(
+        DaqError::ParameterNoSubscribers => status_with_metadata(
             Code::FailedPrecondition,
             "No subscribers for parameter update",
+            "parameter_no_subscribers",
+            None,
         ),
-        DaqError::ParameterReadOnly => {
-            Status::new(Code::PermissionDenied, "Parameter is read-only")
-        }
-        DaqError::ParameterInvalidChoice => {
-            Status::new(Code::InvalidArgument, "Invalid parameter choice")
-        }
-        DaqError::ParameterNoHardwareReader => Status::new(
+        DaqError::ParameterReadOnly => status_with_metadata(
+            Code::PermissionDenied,
+            "Parameter is read-only",
+            "parameter_read_only",
+            None,
+        ),
+        DaqError::ParameterInvalidChoice => status_with_metadata(
+            Code::InvalidArgument,
+            "Invalid parameter choice",
+            "parameter_invalid_choice",
+            None,
+        ),
+        DaqError::ParameterNoHardwareReader => status_with_metadata(
             Code::FailedPrecondition,
             "Parameter has no hardware reader configured",
+            "parameter_no_reader",
+            None,
         ),
 
-        // I/O errors → Internal
+        // I/O errors -> Internal
         // These are server-side failures that shouldn't happen in normal operation
-        DaqError::Io(e) => Status::new(Code::Internal, format!("I/O error: {}", e)),
-        DaqError::Tokio(e) => Status::new(Code::Internal, format!("Tokio I/O error: {}", e)),
-
-        // Processing errors → Internal
-        DaqError::Processing(msg) => {
-            Status::new(Code::Internal, format!("Processing error: {}", msg))
+        DaqError::Io(e) => {
+            status_with_metadata(Code::Internal, format!("I/O error: {e}"), "io", None)
+        }
+        DaqError::Tokio(e) => {
+            status_with_metadata(Code::Internal, format!("Tokio I/O error: {e}"), "tokio", None)
         }
 
+        // Processing errors -> Internal
+        DaqError::Processing(msg) => status_with_metadata(
+            Code::Internal,
+            format!("Processing error: {msg}"),
+            "processing",
+            None,
+        ),
+
         // Storage errors
-        DaqError::Storage(e) => match &e.kind {
-            common::error::StorageErrorKind::Configuration => Status::new(
-                Code::InvalidArgument,
-                format!("Storage configuration error: {}", e.message),
-            ),
-            common::error::StorageErrorKind::Io => {
-                Status::new(Code::Internal, format!("Storage I/O error: {}", e.message))
-            }
-            _ => Status::new(Code::Internal, format!("Storage error: {}", e.message)),
-        },
+        DaqError::Storage(ref e) => {
+            let code = match e.kind {
+                common::error::StorageErrorKind::Configuration => Code::InvalidArgument,
+                _ => Code::Internal,
+            };
+            let msg = match e.kind {
+                common::error::StorageErrorKind::Configuration => {
+                    format!("Storage configuration error: {}", e.message)
+                }
+                common::error::StorageErrorKind::Io => {
+                    format!("Storage I/O error: {}", e.message)
+                }
+                _ => format!("Storage error: {}", e.message),
+            };
+            status_with_metadata(code, msg, "storage", None)
+        }
 
         // Feature-specific errors
         #[cfg(feature = "storage_hdf5")]
-        DaqError::Hdf5(e) => Status::new(Code::Internal, format!("HDF5 error: {}", e)),
+        DaqError::Hdf5(e) => {
+            status_with_metadata(Code::Internal, format!("HDF5 error: {e}"), "hdf5", None)
+        }
         #[cfg(feature = "storage_arrow")]
-        DaqError::Arrow(e) => Status::new(Code::Internal, format!("Arrow error: {}", e)),
+        DaqError::Arrow(e) => {
+            status_with_metadata(Code::Internal, format!("Arrow error: {e}"), "arrow", None)
+        }
 
-        DaqError::Serde(e) => Status::new(Code::Internal, format!("Serialization error: {}", e)),
-        DaqError::TaskJoin(e) => Status::new(Code::Internal, format!("Task join error: {}", e)),
+        DaqError::Serde(e) => status_with_metadata(
+            Code::Internal,
+            format!("Serialization error: {e}"),
+            "serde",
+            None,
+        ),
+        DaqError::TaskJoin(e) => {
+            status_with_metadata(Code::Internal, format!("Task join error: {e}"), "task_join", None)
+        }
     }
 }
 
