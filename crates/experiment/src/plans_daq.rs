@@ -604,7 +604,7 @@ impl Plan for TriggeredAcquisition {
                 // The RunEngine will call device.trigger() which blocks until trigger arrives
                 self.current_step = TriggeredAcqStep::Checkpoint;
                 PlanCommand::Trigger {
-                    device_id: self.trigger_source.clone(),
+                    device_id: DeviceId::from(self.trigger_source.as_str()),
                 }
             }
 
