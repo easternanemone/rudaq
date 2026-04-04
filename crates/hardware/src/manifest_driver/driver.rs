@@ -238,8 +238,12 @@ impl GenericDriver {
         // (unit, range) so that the Parameterized trait exposes them for generic access.
         let mut params = ParameterSet::new();
         for cap in &config.capabilities.settable {
-            let mut param = Parameter::new(cap.name.clone(), 0.0f64)
-                .with_description(format!("Settable: {}", cap.name));
+            // Derive default from manifest min bound (safe hardware starting
+            // point) instead of hardcoded 0.0 which may be out-of-range.
+            let default_val = cap.min.unwrap_or(0.0);
+            let description: String = ["Settable: ", &cap.name].concat();
+            let mut param =
+                Parameter::new(cap.name.clone(), default_val).with_description(description);
             if let Some(unit) = &cap.unit {
                 param = param.with_unit(unit.clone());
             }
