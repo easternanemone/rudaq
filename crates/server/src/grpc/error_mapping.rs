@@ -1,8 +1,36 @@
-//! Semantic mapping from DaqError to gRPC Status codes (bd-cxvg).
+//! Semantic mapping from `DaqError` to gRPC Status codes (bd-cxvg).
 //!
-//! This module provides a centralized, well-documented mapping from internal
-//! `DaqError` variants to appropriate gRPC `Status` codes. The mappings follow
-//! gRPC best practices and semantic guidelines.
+//! This module is the server-side half of the error round-trip described in
+//! `common_traits::error`.  It converts structured `DaqError` values into
+//! `tonic::Status` responses with:
+//!
+//! 1. An appropriate gRPC status code (see Mapping Philosophy below).
+//! 2. Custom metadata headers for structured client-side recovery:
+//!    - `x-daq-error-kind`  -- the high-level error category (e.g., "driver", "instrument")
+//!    - `x-daq-driver-type` -- the driver type string, when the error is a `DriverError`
+//!    - `x-daq-driver-kind` -- the `DriverErrorKind` variant name (e.g., "communication")
+//!
+//! The `client` crate's `ClientError` type provides accessor methods that extract
+//! these headers, completing the round-trip:
+//!
+//!   `DaqError` -> `map_daq_error_to_status()` -> wire -> `ClientError::daq_error_kind()`
+//!
+//! When the server receives an `anyhow::Error` from a capability trait method, the
+//! service handler should attempt to downcast before calling this mapper:
+//!
+//! ```rust,ignore
+//! use common::error::DaqError;
+//! use server::grpc::map_daq_error_to_status;
+//!
+//! fn anyhow_to_status(err: anyhow::Error) -> tonic::Status {
+//!     // Try structured downcast first
+//!     if let Some(daq_err) = err.downcast::<DaqError>().ok() {
+//!         return map_daq_error_to_status(daq_err);
+//!     }
+//!     // Fallback: opaque internal error
+//!     tonic::Status::internal(err.to_string())
+//! }
+//! ```
 //!
 //! # Mapping Philosophy
 //!
@@ -14,6 +42,8 @@
 //! - **PermissionDenied**: Client lacks permission (read-only parameters)
 //! - **Internal**: Server-side bugs (I/O errors, processing failures)
 //! - **Aborted**: Operation was aborted (unexpected EOF)
+//! - **DeadlineExceeded**: Driver timeout
+//! - **NotFound**: Referenced device or resource not found
 
 use common::error::{DaqError, DriverError};
 use std::str::FromStr;
