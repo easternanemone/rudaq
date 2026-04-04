@@ -36,7 +36,7 @@ async fn test_adaptive_scan_feedback_integration() {
             label: "adaptive_test_start".to_string(),
         },
         PlanCommand::Read {
-            device_id: "detector".to_string(),
+            device_id: "detector".into(),
         },
         PlanCommand::Checkpoint {
             label: "adaptive_test_point_0_triggers_1".to_string(),
