@@ -126,12 +126,12 @@ impl DaemonLauncher {
     /// Find the daemon binary path
     fn find_daemon_binary() -> Result<std::path::PathBuf, String> {
         // Try same directory as the GUI binary first
-        if let Ok(exe_path) = std::env::current_exe() {
-            if let Some(exe_dir) = exe_path.parent() {
-                let daemon_path = exe_dir.join("rust-daq-daemon");
-                if daemon_path.exists() {
-                    return Ok(daemon_path);
-                }
+        if let Ok(exe_path) = std::env::current_exe()
+            && let Some(exe_dir) = exe_path.parent()
+        {
+            let daemon_path = exe_dir.join("rust-daq-daemon");
+            if daemon_path.exists() {
+                return Ok(daemon_path);
             }
         }
 

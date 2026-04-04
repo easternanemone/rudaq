@@ -499,10 +499,10 @@ impl VoltmeterPanel {
                     }
                 }
                 StreamingState::Running => {
-                    if ui.button("⏹ Stop").clicked() {
-                        if let Some(runtime) = runtime {
-                            self.stop_streaming(runtime);
-                        }
+                    if ui.button("⏹ Stop").clicked()
+                        && let Some(runtime) = runtime
+                    {
+                        self.stop_streaming(runtime);
                     }
                     ui.label(RichText::new("● LIVE").color(Color32::GREEN));
                 }
@@ -572,10 +572,10 @@ impl VoltmeterPanel {
             }
 
             // Reset stats
-            if ui.button("Reset Stats").clicked() {
-                if let Some(channel) = self.channels.get_mut(self.selected_channel as usize) {
-                    channel.reset_stats();
-                }
+            if ui.button("Reset Stats").clicked()
+                && let Some(channel) = self.channels.get_mut(self.selected_channel as usize)
+            {
+                channel.reset_stats();
             }
         });
 

@@ -423,10 +423,12 @@ impl DeviceControlWidget for DoverStagePanel {
                 }
             }
 
-            if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) && !is_busy {
-                if let Ok(pos) = self.position_input.parse::<f64>() {
-                    self.move_absolute(client.as_deref_mut(), runtime, &device_id, pos);
-                }
+            if response.lost_focus()
+                && ui.input(|i| i.key_pressed(egui::Key::Enter))
+                && !is_busy
+                && let Ok(pos) = self.position_input.parse::<f64>()
+            {
+                self.move_absolute(client.as_deref_mut(), runtime, &device_id, pos);
             }
         });
 
@@ -517,14 +519,13 @@ impl DeviceControlWidget for DoverStagePanel {
                     self.top_start.parse::<f64>(),
                     self.top_end.parse::<f64>(),
                     self.top_increment.parse::<f64>(),
-                ) {
-                    if inc > 0.0 {
-                        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-                        let n_triggers = ((end - start) / inc) as u32;
-                        ui.label(
-                            egui::RichText::new(format!("  {n_triggers} triggers expected")).weak(),
-                        );
-                    }
+                ) && inc > 0.0
+                {
+                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                    let n_triggers = ((end - start) / inc) as u32;
+                    ui.label(
+                        egui::RichText::new(format!("  {n_triggers} triggers expected")).weak(),
+                    );
                 }
 
                 ui.add_space(4.0);

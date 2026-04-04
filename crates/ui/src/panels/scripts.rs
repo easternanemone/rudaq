@@ -230,10 +230,9 @@ impl ScriptsPanel {
             if ui
                 .add_enabled(can_run, egui::Button::new("▶ Run"))
                 .clicked()
+                && let Some(script_id) = &self.selected_script
             {
-                if let Some(script_id) = &self.selected_script {
-                    pending_start = Some(script_id.clone());
-                }
+                pending_start = Some(script_id.clone());
             }
 
             ui.separator();

@@ -462,13 +462,12 @@ impl ExperimentDesignerPanel {
                 }
                 AdaptiveAlertResponse::Pending => {
                     // Check auto-proceed timeout for non-approval alerts
-                    if let Some(auto_time) = self.adaptive_alert_auto_proceed_at {
-                        if crate::time::Instant::now() >= auto_time
-                            && self.confirm_adaptive_action(client_clone.as_ref(), runtime)
-                        {
-                            self.adaptive_alert = None;
-                            self.adaptive_alert_auto_proceed_at = None;
-                        }
+                    if let Some(auto_time) = self.adaptive_alert_auto_proceed_at
+                        && crate::time::Instant::now() >= auto_time
+                        && self.confirm_adaptive_action(client_clone.as_ref(), runtime)
+                    {
+                        self.adaptive_alert = None;
+                        self.adaptive_alert_auto_proceed_at = None;
                     }
                 }
             }
@@ -630,14 +629,13 @@ impl ExperimentDesignerPanel {
             ui.ctx().memory(|mem| mem.focused().is_some()) && ui.ctx().wants_keyboard_input();
         if !text_edit_has_focus
             && ui.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace))
+            && let Some(node_id) = self.selected_node.take()
         {
-            if let Some(node_id) = self.selected_node.take() {
-                // For now, just remove directly (could use RemoveNode command for undo)
-                // We do direct removal because RemoveNode would need the node position
-                // which we'd need to look up, making it more complex
-                self.snarl.remove_node(node_id);
-                self.graph_version = self.graph_version.wrapping_add(1);
-            }
+            // For now, just remove directly (could use RemoveNode command for undo)
+            // We do direct removal because RemoveNode would need the node position
+            // which we'd need to look up, making it more complex
+            self.snarl.remove_node(node_id);
+            self.graph_version = self.graph_version.wrapping_add(1);
         }
     }
 
@@ -657,12 +655,11 @@ impl ExperimentDesignerPanel {
         // This avoids consuming any clicks that should go to snarl
         let canvas_rect = ui.available_rect_before_wrap();
 
-        if ui.input(|i| i.pointer.secondary_clicked()) {
-            if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
-                if canvas_rect.contains(pos) {
-                    self.context_menu_pos = Some(pos);
-                }
-            }
+        if ui.input(|i| i.pointer.secondary_clicked())
+            && let Some(pos) = ui.input(|i| i.pointer.interact_pos())
+            && canvas_rect.contains(pos)
+        {
+            self.context_menu_pos = Some(pos);
         }
 
         // Show context menu popup
@@ -744,22 +741,22 @@ impl ExperimentDesignerPanel {
 
             // Check if drag ended (mouse released)
             if !ui.input(|i| i.pointer.any_down()) {
-                if let Some(pos) = ui.input(|i| i.pointer.hover_pos()) {
-                    if canvas_rect.contains(pos) {
-                        // Create node at drop position (convert screen coords to canvas-relative)
-                        let node_pos = pos - canvas_rect.min.to_vec2();
-                        self.node_count += 1; // Keep counter in sync for context menu adds
-                        let node = node_type.create_node();
-                        self.history.edit(
-                            &mut self.snarl,
-                            GraphEdit::AddNode(AddNodeData {
-                                node,
-                                position: node_pos,
-                                node_id: None,
-                            }),
-                        );
-                        self.graph_version = self.graph_version.wrapping_add(1);
-                    }
+                if let Some(pos) = ui.input(|i| i.pointer.hover_pos())
+                    && canvas_rect.contains(pos)
+                {
+                    // Create node at drop position (convert screen coords to canvas-relative)
+                    let node_pos = pos - canvas_rect.min.to_vec2();
+                    self.node_count += 1; // Keep counter in sync for context menu adds
+                    let node = node_type.create_node();
+                    self.history.edit(
+                        &mut self.snarl,
+                        GraphEdit::AddNode(AddNodeData {
+                            node,
+                            position: node_pos,
+                            node_id: None,
+                        }),
+                    );
+                    self.graph_version = self.graph_version.wrapping_add(1);
                 }
                 self.dragging_node = None;
             }
@@ -950,10 +947,10 @@ impl ExperimentDesignerPanel {
                 );
 
                 // Show first error as summary
-                if let Some((node_id, error)) = self.viewer.node_errors.iter().next() {
-                    if let Some(node) = self.snarl.get_node(*node_id) {
-                        ui.label(format!("- {}: {}", node.node_name(), error));
-                    }
+                if let Some((node_id, error)) = self.viewer.node_errors.iter().next()
+                    && let Some(node) = self.snarl.get_node(*node_id)
+                {
+                    ui.label(format!("- {}: {}", node.node_name(), error));
                 }
             } else {
                 ui.colored_label(egui::Color32::from_rgb(100, 200, 100), "Graph valid");
@@ -1793,19 +1790,19 @@ impl ExperimentDesignerPanel {
         let mut plots = Vec::new();
 
         for (_, node) in self.snarl.node_ids() {
-            if let ExperimentNode::Acquire(config) = node {
-                if !config.detector.is_empty() {
-                    // Simple heuristic: device IDs containing "camera" or "cam" are cameras
-                    // Everything else is a plot (power meter, photodiode, etc.)
-                    let device_id = &config.detector;
-                    let device_lower = device_id.to_lowercase();
+            if let ExperimentNode::Acquire(config) = node
+                && !config.detector.is_empty()
+            {
+                // Simple heuristic: device IDs containing "camera" or "cam" are cameras
+                // Everything else is a plot (power meter, photodiode, etc.)
+                let device_id = &config.detector;
+                let device_lower = device_id.to_lowercase();
 
-                    if device_lower.contains("camera") || device_lower.contains("cam") {
-                        cameras.push((device_id.clone(), device_id.clone()));
-                    } else {
-                        // For plots, use device_id as both identifier and label
-                        plots.push((device_id.clone(), device_id.clone(), device_id.clone()));
-                    }
+                if device_lower.contains("camera") || device_lower.contains("cam") {
+                    cameras.push((device_id.clone(), device_id.clone()));
+                } else {
+                    // For plots, use device_id as both identifier and label
+                    plots.push((device_id.clone(), device_id.clone(), device_id.clone()));
                 }
             }
         }

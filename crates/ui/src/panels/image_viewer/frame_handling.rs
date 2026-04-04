@@ -494,14 +494,14 @@ impl ImageViewerPanel {
                 let _ = cancel_tx.send(()).await;
                 // Skip server-side stop when reconnecting to the same device —
                 // otherwise this background stop could kill the newly started stream.
-                if old_device_id != new_device_id {
-                    if let Err(e) = client.stop_stream(&old_device_id).await {
-                        tracing::debug!(
-                            device = %old_device_id,
-                            error = %e,
-                            "Error stopping old stream (may already be stopped)"
-                        );
-                    }
+                if old_device_id != new_device_id
+                    && let Err(e) = client.stop_stream(&old_device_id).await
+                {
+                    tracing::debug!(
+                        device = %old_device_id,
+                        error = %e,
+                        "Error stopping old stream (may already be stopped)"
+                    );
                 }
             });
         }
@@ -914,15 +914,15 @@ impl ImageViewerPanel {
     /// Process a single frame update
     fn process_frame(&mut self, _ctx: &egui::Context, mut frame: FrameUpdate) {
         // Validate frame belongs to currently selected device (bd-tjwm.3)
-        if let Some(expected_device) = &self.device_id {
-            if &frame.device_id != expected_device {
-                tracing::warn!(
-                    expected = %expected_device,
-                    received = %frame.device_id,
-                    "Dropping frame from unexpected device: mismatch"
-                );
-                return;
-            }
+        if let Some(expected_device) = &self.device_id
+            && &frame.device_id != expected_device
+        {
+            tracing::warn!(
+                expected = %expected_device,
+                received = %frame.device_id,
+                "Dropping frame from unexpected device: mismatch"
+            );
+            return;
         }
 
         // Trace processed frames (throttled)

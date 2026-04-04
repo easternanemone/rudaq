@@ -517,16 +517,16 @@ impl RoiSelector {
     /// Delete selected ROI
     #[allow(dead_code)]
     pub fn delete_selected(&mut self) {
-        if let Some(idx) = self.selected_roi {
-            if idx < self.rois.len() {
-                self.rois.remove(idx);
-                self.selected_roi = if self.rois.is_empty() {
-                    None
-                } else {
-                    Some(idx.min(self.rois.len() - 1))
-                };
-                self.stats = None;
-            }
+        if let Some(idx) = self.selected_roi
+            && idx < self.rois.len()
+        {
+            self.rois.remove(idx);
+            self.selected_roi = if self.rois.is_empty() {
+                None
+            } else {
+                Some(idx.min(self.rois.len() - 1))
+            };
+            self.stats = None;
         }
     }
 
@@ -611,23 +611,23 @@ impl RoiSelector {
         match self.mode {
             RoiMode::Rectangle => {
                 // Handle rectangle drag
-                if response.drag_started_by(egui::PointerButton::Primary) {
-                    if let Some(pos) = response.interact_pointer_pos() {
-                        let (px, py) = screen_to_pixel(pos);
-                        #[allow(clippy::cast_possible_truncation)]
-                        let start = (px as i32, py as i32);
-                        self.drag_start = Some(start);
-                        self.drag_current = self.drag_start;
-                    }
+                if response.drag_started_by(egui::PointerButton::Primary)
+                    && let Some(pos) = response.interact_pointer_pos()
+                {
+                    let (px, py) = screen_to_pixel(pos);
+                    #[allow(clippy::cast_possible_truncation)]
+                    let start = (px as i32, py as i32);
+                    self.drag_start = Some(start);
+                    self.drag_current = self.drag_start;
                 }
 
-                if response.dragged_by(egui::PointerButton::Primary) {
-                    if let Some(pos) = response.interact_pointer_pos() {
-                        let (px, py) = screen_to_pixel(pos);
-                        #[allow(clippy::cast_possible_truncation)]
-                        let current = (px as i32, py as i32);
-                        self.drag_current = Some(current);
-                    }
+                if response.dragged_by(egui::PointerButton::Primary)
+                    && let Some(pos) = response.interact_pointer_pos()
+                {
+                    let (px, py) = screen_to_pixel(pos);
+                    #[allow(clippy::cast_possible_truncation)]
+                    let current = (px as i32, py as i32);
+                    self.drag_current = Some(current);
                 }
 
                 if response.drag_stopped_by(egui::PointerButton::Primary) {
@@ -684,57 +684,60 @@ impl RoiSelector {
                 }
 
                 // Shift+click to add vertex
-                if shift_held && response.clicked_by(egui::PointerButton::Primary) {
-                    if let Some(pos) = response.interact_pointer_pos() {
-                        let (px, py) = screen_to_pixel(pos);
+                if shift_held
+                    && response.clicked_by(egui::PointerButton::Primary)
+                    && let Some(pos) = response.interact_pointer_pos()
+                {
+                    let (px, py) = screen_to_pixel(pos);
 
-                        // Check if clicking near first vertex to close polygon
-                        if self.polygon_editor.temp_vertices.len() >= 3 {
-                            let first = self.polygon_editor.temp_vertices[0];
-                            let dx = (first.0 - px) * zoom;
-                            let dy = (first.1 - py) * zoom;
-                            if dx * dx + dy * dy < 25.0 {
-                                // Close polygon
-                                let shape = RoiShape::Polygon {
-                                    vertices: self.polygon_editor.temp_vertices.clone(),
-                                };
-                                let shape = shape.clamp_to_image(image_size.0, image_size.1);
+                    // Check if clicking near first vertex to close polygon
+                    if self.polygon_editor.temp_vertices.len() >= 3 {
+                        let first = self.polygon_editor.temp_vertices[0];
+                        let dx = (first.0 - px) * zoom;
+                        let dy = (first.1 - py) * zoom;
+                        if dx * dx + dy * dy < 25.0 {
+                            // Close polygon
+                            let shape = RoiShape::Polygon {
+                                vertices: self.polygon_editor.temp_vertices.clone(),
+                            };
+                            let shape = shape.clamp_to_image(image_size.0, image_size.1);
 
-                                if shape.is_valid() {
-                                    self.roi_counter += 1;
-                                    let name = format!("ROI {}", self.roi_counter);
-                                    let color_index = self.rois.len() % ROI_COLORS.len();
-                                    let roi = NamedRoi::new(name, shape, color_index);
-                                    self.rois.push(roi);
-                                    self.selected_roi = Some(self.rois.len() - 1);
-                                    self.polygon_editor.temp_vertices.clear();
-                                    finalized = true;
-                                }
-                                return finalized;
+                            if shape.is_valid() {
+                                self.roi_counter += 1;
+                                let name = format!("ROI {}", self.roi_counter);
+                                let color_index = self.rois.len() % ROI_COLORS.len();
+                                let roi = NamedRoi::new(name, shape, color_index);
+                                self.rois.push(roi);
+                                self.selected_roi = Some(self.rois.len() - 1);
+                                self.polygon_editor.temp_vertices.clear();
+                                finalized = true;
                             }
+                            return finalized;
                         }
-
-                        // Add new vertex
-                        self.polygon_editor.temp_vertices.push((px, py));
                     }
+
+                    // Add new vertex
+                    self.polygon_editor.temp_vertices.push((px, py));
                 }
 
                 // Drag vertex to adjust
-                if !shift_held && response.drag_started_by(egui::PointerButton::Primary) {
-                    if let Some(idx) = self.polygon_editor.hovered_vertex {
-                        self.polygon_editor.dragging_vertex = Some(idx);
-                    }
+                if !shift_held
+                    && response.drag_started_by(egui::PointerButton::Primary)
+                    && let Some(idx) = self.polygon_editor.hovered_vertex
+                {
+                    self.polygon_editor.dragging_vertex = Some(idx);
                 }
 
-                if !shift_held && response.dragged_by(egui::PointerButton::Primary) {
-                    if let (Some(idx), Some(pos)) = (
+                if !shift_held
+                    && response.dragged_by(egui::PointerButton::Primary)
+                    && let (Some(idx), Some(pos)) = (
                         self.polygon_editor.dragging_vertex,
                         response.interact_pointer_pos(),
-                    ) {
-                        let (px, py) = screen_to_pixel(pos);
-                        if idx < self.polygon_editor.temp_vertices.len() {
-                            self.polygon_editor.temp_vertices[idx] = (px, py);
-                        }
+                    )
+                {
+                    let (px, py) = screen_to_pixel(pos);
+                    if idx < self.polygon_editor.temp_vertices.len() {
+                        self.polygon_editor.temp_vertices[idx] = (px, py);
                     }
                 }
 
@@ -935,30 +938,30 @@ impl RoiSelector {
             }
 
             // Draw closing line preview when hovering near first vertex
-            if self.polygon_editor.temp_vertices.len() >= 3 {
-                if let Some(hover_pos) = painter.ctx().pointer_hover_pos() {
-                    let (px, py) = {
-                        let relative = hover_pos - image_rect.min - image_offset;
-                        (relative.x / zoom, relative.y / zoom)
-                    };
-                    let first = self.polygon_editor.temp_vertices[0];
-                    let dx = (first.0 - px) * zoom;
-                    let dy = (first.1 - py) * zoom;
-                    if dx * dx + dy * dy < 25.0 {
-                        let last_idx = self.polygon_editor.temp_vertices.len() - 1;
-                        let p1 = pixel_to_screen(
-                            self.polygon_editor.temp_vertices[last_idx].0,
-                            self.polygon_editor.temp_vertices[last_idx].1,
-                        );
-                        let p2 = pixel_to_screen(first.0, first.1);
-                        painter.line_segment(
-                            [p1, p2],
-                            egui::Stroke::new(
-                                2.0,
-                                egui::Color32::from_rgba_unmultiplied(100, 150, 255, 128),
-                            ),
-                        );
-                    }
+            if self.polygon_editor.temp_vertices.len() >= 3
+                && let Some(hover_pos) = painter.ctx().pointer_hover_pos()
+            {
+                let (px, py) = {
+                    let relative = hover_pos - image_rect.min - image_offset;
+                    (relative.x / zoom, relative.y / zoom)
+                };
+                let first = self.polygon_editor.temp_vertices[0];
+                let dx = (first.0 - px) * zoom;
+                let dy = (first.1 - py) * zoom;
+                if dx * dx + dy * dy < 25.0 {
+                    let last_idx = self.polygon_editor.temp_vertices.len() - 1;
+                    let p1 = pixel_to_screen(
+                        self.polygon_editor.temp_vertices[last_idx].0,
+                        self.polygon_editor.temp_vertices[last_idx].1,
+                    );
+                    let p2 = pixel_to_screen(first.0, first.1);
+                    painter.line_segment(
+                        [p1, p2],
+                        egui::Stroke::new(
+                            2.0,
+                            egui::Color32::from_rgba_unmultiplied(100, 150, 255, 128),
+                        ),
+                    );
                 }
             }
         }

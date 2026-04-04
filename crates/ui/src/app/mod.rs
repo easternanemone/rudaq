@@ -316,19 +316,17 @@ impl DaqApp {
         let native_prefs = crate::preferences::AppPreferences::load_or_default();
 
         // Migrate legacy "daemon_address" key → AppSettings (one-time)
-        if let Some(storage) = cc.storage {
-            if let Some(legacy_addr) = migrate_legacy_daemon_address(storage) {
-                if !legacy_addr.trim().is_empty()
-                    && app_settings.connection.daemon_address
-                        == crate::settings::ConnectionSettings::default().daemon_address
-                {
-                    tracing::info!(
-                        "Migrating legacy daemon_address '{}' to AppSettings",
-                        legacy_addr
-                    );
-                    app_settings.connection.daemon_address = legacy_addr;
-                }
-            }
+        if let Some(storage) = cc.storage
+            && let Some(legacy_addr) = migrate_legacy_daemon_address(storage)
+            && !legacy_addr.trim().is_empty()
+            && app_settings.connection.daemon_address
+                == crate::settings::ConnectionSettings::default().daemon_address
+        {
+            tracing::info!(
+                "Migrating legacy daemon_address '{}' to AppSettings",
+                legacy_addr
+            );
+            app_settings.connection.daemon_address = legacy_addr;
         }
 
         // Apply native_prefs as fallback if eframe storage has default daemon address
@@ -578,14 +576,13 @@ impl DaqApp {
         if let Some(path) = cc
             .storage
             .and_then(|s| eframe::get_value::<String>(s, "echelle_profile_path"))
+            && !path.is_empty()
         {
-            if !path.is_empty() {
-                app.image_viewer_panel
-                    .echelle_cal_ui
-                    .save_as_path_text
-                    .clone_from(&path);
-                app.image_viewer_panel.request_remote_profile_load(path);
-            }
+            app.image_viewer_panel
+                .echelle_cal_ui
+                .save_as_path_text
+                .clone_from(&path);
+            app.image_viewer_panel.request_remote_profile_load(path);
         }
 
         app

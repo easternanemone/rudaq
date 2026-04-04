@@ -344,10 +344,12 @@ impl DeviceControlWidget for SpectrographPanel {
                     self.panel_state.set_error("Invalid wavelength value");
                 }
             }
-            if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) && !is_busy {
-                if let Ok(wl) = self.wavelength_input.parse::<f64>() {
-                    self.set_wavelength(client.as_deref_mut(), runtime, &device_id, wl);
-                }
+            if response.lost_focus()
+                && ui.input(|i| i.key_pressed(egui::Key::Enter))
+                && !is_busy
+                && let Ok(wl) = self.wavelength_input.parse::<f64>()
+            {
+                self.set_wavelength(client.as_deref_mut(), runtime, &device_id, wl);
             }
         });
         if let Some(wl) = self.state.wavelength_nm {

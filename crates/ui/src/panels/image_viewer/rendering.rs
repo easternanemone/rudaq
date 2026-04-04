@@ -60,15 +60,15 @@ impl ImageViewerPanel {
         {
             // Exponential backoff: 100ms * 2^retry_count, capped at 10 seconds
             let backoff_ms = (100u64 * 2u64.pow(self.retry_count.min(7))).min(10_000);
-            if let Some(last_disconnect) = self.last_disconnect {
-                if last_disconnect.elapsed().as_millis() as u64 >= backoff_ms {
-                    should_auto_reconnect = true;
-                    tracing::debug!(
-                        retry_count = self.retry_count,
-                        backoff_ms = backoff_ms,
-                        "Auto-reconnecting with exponential backoff"
-                    );
-                }
+            if let Some(last_disconnect) = self.last_disconnect
+                && last_disconnect.elapsed().as_millis() as u64 >= backoff_ms
+            {
+                should_auto_reconnect = true;
+                tracing::debug!(
+                    retry_count = self.retry_count,
+                    backoff_ms = backoff_ms,
+                    "Auto-reconnecting with exponential backoff"
+                );
             }
         }
 
@@ -145,12 +145,13 @@ impl ImageViewerPanel {
                 }
 
                 // Auto-load parameters if needed
-                if let Some(device_id) = &self.device_id {
-                    if self.camera_params.is_empty() && self.loading_params_device.is_none() {
-                        let device_id_clone = device_id.clone();
-                        if let Some(client) = client.as_deref_mut() {
-                            self.load_camera_params(client, runtime, &device_id_clone);
-                        }
+                if let Some(device_id) = &self.device_id
+                    && self.camera_params.is_empty()
+                    && self.loading_params_device.is_none()
+                {
+                    let device_id_clone = device_id.clone();
+                    if let Some(client) = client.as_deref_mut() {
+                        self.load_camera_params(client, runtime, &device_id_clone);
                     }
                 }
 
@@ -171,10 +172,9 @@ impl ImageViewerPanel {
                         .button(format!("{} Start", icons::action::START))
                         .on_hover_text("Start streaming")
                         .clicked()
+                    && let Some(device_id) = &self.device_id
                 {
-                    if let Some(device_id) = &self.device_id {
-                        start_stream_device = Some(device_id.clone());
-                    }
+                    start_stream_device = Some(device_id.clone());
                 }
 
                 // Reconnect button when disconnected
@@ -183,11 +183,10 @@ impl ImageViewerPanel {
                         .button(format!("{} Reconnect", icons::action::REFRESH))
                         .on_hover_text("Attempt to reconnect to camera")
                         .clicked()
+                        && let Some(device_id) = &self.device_id
                     {
-                        if let Some(device_id) = &self.device_id {
-                            start_stream_device = Some(device_id.clone());
-                            self.connection_state = ConnectionState::Reconnecting;
-                        }
+                        start_stream_device = Some(device_id.clone());
+                        self.connection_state = ConnectionState::Reconnecting;
                     }
                     ui.checkbox(&mut self.auto_reconnect, "Auto")
                         .on_hover_text("Automatically attempt reconnection");
@@ -1072,50 +1071,38 @@ impl ImageViewerPanel {
                                             MeasurementTool::Line => {
                                                 if response
                                                     .drag_started_by(egui::PointerButton::Primary)
+                                                    && let Some(pos) =
+                                                        response.interact_pointer_pos()
                                                 {
-                                                    if let Some(pos) = response.interact_pointer_pos()
-                                                    {
-                                                        let start = MeasurementPoint::from_screen_pos(
-                                                            pos,
-                                                            rect,
-                                                            offset,
-                                                            zoom,
-                                                            width,
-                                                            height,
+                                                    let start = MeasurementPoint::from_screen_pos(
+                                                        pos, rect, offset, zoom, width, height,
+                                                    );
+                                                    self.line_measurement_start = start;
+                                                    self.line_measurement_current = start;
+                                                }
+
+                                                if response.dragged_by(egui::PointerButton::Primary)
+                                                    && let Some(pos) =
+                                                        response.interact_pointer_pos()
+                                                {
+                                                    self.line_measurement_current =
+                                                        MeasurementPoint::from_screen_pos(
+                                                            pos, rect, offset, zoom, width, height,
                                                         );
-                                                        self.line_measurement_start = start;
-                                                        self.line_measurement_current = start;
-                                                    }
                                                 }
 
-                                                if response.dragged_by(egui::PointerButton::Primary) {
-                                                    if let Some(pos) = response.interact_pointer_pos()
-                                                    {
-                                                        self.line_measurement_current =
-                                                            MeasurementPoint::from_screen_pos(
-                                                                pos,
-                                                                rect,
-                                                                offset,
-                                                                zoom,
-                                                                width,
-                                                                height,
-                                                            );
-                                                    }
-                                                }
-
-                                                if response.drag_stopped_by(
-                                                    egui::PointerButton::Primary,
-                                                ) {
+                                                if response
+                                                    .drag_stopped_by(egui::PointerButton::Primary)
+                                                {
                                                     if let (Some(start), Some(end)) = (
                                                         self.line_measurement_start,
                                                         self.line_measurement_current,
                                                     ) {
-                                                        let measurement = LineMeasurement {
-                                                            start,
-                                                            end,
-                                                        };
+                                                        let measurement =
+                                                            LineMeasurement { start, end };
                                                         if measurement.pixel_length() > 0.5 {
-                                                            self.line_measurements.push(measurement);
+                                                            self.line_measurements
+                                                                .push(measurement);
                                                             self.selected_line_measurement = Some(
                                                                 self.line_measurements.len() - 1,
                                                             );
@@ -1126,45 +1113,42 @@ impl ImageViewerPanel {
                                                 }
                                             }
                                             MeasurementTool::Angle => {
-                                                if response.clicked_by(egui::PointerButton::Primary) {
-                                                    if let Some(pos) = response.interact_pointer_pos()
-                                                    {
-                                                        if let Some(point) =
-                                                            MeasurementPoint::from_screen_pos(
-                                                                pos,
-                                                                rect,
-                                                                offset,
-                                                                zoom,
-                                                                width,
-                                                                height,
-                                                            )
-                                                        {
-                                                            self.angle_measurement_points.push(point);
-                                                            if self.angle_measurement_points.len() == 3 {
-                                                                let measurement = AngleMeasurement {
-                                                                    arm_a: self.angle_measurement_points[0],
-                                                                    vertex: self.angle_measurement_points[1],
-                                                                    arm_b: self.angle_measurement_points[2],
-                                                                };
-                                                                if measurement.degrees() > 0.0 {
-                                                                    self.angle_measurements
-                                                                        .push(measurement);
-                                                                }
-                                                                self.angle_measurement_points.clear();
-                                                            }
+                                                if response.clicked_by(egui::PointerButton::Primary)
+                                                    && let Some(pos) =
+                                                        response.interact_pointer_pos()
+                                                    && let Some(point) =
+                                                        MeasurementPoint::from_screen_pos(
+                                                            pos, rect, offset, zoom, width, height,
+                                                        )
+                                                {
+                                                    self.angle_measurement_points.push(point);
+                                                    if self.angle_measurement_points.len() == 3 {
+                                                        let measurement = AngleMeasurement {
+                                                            arm_a: self.angle_measurement_points[0],
+                                                            vertex: self.angle_measurement_points
+                                                                [1],
+                                                            arm_b: self.angle_measurement_points[2],
+                                                        };
+                                                        if measurement.degrees() > 0.0 {
+                                                            self.angle_measurements
+                                                                .push(measurement);
                                                         }
+                                                        self.angle_measurement_points.clear();
                                                     }
                                                 }
 
-                                                if response.clicked_by(egui::PointerButton::Secondary)
-                                                    || response
-                                                        .ctx
-                                                        .input(|i| i.key_pressed(egui::Key::Backspace))
+                                                if response
+                                                    .clicked_by(egui::PointerButton::Secondary)
+                                                    || response.ctx.input(|i| {
+                                                        i.key_pressed(egui::Key::Backspace)
+                                                    })
                                                 {
                                                     self.angle_measurement_points.pop();
                                                 }
                                             }
-                                            MeasurementTool::None if self.roi_selector.selection_mode => {
+                                            MeasurementTool::None
+                                                if self.roi_selector.selection_mode =>
+                                            {
                                                 let roi_finalized = self.roi_selector.handle_input(
                                                     &response,
                                                     rect,
@@ -1173,18 +1157,19 @@ impl ImageViewerPanel {
                                                     self.pan,
                                                 );
 
-                                                if roi_finalized {
-                                                    if let (Some(roi), Some(frame_data)) =
-                                                        (self.roi_selector.roi(), &self.last_frame_data)
-                                                    {
-                                                        self.roi_selector.set_roi_from_frame(
-                                                            roi.clone(),
-                                                            frame_data,
-                                                            self.width,
-                                                            self.height,
-                                                            self.bit_depth,
-                                                        );
-                                                    }
+                                                if roi_finalized
+                                                    && let (Some(roi), Some(frame_data)) = (
+                                                        self.roi_selector.roi(),
+                                                        &self.last_frame_data,
+                                                    )
+                                                {
+                                                    self.roi_selector.set_roi_from_frame(
+                                                        roi.clone(),
+                                                        frame_data,
+                                                        self.width,
+                                                        self.height,
+                                                        self.bit_depth,
+                                                    );
                                                 }
                                             }
                                             MeasurementTool::None => {
@@ -1228,20 +1213,17 @@ impl ImageViewerPanel {
 
                                         let measurement_color =
                                             egui::Color32::from_rgb(80, 220, 255);
-                                        let preview_color =
-                                            egui::Color32::from_rgb(255, 200, 80);
+                                        let preview_color = egui::Color32::from_rgb(255, 200, 80);
                                         let measurement_stroke =
                                             egui::Stroke::new(2.0, measurement_color);
-                                        let preview_stroke =
-                                            egui::Stroke::new(2.0, preview_color);
+                                        let preview_stroke = egui::Stroke::new(2.0, preview_color);
                                         let painter = ui.painter();
 
-                                        let draw_measurement_point = |point: MeasurementPoint,
-                                                                      color: egui::Color32| {
-                                            let pos =
-                                                point.to_screen_pos(rect, offset, zoom);
-                                            painter.circle_filled(pos, 4.0, color);
-                                        };
+                                        let draw_measurement_point =
+                                            |point: MeasurementPoint, color: egui::Color32| {
+                                                let pos = point.to_screen_pos(rect, offset, zoom);
+                                                painter.circle_filled(pos, 4.0, color);
+                                            };
 
                                         let draw_measurement_label =
                                             |pos: egui::Pos2, label: String, color: egui::Color32| {
@@ -1259,10 +1241,7 @@ impl ImageViewerPanel {
                                                 measurement.start.to_screen_pos(rect, offset, zoom);
                                             let end =
                                                 measurement.end.to_screen_pos(rect, offset, zoom);
-                                            painter.line_segment(
-                                                [start, end],
-                                                measurement_stroke,
-                                            );
+                                            painter.line_segment([start, end], measurement_stroke);
                                             draw_measurement_point(
                                                 measurement.start,
                                                 measurement_color,
@@ -1290,8 +1269,7 @@ impl ImageViewerPanel {
                                             self.line_measurement_start,
                                             self.line_measurement_current,
                                         ) {
-                                            let start_pos =
-                                                start.to_screen_pos(rect, offset, zoom);
+                                            let start_pos = start.to_screen_pos(rect, offset, zoom);
                                             let current_pos =
                                                 current.to_screen_pos(rect, offset, zoom);
                                             painter.line_segment(
@@ -1300,7 +1278,10 @@ impl ImageViewerPanel {
                                             );
                                             draw_measurement_point(start, preview_color);
                                             draw_measurement_point(current, preview_color);
-                                            let preview = LineMeasurement { start, end: current };
+                                            let preview = LineMeasurement {
+                                                start,
+                                                end: current,
+                                            };
                                             let midpoint = egui::pos2(
                                                 (start_pos.x + current_pos.x) * 0.5,
                                                 (start_pos.y + current_pos.y) * 0.5,
@@ -1319,18 +1300,15 @@ impl ImageViewerPanel {
                                         for measurement in &self.angle_measurements {
                                             let arm_a =
                                                 measurement.arm_a.to_screen_pos(rect, offset, zoom);
-                                            let vertex =
-                                                measurement.vertex.to_screen_pos(rect, offset, zoom);
+                                            let vertex = measurement
+                                                .vertex
+                                                .to_screen_pos(rect, offset, zoom);
                                             let arm_b =
                                                 measurement.arm_b.to_screen_pos(rect, offset, zoom);
-                                            painter.line_segment(
-                                                [arm_a, vertex],
-                                                measurement_stroke,
-                                            );
-                                            painter.line_segment(
-                                                [vertex, arm_b],
-                                                measurement_stroke,
-                                            );
+                                            painter
+                                                .line_segment([arm_a, vertex], measurement_stroke);
+                                            painter
+                                                .line_segment([vertex, arm_b], measurement_stroke);
                                             draw_measurement_point(
                                                 measurement.arm_a,
                                                 measurement_color,
@@ -1354,49 +1332,37 @@ impl ImageViewerPanel {
                                             for point in &self.angle_measurement_points {
                                                 draw_measurement_point(*point, preview_color);
                                             }
-                                            for segment in self.angle_measurement_points.windows(2) {
-                                                let start = segment[0].to_screen_pos(
-                                                    rect, offset, zoom,
-                                                );
-                                                let end = segment[1].to_screen_pos(
-                                                    rect, offset, zoom,
-                                                );
+                                            for segment in self.angle_measurement_points.windows(2)
+                                            {
+                                                let start =
+                                                    segment[0].to_screen_pos(rect, offset, zoom);
+                                                let end =
+                                                    segment[1].to_screen_pos(rect, offset, zoom);
+                                                painter.line_segment([start, end], preview_stroke);
+                                            }
+                                            if self.angle_measurement_points.len() == 2
+                                                && let Some(hover_pos) = response.hover_pos()
+                                                && let Some(point) =
+                                                    MeasurementPoint::from_screen_pos(
+                                                        hover_pos, rect, offset, zoom, width,
+                                                        height,
+                                                    )
+                                            {
+                                                let start = self.angle_measurement_points[1]
+                                                    .to_screen_pos(rect, offset, zoom);
+                                                let end = point.to_screen_pos(rect, offset, zoom);
                                                 painter.line_segment(
                                                     [start, end],
-                                                    preview_stroke,
+                                                    egui::Stroke::new(
+                                                        1.0,
+                                                        egui::Color32::from_rgba_unmultiplied(
+                                                            preview_color.r(),
+                                                            preview_color.g(),
+                                                            preview_color.b(),
+                                                            160,
+                                                        ),
+                                                    ),
                                                 );
-                                            }
-                                            if self.angle_measurement_points.len() == 2 {
-                                                if let Some(hover_pos) = response.hover_pos() {
-                                                    if let Some(point) =
-                                                        MeasurementPoint::from_screen_pos(
-                                                            hover_pos,
-                                                            rect,
-                                                            offset,
-                                                            zoom,
-                                                            width,
-                                                            height,
-                                                        )
-                                                    {
-                                                        let start = self.angle_measurement_points[1]
-                                                            .to_screen_pos(rect, offset, zoom);
-                                                        let end = point.to_screen_pos(
-                                                            rect, offset, zoom,
-                                                        );
-                                                        painter.line_segment(
-                                                            [start, end],
-                                                            egui::Stroke::new(
-                                                                1.0,
-                                                                egui::Color32::from_rgba_unmultiplied(
-                                                                    preview_color.r(),
-                                                                    preview_color.g(),
-                                                                    preview_color.b(),
-                                                                    160,
-                                                                ),
-                                                            ),
-                                                        );
-                                                    }
-                                                }
                                             }
                                         }
 
@@ -1544,10 +1510,8 @@ impl ImageViewerPanel {
                                                         );
                                                     }
                                                     ScaleBarStyle::Outlined => {
-                                                        let stroke = egui::Stroke::new(
-                                                            2.0,
-                                                            overlay_color,
-                                                        );
+                                                        let stroke =
+                                                            egui::Stroke::new(2.0, overlay_color);
                                                         painter.line_segment(
                                                             [
                                                                 bar_rect.left_top(),
@@ -1578,10 +1542,8 @@ impl ImageViewerPanel {
                                                         );
                                                     }
                                                     ScaleBarStyle::Minimal => {
-                                                        let stroke = egui::Stroke::new(
-                                                            2.0,
-                                                            overlay_color,
-                                                        );
+                                                        let stroke =
+                                                            egui::Stroke::new(2.0, overlay_color);
                                                         painter.line_segment(
                                                             [
                                                                 egui::pos2(bar_x, bar_y),
@@ -1645,10 +1607,11 @@ impl ImageViewerPanel {
                                                         overlay_color,
                                                     );
                                                     let label_min = if top_aligned {
-                                                        label_pos - egui::vec2(
-                                                            galley.size().x / 2.0 + 4.0,
-                                                            2.0,
-                                                        )
+                                                        label_pos
+                                                            - egui::vec2(
+                                                                galley.size().x / 2.0 + 4.0,
+                                                                2.0,
+                                                            )
                                                     } else {
                                                         label_pos
                                                             - egui::vec2(
@@ -1675,8 +1638,7 @@ impl ImageViewerPanel {
                                                         for dy in [-1.0_f32, 0.0, 1.0] {
                                                             if dx != 0.0 || dy != 0.0 {
                                                                 painter.text(
-                                                                    label_pos
-                                                                        + egui::vec2(dx, dy),
+                                                                    label_pos + egui::vec2(dx, dy),
                                                                     label_align,
                                                                     &label,
                                                                     egui::FontId::proportional(
@@ -1910,36 +1872,34 @@ impl ImageViewerPanel {
                                             if response.clicked()
                                                 && !roi_selection_mode
                                                 && self.measurement_tool == MeasurementTool::None
-                                            {
-                                                if let Some(hover_pos) =
+                                                && let Some(hover_pos) =
                                                     response.interact_pointer_pos()
+                                            {
+                                                let image_pos = hover_pos - rect.min - offset;
+                                                #[allow(clippy::cast_possible_truncation)]
+                                                let pixel_x = (image_pos.x / zoom) as i32;
+                                                #[allow(
+                                                    clippy::cast_possible_truncation,
+                                                    clippy::cast_possible_wrap
+                                                )]
+                                                let pixel_y = (image_pos.y / zoom) as i32;
+                                                #[allow(clippy::cast_possible_wrap)]
+                                                let w_i32 = width as i32;
+                                                #[allow(clippy::cast_possible_wrap)]
+                                                let h_i32 = height as i32;
+                                                if pixel_x >= 0
+                                                    && pixel_x < w_i32
+                                                    && pixel_y >= 0
+                                                    && pixel_y < h_i32
                                                 {
-                                                    let image_pos = hover_pos - rect.min - offset;
-                                                    #[allow(clippy::cast_possible_truncation)]
-                                                    let pixel_x = (image_pos.x / zoom) as i32;
-                                                    #[allow(
-                                                        clippy::cast_possible_truncation,
-                                                        clippy::cast_possible_wrap
-                                                    )]
-                                                    let pixel_y = (image_pos.y / zoom) as i32;
-                                                    #[allow(clippy::cast_possible_wrap)]
-                                                    let w_i32 = width as i32;
-                                                    #[allow(clippy::cast_possible_wrap)]
-                                                    let h_i32 = height as i32;
-                                                    if pixel_x >= 0
-                                                        && pixel_x < w_i32
-                                                        && pixel_y >= 0
-                                                        && pixel_y < h_i32
+                                                    // Toggle lock: if already locked at this position, unlock
+                                                    if crosshair_locked_pos
+                                                        == Some((pixel_x, pixel_y))
                                                     {
-                                                        // Toggle lock: if already locked at this position, unlock
-                                                        if crosshair_locked_pos
-                                                            == Some((pixel_x, pixel_y))
-                                                        {
-                                                            crosshair_lock_action = Some(None);
-                                                        } else {
-                                                            crosshair_lock_action =
-                                                                Some(Some((pixel_x, pixel_y)));
-                                                        }
+                                                        crosshair_lock_action = Some(None);
+                                                    } else {
+                                                        crosshair_lock_action =
+                                                            Some(Some((pixel_x, pixel_y)));
                                                     }
                                                 }
                                             }
@@ -2116,15 +2076,15 @@ impl ImageViewerPanel {
                                                     && pixel_y < h_i32
                                                 {
                                                     // Build hover text with pixel and optional physical coordinates
-                                                    let hover_text =
-                                                        if let (Some(scale_x), Some(scale_y)) =
-                                                            (self.pixel_scale_x, self.pixel_scale_y)
-                                                        {
-                                                            let phys_x =
-                                                                f64::from(pixel_x) * scale_x;
-                                                            let phys_y =
-                                                                f64::from(pixel_y) * scale_y;
-                                                            format!(
+                                                    let hover_text = if let (
+                                                        Some(scale_x),
+                                                        Some(scale_y),
+                                                    ) =
+                                                        (self.pixel_scale_x, self.pixel_scale_y)
+                                                    {
+                                                        let phys_x = f64::from(pixel_x) * scale_x;
+                                                        let phys_y = f64::from(pixel_y) * scale_y;
+                                                        format!(
                                                             "Pixel: ({}, {}) | {:.2} {} x {:.2} {}",
                                                             pixel_x,
                                                             pixel_y,
@@ -2133,12 +2093,9 @@ impl ImageViewerPanel {
                                                             phys_y,
                                                             &self.scale_unit
                                                         )
-                                                        } else {
-                                                            format!(
-                                                                "Pixel: ({}, {})",
-                                                                pixel_x, pixel_y
-                                                            )
-                                                        };
+                                                    } else {
+                                                        format!("Pixel: ({}, {})", pixel_x, pixel_y)
+                                                    };
                                                     response.on_hover_text(hover_text);
                                                 }
                                             }

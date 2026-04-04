@@ -166,13 +166,13 @@ impl Colorbar {
                 }
             }
 
-            if response.dragged() {
-                if let Some(pos) = response.interact_pointer_pos() {
-                    let normalized = (pos.y - rect.top()) / rect.height();
-                    self.midpoint = (1.0 - normalized).clamp(0.0, 1.0);
-                    self.dragging = true;
-                    changed = true;
-                }
+            if response.dragged()
+                && let Some(pos) = response.interact_pointer_pos()
+            {
+                let normalized = (pos.y - rect.top()) / rect.height();
+                self.midpoint = (1.0 - normalized).clamp(0.0, 1.0);
+                self.dragging = true;
+                changed = true;
             }
 
             if response.drag_stopped() {
@@ -237,13 +237,13 @@ impl Colorbar {
                 }
             }
 
-            if response.dragged() {
-                if let Some(pos) = response.interact_pointer_pos() {
-                    let normalized = (pos.x - rect.left()) / rect.width();
-                    self.midpoint = normalized.clamp(0.0, 1.0);
-                    self.dragging = true;
-                    changed = true;
-                }
+            if response.dragged()
+                && let Some(pos) = response.interact_pointer_pos()
+            {
+                let normalized = (pos.x - rect.left()) / rect.width();
+                self.midpoint = normalized.clamp(0.0, 1.0);
+                self.dragging = true;
+                changed = true;
             }
 
             if response.drag_stopped() {

@@ -160,17 +160,17 @@ impl Widget for Gauge<'_> {
             );
 
             // Only show label below gauge when large enough (>= 40px)
-            if let Some(label) = self.label {
-                if self.size >= 40.0 {
-                    let label_pos = Pos2::new(center.x, rect.bottom() + 2.0);
-                    painter.text(
-                        label_pos,
-                        egui::Align2::CENTER_TOP,
-                        label,
-                        egui::FontId::proportional(10.0),
-                        layout::colors::MUTED,
-                    );
-                }
+            if let Some(label) = self.label
+                && self.size >= 40.0
+            {
+                let label_pos = Pos2::new(center.x, rect.bottom() + 2.0);
+                painter.text(
+                    label_pos,
+                    egui::Align2::CENTER_TOP,
+                    label,
+                    egui::FontId::proportional(10.0),
+                    layout::colors::MUTED,
+                );
             }
         }
 

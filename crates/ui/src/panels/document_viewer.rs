@@ -159,41 +159,40 @@ impl DocumentViewerPanel {
             } else {
                 let connected = client.is_some();
                 let btn = ui.add_enabled(connected, egui::Button::new("Subscribe to Stream"));
-                if btn.clicked() {
-                    if let Some(client_ref) = client {
-                        let mut client = client_ref.clone();
-                        let (tx, rx) = mpsc::channel(100);
-                        self.rx = Some(rx);
-                        self.is_subscribed = true;
+                if btn.clicked()
+                    && let Some(client_ref) = client
+                {
+                    let mut client = client_ref.clone();
+                    let (tx, rx) = mpsc::channel(100);
+                    self.rx = Some(rx);
+                    self.is_subscribed = true;
 
-                        self.subscription_task = Some(runtime.spawn(async move {
-                            match client.stream_documents(None, vec![]).await {
-                                Ok(mut stream) => {
-                                    while let Some(result) = stream.next().await {
-                                        match result {
-                                            Ok(doc) => {
-                                                if tx.send(Ok(doc)).await.is_err() {
-                                                    break;
-                                                }
-                                            }
-                                            Err(status) => {
-                                                let _ = tx
-                                                    .send(Err(format!("gRPC Error: {}", status)))
-                                                    .await;
+                    self.subscription_task = Some(runtime.spawn(async move {
+                        match client.stream_documents(None, vec![]).await {
+                            Ok(mut stream) => {
+                                while let Some(result) = stream.next().await {
+                                    match result {
+                                        Ok(doc) => {
+                                            if tx.send(Ok(doc)).await.is_err() {
                                                 break;
                                             }
                                         }
+                                        Err(status) => {
+                                            let _ = tx
+                                                .send(Err(format!("gRPC Error: {}", status)))
+                                                .await;
+                                            break;
+                                        }
                                     }
                                 }
-                                Err(e) => {
-                                    let _ =
-                                        tx.send(Err(format!("Failed to subscribe: {}", e))).await;
-                                }
                             }
-                        }));
-                        self.document_log
-                            .push("INFO: Subscribing to stream...".to_string());
-                    }
+                            Err(e) => {
+                                let _ = tx.send(Err(format!("Failed to subscribe: {}", e))).await;
+                            }
+                        }
+                    }));
+                    self.document_log
+                        .push("INFO: Subscribing to stream...".to_string());
                 }
                 if !connected {
                     btn.on_hover_text("Connect to daemon to subscribe");

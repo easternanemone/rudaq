@@ -257,19 +257,18 @@ impl ExecutionState {
                 if let Some(num_str) = id_str
                     .strip_prefix("NodeId(")
                     .and_then(|s| s.strip_suffix(")"))
+                    && let Ok(idx) = num_str.parse::<usize>()
                 {
-                    if let Ok(idx) = num_str.parse::<usize>() {
-                        let node_id = NodeId(idx);
-                        if label.ends_with("_start") {
-                            // Mark previous active node as completed
-                            if let Some(prev) = self.active_node.take() {
-                                self.completed_nodes.insert(prev);
-                            }
-                            self.active_node = Some(node_id);
-                        } else if label.ends_with("_end") && self.active_node == Some(node_id) {
-                            self.completed_nodes.insert(node_id);
-                            self.active_node = None;
+                    let node_id = NodeId(idx);
+                    if label.ends_with("_start") {
+                        // Mark previous active node as completed
+                        if let Some(prev) = self.active_node.take() {
+                            self.completed_nodes.insert(prev);
                         }
+                        self.active_node = Some(node_id);
+                    } else if label.ends_with("_end") && self.active_node == Some(node_id) {
+                        self.completed_nodes.insert(node_id);
+                        self.active_node = None;
                     }
                 }
             }

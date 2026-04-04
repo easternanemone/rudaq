@@ -166,13 +166,13 @@ pub fn load_gui_config() -> Result<Option<GuiConfig>, String> {
     }
     // Validate SSH configs in all presets
     for preset in &config.presets {
-        if let Some(ref ssh) = preset.ssh {
-            if let Err(e) = ssh.validate() {
-                return Err(format!(
-                    "Invalid SSH config in preset '{}': {}",
-                    preset.name, e
-                ));
-            }
+        if let Some(ref ssh) = preset.ssh
+            && let Err(e) = ssh.validate()
+        {
+            return Err(format!(
+                "Invalid SSH config in preset '{}': {}",
+                preset.name, e
+            ));
         }
     }
     tracing::info!("Loaded GUI config from {}", path.display());
@@ -219,12 +219,12 @@ fn discover_config_path() -> Option<PathBuf> {
     }
 
     // 2. <exe_dir>/../config/gui.toml (relative to binary)
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(exe_dir) = exe.parent() {
-            let relative = exe_dir.join("../config/gui.toml");
-            if relative.is_file() {
-                return Some(relative);
-            }
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(exe_dir) = exe.parent()
+    {
+        let relative = exe_dir.join("../config/gui.toml");
+        if relative.is_file() {
+            return Some(relative);
         }
     }
 

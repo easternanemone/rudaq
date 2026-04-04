@@ -208,13 +208,12 @@ impl ModulesPanel {
                 if ui
                     .add_enabled(can_create, egui::Button::new("➕ Create"))
                     .clicked()
+                    && let Some(type_id) = &self.selected_type
                 {
-                    if let Some(type_id) = &self.selected_type {
-                        self.pending_action = Some(PendingAction::CreateModule {
-                            type_id: type_id.clone(),
-                            name: self.new_module_name.clone(),
-                        });
-                    }
+                    self.pending_action = Some(PendingAction::CreateModule {
+                        type_id: type_id.clone(),
+                        name: self.new_module_name.clone(),
+                    });
                 }
             });
 

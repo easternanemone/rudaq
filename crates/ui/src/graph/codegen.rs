@@ -293,14 +293,14 @@ fn acquire_to_rhai(config: &AcquireConfig, indent: usize) -> String {
     );
 
     // Set exposure if specified
-    if let Some(exposure_ms) = config.exposure_ms {
-        if exposure_ms > 0.0 {
-            let _ = writeln!(
-                code,
-                "{}{}.set_exposure({});",
-                ind, config.detector, exposure_ms
-            );
-        }
+    if let Some(exposure_ms) = config.exposure_ms
+        && exposure_ms > 0.0
+    {
+        let _ = writeln!(
+            code,
+            "{}{}.set_exposure({});",
+            ind, config.detector, exposure_ms
+        );
     }
 
     // Generate acquire loop if multiple frames
@@ -679,10 +679,11 @@ fn find_loop_body_nodes(loop_node_id: NodeId, snarl: &Snarl<ExperimentNode>) -> 
         body_adjacency.insert(node_id, Vec::new());
     }
     for (out_pin, in_pin) in snarl.wires() {
-        if pure_body.contains(&out_pin.node) && pure_body.contains(&in_pin.node) {
-            if let Some(v) = body_adjacency.get_mut(&out_pin.node) {
-                v.push(in_pin.node);
-            }
+        if pure_body.contains(&out_pin.node)
+            && pure_body.contains(&in_pin.node)
+            && let Some(v) = body_adjacency.get_mut(&out_pin.node)
+        {
+            v.push(in_pin.node);
         }
     }
 

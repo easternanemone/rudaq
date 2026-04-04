@@ -476,10 +476,10 @@ impl ScanBuilderPanel {
         self.poll_documents(ui.ctx());
 
         // Poll for action results, check if we need to start subscription
-        if let Some(run_uid) = self.poll_async_results(ui.ctx()) {
-            if let Some(ref mut client) = client {
-                self.start_document_subscription(client, runtime, &run_uid);
-            }
+        if let Some(run_uid) = self.poll_async_results(ui.ctx())
+            && let Some(ref mut client) = client
+        {
+            self.start_document_subscription(client, runtime, &run_uid);
         }
 
         self.pending_action = None;
@@ -1307,10 +1307,8 @@ impl ScanBuilderPanel {
         });
 
         // Show tooltip on hover if error
-        if has_error {
-            if let Some(err) = error_msg {
-                response.response.on_hover_text(err);
-            }
+        if has_error && let Some(err) = error_msg {
+            response.response.on_hover_text(err);
         }
 
         text != &old_text
@@ -1338,11 +1336,11 @@ impl ScanBuilderPanel {
                         .insert("actuator_y", "Select Y axis actuator".to_string());
                 }
                 // Check for same actuator on both axes
-                if let (Some(x), Some(y)) = (&self.selected_actuator_x, &self.selected_actuator_y) {
-                    if x == y {
-                        self.validation_errors
-                            .insert("actuator_y", "X and Y axes must be different".to_string());
-                    }
+                if let (Some(x), Some(y)) = (&self.selected_actuator_x, &self.selected_actuator_y)
+                    && x == y
+                {
+                    self.validation_errors
+                        .insert("actuator_y", "X and Y axes must be different".to_string());
                 }
             }
         }
@@ -1363,11 +1361,10 @@ impl ScanBuilderPanel {
                 // Check start != stop
                 if let (Ok(start), Ok(stop)) =
                     (self.start_1d.parse::<f64>(), self.stop_1d.parse::<f64>())
+                    && (start - stop).abs() < f64::EPSILON
                 {
-                    if (start - stop).abs() < f64::EPSILON {
-                        self.validation_errors
-                            .insert("stop_1d", "Stop must differ from Start".to_string());
-                    }
+                    self.validation_errors
+                        .insert("stop_1d", "Stop must differ from Start".to_string());
                 }
             }
             ScanMode::TwoDimensional => {
@@ -1381,19 +1378,17 @@ impl ScanBuilderPanel {
                 // Check start != stop for both axes
                 if let (Ok(start), Ok(stop)) =
                     (self.x_start.parse::<f64>(), self.x_stop.parse::<f64>())
+                    && (start - stop).abs() < f64::EPSILON
                 {
-                    if (start - stop).abs() < f64::EPSILON {
-                        self.validation_errors
-                            .insert("x_stop", "Stop must differ from Start".to_string());
-                    }
+                    self.validation_errors
+                        .insert("x_stop", "Stop must differ from Start".to_string());
                 }
                 if let (Ok(start), Ok(stop)) =
                     (self.y_start.parse::<f64>(), self.y_stop.parse::<f64>())
+                    && (start - stop).abs() < f64::EPSILON
                 {
-                    if (start - stop).abs() < f64::EPSILON {
-                        self.validation_errors
-                            .insert("y_stop", "Stop must differ from Start".to_string());
-                    }
+                    self.validation_errors
+                        .insert("y_stop", "Stop must differ from Start".to_string());
                 }
             }
         }

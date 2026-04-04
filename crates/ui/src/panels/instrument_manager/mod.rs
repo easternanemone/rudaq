@@ -736,10 +736,10 @@ impl InstrumentManagerPanel {
         let set_param_action = self.render_params_viewer(ui.ctx());
 
         // Handle parameter set action from viewer
-        if let Some((param_name, value)) = set_param_action {
-            if let Some(device_id) = self.params_viewer_device_id.clone() {
-                self.set_parameter(client.as_deref_mut(), runtime, device_id, param_name, value);
-            }
+        if let Some((param_name, value)) = set_param_action
+            && let Some(device_id) = self.params_viewer_device_id.clone()
+        {
+            self.set_parameter(client.as_deref_mut(), runtime, device_id, param_name, value);
         }
 
         ui.heading("Instruments");
@@ -986,10 +986,10 @@ impl InstrumentManagerPanel {
             response.on_hover_ui(|ui| {
                 ui.label(format!("ID: {}", device.id));
                 ui.label(format!("Driver: {}", device.driver_type));
-                if let Some(ref meta) = device.metadata {
-                    if let Some(ref source) = meta.config_source {
-                        ui.label(format!("Config: {}", source));
-                    }
+                if let Some(ref meta) = device.metadata
+                    && let Some(ref source) = meta.config_source
+                {
+                    ui.label(format!("Config: {}", source));
                 }
 
                 // Capabilities
@@ -1375,10 +1375,9 @@ impl InstrumentManagerPanel {
             if ui
                 .add_enabled(has_changes, egui::Button::new("Set"))
                 .clicked()
+                && let Some(value) = current_edit.cloned()
             {
-                if let Some(value) = current_edit.cloned() {
-                    *action_to_perform = Some((param.name.clone(), value));
-                }
+                *action_to_perform = Some((param.name.clone(), value));
             }
         } else {
             ui.label("");
@@ -1862,22 +1861,22 @@ docked tab. Right-click the device row for the fallback dock action.",
         let mut actions = Vec::new();
 
         // Show appropriate controls based on device capabilities
-        if device.is_movable() {
-            if let Some(action) = self.render_motion_controls(ui, &device_id, state.as_ref()) {
-                actions.push(action);
-            }
+        if device.is_movable()
+            && let Some(action) = self.render_motion_controls(ui, &device_id, state.as_ref())
+        {
+            actions.push(action);
         }
 
-        if device.is_readable() {
-            if let Some(action) = self.render_read_controls(ui, &device_id) {
-                actions.push(action);
-            }
+        if device.is_readable()
+            && let Some(action) = self.render_read_controls(ui, &device_id)
+        {
+            actions.push(action);
         }
 
-        if device.is_frame_producer() {
-            if let Some(action) = self.render_camera_controls(ui, &device_id, state.as_ref()) {
-                actions.push(action);
-            }
+        if device.is_frame_producer()
+            && let Some(action) = self.render_camera_controls(ui, &device_id, state.as_ref())
+        {
+            actions.push(action);
         }
 
         // Quick actions
@@ -1946,10 +1945,10 @@ docked tab. Right-click the device row for the fallback dock action.",
 
         // Camera controls (exposure, streaming)
         let mut actions = Vec::new();
-        if device.is_frame_producer() {
-            if let Some(action) = self.render_camera_controls(ui, &device_id, state.as_ref()) {
-                actions.push(action);
-            }
+        if device.is_frame_producer()
+            && let Some(action) = self.render_camera_controls(ui, &device_id, state.as_ref())
+        {
+            actions.push(action);
         }
 
         // PP Features section (PVCAM-specific)

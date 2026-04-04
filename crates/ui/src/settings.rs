@@ -445,11 +445,10 @@ impl SettingsWindow {
                 ui.horizontal(|ui| {
                     ui.text_edit_singleline(&mut self.working_settings.logging.log_file_path);
                     #[cfg(all(not(target_arch = "wasm32"), feature = "standalone"))]
-                    if ui.button("Browse...").clicked() {
-                        if let Some(path) = rfd::FileDialog::new().save_file() {
-                            self.working_settings.logging.log_file_path =
-                                path.display().to_string();
-                        }
+                    if ui.button("Browse...").clicked()
+                        && let Some(path) = rfd::FileDialog::new().save_file()
+                    {
+                        self.working_settings.logging.log_file_path = path.display().to_string();
                     }
                     #[cfg(any(target_arch = "wasm32", not(feature = "standalone")))]
                     ui.add_enabled(false, egui::Button::new("Browse..."))
@@ -485,11 +484,10 @@ impl SettingsWindow {
                 ui.horizontal(|ui| {
                     ui.text_edit_singleline(&mut self.working_settings.storage.default_save_dir);
                     #[cfg(all(not(target_arch = "wasm32"), feature = "standalone"))]
-                    if ui.button("Browse...").clicked() {
-                        if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                            self.working_settings.storage.default_save_dir =
-                                path.display().to_string();
-                        }
+                    if ui.button("Browse...").clicked()
+                        && let Some(path) = rfd::FileDialog::new().pick_folder()
+                    {
+                        self.working_settings.storage.default_save_dir = path.display().to_string();
                     }
                     #[cfg(any(target_arch = "wasm32", not(feature = "standalone")))]
                     ui.add_enabled(false, egui::Button::new("Browse..."))

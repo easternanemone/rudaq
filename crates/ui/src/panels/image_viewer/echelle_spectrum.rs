@@ -202,12 +202,12 @@ impl ImageViewerPanel {
         //                keep mem.auto_bounds.x = true (X always auto-fits).
         // When !y_locked: don't patch — let auto_bounds(true) take effect naturally.
         let stable_plot_id = egui::Id::new(plot_id);
-        if self.echelle_plot_y_locked {
-            if let Some(mut mem) = egui_plot::PlotMemory::load(ui.ctx(), stable_plot_id) {
-                mem.auto_bounds.y = false;
-                mem.auto_bounds.x = true;
-                mem.store(ui.ctx(), stable_plot_id);
-            }
+        if self.echelle_plot_y_locked
+            && let Some(mut mem) = egui_plot::PlotMemory::load(ui.ctx(), stable_plot_id)
+        {
+            mem.auto_bounds.y = false;
+            mem.auto_bounds.x = true;
+            mem.store(ui.ctx(), stable_plot_id);
         }
 
         let mut plot = Plot::new(plot_id)
@@ -237,31 +237,30 @@ impl ImageViewerPanel {
                 selected_order_for_hover,
                 wavelength_lookup_for_hover,
                 flux_lookup_for_hover,
-            ) {
-                if let Some(pointer) = plot_ui.pointer_coordinate() {
-                    let idx = match self.echelle_plot_x_axis_mode {
-                        EchellePlotXAxisMode::SampleIndex => {
-                            #[allow(
-                                clippy::cast_possible_truncation,
-                                clippy::cast_possible_wrap,
-                                clippy::cast_sign_loss
-                            )]
-                            let idx = pointer.x.round() as isize;
-                            #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
-                            let clamped =
-                                idx.clamp(0, (f_lookup.len().saturating_sub(1)) as isize) as usize;
-                            clamped
-                        }
-                        EchellePlotXAxisMode::Wavelength => nearest_index_by_x(&xs, pointer.x),
-                    };
-                    if idx < w_lookup.len() && idx < f_lookup.len() {
-                        hover_link = Some(EchellePlotHoverLink {
-                            relative_index: order.relative_index,
-                            sample_index: idx,
-                            wavelength: w_lookup[idx],
-                            flux: f_lookup[idx],
-                        });
+            ) && let Some(pointer) = plot_ui.pointer_coordinate()
+            {
+                let idx = match self.echelle_plot_x_axis_mode {
+                    EchellePlotXAxisMode::SampleIndex => {
+                        #[allow(
+                            clippy::cast_possible_truncation,
+                            clippy::cast_possible_wrap,
+                            clippy::cast_sign_loss
+                        )]
+                        let idx = pointer.x.round() as isize;
+                        #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
+                        let clamped =
+                            idx.clamp(0, (f_lookup.len().saturating_sub(1)) as isize) as usize;
+                        clamped
                     }
+                    EchellePlotXAxisMode::Wavelength => nearest_index_by_x(&xs, pointer.x),
+                };
+                if idx < w_lookup.len() && idx < f_lookup.len() {
+                    hover_link = Some(EchellePlotHoverLink {
+                        relative_index: order.relative_index,
+                        sample_index: idx,
+                        wavelength: w_lookup[idx],
+                        flux: f_lookup[idx],
+                    });
                 }
             }
         });
@@ -296,13 +295,13 @@ impl ImageViewerPanel {
                 "Coverage: {}/{} samples | mean valid frac: {:.2} | saturated: {}",
                 order.covered_samples, order.total_samples, mean_valid, order.saturated_samples
             ));
-            if let Some(link) = self.echelle_plot_hover_link {
-                if link.relative_index == order.relative_index {
-                    ui.small(format!(
-                        "Hover: sample {} | \u{03bb}={:.6} {} | flux={:.2}",
-                        link.sample_index, link.wavelength, order.wavelength_unit, link.flux
-                    ));
-                }
+            if let Some(link) = self.echelle_plot_hover_link
+                && link.relative_index == order.relative_index
+            {
+                ui.small(format!(
+                    "Hover: sample {} | \u{03bb}={:.6} {} | flux={:.2}",
+                    link.sample_index, link.wavelength, order.wavelength_unit, link.flux
+                ));
             }
         }
     }
@@ -517,12 +516,12 @@ impl ImageViewerPanel {
 
         // Sidebar plot — same PlotMemory-patching approach (bd-zy7y.5).
         let sidebar_plot_id = egui::Id::new("image_viewer_echelle_preview_plot");
-        if self.echelle_sidebar_plot_y_locked {
-            if let Some(mut mem) = egui_plot::PlotMemory::load(ui.ctx(), sidebar_plot_id) {
-                mem.auto_bounds.y = false;
-                mem.auto_bounds.x = true;
-                mem.store(ui.ctx(), sidebar_plot_id);
-            }
+        if self.echelle_sidebar_plot_y_locked
+            && let Some(mut mem) = egui_plot::PlotMemory::load(ui.ctx(), sidebar_plot_id)
+        {
+            mem.auto_bounds.y = false;
+            mem.auto_bounds.x = true;
+            mem.store(ui.ctx(), sidebar_plot_id);
         }
 
         let sidebar_response = Plot::new("image_viewer_echelle_preview_plot")
@@ -543,32 +542,30 @@ impl ImageViewerPanel {
                     selected_order_for_hover,
                     wavelength_lookup_for_hover,
                     flux_lookup_for_hover,
-                ) {
-                    if let Some(pointer) = plot_ui.pointer_coordinate() {
-                        let idx = match self.echelle_plot_x_axis_mode {
-                            EchellePlotXAxisMode::SampleIndex => {
-                                #[allow(
-                                    clippy::cast_possible_truncation,
-                                    clippy::cast_possible_wrap,
-                                    clippy::cast_sign_loss
-                                )]
-                                let idx = pointer.x.round() as isize;
-                                #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
-                                let clamped = idx
-                                    .clamp(0, (f_lookup.len().saturating_sub(1)) as isize)
-                                    as usize;
-                                clamped
-                            }
-                            EchellePlotXAxisMode::Wavelength => nearest_index_by_x(&xs, pointer.x),
-                        };
-                        if idx < w_lookup.len() && idx < f_lookup.len() {
-                            hover_link = Some(EchellePlotHoverLink {
-                                relative_index: order.relative_index,
-                                sample_index: idx,
-                                wavelength: w_lookup[idx],
-                                flux: f_lookup[idx],
-                            });
+                ) && let Some(pointer) = plot_ui.pointer_coordinate()
+                {
+                    let idx = match self.echelle_plot_x_axis_mode {
+                        EchellePlotXAxisMode::SampleIndex => {
+                            #[allow(
+                                clippy::cast_possible_truncation,
+                                clippy::cast_possible_wrap,
+                                clippy::cast_sign_loss
+                            )]
+                            let idx = pointer.x.round() as isize;
+                            #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
+                            let clamped =
+                                idx.clamp(0, (f_lookup.len().saturating_sub(1)) as isize) as usize;
+                            clamped
                         }
+                        EchellePlotXAxisMode::Wavelength => nearest_index_by_x(&xs, pointer.x),
+                    };
+                    if idx < w_lookup.len() && idx < f_lookup.len() {
+                        hover_link = Some(EchellePlotHoverLink {
+                            relative_index: order.relative_index,
+                            sample_index: idx,
+                            wavelength: w_lookup[idx],
+                            flux: f_lookup[idx],
+                        });
                     }
                 }
             });
@@ -598,13 +595,13 @@ impl ImageViewerPanel {
                 "Coverage: {}/{} samples | mean valid frac: {:.2} | saturated samples: {}",
                 order.covered_samples, order.total_samples, mean_valid, order.saturated_samples
             ));
-            if let Some(link) = self.echelle_plot_hover_link {
-                if link.relative_index == order.relative_index {
-                    ui.small(format!(
-                        "Hover: sample {} | λ={:.6} {} | flux={:.2}",
-                        link.sample_index, link.wavelength, order.wavelength_unit, link.flux
-                    ));
-                }
+            if let Some(link) = self.echelle_plot_hover_link
+                && link.relative_index == order.relative_index
+            {
+                ui.small(format!(
+                    "Hover: sample {} | λ={:.6} {} | flux={:.2}",
+                    link.sample_index, link.wavelength, order.wavelength_unit, link.flux
+                ));
             }
         }
 

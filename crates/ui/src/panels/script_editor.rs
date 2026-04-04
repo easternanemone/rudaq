@@ -151,10 +151,9 @@ impl ScriptEditorPanel {
         if self.running
             && self.last_poll.elapsed() > EXECUTION_POLL_INTERVAL
             && self.execution_id.is_some()
+            && let (Some(c), Some(rt)) = (&client, runtime)
         {
-            if let (Some(c), Some(rt)) = (&client, runtime) {
-                self.poll_execution_status(c, rt);
-            }
+            self.poll_execution_status(c, rt);
         }
 
         // Collect button actions (defer gRPC calls until after UI rendering)

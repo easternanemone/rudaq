@@ -124,10 +124,10 @@ pub fn determine_panel_type_with_config(
     }
 
     // Priority 2: Config-driven panel from local TOML
-    if let Some(cache) = config_cache {
-        if let Some(config) = cache.get_ui_config_for_driver(&device.driver_type) {
-            return PanelType::ConfigDriven(config.clone());
-        }
+    if let Some(cache) = config_cache
+        && let Some(config) = cache.get_ui_config_for_driver(&device.driver_type)
+    {
+        return PanelType::ConfigDriven(config.clone());
     }
 
     // Fall back to capability-based dispatch

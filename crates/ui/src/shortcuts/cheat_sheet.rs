@@ -79,38 +79,36 @@ impl CheatSheetPanel {
         };
 
         for context in contexts_to_show {
-            if let Some(actions) = actions_by_context.get(&context) {
-                if !actions.is_empty() {
-                    ui.group(|ui| {
-                        ui.label(egui::RichText::new(context.label()).heading().strong());
-                        ui.separator();
+            if let Some(actions) = actions_by_context.get(&context)
+                && !actions.is_empty()
+            {
+                ui.group(|ui| {
+                    ui.label(egui::RichText::new(context.label()).heading().strong());
+                    ui.separator();
 
-                        // Table of shortcuts
-                        egui::Grid::new(format!("shortcuts_grid_{:?}", context))
-                            .num_columns(2)
-                            .spacing([20.0, 8.0])
-                            .striped(true)
-                            .show(ui, |ui| {
-                                for action in actions {
-                                    if let Some(binding) = shortcuts.get_binding(*action) {
-                                        // Key binding (with monospace font)
-                                        ui.label(
-                                            egui::RichText::new(binding.label())
-                                                .monospace()
-                                                .strong(),
-                                        );
+                    // Table of shortcuts
+                    egui::Grid::new(format!("shortcuts_grid_{:?}", context))
+                        .num_columns(2)
+                        .spacing([20.0, 8.0])
+                        .striped(true)
+                        .show(ui, |ui| {
+                            for action in actions {
+                                if let Some(binding) = shortcuts.get_binding(*action) {
+                                    // Key binding (with monospace font)
+                                    ui.label(
+                                        egui::RichText::new(binding.label()).monospace().strong(),
+                                    );
 
-                                        // Action description
-                                        ui.label(action.description());
+                                    // Action description
+                                    ui.label(action.description());
 
-                                        ui.end_row();
-                                    }
+                                    ui.end_row();
                                 }
-                            });
-                    });
+                            }
+                        });
+                });
 
-                    ui.add_space(12.0);
-                }
+                ui.add_space(12.0);
             }
         }
 
