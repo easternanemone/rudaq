@@ -5,13 +5,15 @@
 //! can subscribe to for real-time feedback on device readings, threshold
 //! crossings, and stability detection.
 
+use common::device_id::DeviceId;
+
 /// Events received from the data-plane during plan execution.
 #[derive(Debug, Clone)]
 pub enum FeedbackEvent {
     /// A device reading crossed a threshold.
     ThresholdCrossed {
         /// Device that produced the reading.
-        device_id: String,
+        device_id: DeviceId,
         /// Field name (e.g., "intensity", "value").
         field: String,
         /// The reading value that crossed the threshold.
@@ -22,7 +24,7 @@ pub enum FeedbackEvent {
     /// A device reading became stable within tolerance.
     StabilityReached {
         /// Device that stabilized.
-        device_id: String,
+        device_id: DeviceId,
         /// Field name (e.g., "value").
         field: String,
         /// Measured relative variance when stability was declared.
@@ -31,7 +33,7 @@ pub enum FeedbackEvent {
     /// A raw value update from a device.
     ValueUpdate {
         /// Device that produced the reading.
-        device_id: String,
+        device_id: DeviceId,
         /// Field name (e.g., "value").
         field: String,
         /// The current reading value.
