@@ -144,7 +144,7 @@ pub enum PlanCommand {
     /// Set a device parameter
     Set {
         /// Device to set
-        device_id: String,
+        device_id: DeviceId,
         /// Parameter name
         parameter: String,
         /// Value to set
