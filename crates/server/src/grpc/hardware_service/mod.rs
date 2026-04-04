@@ -6,7 +6,7 @@
 
 use crate::grpc::proto::node_state::Value as ProtoNodeValue;
 use crate::grpc::{
-    map_daq_error_to_status,
+    anyhow_to_status,
     proto::{
         ArmRequest,
         ArmResponse,
@@ -97,7 +97,6 @@ use crate::grpc::{
 };
 use anyhow::Error as AnyError;
 use common::driver::Capability;
-use common::error::{DaqError, DriverError, StorageError};
 use common::limits::{FPS_WINDOW, RPC_TIMEOUT};
 use common::observable::{Observable, ParameterMetadata as CommonParameterMetadata};
 use common::parameter::Parameter;
@@ -154,7 +153,7 @@ impl HardwareServiceImpl {
     {
         match tokio::time::timeout(RPC_TIMEOUT, fut).await {
             Ok(Ok(value)) => Ok(value),
-            Ok(Err(err)) => Err(map_anyhow_error_to_status(err)),
+            Ok(Err(err)) => Err(anyhow_to_status(err)),
             Err(_) => Err(Status::deadline_exceeded(format!(
                 "{operation} timed out after {RPC_TIMEOUT:?}"
             ))),

@@ -304,9 +304,7 @@ pub(super) async fn set_parameter(
             validate_parameter_value(&req.parameter_name, Some(&metadata), &json_value)?;
 
             // Set the parameter (synchronous call, no await needed)
-            param
-                .set_json(json_value)
-                .map_err(map_anyhow_error_to_status)?;
+            param.set_json(json_value).map_err(anyhow_to_status)?;
 
             let actual_value = param
                 .get_json()

@@ -632,19 +632,13 @@ impl PvcamAcquisition {
                 .unwrap_or(false)
             {
                 let forced = 21usize;
-                eprintln!(
-                    "[PVCAM DIAG] Buffer count: calculated={}, using={} (forced by PVCAM_SMOKE_TEST)",
-                    buffer_count, forced
+                tracing::debug!(
+                    calculated = buffer_count,
+                    forced,
+                    "Buffer count overridden by PVCAM_SMOKE_TEST"
                 );
                 buffer_count = forced;
             }
-            // bd-3gnv: Debug output to verify buffer count
-            eprintln!(
-                "[PVCAM DEBUG] Circular buffer: {} frames, {} bytes/frame, {:.2} MB total",
-                buffer_count,
-                actual_frame_bytes,
-                (actual_frame_bytes * buffer_count) as f64 / (1024.0 * 1024.0)
-            );
             tracing::info!(
                 "PVCAM circular buffer: {} frames ({:.2} MB)",
                 buffer_count,
