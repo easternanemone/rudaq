@@ -223,7 +223,7 @@ async fn test_evaluate_condition_threshold_missing_device() {
     let engine = RunEngine::new(registry);
 
     let cond = EvalCondition::Threshold {
-        device_id: "nonexistent".to_string(),
+        device_id: "nonexistent".into(),
         field: "value".to_string(),
         threshold: 10.0,
         above: true,
