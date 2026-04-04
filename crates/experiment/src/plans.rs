@@ -597,9 +597,6 @@ impl Plan for GridScan {
                 } else {
                     self.current_step = GridScanStep::EmitEvent;
                     return self.next_command();
-                };
-                PlanCommand::Trigger {
-                    device_id: det.clone(),
                 }
             }
             GridScanStep::ReadDetectors { detector_idx } => {
