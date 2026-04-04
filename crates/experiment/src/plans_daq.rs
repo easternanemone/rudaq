@@ -234,7 +234,7 @@ impl Plan for VoltageScan {
                     let ai_device = &all_ai[ai_idx];
                     self.current_step = VoltageScanStep::ReadAI { ai_idx: ai_idx + 1 };
                     PlanCommand::Read {
-                        device_id: ai_device.clone(),
+                        device_id: DeviceId::from(ai_device.as_str()),
                     }
                 } else {
                     self.current_step = VoltageScanStep::EmitEvent;
@@ -413,7 +413,7 @@ impl Plan for TimeSeries {
                     let ai_device = &all_ai[ai_idx];
                     self.current_step = TimeSeriesStep::ReadAI { ai_idx: ai_idx + 1 };
                     PlanCommand::Read {
-                        device_id: ai_device.clone(),
+                        device_id: DeviceId::from(ai_device.as_str()),
                     }
                 } else {
                     self.current_step = TimeSeriesStep::EmitEvent;
@@ -620,7 +620,7 @@ impl Plan for TriggeredAcquisition {
                     let ai_device = &self.ai_channels[ai_idx];
                     self.current_step = TriggeredAcqStep::ReadAI { ai_idx: ai_idx + 1 };
                     PlanCommand::Read {
-                        device_id: ai_device.clone(),
+                        device_id: DeviceId::from(ai_device.as_str()),
                     }
                 } else {
                     self.current_step = TriggeredAcqStep::EmitEvent;
