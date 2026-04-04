@@ -167,8 +167,8 @@ impl CommandDispatcher<'_> {
                 right_field: _,
                 operator,
             } => {
-                let left = self.registry.get_readable(left_device_id);
-                let right = self.registry.get_readable(right_device_id);
+                let left = self.registry.get_readable(left_device_id.as_str());
+                let right = self.registry.get_readable(right_device_id.as_str());
 
                 let (Some(left_r), Some(right_r)) = (left, right) else {
                     warn!(
