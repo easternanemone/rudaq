@@ -1525,9 +1525,9 @@ mod tests {
         );
 
         let comparison = EvalCondition::Comparison {
-            left_device_id: "a".to_string(),
+            left_device_id: "a".into(),
             left_field: "val".to_string(),
-            right_device_id: "b".to_string(),
+            right_device_id: "b".into(),
             right_field: "val".to_string(),
             operator: ComparisonOp::Gte,
         };
