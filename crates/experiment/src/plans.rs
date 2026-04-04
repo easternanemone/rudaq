@@ -347,14 +347,13 @@ impl Plan for LineScan {
                 self.current_step = LineScanStep::ReadDetectors { detector_idx: 0 };
                 // For simplicity, emit a single trigger command
                 // In a more sophisticated implementation, this would trigger each detector
-                if let Some(det) = self.detectors.first() {
-                    PlanCommand::Trigger {
-                        device_id: det.clone(),
-                    }
-                } else {
+                let Some(det) = self.detectors.first() else {
                     // No detectors, skip to emit
                     self.current_step = LineScanStep::EmitEvent;
                     return self.next_command();
+                };
+                PlanCommand::Trigger {
+                    device_id: det.clone(),
                 }
             }
             LineScanStep::ReadDetectors { detector_idx } => {
@@ -842,7 +841,7 @@ impl PlanBuilder for CountBuilder {
             .get("num_points")
             .ok_or("Missing parameter: num_points")?
             .parse::<usize>()
-            .map_err(|e| format!("Invalid num_points: {}", e))?;
+            .map_err(|e| format!("Invalid num_points: {e}"))?;
 
         // Validate parameters
         if num_points == 0 {
@@ -868,7 +867,7 @@ impl PlanBuilder for CountBuilder {
         if let Some(delay_str) = parameters.get("delay") {
             let delay = delay_str
                 .parse::<f64>()
-                .map_err(|e| format!("Invalid delay: {}", e))?;
+                .map_err(|e| format!("Invalid delay: {e}"))?;
             if !delay.is_finite() {
                 return Err("delay must be a finite number (not NaN or infinity)".to_string());
             }
@@ -904,19 +903,19 @@ impl PlanBuilder for LineScanBuilder {
             .get("start")
             .ok_or("Missing parameter: start")?
             .parse::<f64>()
-            .map_err(|e| format!("Invalid start: {}", e))?;
+            .map_err(|e| format!("Invalid start: {e}"))?;
 
         let end = parameters
             .get("end")
             .ok_or("Missing parameter: end")?
             .parse::<f64>()
-            .map_err(|e| format!("Invalid end: {}", e))?;
+            .map_err(|e| format!("Invalid end: {e}"))?;
 
         let num_points = parameters
             .get("num_points")
             .ok_or("Missing parameter: num_points")?
             .parse::<usize>()
-            .map_err(|e| format!("Invalid num_points: {}", e))?;
+            .map_err(|e| format!("Invalid num_points: {e}"))?;
 
         let motor = device_mapping
             .get("motor")
@@ -958,7 +957,7 @@ impl PlanBuilder for LineScanBuilder {
         if let Some(settle_str) = parameters.get("settle_time") {
             let settle = settle_str
                 .parse::<f64>()
-                .map_err(|e| format!("Invalid settle_time: {}", e))?;
+                .map_err(|e| format!("Invalid settle_time: {e}"))?;
             if !settle.is_finite() {
                 return Err("settle_time must be a finite number (not NaN or infinity)".to_string());
             }
@@ -994,37 +993,37 @@ impl PlanBuilder for GridScanBuilder {
             .get("x_start")
             .ok_or("Missing parameter: x_start")?
             .parse::<f64>()
-            .map_err(|e| format!("Invalid x_start: {}", e))?;
+            .map_err(|e| format!("Invalid x_start: {e}"))?;
 
         let x_end = parameters
             .get("x_end")
             .ok_or("Missing parameter: x_end")?
             .parse::<f64>()
-            .map_err(|e| format!("Invalid x_end: {}", e))?;
+            .map_err(|e| format!("Invalid x_end: {e}"))?;
 
         let x_points = parameters
             .get("x_points")
             .ok_or("Missing parameter: x_points")?
             .parse::<usize>()
-            .map_err(|e| format!("Invalid x_points: {}", e))?;
+            .map_err(|e| format!("Invalid x_points: {e}"))?;
 
         let y_start = parameters
             .get("y_start")
             .ok_or("Missing parameter: y_start")?
             .parse::<f64>()
-            .map_err(|e| format!("Invalid y_start: {}", e))?;
+            .map_err(|e| format!("Invalid y_start: {e}"))?;
 
         let y_end = parameters
             .get("y_end")
             .ok_or("Missing parameter: y_end")?
             .parse::<f64>()
-            .map_err(|e| format!("Invalid y_end: {}", e))?;
+            .map_err(|e| format!("Invalid y_end: {e}"))?;
 
         let y_points = parameters
             .get("y_points")
             .ok_or("Missing parameter: y_points")?
             .parse::<usize>()
-            .map_err(|e| format!("Invalid y_points: {}", e))?;
+            .map_err(|e| format!("Invalid y_points: {e}"))?;
 
         let x_motor = device_mapping
             .get("x_motor")
@@ -1093,7 +1092,7 @@ impl PlanBuilder for GridScanBuilder {
         if let Some(snake_str) = parameters.get("snake") {
             let snake = snake_str
                 .parse::<bool>()
-                .map_err(|e| format!("Invalid snake: {}", e))?;
+                .map_err(|e| format!("Invalid snake: {e}"))?;
             plan = plan.with_snake(snake);
         }
 
@@ -1160,7 +1159,7 @@ impl PlanRegistry {
         let builder = self
             .builders
             .get(plan_type)
-            .ok_or_else(|| format!("Unknown plan type: {}", plan_type))?;
+            .ok_or_else(|| format!("Unknown plan type: {plan_type}"))?;
 
         builder.build(parameters, device_mapping)
     }
