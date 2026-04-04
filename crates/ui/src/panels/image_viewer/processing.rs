@@ -114,6 +114,7 @@ pub(super) fn sample_line_profile(
     let dx = measurement.end.x - measurement.start.x;
     let dy = measurement.end.y - measurement.start.y;
     let pixel_length = (dx * dx + dy * dy).sqrt();
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let steps = pixel_length.ceil().max(1.0) as usize;
     let scale_x = pixel_scale_x.or(pixel_scale_y);
     let scale_y = pixel_scale_y.or(pixel_scale_x);
@@ -123,7 +124,10 @@ pub(super) fn sample_line_profile(
         let t = if steps == 0 {
             0.0
         } else {
-            step as f32 / steps as f32
+            #[allow(clippy::cast_precision_loss)]
+            {
+                step as f32 / steps as f32
+            }
         };
         let x = (measurement.start.x + dx * t).round();
         let y = (measurement.start.y + dy * t).round();
@@ -132,7 +136,9 @@ pub(super) fn sample_line_profile(
             continue;
         }
 
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let x_u32 = x as u32;
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let y_u32 = y as u32;
         let Some(intensity) =
             get_pixel_value_inline(frame_data, x_u32, y_u32, width, height, bit_depth)
