@@ -332,24 +332,25 @@ impl RunEngine {
             PlanCommand::Read { device_id } => {
                 self.watchdog.touch().await;
                 let mut is_frame_device = false;
+                let id_str = device_id.to_string();
 
                 {
                     let mut ctx_guard = self.run_context.lock().await;
                     if let Some(ctx) = ctx_guard.as_mut() {
-                        if let Some(rx) = ctx.frame_channels.get_mut(&device_id) {
+                        if let Some(rx) = ctx.frame_channels.get_mut(&id_str) {
                             is_frame_device = true;
                             match rx.recv().await {
                                 Some(capture) => {
                                     let data_len = capture.data.len();
                                     let frame_num = capture.frame_number;
                                     let summing_count = capture.summing_count;
-                                    ctx.collected_frames.insert(device_id.clone(), capture.data);
+                                    ctx.collected_frames.insert(id_str.clone(), capture.data);
                                     ctx.collected_summing_counts
-                                        .insert(device_id.clone(), summing_count);
+                                        .insert(id_str.clone(), summing_count);
                                     // bd-p6r4: Collect frame metadata for EventDoc propagation
                                     if !capture.metadata.is_empty() {
                                         ctx.collected_metadata
-                                            .insert(device_id.clone(), capture.metadata);
+                                            .insert(id_str.clone(), capture.metadata);
                                     }
                                     debug!(
                                         device = %device_id,
