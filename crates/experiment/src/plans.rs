@@ -560,7 +560,7 @@ impl Plan for GridScan {
                 let pos = self.outer_position(self.outer_idx);
                 self.current_step = GridScanStep::MoveInner;
                 PlanCommand::MoveTo {
-                    device_id: self.axis_outer.clone(),
+                    device_id: DeviceId::from(self.axis_outer.as_str()),
                     position: pos,
                 }
             }
@@ -572,7 +572,7 @@ impl Plan for GridScan {
                     GridScanStep::Checkpoint
                 };
                 PlanCommand::MoveTo {
-                    device_id: self.axis_inner.clone(),
+                    device_id: DeviceId::from(self.axis_inner.as_str()),
                     position: pos,
                 }
             }
