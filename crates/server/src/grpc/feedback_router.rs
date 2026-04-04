@@ -106,7 +106,7 @@ impl FeedbackRouter {
     /// the `RunEngine` consumer without applying any condition.
     pub fn send_value_update(&self, device_id: &str, field: &str, value: f64) {
         let event = FeedbackEvent::ValueUpdate {
-            device_id: device_id.to_string(),
+            device_id: device_id.into(),
             field: field.to_string(),
             value,
         };
