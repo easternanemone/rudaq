@@ -109,6 +109,51 @@ use std::time::Duration;
 #[cfg(feature = "pvcam_sdk")]
 use tokio::task::JoinHandle;
 
+/// SDK-level streaming state machine for PVCAM acquisition.
+///
+/// Replaces 7 separate `Arc<Mutex<Option<T>>>` fields with a single enum
+/// that makes the Idle/Streaming lifecycle explicit. All fields that are
+/// populated in `start_stream()` and cleared in `stop_stream()` live in
+/// the `Streaming` variant.
+///
+/// Fields with a different lifecycle (registration channels set by external
+/// callers) remain as separate fields on `PvcamAcquisition`.
+#[cfg(feature = "pvcam_sdk")]
+pub(super) enum SdkStreamingState {
+    /// No active acquisition. All SDK resources are released.
+    Idle,
+    /// Active acquisition with all associated SDK resources.
+    Streaming {
+        /// Handle for the blocking frame loop task.
+        poll_handle: JoinHandle<()>,
+        /// Page-aligned circular buffer for DMA performance (Gemini SDK review).
+        /// PVCAM DMA requires 4KB alignment to avoid internal driver copies.
+        circ_buffer: PageAlignedBuffer,
+        /// Error sender for signaling involuntary stops from frame loop.
+        /// Fatal errors (READOUT_FAILED, etc.) are sent here so the driver can
+        /// update streaming state.
+        error_tx: tokio::sync::mpsc::UnboundedSender<AcquisitionError>,
+        /// Pre-allocated buffer pool for zero-allocation frame handling (bd-0dax.3).
+        /// Created in `start_stream()` with size based on SDK buffer count.
+        frame_pool: BufferPool,
+        /// Completion signal receiver for poll thread (bd-g6pr).
+        /// Used in Drop to synchronously wait for the poll thread to exit before
+        /// calling FFI cleanup functions.
+        poll_thread_done_rx: std::sync::mpsc::Receiver<()>,
+        /// Completion signal sender for poll thread (bd-g6pr).
+        /// Cloned into the frame loop; sent when the loop exits.
+        poll_thread_done_tx: std::sync::mpsc::Sender<()>,
+    },
+}
+
+#[cfg(feature = "pvcam_sdk")]
+impl SdkStreamingState {
+    /// Returns `true` if in the `Streaming` state.
+    pub(super) fn is_streaming(&self) -> bool {
+        matches!(self, Self::Streaming { .. })
+    }
+}
+
 /// Acquisition error types for involuntary stop signaling (bd-g9po)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AcquisitionError {
@@ -134,6 +179,8 @@ pub struct PvcamAcquisition {
     pub buffer_mode: Parameter<String>,
     pub frame_count: Arc<AtomicU64>,
     pub frame_tx: tokio::sync::broadcast::Sender<Arc<common::data::Frame>>,
+
+    // --- Registration channels (set by external callers, persist across start/stop) ---
     pub reliable_tx: Arc<Mutex<Option<tokio::sync::mpsc::Sender<Arc<common::data::Frame>>>>>,
 
     /// Primary output channel for zero-allocation frame delivery (bd-0dax.5).
@@ -153,6 +200,7 @@ pub struct PvcamAcquisition {
     #[cfg(feature = "pvcam_sdk")]
     metadata_enabled: Arc<AtomicBool>,
 
+    // --- Counters and error tracking (always available, not tied to streaming state) ---
     /// Frame loss detection counters (bd-ek9n.3).
     /// Total number of frames lost due to buffer overflows or processing delays.
     pub lost_frames: Arc<AtomicU64>,
@@ -170,21 +218,16 @@ pub struct PvcamAcquisition {
     /// Set when a fatal error causes involuntary stop. Cleared by `clear_error()`.
     last_error: Arc<std::sync::Mutex<Option<AcquisitionError>>>,
 
+    // --- SDK streaming state machine ---
+    // Consolidates poll_handle, circ_buffer, error_tx, frame_pool,
+    // poll_thread_done_rx, and poll_thread_done_tx into a single enum
+    // that makes the Idle/Streaming lifecycle explicit.
+    #[cfg(feature = "pvcam_sdk")]
+    pub(super) sdk_state: Arc<Mutex<SdkStreamingState>>,
+
+    // --- SDK atomics (lock-free, accessed from Drop and frame loops) ---
     #[cfg(feature = "pvcam_sdk")]
     shutdown: Arc<AtomicBool>,
-    #[cfg(feature = "pvcam_sdk")]
-    poll_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
-    /// Page-aligned circular buffer for DMA performance (Gemini SDK review).
-    /// PVCAM DMA requires 4KB alignment to avoid internal driver copies.
-    #[cfg(feature = "pvcam_sdk")]
-    circ_buffer: Arc<Mutex<Option<PageAlignedBuffer>>>,
-    #[cfg(feature = "pvcam_sdk")]
-    trigger_frame: Arc<Mutex<Option<Vec<u16>>>>,
-    /// Error sender for signaling involuntary stops from frame loop (Gemini SDK review).
-    /// Fatal errors (READOUT_FAILED, etc.) are sent here so the driver can update streaming state.
-    /// Uses tokio::sync::mpsc::unbounded_channel for async-native error watching without polling.
-    #[cfg(feature = "pvcam_sdk")]
-    error_tx: Arc<Mutex<Option<tokio::sync::mpsc::UnboundedSender<AcquisitionError>>>>,
     /// Callback context for EOF notifications (bd-ek9n.2, bd-d9nw.2).
     ///
     /// SAFETY: Arc<Pin<Box<>>> provides critical lifetime guarantees for FFI callback:
@@ -202,20 +245,6 @@ pub struct PvcamAcquisition {
     /// Whether EOF callback is registered (for cleanup in Drop)
     #[cfg(feature = "pvcam_sdk")]
     callback_registered: Arc<AtomicBool>,
-    /// Completion signal for poll thread (bd-g6pr).
-    /// Used in Drop to synchronously wait for the poll thread to exit before calling
-    /// FFI cleanup functions. This prevents the race condition where pl_exp_stop_cont
-    /// is called while pl_exp_get_oldest_frame_ex is still executing.
-    #[cfg(feature = "pvcam_sdk")]
-    poll_thread_done_rx: Arc<std::sync::Mutex<Option<std::sync::mpsc::Receiver<()>>>>,
-    #[cfg(feature = "pvcam_sdk")]
-    poll_thread_done_tx: Arc<std::sync::Mutex<Option<std::sync::mpsc::Sender<()>>>>,
-
-    /// Frame pool for zero-allocation frame handling (bd-0dax.3).
-    /// Created in start_stream() with size based on SDK buffer count.
-    /// Pool is cleared in stop_stream() to release memory.
-    #[cfg(feature = "pvcam_sdk")]
-    frame_pool: Arc<Mutex<Option<BufferPool>>>,
 }
 
 impl PvcamAcquisition {
@@ -254,17 +283,13 @@ impl PvcamAcquisition {
             // Error tracking (bd-g9po)
             last_error: Arc::new(std::sync::Mutex::new(None)),
 
+            // SDK streaming state machine: starts Idle, transitions to Streaming
+            // in start_stream(), back to Idle in stop_stream()
+            #[cfg(feature = "pvcam_sdk")]
+            sdk_state: Arc::new(Mutex::new(SdkStreamingState::Idle)),
+
             #[cfg(feature = "pvcam_sdk")]
             shutdown: Arc::new(AtomicBool::new(false)),
-            #[cfg(feature = "pvcam_sdk")]
-            poll_handle: Arc::new(Mutex::new(None)),
-            #[cfg(feature = "pvcam_sdk")]
-            circ_buffer: Arc::new(Mutex::new(None)),
-            #[cfg(feature = "pvcam_sdk")]
-            trigger_frame: Arc::new(Mutex::new(None)),
-            // Error channel for signaling involuntary stop signaling (Gemini SDK review)
-            #[cfg(feature = "pvcam_sdk")]
-            error_tx: Arc::new(Mutex::new(None)),
             // Pinned callback context for EOF notifications (bd-ek9n.2, bd-ffi-sdk-match)
             // Initially created with -1 (invalid handle); hcam is updated before callback registration
             #[cfg(feature = "pvcam_sdk")]
@@ -275,17 +300,6 @@ impl PvcamAcquisition {
             active_hcam: Arc::new(AtomicI16::new(-1)),
             #[cfg(feature = "pvcam_sdk")]
             callback_registered: Arc::new(AtomicBool::new(false)),
-            // Completion channel for poll thread synchronization (bd-g6pr)
-            // Created fresh for each acquisition in start_stream
-            #[cfg(feature = "pvcam_sdk")]
-            poll_thread_done_rx: Arc::new(std::sync::Mutex::new(None)),
-            #[cfg(feature = "pvcam_sdk")]
-            poll_thread_done_tx: Arc::new(std::sync::Mutex::new(None)),
-
-            // Frame pool for zero-allocation (bd-0dax.3)
-            // Created in start_stream() when frame size is known
-            #[cfg(feature = "pvcam_sdk")]
-            frame_pool: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -320,47 +334,50 @@ impl Drop for PvcamAcquisition {
             //
             // Use recv_timeout to avoid hanging forever if something goes wrong.
             const POLL_THREAD_TIMEOUT: Duration = Duration::from_secs(5);
-            let poll_thread_exited = if let Ok(guard) = self.poll_thread_done_rx.lock() {
-                if let Some(ref rx) = *guard {
-                    match rx.recv_timeout(POLL_THREAD_TIMEOUT) {
-                        Ok(()) => {
-                            tracing::debug!("PVCAM poll thread exited cleanly in Drop");
-                            true
-                        }
-                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                            tracing::error!(
-                                "PVCAM poll thread did not exit within {:?} - proceeding with cleanup anyway (may cause UB)",
-                                POLL_THREAD_TIMEOUT
-                            );
-                            false
-                        }
-                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                            // Sender was dropped, which means the poll thread exited
-                            // (possibly before we could receive the signal)
-                            tracing::debug!(
-                                "PVCAM poll thread completion channel disconnected (thread already exited)"
-                            );
-                            true
+            let poll_thread_exited = if let Ok(mut guard) = self.sdk_state.try_lock() {
+                // Transition to Idle, consuming all streaming resources.
+                let old_state = std::mem::replace(&mut *guard, SdkStreamingState::Idle);
+                match old_state {
+                    SdkStreamingState::Streaming {
+                        poll_thread_done_rx,
+                        poll_handle,
+                        ..
+                    } => {
+                        // Drop the poll_handle (don't abort - thread exits via shutdown flag)
+                        drop(poll_handle);
+                        match poll_thread_done_rx.recv_timeout(POLL_THREAD_TIMEOUT) {
+                            Ok(()) => {
+                                tracing::debug!("PVCAM poll thread exited cleanly in Drop");
+                                true
+                            }
+                            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                                tracing::error!(
+                                    "PVCAM poll thread did not exit within {:?} - proceeding with cleanup anyway (may cause UB)",
+                                    POLL_THREAD_TIMEOUT
+                                );
+                                false
+                            }
+                            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                                // Sender was dropped, which means the poll thread exited
+                                // (possibly before we could receive the signal)
+                                tracing::debug!(
+                                    "PVCAM poll thread completion channel disconnected (thread already exited)"
+                                );
+                                true
+                            }
                         }
                     }
-                } else {
-                    // No receiver = no active poll thread (stream was never started or already stopped)
-                    tracing::debug!("No active PVCAM poll thread to wait for");
-                    true
+                    SdkStreamingState::Idle => {
+                        // No active poll thread (stream was never started or already stopped)
+                        tracing::debug!("No active PVCAM poll thread to wait for");
+                        true
+                    }
                 }
             } else {
-                // Lock poisoned - unusual but try to proceed
-                tracing::warn!("Could not acquire poll_thread_done_rx lock in Drop");
+                // Lock poisoned / contended - unusual but try to proceed
+                tracing::warn!("Could not acquire sdk_state lock in Drop");
                 false
             };
-
-            // Clean up the JoinHandle (optional - it will be dropped anyway, but this
-            // prevents any "task not awaited" warnings and clears the Option)
-            if let Ok(mut guard) = self.poll_handle.try_lock() {
-                // Don't abort - just drop the handle. The thread has already exited
-                // (or we timed out and are proceeding anyway).
-                let _ = guard.take();
-            }
 
             // CRITICAL SAFETY: Stop camera and deregister callback BEFORE buffer/context are freed.
             // This prevents use-after-free where PVCAM might try to:
@@ -440,6 +457,7 @@ impl Drop for PvcamAcquisition {
 
             // Now safe to drop circ_buffer and callback_context (happens automatically)
             // The buffer and context will be freed when Arc refs drop to zero.
+            // sdk_state (now Idle) has no resources to clean up.
         }
     }
 }

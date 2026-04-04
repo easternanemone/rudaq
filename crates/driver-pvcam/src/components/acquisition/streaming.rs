@@ -608,7 +608,6 @@ impl PvcamAcquisition {
             // Pool size = SDK buffer count + 50% headroom for consumer latency.
             let pool_size = (buffer_count as f64 * 1.5).ceil() as usize;
             let buffer_pool = BufferPool::new(pool_size, actual_frame_bytes);
-            *self.frame_pool.lock().await = Some(buffer_pool.clone());
             tracing::info!(
                 pool_size,
                 frame_capacity_mb = actual_frame_bytes as f64 / (1024.0 * 1024.0),
@@ -822,10 +821,9 @@ impl PvcamAcquisition {
                 );
             }
 
-            // CRITICAL: Store the page-aligned buffer passed to pl_exp_start_cont.
-            // The buffer MUST remain allocated for the entire acquisition lifetime.
+            // CRITICAL: circ_buf MUST remain allocated for the entire acquisition lifetime.
+            // It will be stored in SdkStreamingState::Streaming below.
             // DO NOT convert or transform - PVCAM holds a raw pointer to this memory.
-            *self.circ_buffer.lock().await = Some(circ_buf);
 
             // Reset shutdown flag before starting (in case of restart after stop)
             self.shutdown.store(false, Ordering::SeqCst);
@@ -851,7 +849,6 @@ impl PvcamAcquisition {
             // recv() is async-native (no polling needed in watcher task).
             let (error_tx, mut error_rx) =
                 tokio::sync::mpsc::unbounded_channel::<AcquisitionError>();
-            *self.error_tx.lock().await = Some(error_tx.clone());
 
             // Clone streaming parameter for error watcher task
             let streaming_for_watcher = self.streaming.clone();
@@ -901,13 +898,8 @@ impl PvcamAcquisition {
             // Drop will wait on this receiver before calling FFI cleanup functions,
             // preventing the race where pl_exp_stop_cont is called while
             // pl_exp_get_oldest_frame_ex is still executing.
+            // Stored in SdkStreamingState::Streaming below.
             let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
-            if let Ok(mut guard) = self.poll_thread_done_rx.lock() {
-                *guard = Some(done_rx);
-            }
-            if let Ok(mut guard) = self.poll_thread_done_tx.lock() {
-                *guard = Some(done_tx.clone());
-            }
 
             // bd-3gnv: circ_ptr_usize was converted from raw pointer at line 1110,
             // BEFORE any await points. We use it here for cross-thread transfer.
@@ -955,7 +947,20 @@ impl PvcamAcquisition {
                 );
             });
 
-            *self.poll_handle.lock().await = Some(poll_handle);
+            // Transition sdk_state: Idle -> Streaming with all resources.
+            // This single lock acquisition replaces 6 separate Arc<Mutex<Option<T>>> stores.
+            {
+                use super::SdkStreamingState;
+                let mut state = self.sdk_state.lock().await;
+                *state = SdkStreamingState::Streaming {
+                    poll_handle,
+                    circ_buffer: circ_buf,
+                    error_tx: error_tx.clone(),
+                    frame_pool: buffer_pool,
+                    poll_thread_done_rx: done_rx,
+                    poll_thread_done_tx: done_tx.clone(),
+                };
+            }
 
             // Gemini SDK review: Spawn error watcher to handle involuntary stops.
             // This prevents "zombie streaming" where fatal errors leave streaming=true.
@@ -1238,11 +1243,27 @@ impl PvcamAcquisition {
             tracing::debug!("PVCAM stop_stream: signaling callback context shutdown");
             self.callback_context.signal_shutdown();
 
-            // bd-hehw: Take handle under lock, then drop lock before awaiting
-            // This prevents holding the mutex guard across the .await point
+            // Transition sdk_state: Streaming -> Idle, extracting the poll handle
+            // for awaiting. This single lock acquisition replaces multiple separate
+            // Arc<Mutex<Option<T>>> accesses. The circ_buffer, frame_pool, error_tx,
+            // and done channels are dropped when the Streaming variant is consumed.
+            tracing::debug!("PVCAM stop_stream: transitioning sdk_state to Idle");
+            let poll_handle = {
+                use super::SdkStreamingState;
+                let mut state = self.sdk_state.lock().await;
+                let old_state = std::mem::replace(&mut *state, SdkStreamingState::Idle);
+                match old_state {
+                    SdkStreamingState::Streaming { poll_handle, .. } => Some(poll_handle),
+                    SdkStreamingState::Idle => {
+                        tracing::debug!("PVCAM stop_stream: sdk_state already Idle");
+                        None
+                    }
+                }
+            };
+
+            // bd-hehw: Await poll handle outside the lock to avoid holding mutex across .await
             tracing::debug!("PVCAM stop_stream: waiting for poll thread to complete");
-            let handle = { self.poll_handle.lock().await.take() };
-            if let Some(handle) = handle {
+            if let Some(handle) = poll_handle {
                 tracing::debug!("PVCAM stop_stream: awaiting poll handle");
                 let _ = handle.await;
                 tracing::debug!("PVCAM stop_stream: poll handle completed");
@@ -1279,17 +1300,9 @@ impl PvcamAcquisition {
             } else {
                 tracing::debug!("PVCAM stop_stream: no camera handle, skipping SDK cleanup");
             }
-            // Clear stored state after cleanup
-            tracing::debug!("PVCAM stop_stream: clearing stored state");
+            // Clear remaining atomic state
+            tracing::debug!("PVCAM stop_stream: clearing atomic state");
             self.active_hcam.store(-1, Ordering::Release); // -1 = no active handle
-            *self.circ_buffer.lock().await = None;
-            // bd-g6pr: Clear completion channel so Drop doesn't try to wait again
-            if let Ok(mut guard) = self.poll_thread_done_rx.lock() {
-                *guard = None;
-            }
-            if let Ok(mut guard) = self.poll_thread_done_tx.lock() {
-                *guard = None;
-            }
             tracing::debug!("PVCAM stop_stream: cleanup complete");
         }
         tracing::info!("PVCAM stop_stream completed successfully");
@@ -1380,12 +1393,14 @@ impl PvcamAcquisition {
 
         // Create completion channel for poll thread synchronization
         let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
-        if let Ok(mut guard) = self.poll_thread_done_rx.lock() {
-            *guard = Some(done_rx);
-        }
-        if let Ok(mut guard) = self.poll_thread_done_tx.lock() {
-            *guard = Some(done_tx.clone());
-        }
+
+        // Create a dummy error_tx for state machine (sequence mode doesn't use involuntary stop signaling,
+        // but we need a sender to satisfy the SdkStreamingState::Streaming variant).
+        let (seq_error_tx, _seq_error_rx) =
+            tokio::sync::mpsc::unbounded_channel::<AcquisitionError>();
+
+        // Create a dummy buffer pool (sequence mode allocates per-batch, not from a pool).
+        let dummy_pool = BufferPool::new(1, 1);
 
         // Spawn blocking task for sequence acquisition loop.
         // NOTE: frame_loop_sequence uses std::thread::sleep + blocking PVCAM FFI calls,
@@ -1415,7 +1430,22 @@ impl PvcamAcquisition {
             );
         });
 
-        *self.poll_handle.lock().await = Some(poll_handle);
+        // Transition sdk_state: Idle -> Streaming.
+        // Sequence mode doesn't use circ_buffer, but we need a PageAlignedBuffer.
+        // Use a minimal 1-byte buffer since PVCAM doesn't DMA in sequence mode.
+        let seq_circ_buffer = PageAlignedBuffer::new(4096)?;
+        {
+            use super::SdkStreamingState;
+            let mut state = self.sdk_state.lock().await;
+            *state = SdkStreamingState::Streaming {
+                poll_handle,
+                circ_buffer: seq_circ_buffer,
+                error_tx: seq_error_tx,
+                frame_pool: dummy_pool,
+                poll_thread_done_rx: done_rx,
+                poll_thread_done_tx: done_tx.clone(),
+            };
+        }
         Ok(())
     }
 }
