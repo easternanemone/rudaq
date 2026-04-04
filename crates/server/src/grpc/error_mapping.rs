@@ -50,15 +50,11 @@ use std::str::FromStr;
 use tonic::metadata::{MetadataMap, MetadataValue};
 use tonic::{Code, Status};
 
-/// Metadata header carrying the high-level error category (e.g., "driver", "instrument",
-/// "config", "storage").  Always set on mapped errors.
-pub const ERROR_KIND_HEADER: &str = "x-daq-error-kind";
-/// Metadata header carrying the driver type string (e.g., "mock_camera", "comedi").
-/// Only set when the error is a `DriverError`.
-pub const DRIVER_TYPE_HEADER: &str = "x-daq-driver-type";
-/// Metadata header carrying the `DriverErrorKind` variant (e.g., "communication", "timeout").
-/// Only set when the error is a `DriverError`.
-pub const DRIVER_KIND_HEADER: &str = "x-daq-driver-kind";
+// Re-export the shared header constants from common-traits for backward compat.
+pub use common::error::{
+    GRPC_DRIVER_KIND_HEADER as DRIVER_KIND_HEADER, GRPC_DRIVER_TYPE_HEADER as DRIVER_TYPE_HEADER,
+    GRPC_ERROR_KIND_HEADER as ERROR_KIND_HEADER,
+};
 
 fn sanitize_metadata_value(value: &str) -> String {
     let sanitized: String = value.chars().filter(|c| c.is_ascii()).collect();

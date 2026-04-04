@@ -1,9 +1,3 @@
-//! Type-safe device identifier for the rust-daq ecosystem.
-//!
-//! Replaces bare `String` device IDs throughout the codebase for:
-//! - **Type safety**: Can't accidentally pass a parameter name where a device ID is expected
-//! - **Allocation efficiency**: `Arc<str>` clones are reference-count bumps, not heap copies
-
 use std::fmt;
 use std::sync::Arc;
 

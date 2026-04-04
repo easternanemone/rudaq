@@ -29,12 +29,8 @@ fn parse_value_string(value: &str, dtype: Option<&str>) -> serde_json::Value {
         // Explicitly typed as string — always treat as raw string, never JSON-parse.
         Some("string") => serde_json::Value::String(value.to_owned()),
 
-        // Known non-string dtype — try JSON parse, fall back to string.
-        Some(dt) if !dt.is_empty() => serde_json::from_str(value)
-            .unwrap_or_else(|_| serde_json::Value::String(value.to_owned())),
-
-        // Empty or missing dtype (common for Parameter<String> with no explicit dtype).
-        // If the value is already valid JSON, use it as-is; otherwise wrap as string.
+        // All other cases (known numeric dtype, empty dtype, or None):
+        // try JSON parse, fall back to wrapping as string.
         _ => serde_json::from_str(value)
             .unwrap_or_else(|_| serde_json::Value::String(value.to_owned())),
     }
@@ -107,10 +103,7 @@ pub(super) fn list_parameters(
         }
     }
 
-    // 2. Get settable parameters for plugin devices (V4/Plugin pattern)
-    // 2. Get settable parameters for plugin devices (V4/Plugin pattern)
-    // NOTE: Plugins now use Parameterized trait (V5) so they are handled by block 1 above.
-    // The legacy get_settable_parameters method has been removed.
+    // 2. Legacy plugin path removed — plugins use Parameterized trait (block 1 above).
 
     Ok(Response::new(ListParametersResponse { parameters }))
 }

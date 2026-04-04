@@ -29,11 +29,11 @@
 
 use thiserror::Error;
 
-/// Well-known gRPC metadata header keys set by the server's error mapper.
-/// These match the constants in `server::grpc::error_mapping`.
-const ERROR_KIND_HEADER: &str = "x-daq-error-kind";
-const DRIVER_TYPE_HEADER: &str = "x-daq-driver-type";
-const DRIVER_KIND_HEADER: &str = "x-daq-driver-kind";
+// Import shared header constants from the single source of truth.
+use common_traits::error::{
+    GRPC_DRIVER_KIND_HEADER as DRIVER_KIND_HEADER, GRPC_DRIVER_TYPE_HEADER as DRIVER_TYPE_HEADER,
+    GRPC_ERROR_KIND_HEADER as ERROR_KIND_HEADER,
+};
 
 /// Result type alias using `ClientError`.
 pub type Result<T> = std::result::Result<T, ClientError>;

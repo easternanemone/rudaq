@@ -2600,6 +2600,7 @@ name = "client"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "common-traits",
  "futures",
  "protocol",
  "serde",

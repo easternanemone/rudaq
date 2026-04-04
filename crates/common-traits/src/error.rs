@@ -90,6 +90,17 @@
 use thiserror::Error;
 
 // =============================================================================
+// gRPC error metadata header keys (shared contract between server + client)
+// =============================================================================
+
+/// gRPC metadata header for the DaqError variant name (e.g., "driver", "instrument").
+pub const GRPC_ERROR_KIND_HEADER: &str = "x-daq-error-kind";
+/// gRPC metadata header for the driver type (e.g., "pvcam", "andor").
+pub const GRPC_DRIVER_TYPE_HEADER: &str = "x-daq-driver-type";
+/// gRPC metadata header for the driver error kind (e.g., "communication", "timeout").
+pub const GRPC_DRIVER_KIND_HEADER: &str = "x-daq-driver-kind";
+
+// =============================================================================
 // Storage Errors
 // =============================================================================
 

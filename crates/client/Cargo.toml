@@ -11,6 +11,7 @@ path = "src/lib.rs"
 [dependencies]
 # gRPC client (prost/codegen are platform-independent; transport is native-only)
 protocol = { path = "../protocol" }
+common-traits = { path = "../common-traits" }
 tonic = { workspace = true, default-features = false, features = ["prost", "codegen"] }
 
 # Async runtime (sync primitives work on all platforms)

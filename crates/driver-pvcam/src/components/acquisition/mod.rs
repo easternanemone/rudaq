@@ -223,8 +223,8 @@ pub(super) enum SdkStreamingState {
         /// Used in Drop to synchronously wait for the poll thread to exit before
         /// calling FFI cleanup functions.
         poll_thread_done_rx: std::sync::mpsc::Receiver<()>,
-        /// Completion signal sender for poll thread (bd-g6pr).
-        /// Cloned into the frame loop; sent when the loop exits.
+        /// Owned here for lifetime management; the frame loop holds a clone.
+        #[allow(dead_code)]
         poll_thread_done_tx: std::sync::mpsc::Sender<()>,
     },
 }
@@ -301,10 +301,6 @@ pub struct PvcamAcquisition {
     /// Set when a fatal error causes involuntary stop. Cleared by `clear_error()`.
     last_error: Arc<std::sync::Mutex<Option<AcquisitionError>>>,
 
-    // --- SDK streaming state machine ---
-    // Consolidates poll_handle, circ_buffer, error_tx, frame_pool,
-    // poll_thread_done_rx, and poll_thread_done_tx into a single enum
-    // that makes the Idle/Streaming lifecycle explicit.
     #[cfg(feature = "pvcam_sdk")]
     pub(super) sdk_state: Arc<Mutex<SdkStreamingState>>,
 
