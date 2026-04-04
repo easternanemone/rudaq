@@ -16,6 +16,30 @@ fn value_to_display_string(value: &serde_json::Value) -> String {
     }
 }
 
+/// Parse a user-supplied value string into a `serde_json::Value`, using dtype
+/// metadata to determine whether the value should be treated as a raw string.
+///
+/// Rules:
+/// - If dtype is explicitly `"string"`, always wrap as `Value::String` (no JSON parsing).
+/// - If dtype is empty (the default for `Parameter<String>`) or absent, check whether
+///   the value is already valid JSON. If so, use it; otherwise wrap as `Value::String`.
+/// - For known numeric/bool dtypes, attempt JSON parsing first, fall back to string.
+fn parse_value_string(value: &str, dtype: Option<&str>) -> serde_json::Value {
+    match dtype {
+        // Explicitly typed as string — always treat as raw string, never JSON-parse.
+        Some("string") => serde_json::Value::String(value.to_owned()),
+
+        // Known non-string dtype — try JSON parse, fall back to string.
+        Some(dt) if !dt.is_empty() => serde_json::from_str(value)
+            .unwrap_or_else(|_| serde_json::Value::String(value.to_owned())),
+
+        // Empty or missing dtype (common for Parameter<String> with no explicit dtype).
+        // If the value is already valid JSON, use it as-is; otherwise wrap as string.
+        _ => serde_json::from_str(value)
+            .unwrap_or_else(|_| serde_json::Value::String(value.to_owned())),
+    }
+}
+
 pub(super) fn list_parameters(
     svc: &HardwareServiceImpl,
     request: Request<ListParametersRequest>,
@@ -187,22 +211,8 @@ pub(super) async fn set_parameter(
             .unwrap_or_default();
 
         // Parse the value string to JSON, respecting dtype metadata (bd-4w33o)
-        let json_value: serde_json::Value = {
-            let is_string_param = metadata
-                .as_ref()
-                .map(|m| m.dtype == "string")
-                .unwrap_or(false);
-
-            if is_string_param {
-                serde_json::Value::String(req.value.clone())
-            } else {
-                serde_json::from_str(&req.value)
-                    .or_else(|_| {
-                        Ok::<_, serde_json::Error>(serde_json::Value::String(req.value.clone()))
-                    })
-                    .map_err(|e| Status::invalid_argument(format!("Invalid value format: {e}")))?
-            }
-        };
+        let json_value: serde_json::Value =
+            parse_value_string(&req.value, metadata.as_ref().map(|m| m.dtype.as_str()));
 
         validate_parameter_value(&req.parameter_name, metadata.as_ref(), &json_value)?;
 
@@ -268,21 +278,8 @@ pub(super) async fn set_parameter(
                 .unwrap_or_default();
 
             // Parse the value string to JSON, respecting dtype metadata (bd-4w33o)
-            let json_value: serde_json::Value = {
-                let is_string_param = metadata.dtype == "string";
-
-                if is_string_param {
-                    serde_json::Value::String(req.value.clone())
-                } else {
-                    serde_json::from_str(&req.value)
-                        .or_else(|_| {
-                            Ok::<_, serde_json::Error>(serde_json::Value::String(req.value.clone()))
-                        })
-                        .map_err(|e| {
-                            Status::invalid_argument(format!("Invalid value format: {e}"))
-                        })?
-                }
-            };
+            let json_value: serde_json::Value =
+                parse_value_string(&req.value, Some(metadata.dtype.as_str()));
 
             validate_parameter_value(&req.parameter_name, Some(&metadata), &json_value)?;
 
@@ -622,4 +619,126 @@ pub(super) async fn get_parameter_favorites(
     Ok(Response::new(GetParameterFavoritesResponse {
         parameter_names: vec![],
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── parse_value_string ──────────────────────────────────────────────
+
+    #[test]
+    fn parse_value_string_explicit_string_dtype_does_not_json_parse() {
+        // Even a JSON-parseable number should be kept as a raw string when dtype="string"
+        let result = parse_value_string("42", Some("string"));
+        assert_eq!(result, serde_json::Value::String("42".to_owned()));
+
+        let result = parse_value_string("hello world", Some("string"));
+        assert_eq!(result, serde_json::Value::String("hello world".to_owned()));
+    }
+
+    #[test]
+    fn parse_value_string_explicit_string_dtype_no_double_quoting() {
+        // A plain string should NOT get double-quoted
+        let result = parse_value_string("hello", Some("string"));
+        assert_eq!(result, serde_json::Value::String("hello".to_owned()));
+        // When serialized, it should be `"hello"`, not `"\"hello\""`
+        assert_eq!(
+            serde_json::to_string(&result).expect("serialize"),
+            "\"hello\""
+        );
+    }
+
+    #[test]
+    fn parse_value_string_empty_dtype_plain_string_not_double_quoted() {
+        // Parameter<String> with default empty dtype — plain text should become Value::String
+        let result = parse_value_string("hello", Some(""));
+        assert_eq!(result, serde_json::Value::String("hello".to_owned()));
+    }
+
+    #[test]
+    fn parse_value_string_empty_dtype_json_number_parsed() {
+        let result = parse_value_string("42", Some(""));
+        assert_eq!(result, serde_json::json!(42));
+    }
+
+    #[test]
+    fn parse_value_string_empty_dtype_json_array_parsed() {
+        let result = parse_value_string("[1,2,3]", Some(""));
+        assert_eq!(result, serde_json::json!([1, 2, 3]));
+    }
+
+    #[test]
+    fn parse_value_string_empty_dtype_json_object_parsed() {
+        let result = parse_value_string(r#"{"key":"value"}"#, Some(""));
+        assert_eq!(result, serde_json::json!({"key": "value"}));
+    }
+
+    #[test]
+    fn parse_value_string_none_dtype_plain_string() {
+        let result = parse_value_string("hello", None);
+        assert_eq!(result, serde_json::Value::String("hello".to_owned()));
+    }
+
+    #[test]
+    fn parse_value_string_none_dtype_json_bool() {
+        let result = parse_value_string("true", None);
+        assert_eq!(result, serde_json::json!(true));
+    }
+
+    #[test]
+    fn parse_value_string_numeric_dtype_parses_number() {
+        let result = parse_value_string("9.81", Some("f64"));
+        assert_eq!(result, serde_json::json!(9.81));
+    }
+
+    #[test]
+    fn parse_value_string_numeric_dtype_falls_back_on_invalid() {
+        let result = parse_value_string("not_a_number", Some("f64"));
+        assert_eq!(result, serde_json::Value::String("not_a_number".to_owned()));
+    }
+
+    // ── value_to_display_string ─────────────────────────────────────────
+
+    #[test]
+    fn display_string_value_not_double_quoted() {
+        let val = serde_json::Value::String("hello".to_owned());
+        assert_eq!(value_to_display_string(&val), "hello");
+    }
+
+    #[test]
+    fn display_number_value() {
+        let val = serde_json::json!(42);
+        assert_eq!(value_to_display_string(&val), "42");
+    }
+
+    // ── round-trip: parse then display ──────────────────────────────────
+
+    #[test]
+    fn roundtrip_string_with_empty_dtype() {
+        // Simulates Parameter<String> with default dtype=""
+        let input = "some device name";
+        let parsed = parse_value_string(input, Some(""));
+        let displayed = value_to_display_string(&parsed);
+        assert_eq!(
+            displayed, input,
+            "round-trip should preserve the original string"
+        );
+    }
+
+    #[test]
+    fn roundtrip_json_array_with_empty_dtype() {
+        let input = "[1,2,3]";
+        let parsed = parse_value_string(input, Some(""));
+        let displayed = value_to_display_string(&parsed);
+        assert_eq!(displayed, "[1,2,3]");
+    }
+
+    #[test]
+    fn roundtrip_string_with_explicit_string_dtype() {
+        let input = "hello";
+        let parsed = parse_value_string(input, Some("string"));
+        let displayed = value_to_display_string(&parsed);
+        assert_eq!(displayed, "hello");
+    }
 }
