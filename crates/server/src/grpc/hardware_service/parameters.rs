@@ -26,8 +26,15 @@ fn value_to_display_string(value: &serde_json::Value) -> String {
 /// - For known numeric/bool dtypes, attempt JSON parsing first, fall back to string.
 fn parse_value_string(value: &str, dtype: Option<&str>) -> serde_json::Value {
     match dtype {
-        // Explicitly typed as string — always treat as raw string, never JSON-parse.
-        Some("string") => serde_json::Value::String(value.to_owned()),
+        // String-typed: accept JSON string literals (strips UI quotes) but reject
+        // arrays/objects/numbers to prevent coercion. The UI sends `"\"hello\""` for
+        // string params — `from_str` yields `Value::String("hello")` which we keep.
+        // But `"[{\"x\":0}]"` yields `Value::Array(...)` which we reject in favor
+        // of wrapping as a raw string.
+        Some("string") => match serde_json::from_str(value) {
+            Ok(serde_json::Value::String(s)) => serde_json::Value::String(s),
+            _ => serde_json::Value::String(value.to_owned()),
+        },
 
         // Known non-string dtype — try JSON parse, fall back to string.
         Some(dt) if !dt.is_empty() => serde_json::from_str(value)
@@ -659,6 +666,23 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&result).expect("serialize"),
             "\"hello\""
+        );
+    }
+
+    #[test]
+    fn parse_value_string_string_dtype_strips_ui_json_quotes() {
+        // UI sends `"\"hello\""` for string params — should strip one layer of JSON quoting
+        let result = parse_value_string(r#""hello""#, Some("string"));
+        assert_eq!(result, serde_json::Value::String("hello".to_owned()));
+    }
+
+    #[test]
+    fn parse_value_string_string_dtype_rejects_json_array_coercion() {
+        // JSON array string should NOT be parsed as an array — wrap as raw string
+        let result = parse_value_string(r#"[{"x":0,"y":100}]"#, Some("string"));
+        assert_eq!(
+            result,
+            serde_json::Value::String(r#"[{"x":0,"y":100}]"#.to_owned())
         );
     }
 

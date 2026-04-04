@@ -87,10 +87,6 @@ impl CommandDispatcher<'_> {
         }
 
         // New path - use Parameterized trait and Parameter<T> system
-        let json_value: serde_json::Value = serde_json::from_str(value)
-            .or_else(|_| Ok::<_, serde_json::Error>(serde_json::Value::String(value.to_string())))
-            .map_err(|e| anyhow::anyhow!("Invalid value format: {e}"))?;
-
         let Some(parameterized) = self.registry.get_parameterized(device_id) else {
             anyhow::bail!("Device '{device_id}' not found or does not support parameter setting");
         };
@@ -98,6 +94,34 @@ impl CommandDispatcher<'_> {
         let Some(param) = params.get(parameter) else {
             anyhow::bail!("Parameter '{parameter}' not found on device '{device_id}'");
         };
+
+        // Dtype-aware coercion: infer dtype from current value when metadata is empty
+        // to prevent JSON-shaped strings from being misinterpreted as arrays/objects.
+        let metadata = param.metadata();
+        let effective_dtype = if metadata.dtype.is_empty() {
+            match param.get_json() {
+                Ok(serde_json::Value::String(_)) => "string",
+                _ => "",
+            }
+        } else {
+            metadata.dtype.as_str()
+        };
+
+        let json_value: serde_json::Value = if effective_dtype == "string" {
+            // String-typed: accept JSON string literals (strips quotes) but reject
+            // arrays/objects to prevent coercion.
+            match serde_json::from_str(value) {
+                Ok(serde_json::Value::String(s)) => serde_json::Value::String(s),
+                _ => serde_json::Value::String(value.to_string()),
+            }
+        } else {
+            serde_json::from_str(value)
+                .or_else(|_| {
+                    Ok::<_, serde_json::Error>(serde_json::Value::String(value.to_string()))
+                })
+                .map_err(|e| anyhow::anyhow!("Invalid value format: {e}"))?
+        };
+
         param.set_json(json_value)?;
         Ok(())
     }
