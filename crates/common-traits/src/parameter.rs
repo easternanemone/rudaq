@@ -1009,7 +1009,7 @@ mod tests {
         let hw_val_clone = hardware_value.clone();
 
         // Create parameter with range validation (0.0 to 100.0)
-        let mut param = Parameter::new("exposure", 50.0).with_range(0.0, 100.0);
+        let param = Parameter::new("exposure", 50.0).with_range(0.0, 100.0);
 
         // Connect hardware writer that tracks if it was called
         param.connect_to_hardware_write(move |val| {
