@@ -30,12 +30,23 @@ const AX_BRIDGE = join(__dirname, "..", "ax-bridge");
 function runBridge(args: string[]): unknown {
   try {
     const stdout = execFileSync(AX_BRIDGE, args, {
-      timeout: 10_000,
+      timeout: 15_000,
       encoding: "utf-8",
       maxBuffer: 5 * 1024 * 1024, // 5MB for large trees
     });
     return JSON.parse(stdout);
   } catch (err: unknown) {
+    if (err instanceof Error && "status" in err) {
+      // execFileSync error with stderr
+      const execErr = err as Error & { stderr?: string };
+      const stderr = execErr.stderr?.toString().trim() ?? "";
+      if (stderr.includes("not found") || stderr.includes("No such file")) {
+        throw new Error(
+          `ax-bridge binary not found at ${AX_BRIDGE}. Run: cd tools/mcp-accesskit && bash build.sh`
+        );
+      }
+      throw new Error(`ax-bridge error: ${stderr || err.message}`);
+    }
     const msg = err instanceof Error ? err.message : String(err);
     throw new Error(`ax-bridge failed: ${msg}`);
   }
@@ -153,7 +164,7 @@ server.tool(
 
 server.tool(
   "ax_click",
-  "Click a button or clickable element by title. Searches for AXButton elements first, then falls back to any element containing the title. Returns whether the click succeeded.",
+  "Click a button or interactive element by title. Searches AXButton elements first, then any clickable element. Works for: navigation buttons, device selection, toggle buttons (emission ON/OFF, shutter), start/stop actions, menu items. Returns whether the click succeeded.",
   {
     pid: z.number().optional().describe("Process ID of the target app"),
     app_name: z
@@ -180,7 +191,7 @@ server.tool(
 
 server.tool(
   "ax_set_value",
-  "Set the value of a text field identified by its nearby label. Finds the label matching the title, then sets the value of the adjacent text field. Works with egui's label+field layout pattern.",
+  "Set a widget's value by its nearby label. For SLIDERS: sets the numeric value directly (works via AccessKit SetValue action). For TEXT FIELDS: returns a hint to use gRPC SetParameter instead (egui TextEdits cannot accept external input via accessibility APIs). Searches by both title and value attributes.",
   {
     pid: z.number().optional().describe("Process ID of the target app"),
     app_name: z
@@ -228,6 +239,43 @@ server.tool(
       String(resolvedPid),
       "--title",
       title,
+    ]);
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+    };
+  }
+);
+
+server.tool(
+  "ax_increment",
+  "Increment or decrement a slider/numeric widget by its step size. Finds the slider near the given label and performs AXIncrement or AXDecrement N times. Use for fine adjustments to wavelength, voltage, position, or other numeric parameters.",
+  {
+    pid: z.number().optional().describe("Process ID of the target app"),
+    app_name: z
+      .string()
+      .optional()
+      .describe("App name substring (alternative to PID)"),
+    title: z
+      .string()
+      .describe("Label text near the slider (case-insensitive)"),
+    direction: z
+      .enum(["increment", "decrement"])
+      .default("increment")
+      .describe("Direction: increment (increase) or decrement (decrease)"),
+    steps: z
+      .number()
+      .default(1)
+      .describe("Number of step increments/decrements to perform (default: 1)"),
+  },
+  async ({ pid, app_name, title, direction, steps }) => {
+    const resolvedPid = resolvePid(pid, app_name);
+    const result = runBridge([
+      direction,
+      String(resolvedPid),
+      "--title",
+      title,
+      "--steps",
+      String(steps),
     ]);
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }],

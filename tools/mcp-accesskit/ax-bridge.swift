@@ -423,6 +423,71 @@ case "set-value":
         print(str)
     }
 
+case "increment", "decrement":
+    guard args.count >= 3, let pid = Int32(args[2]) else {
+        outputError("Usage: ax-bridge increment|decrement <pid> --title <text> [--steps N]")
+        exit(1)
+    }
+    var title = ""
+    var steps = 1
+    if let idx = args.firstIndex(of: "--title"), idx + 1 < args.count { title = args[idx + 1] }
+    if let idx = args.firstIndex(of: "--steps"), idx + 1 < args.count, let n = Int(args[idx + 1]) { steps = n }
+    guard !title.isEmpty else { outputError("--title required"); exit(1) }
+
+    let app = AXUIElementCreateApplication(pid)
+    let axAction = command == "increment" ? kAXIncrementAction : kAXDecrementAction
+
+    // Find slider or spinbutton near the label
+    var allSliders: [FoundElement] = []
+    findElements(app, role: "AXSlider", title: nil, value: nil, results: &allSliders)
+    var allSpins: [FoundElement] = []
+    findElements(app, role: "AXSpinButton", title: nil, value: nil, results: &allSpins)
+    var labels: [FoundElement] = []
+    findElements(app, role: nil, title: title, value: nil, results: &labels)
+    var valueLabels: [FoundElement] = []
+    findElements(app, role: nil, title: nil, value: title, results: &valueLabels)
+
+    var target: AXUIElement? = nil
+    let allNumeric = allSliders + allSpins
+    let allLabelsFound = labels + valueLabels
+    for label in allLabelsFound {
+        for widget in allNumeric {
+            if widget.path.dropLast() == label.path.dropLast(),
+               let wIdx = widget.path.last, let lIdx = label.path.last,
+               wIdx > lIdx, wIdx - lIdx <= 5 {
+                target = navigateToPath(app, path: widget.path)
+                break
+            }
+        }
+        if target != nil { break }
+    }
+
+    guard let axElement = target else {
+        let result: [String: Any] = ["success": false, "error": "No slider/spinbutton found near '\(title)'"]
+        if let data = try? JSONSerialization.data(withJSONObject: result, options: .prettyPrinted),
+           let str = String(data: data, encoding: .utf8) { print(str) }
+        break
+    }
+
+    // Perform action N times
+    var lastResult: AXError = .success
+    for _ in 0..<steps {
+        lastResult = AXUIElementPerformAction(axElement, axAction as CFString)
+        if lastResult != .success { break }
+        Thread.sleep(forTimeInterval: 0.05)
+    }
+
+    Thread.sleep(forTimeInterval: 0.2)
+    let numAfter = (getAttr(axElement, kAXValueAttribute) as? Double)
+    let result: [String: Any] = [
+        "success": lastResult == .success,
+        "action": command,
+        "steps": steps,
+        "value_after": numAfter ?? NSNull()
+    ]
+    if let data = try? JSONSerialization.data(withJSONObject: result, options: .prettyPrinted),
+       let str = String(data: data, encoding: .utf8) { print(str) }
+
 case "read-value":
     guard args.count >= 3, let pid = Int32(args[2]) else {
         outputError("Usage: ax-bridge read-value <pid> --title <text>")
@@ -435,9 +500,13 @@ case "read-value":
     let app = AXUIElementCreateApplication(pid)
     var results: [FoundElement] = []
     findElements(app, role: nil, title: title, value: nil, results: &results)
-    let values = results.map { ["role": $0.role, "title": $0.title ?? "", "value": $0.value ?? ""] }
+    // Also search by value
+    var valueResults: [FoundElement] = []
+    findElements(app, role: nil, title: nil, value: title, results: &valueResults)
+    let combined = results + valueResults
+    let values = combined.map { ["role": $0.role, "title": $0.title ?? "", "value": $0.value ?? ""] }
     outputJSON(values)
 
 default:
-    outputError("Unknown command: \(command). Available: list-apps, tree, find, click, set-value, read-value")
+    outputError("Unknown command: \(command). Available: list-apps, tree, find, click, set-value, read-value, increment, decrement")
 }
