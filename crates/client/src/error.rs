@@ -27,12 +27,13 @@
 //! }
 //! ```
 
+use std::str::FromStr;
 use thiserror::Error;
 
 // Import shared header constants from the single source of truth.
 use common_traits::error::{
-    GRPC_DRIVER_KIND_HEADER as DRIVER_KIND_HEADER, GRPC_DRIVER_TYPE_HEADER as DRIVER_TYPE_HEADER,
-    GRPC_ERROR_KIND_HEADER as ERROR_KIND_HEADER,
+    ErrorKind, GRPC_DRIVER_KIND_HEADER as DRIVER_KIND_HEADER,
+    GRPC_DRIVER_TYPE_HEADER as DRIVER_TYPE_HEADER, GRPC_ERROR_KIND_HEADER as ERROR_KIND_HEADER,
 };
 
 /// Result type alias using `ClientError`.
