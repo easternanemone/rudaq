@@ -45,7 +45,7 @@
 //! - **DeadlineExceeded**: Driver timeout
 //! - **NotFound**: Referenced device or resource not found
 
-use common::error::{DaqError, DriverError, StorageError};
+use common::error::{DaqError, DriverError, ErrorKind, StorageError};
 use std::str::FromStr;
 use tonic::metadata::{MetadataMap, MetadataValue};
 use tonic::{Code, Status};
