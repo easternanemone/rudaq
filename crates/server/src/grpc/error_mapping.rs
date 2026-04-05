@@ -116,7 +116,7 @@ pub fn anyhow_to_status(err: anyhow::Error) -> Status {
         }
     }
     // Fallback: opaque internal error with the full anyhow display chain
-    status_with_metadata(Code::Internal, err.to_string(), "unknown", None)
+    status_with_metadata(Code::Internal, err.to_string(), ErrorKind::Unknown, None)
 }
 
 /// Map a DaqError to an appropriate gRPC Status.
