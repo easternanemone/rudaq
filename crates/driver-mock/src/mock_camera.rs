@@ -588,7 +588,7 @@ impl MockCamera {
             .with_range(0.001, 10.0);
 
         // Armed parameter
-        let mut armed = Parameter::new("armed", false).with_description("Camera armed");
+        let armed = Parameter::new("armed", false).with_description("Camera armed");
         {
             let armed_flag_write = armed_flag.clone();
             armed.connect_to_hardware_write(move |value| {
@@ -607,7 +607,7 @@ impl MockCamera {
         }
 
         // Streaming parameter with enhanced timing
-        let mut streaming = Parameter::new("streaming", false).with_description("Streaming");
+        let streaming = Parameter::new("streaming", false).with_description("Streaming");
         let observers_for_streaming = observers.clone();
         {
             let streaming_flag_write = streaming_flag.clone();
@@ -914,7 +914,7 @@ impl MockCamera {
         }
 
         // Staged parameter
-        let mut staged = Parameter::new("staged", false).with_description("Camera staged");
+        let staged = Parameter::new("staged", false).with_description("Camera staged");
         {
             let staged_flag_write = staged_flag.clone();
             let frame_count_write = frame_count.clone();
@@ -950,7 +950,7 @@ impl MockCamera {
         }
 
         // Observable sensor temperature parameter (bd-34gs)
-        let mut sensor_temperature = Parameter::new("sensor_temperature", initial_temperature)
+        let sensor_temperature = Parameter::new("sensor_temperature", initial_temperature)
             .with_description("Sensor temperature")
             .with_unit("°C")
             .with_range(-40.0, 50.0);

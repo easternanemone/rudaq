@@ -597,7 +597,7 @@ impl ComediAnalogOutputDriver {
     ) -> Result<Arc<Self>> {
         let mut params = ParameterSet::new();
 
-        let mut output = Parameter::new("output", 0.0)
+        let output = Parameter::new("output", 0.0)
             .with_description("Output voltage")
             .with_unit("V")
             .with_range(-10.0, 10.0);

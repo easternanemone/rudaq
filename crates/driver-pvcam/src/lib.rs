@@ -1045,7 +1045,7 @@ impl PvcamDriver {
             }
 
             if let Ok(current_res) = PvcamFeatures::get_exposure_resolution(&conn_guard) {
-                let mut param = Parameter::new(
+                let param = Parameter::new(
                     "acquisition.exposure_resolution",
                     current_res.as_str().to_string(),
                 )
@@ -1108,7 +1108,7 @@ impl PvcamDriver {
             }
 
             if let Ok(config) = PvcamFeatures::get_centroids_config(&conn_guard) {
-                let mut enabled = Parameter::new(
+                let enabled = Parameter::new(
                     "processing.centroids_enabled",
                     PvcamFeatures::get_centroids_enabled(&conn_guard).unwrap_or(false),
                 )
@@ -1142,7 +1142,7 @@ impl PvcamDriver {
                 .with_description("Minimum pixel intensity for centroids detection")
                 .with_group("Post-Processing");
 
-                let mut mode = Parameter::new(
+                let mode = Parameter::new(
                     "processing.centroids_mode",
                     config.mode.as_str().to_string(),
                 )
@@ -1161,7 +1161,6 @@ impl PvcamDriver {
                     )
                     .read_only()
                     .with_group("Post-Processing");
-                let mut threshold = threshold;
 
                 {
                     let conn = connection.clone();
@@ -1237,7 +1236,7 @@ impl PvcamDriver {
             }
 
             if let Ok(scan_direction) = PvcamFeatures::get_scan_direction(&conn_guard) {
-                let mut param = Parameter::new(
+                let param = Parameter::new(
                     "trigger.scan_direction",
                     scan_direction.as_str().to_string(),
                 )
@@ -1387,7 +1386,7 @@ impl PvcamDriver {
                         );
 
                         if is_pp_bool_param(&pp_param.name) {
-                            let mut param = Parameter::new(param_name, pp_param.value != 0)
+                            let param = Parameter::new(param_name, pp_param.value != 0)
                                 .with_description(description)
                                 .with_dtype("bool")
                                 .with_group("Post-Processing");
@@ -1418,7 +1417,7 @@ impl PvcamDriver {
                             });
                             pp_bool_params.push(param);
                         } else {
-                            let mut param = Parameter::new(param_name, pp_param.value)
+                            let param = Parameter::new(param_name, pp_param.value)
                                 .with_description(description)
                                 .with_range(pp_param.min, pp_param.max)
                                 .with_group("Post-Processing");
@@ -1603,7 +1602,7 @@ impl PvcamDriver {
             buffer_mode.clone(),
         ));
 
-        let mut driver = Self {
+        let driver = Self {
             camera_name,
             acquisition,
             connection: connection.clone(),
@@ -1820,7 +1819,7 @@ impl PvcamDriver {
     /// All PvcamFeatures::set_*() calls are wrapped in `spawn_blocking` to prevent
     /// synchronous FFI calls from blocking tokio worker threads. Uses `lock_owned()`
     /// to get `OwnedMutexGuard` which is `Send + 'static` for the blocking task.
-    fn connect_params(&mut self) {
+    fn connect_params(&self) {
         let conn = self.connection.clone();
 
         // Exposure Time (bd-aruo.1)
