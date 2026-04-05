@@ -9,6 +9,7 @@ use super::StreamConfig;
 use super::callback_context::SEQUENCE_BATCH_SIZE;
 #[cfg(feature = "pvcam_sdk")]
 use super::{PvcamFeatures, get_pvcam_error};
+#[cfg(feature = "pvcam_sdk")]
 use crate::components::features::BufferMode;
 use anyhow::{Result, anyhow, bail};
 use common::core::Roi;
@@ -1103,7 +1104,7 @@ impl PvcamAcquisition {
             roi,
             binning,
             exposure_ms,
-            buffer_mode: BufferMode::from_str(&self.buffer_mode.get()),
+            buffer_mode: self.buffer_mode.get().parse().unwrap_or_default(),
             host_summing_enabled,
             host_summing_count,
             smart_stream_enabled: smart_disabled,

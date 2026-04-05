@@ -3306,7 +3306,7 @@ impl FrameProducer for PvcamDriver {
             roi: self.roi.get(),
             binning: self.binning.get(),
             exposure_ms: self.exposure_ms.get(),
-            buffer_mode: BufferMode::from_str(&self.buffer_mode.get()),
+            buffer_mode: self.buffer_mode.get().parse().unwrap_or_default(),
             host_summing_enabled: self.host_summing_enabled.clone(),
             host_summing_count: self.host_summing_count.clone(),
             smart_stream_enabled: self.smart_stream_enabled.clone(),

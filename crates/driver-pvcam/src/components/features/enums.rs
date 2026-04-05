@@ -1152,19 +1152,18 @@ impl std::fmt::Display for ScanDirection {
 // Buffer Mode (bd-vw77y)
 // =============================================================================
 
-/// Acquisition buffer mode for PVCAM streaming (bd-vw77y).
+/// Acquisition buffer mode for PVCAM streaming.
 ///
-/// Replaces the stringly-typed `buffer_mode: String` with a proper enum.
-/// These modes control how the PVCAM SDK manages the circular DMA buffer
+/// Controls how the PVCAM SDK manages the circular DMA buffer
 /// during continuous acquisition.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum BufferMode {
     /// Circular buffer with overwrite: DMA continues writing, old frames discarded.
     /// Currently force-disabled at runtime (bd-g3ap) due to unsafe unlock-before-copy
     /// pattern, but kept as an option for future re-enablement.
-    #[default]
     Overwrite,
     /// Circular buffer without overwrite: DMA stops when buffer is full (FIFO).
+    #[default]
     #[serde(rename = "No Overwrite", alias = "NoOverwrite")]
     NoOverwrite,
     /// Sequence mode: batch-based non-circular acquisition via
@@ -1173,18 +1172,21 @@ pub enum BufferMode {
     Sequence,
 }
 
-impl BufferMode {
-    #[allow(clippy::should_implement_trait)]
-    pub fn from_str(s: &str) -> Self {
+impl std::str::FromStr for BufferMode {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "Overwrite" => Self::Overwrite,
-            "No Overwrite" | "NoOverwrite" => Self::NoOverwrite,
-            "Sequence" => Self::Sequence,
-            _ => Self::Overwrite,
+            "Overwrite" => Ok(Self::Overwrite),
+            "No Overwrite" | "NoOverwrite" => Ok(Self::NoOverwrite),
+            "Sequence" => Ok(Self::Sequence),
+            _ => Err(anyhow::anyhow!("unknown buffer mode: {s:?}")),
         }
     }
+}
 
-    pub fn as_str(self) -> &'static str {
+impl BufferMode {
+    pub fn as_str(&self) -> &'static str {
         match self {
             Self::Overwrite => "Overwrite",
             Self::NoOverwrite => "No Overwrite",
