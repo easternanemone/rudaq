@@ -929,7 +929,7 @@ mod tests {
         let hardware_value = Arc::new(AtomicU64::new(0));
         let hw_val_clone = hardware_value.clone();
 
-        let mut param = Parameter::new("exposure", 100.0);
+        let param = Parameter::new("exposure", 100.0);
         param.connect_to_hardware_write(move |val| {
             let hw = hw_val_clone.clone();
             Box::pin(async move {
@@ -1009,7 +1009,7 @@ mod tests {
         let hw_val_clone = hardware_value.clone();
 
         // Create parameter with range validation (0.0 to 100.0)
-        let mut param = Parameter::new("exposure", 50.0).with_range(0.0, 100.0);
+        let param = Parameter::new("exposure", 50.0).with_range(0.0, 100.0);
 
         // Connect hardware writer that tracks if it was called
         param.connect_to_hardware_write(move |val| {
@@ -1068,7 +1068,7 @@ mod tests {
         let hardware_write_called = Arc::new(AtomicBool::new(false));
         let hw_called_clone = hardware_write_called.clone();
 
-        let mut param = Parameter::new("readonly_param", 42.0).read_only();
+        let param = Parameter::new("readonly_param", 42.0).read_only();
 
         param.connect_to_hardware_write(move |_val| {
             let hw_called = hw_called_clone.clone();

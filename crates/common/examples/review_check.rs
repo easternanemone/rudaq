@@ -31,7 +31,7 @@ async fn main() {
     let hw_state = Arc::new(Mutex::new(Vec::new()));
     let hw_state_clone = hw_state.clone();
 
-    let mut param = Parameter::new("race_param", 0);
+    let param = Parameter::new("race_param", 0);
     param.connect_to_hardware_write(move |val| {
         let hw_state = hw_state_clone.clone();
         Box::pin(async move {

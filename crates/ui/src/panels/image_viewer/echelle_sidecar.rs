@@ -13,6 +13,13 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 
 /// Configuration for sidecar retry and circuit breaker behavior.
+///
+/// NOTE(bd-jdx8s): The `initial_backoff` / `max_backoff` / implicit 2x multiplier
+/// duplicates `common::error_recovery::ExponentialBackoff`. This sidecar runs in
+/// a synchronous `std::thread` context (no Tokio), so wiring in the shared type
+/// is deferred. A future consolidation could use
+/// `ExponentialBackoff::delay_for_attempt()` in `request_json()` instead of the
+/// inline `backoff = (backoff * 2).min(max_backoff)` loop.
 #[derive(Debug, Clone)]
 pub(super) struct SidecarConfig {
     /// Maximum retry attempts per request (0 = no retries).

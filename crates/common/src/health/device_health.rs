@@ -16,6 +16,7 @@
 //! - `Recovering -> Faulted` (recovery failed)
 //! - `Any -> Faulted` (critical fault -- hardware disconnect, kernel error)
 
+use crate::error_recovery::ExponentialBackoff;
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
@@ -232,15 +233,22 @@ impl DeviceHealthState {
 
     /// Calculate the backoff delay for the next restart attempt.
     ///
-    /// Uses exponential backoff: base_delay * 2^(attempts-1), capped at max_delay.
+    /// Uses exponential backoff: `base_delay * 2^(attempts-1)`, capped at
+    /// `max_delay`. Delegates to [`ExponentialBackoff::delay_for_attempt()`]
+    /// from `error_recovery` (bd-jdx8s consolidation).
     pub fn backoff_delay(&self, base_delay: Duration, max_delay: Duration) -> Duration {
         if self.restart_attempts == 0 {
             return base_delay;
         }
-        let exp = (self.restart_attempts - 1).min(10); // cap exponent to avoid overflow
-        let multiplier = 1u32.checked_shl(exp).unwrap_or(1024);
-        let delay = base_delay.saturating_mul(multiplier);
-        delay.min(max_delay)
+        let backoff = ExponentialBackoff {
+            initial_delay: base_delay,
+            max_delay,
+            multiplier: 2.0,
+            jitter: false,
+        };
+        // restart_attempts counts from 1, delay_for_attempt is 0-indexed,
+        // and attempt 1 should yield base_delay * 2^0 = base_delay.
+        backoff.delay_for_attempt(self.restart_attempts - 1)
     }
 }
 

@@ -468,6 +468,20 @@ impl Default for RetryConfig {
     }
 }
 
+impl RetryConfig {
+    /// Convert this TOML retry configuration into an [`ExponentialBackoff`]
+    /// from `common::error_recovery`, enabling shared delay computation
+    /// (bd-jdx8s consolidation).
+    pub fn to_exponential_backoff(&self) -> common::error_recovery::ExponentialBackoff {
+        common::error_recovery::ExponentialBackoff {
+            initial_delay: std::time::Duration::from_millis(u64::from(self.initial_delay_ms)),
+            max_delay: std::time::Duration::from_millis(u64::from(self.max_delay_ms)),
+            multiplier: self.backoff_multiplier,
+            jitter: false,
+        }
+    }
+}
+
 // =============================================================================
 // Script Configuration
 // =============================================================================
@@ -2073,5 +2087,42 @@ mod tests {
             }
             _ => panic!("Expected Parameter section after JSON roundtrip"),
         }
+    }
+
+    #[test]
+    fn test_retry_config_to_exponential_backoff() {
+        let config = RetryConfig {
+            max_retries: 5,
+            initial_delay_ms: 200,
+            max_delay_ms: 10_000,
+            backoff_multiplier: 1.5,
+            retry_on_errors: vec![],
+            no_retry_on_errors: vec![],
+        };
+
+        let backoff = config.to_exponential_backoff();
+        assert_eq!(backoff.initial_delay, std::time::Duration::from_millis(200));
+        assert_eq!(backoff.max_delay, std::time::Duration::from_millis(10_000));
+        assert!((backoff.multiplier - 1.5).abs() < f64::EPSILON);
+        assert!(!backoff.jitter);
+
+        // Verify delay computation delegates correctly
+        assert_eq!(
+            backoff.delay_for_attempt(0),
+            std::time::Duration::from_millis(200)
+        );
+        assert_eq!(
+            backoff.delay_for_attempt(1),
+            std::time::Duration::from_millis(300)
+        );
+    }
+
+    #[test]
+    fn test_retry_config_default_to_exponential_backoff() {
+        let config = RetryConfig::default();
+        let backoff = config.to_exponential_backoff();
+        assert_eq!(backoff.initial_delay, std::time::Duration::from_millis(100));
+        assert_eq!(backoff.max_delay, std::time::Duration::from_millis(5_000));
+        assert!((backoff.multiplier - 2.0).abs() < f64::EPSILON);
     }
 }
