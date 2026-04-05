@@ -283,6 +283,80 @@ server.tool(
   }
 );
 
+server.tool(
+  "ax_screenshot",
+  "Capture a screenshot of the application window as PNG. Use this for canvas-based widgets (plots, images, camera stream) that are invisible to the AccessKit tree. Returns the file path, dimensions, and size.",
+  {
+    pid: z.number().optional().describe("Process ID of the target app"),
+    app_name: z
+      .string()
+      .optional()
+      .describe("App name substring (alternative to PID)"),
+    output: z
+      .string()
+      .default("/tmp/ax-screenshot.png")
+      .describe("Output file path for the PNG screenshot"),
+  },
+  async ({ pid, app_name, output }) => {
+    const resolvedPid = resolvePid(pid, app_name);
+    const result = runBridge([
+      "screenshot",
+      String(resolvedPid),
+      "--output",
+      output,
+    ]);
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+    };
+  }
+);
+
+server.tool(
+  "ax_app_status",
+  "Get the current status of a running GUI application. Returns: running state, window count, connection state (connected/disconnected/reconnecting), and device count. Use to check if the app is ready for interaction.",
+  {
+    pid: z.number().optional().describe("Process ID of the target app"),
+    app_name: z
+      .string()
+      .optional()
+      .describe("App name substring (alternative to PID)"),
+  },
+  async ({ pid, app_name }) => {
+    const resolvedPid = resolvePid(pid, app_name);
+    const result = runBridge(["app-status", String(resolvedPid)]);
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+    };
+  }
+);
+
+server.tool(
+  "ax_launch",
+  "Launch the DAQ GUI application. Starts the rust-daq-gui binary with optional daemon URL and runtime mode. Returns the PID of the launched process. After launching, use ax_app_status to poll until the app is ready.",
+  {
+    path: z
+      .string()
+      .describe("Path to the rust-daq-gui binary"),
+    daemon_url: z
+      .string()
+      .optional()
+      .describe("Daemon URL to connect to (e.g., http://127.0.0.1:50051)"),
+    runtime_mode: z
+      .enum(["mock", "native", "universal", "hybrid-db"])
+      .optional()
+      .describe("Runtime mode for auto-started daemon"),
+  },
+  async ({ path, daemon_url, runtime_mode }) => {
+    const args = ["launch", "--path", path];
+    if (daemon_url) args.push("--daemon-url", daemon_url);
+    if (runtime_mode) args.push("--runtime-mode", runtime_mode);
+    const result = runBridge(args);
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+    };
+  }
+);
+
 // Start server
 async function main() {
   const transport = new StdioServerTransport();

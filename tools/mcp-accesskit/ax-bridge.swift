@@ -507,6 +507,152 @@ case "read-value":
     let values = combined.map { ["role": $0.role, "title": $0.title ?? "", "value": $0.value ?? ""] }
     outputJSON(values)
 
+case "screenshot":
+    guard args.count >= 3, let pid = Int32(args[2]) else {
+        outputError("Usage: ax-bridge screenshot <pid> --output <path.png>")
+        exit(1)
+    }
+    var outputPath = "/tmp/ax-screenshot.png"
+    if let idx = args.firstIndex(of: "--output"), idx + 1 < args.count { outputPath = args[idx + 1] }
+
+    // Get window ID for the process
+    let app = AXUIElementCreateApplication(pid)
+    guard let windows = getAttr(app, kAXWindowsAttribute) as? [AXUIElement],
+          let win = windows.first else {
+        let result: [String: Any] = ["success": false, "error": "No window found for PID \(pid)"]
+        if let data = try? JSONSerialization.data(withJSONObject: result, options: .prettyPrinted),
+           let str = String(data: data, encoding: .utf8) { print(str) }
+        break
+    }
+
+    // Bring window to front for capture
+    NSRunningApplication(processIdentifier: pid)?.activate()
+    Thread.sleep(forTimeInterval: 0.5)
+
+    // Use screencapture CLI — works on all macOS versions including Sequoia
+    // -l <windowid> captures a specific window, but we need the CGWindowID.
+    // Simpler: capture the frontmost window with -w (interactive) won't work headless.
+    // Instead: capture the full screen region of the window bounds.
+    if let pos = getPosition(win), let sz = getSize(win) {
+        // -R captures a specific screen region: x,y,w,h
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+        proc.arguments = ["-R", "\(Int(pos.x)),\(Int(pos.y)),\(Int(sz.w)),\(Int(sz.h))", "-x", outputPath]
+        proc.standardOutput = FileHandle.nullDevice
+        proc.standardError = FileHandle.nullDevice
+        do {
+            try proc.run()
+            proc.waitUntilExit()
+        } catch {
+            let result: [String: Any] = ["success": false, "error": "screencapture failed: \(error.localizedDescription)"]
+            if let data = try? JSONSerialization.data(withJSONObject: result, options: .prettyPrinted),
+               let str = String(data: data, encoding: .utf8) { print(str) }
+            break
+        }
+
+        let fm = FileManager.default
+        if fm.fileExists(atPath: outputPath),
+           let attrs = try? fm.attributesOfItem(atPath: outputPath),
+           let size = attrs[.size] as? Int {
+            let result: [String: Any] = [
+                "success": true,
+                "path": outputPath,
+                "width": Int(sz.w),
+                "height": Int(sz.h),
+                "size_bytes": size
+            ]
+            if let data = try? JSONSerialization.data(withJSONObject: result, options: .prettyPrinted),
+               let str = String(data: data, encoding: .utf8) { print(str) }
+        } else {
+            let result: [String: Any] = ["success": false, "error": "Screenshot file not created"]
+            if let data = try? JSONSerialization.data(withJSONObject: result, options: .prettyPrinted),
+               let str = String(data: data, encoding: .utf8) { print(str) }
+        }
+    } else {
+        let result: [String: Any] = ["success": false, "error": "Cannot determine window position/size"]
+        if let data = try? JSONSerialization.data(withJSONObject: result, options: .prettyPrinted),
+           let str = String(data: data, encoding: .utf8) { print(str) }
+    }
+
+case "app-status":
+    guard args.count >= 3, let pid = Int32(args[2]) else {
+        outputError("Usage: ax-bridge app-status <pid>")
+        exit(1)
+    }
+    let running = kill(pid, 0) == 0
+    var status: [String: Any] = ["pid": pid, "running": running]
+
+    if running {
+        let app = AXUIElementCreateApplication(pid)
+
+        // Check if window exists
+        if let windows = getAttr(app, kAXWindowsAttribute) as? [AXUIElement] {
+            status["window_count"] = windows.count
+            if let win = windows.first {
+                status["window_title"] = getStringAttr(win, kAXTitleAttribute)
+            }
+        }
+
+        // Check for connection status
+        var connResults: [FoundElement] = []
+        findElements(app, role: nil, title: nil, value: "Connected", results: &connResults)
+        var disconnResults: [FoundElement] = []
+        findElements(app, role: nil, title: nil, value: "Disconnected", results: &disconnResults)
+        var reconnResults: [FoundElement] = []
+        findElements(app, role: nil, title: nil, value: "Reconnecting", results: &reconnResults)
+
+        if !connResults.isEmpty {
+            status["connection"] = "connected"
+        } else if !reconnResults.isEmpty {
+            status["connection"] = "reconnecting"
+        } else if !disconnResults.isEmpty {
+            status["connection"] = "disconnected"
+        } else {
+            status["connection"] = "unknown"
+        }
+
+        // Count devices
+        var deviceResults: [FoundElement] = []
+        findElements(app, role: nil, title: nil, value: "Loaded", results: &deviceResults)
+        for d in deviceResults {
+            if let v = d.value, v.contains("devices") {
+                status["devices_label"] = v
+            }
+        }
+    }
+
+    if let data = try? JSONSerialization.data(withJSONObject: status, options: [.prettyPrinted, .sortedKeys]),
+       let str = String(data: data, encoding: .utf8) { print(str) }
+
+case "launch":
+    // Launch the DAQ GUI with specified arguments
+    var guiPath = ""
+    var guiArgs: [String] = []
+    if let idx = args.firstIndex(of: "--path"), idx + 1 < args.count { guiPath = args[idx + 1] }
+    if let idx = args.firstIndex(of: "--daemon-url"), idx + 1 < args.count {
+        guiArgs += ["--daemon-url", args[idx + 1]]
+    }
+    if let idx = args.firstIndex(of: "--runtime-mode"), idx + 1 < args.count {
+        guiArgs += ["--runtime-mode", args[idx + 1]]
+    }
+    guard !guiPath.isEmpty else { outputError("--path required (path to rust-daq-gui binary)"); exit(1) }
+
+    let proc = Process()
+    proc.executableURL = URL(fileURLWithPath: guiPath)
+    proc.arguments = guiArgs
+    proc.standardOutput = FileHandle.nullDevice
+    proc.standardError = FileHandle.nullDevice
+    do {
+        try proc.run()
+        let result: [String: Any] = ["success": true, "pid": proc.processIdentifier]
+        if let data = try? JSONSerialization.data(withJSONObject: result, options: .prettyPrinted),
+           let str = String(data: data, encoding: .utf8) { print(str) }
+    } catch {
+        let result: [String: Any] = ["success": false, "error": error.localizedDescription]
+        if let data = try? JSONSerialization.data(withJSONObject: result, options: .prettyPrinted),
+           let str = String(data: data, encoding: .utf8) { print(str) }
+    }
+
 default:
-    outputError("Unknown command: \(command). Available: list-apps, tree, find, click, set-value, read-value, increment, decrement")
+    outputError("Unknown command: \(command). Available: list-apps, tree, find, click, set-value, read-value, increment, decrement, screenshot, app-status, launch")
 }
