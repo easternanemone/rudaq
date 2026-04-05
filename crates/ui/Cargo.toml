@@ -69,6 +69,7 @@ preferences = "2"
 
 # eframe with native windowing
 eframe = { version = "0.33", default-features = false, features = [
+    "accesskit",
     "default_fonts",
     "glow",
     "persistence",
