@@ -314,9 +314,12 @@ pub fn map_daq_error_to_status(err: &DaqError) -> Status {
 
         // I/O errors -> Internal
         // These are server-side failures that shouldn't happen in normal operation
-        DaqError::Io(e) => {
-            status_with_metadata(Code::Internal, format!("I/O error: {e}"), ErrorKind::Io, None)
-        }
+        DaqError::Io(e) => status_with_metadata(
+            Code::Internal,
+            format!("I/O error: {e}"),
+            ErrorKind::Io,
+            None,
+        ),
         DaqError::Tokio(e) => status_with_metadata(
             Code::Internal,
             format!("Tokio I/O error: {e}"),
@@ -352,9 +355,12 @@ pub fn map_daq_error_to_status(err: &DaqError) -> Status {
 
         // Feature-specific errors
         #[cfg(feature = "storage_hdf5")]
-        DaqError::Hdf5(e) => {
-            status_with_metadata(Code::Internal, format!("HDF5 error: {e}"), ErrorKind::Hdf5, None)
-        }
+        DaqError::Hdf5(e) => status_with_metadata(
+            Code::Internal,
+            format!("HDF5 error: {e}"),
+            ErrorKind::Hdf5,
+            None,
+        ),
         #[cfg(feature = "storage_arrow")]
         DaqError::Arrow(e) => status_with_metadata(
             Code::Internal,
