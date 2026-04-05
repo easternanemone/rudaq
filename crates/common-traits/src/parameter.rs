@@ -146,10 +146,10 @@ pub type ChangeListeners<T> = Arc<RwLock<Vec<ChangeListener<T>>>>;
 ///
 /// ```text
 /// Parameter<T>
-///   ├─ inner: Observable<T>        (subscriptions, validation, metadata)
-///   ├─ hardware_writer: Option<F>  (writes to device)
-///   ├─ hardware_reader: Option<F>  (reads from device)
-///   └─ change_listeners: Vec<F>    (side effects: storage, logging)
+///   ├─ inner: Observable<T>                     (subscriptions, validation, metadata)
+///   ├─ hardware_writer: Arc<RwLock<Option<F>>>   (writes to device, shared across clones)
+///   ├─ hardware_reader: Arc<RwLock<Option<F>>>   (reads from device, shared across clones)
+///   └─ change_listeners: Arc<RwLock<Vec<F>>>     (side effects: storage, logging)
 /// ```
 ///
 /// # Type Requirements
@@ -1124,7 +1124,7 @@ mod tests {
         });
 
         // Call set on the CLONE (simulates gRPC path through ParameterSet)
-        clone.set(100.0).await.unwrap();
+        clone.set(100.0).await.expect("set on clone should succeed");
 
         assert!(
             hw_called.load(Ordering::SeqCst),
@@ -1152,10 +1152,11 @@ mod tests {
             })
         });
 
-        // Use set_json through the ParameterBase trait object (same path as gRPC)
-        clone
+        // Use set_json through a trait object (same dynamic dispatch path as gRPC)
+        let trait_obj: &dyn ObservableParameterBase = &clone;
+        trait_obj
             .set_json(serde_json::Value::String("updated".to_owned()))
-            .unwrap();
+            .expect("set_json on trait object should succeed");
 
         assert!(
             hw_called.load(Ordering::SeqCst),
