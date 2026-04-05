@@ -120,7 +120,7 @@ impl ClientError {
     /// Check if this error indicates a specific DAQ error category.
     ///
     /// Convenience method equivalent to `self.daq_error_kind() == Some(kind)`.
-    pub fn is_daq_error_kind(&self, kind: &str) -> bool {
+    pub fn is_daq_error_kind(&self, kind: ErrorKind) -> bool {
         self.daq_error_kind() == Some(kind)
     }
 
