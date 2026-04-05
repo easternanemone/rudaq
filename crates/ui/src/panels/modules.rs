@@ -268,7 +268,7 @@ impl ModulesPanel {
 
         ui.group(|ui| {
             ui.horizontal(|ui| {
-                ui.colored_label(state_color, "●");
+                ui.colored_label(state_color, format!("● {state_name}"));
                 let selected = self.selected_module.as_ref() == Some(&module.module_id);
                 if ui
                     .selectable_label(selected, &module.instance_name)

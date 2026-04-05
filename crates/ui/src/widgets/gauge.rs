@@ -174,6 +174,23 @@ impl Widget for Gauge<'_> {
             }
         }
 
+        // AccessKit: expose gauge as a progress indicator with numeric value
+        {
+            let label_text = match (self.label, self.unit) {
+                (Some(l), Some(u)) => format!("{l}: {:.1}{u}", self.value),
+                (Some(l), None) => format!("{l}: {:.1}", self.value),
+                (None, Some(u)) => format!("{:.1}{u}", self.value),
+                (None, None) => format!("{:.1}", self.value),
+            };
+            response.widget_info(|| {
+                egui::WidgetInfo::labeled(
+                    egui::WidgetType::ProgressIndicator,
+                    true,
+                    label_text.clone(),
+                )
+            });
+        }
+
         response
     }
 }
@@ -280,6 +297,21 @@ impl Widget for LinearGauge<'_> {
                     layout::colors::MUTED,
                 );
             }
+        }
+
+        // AccessKit: expose linear gauge as a progress indicator
+        {
+            let label_text = match self.label {
+                Some(l) => format!("{l}: {:.1}", self.value),
+                None => format!("{:.1}", self.value),
+            };
+            response.widget_info(|| {
+                egui::WidgetInfo::labeled(
+                    egui::WidgetType::ProgressIndicator,
+                    true,
+                    label_text.clone(),
+                )
+            });
         }
 
         response

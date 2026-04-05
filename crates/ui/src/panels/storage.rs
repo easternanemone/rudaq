@@ -199,8 +199,7 @@ impl StoragePanel {
                 };
 
                 ui.horizontal(|ui| {
-                    ui.colored_label(state_color, "●");
-                    ui.label(format!("Status: {}", state_name));
+                    ui.colored_label(state_color, format!("● Status: {state_name}"));
                 });
 
                 if status.state == 2 {

@@ -684,8 +684,7 @@ impl LoggingPanel {
             ui.group(|ui| {
                 ui.horizontal(|ui| {
                     let color = self.connection_status.color();
-                    ui.colored_label(color, "●");
-                    ui.label(self.connection_status.label());
+                    ui.colored_label(color, format!("● {}", self.connection_status.label()));
                     // Show RTT if available
                     if let Some(rtt) = self.connection_diagnostics.last_rtt_ms {
                         ui.label(
@@ -711,8 +710,7 @@ impl LoggingPanel {
             ui.group(|ui| {
                 ui.horizontal(|ui| {
                     let color = self.system_status.color();
-                    ui.colored_label(color, "●");
-                    ui.label(format!("System: {}", self.system_status.label()));
+                    ui.colored_label(color, format!("● System: {}", self.system_status.label()));
                 });
             });
 
@@ -722,11 +720,13 @@ impl LoggingPanel {
             ui.group(|ui| {
                 ui.horizontal(|ui| {
                     let color = self.experiment_status.color();
-                    ui.colored_label(color, "●");
                     if let Some(name) = &self.experiment_name {
-                        ui.label(format!("{}: {}", name, self.experiment_status.label()));
+                        ui.colored_label(
+                            color,
+                            format!("● {}: {}", name, self.experiment_status.label()),
+                        );
                     } else {
-                        ui.label(self.experiment_status.label());
+                        ui.colored_label(color, format!("● {}", self.experiment_status.label()));
                     }
                     if let Some(progress) = self.experiment_progress {
                         ui.add(egui::ProgressBar::new(progress).desired_width(60.0));
