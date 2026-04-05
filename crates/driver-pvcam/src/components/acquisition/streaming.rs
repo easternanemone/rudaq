@@ -1000,7 +1000,7 @@ impl PvcamAcquisition {
             // This single lock acquisition replaces 6 separate Arc<Mutex<Option<T>>> stores.
             {
                 use super::SdkStreamingState;
-                let mut state = self.sdk_state.lock().await;
+                let mut state = self.sdk_state.lock().expect("sdk_state poisoned");
                 *state = SdkStreamingState::Streaming {
                     poll_handle,
                     circ_buffer: circ_buf,
@@ -1313,7 +1313,7 @@ impl PvcamAcquisition {
             tracing::debug!("PVCAM stop_stream: transitioning sdk_state to Idle");
             let streaming_resources = {
                 use super::SdkStreamingState;
-                let mut state = self.sdk_state.lock().await;
+                let mut state = self.sdk_state.lock().expect("sdk_state poisoned");
                 let old_state = std::mem::replace(&mut *state, SdkStreamingState::Idle);
                 match old_state {
                     SdkStreamingState::Streaming {
@@ -1516,7 +1516,7 @@ impl PvcamAcquisition {
         let seq_circ_buffer = PageAlignedBuffer::new(4096)?;
         {
             use super::SdkStreamingState;
-            let mut state = self.sdk_state.lock().await;
+            let mut state = self.sdk_state.lock().expect("sdk_state poisoned");
             *state = SdkStreamingState::Streaming {
                 poll_handle,
                 circ_buffer: seq_circ_buffer,
