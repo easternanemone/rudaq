@@ -101,6 +101,150 @@ pub const GRPC_DRIVER_TYPE_HEADER: &str = "x-daq-driver-type";
 pub const GRPC_DRIVER_KIND_HEADER: &str = "x-daq-driver-kind";
 
 // =============================================================================
+// ErrorKind — typed error category for gRPC metadata (replaces ad-hoc strings)
+// =============================================================================
+
+/// High-level error category transmitted via the `x-daq-error-kind` gRPC metadata
+/// header.
+///
+/// Each variant maps 1:1 to a `DaqError` variant (or group of variants).  The
+/// wire representation is a lowercase-with-underscores ASCII string (e.g.,
+/// `ErrorKind::SerialEof` ↔ `"serial_eof"`).
+///
+/// # Round-trip
+///
+/// - **Server side**: `map_daq_error_to_status()` passes an `ErrorKind` variant to
+///   `status_with_metadata()`, which serialises it via `as_str()`.
+/// - **Client side**: `ClientError::daq_error_kind()` returns `Option<ErrorKind>` by
+///   parsing the header with `ErrorKind::from_str()`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ErrorKind {
+    Config,
+    Configuration,
+    Instrument,
+    Driver,
+    Serial,
+    ModuleBusy,
+    SerialEof,
+    SerialDisabled,
+    FrameDimensions,
+    FrameTooLarge,
+    ResponseTooLarge,
+    ScriptTooLarge,
+    SizeOverflow,
+    ModuleUnsupported,
+    CameraNotAssigned,
+    FeatureNotEnabled,
+    FeatureIncomplete,
+    ShutdownFailed,
+    ParameterNoSubscribers,
+    ParameterReadOnly,
+    ParameterInvalidChoice,
+    ParameterNoReader,
+    Io,
+    Tokio,
+    Processing,
+    Storage,
+    Hdf5,
+    Arrow,
+    Serde,
+    TaskJoin,
+    Unknown,
+}
+
+impl ErrorKind {
+    /// Wire-format string, suitable for gRPC metadata values.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Config => "config",
+            Self::Configuration => "configuration",
+            Self::Instrument => "instrument",
+            Self::Driver => "driver",
+            Self::Serial => "serial",
+            Self::ModuleBusy => "module_busy",
+            Self::SerialEof => "serial_eof",
+            Self::SerialDisabled => "serial_disabled",
+            Self::FrameDimensions => "frame_dimensions",
+            Self::FrameTooLarge => "frame_too_large",
+            Self::ResponseTooLarge => "response_too_large",
+            Self::ScriptTooLarge => "script_too_large",
+            Self::SizeOverflow => "size_overflow",
+            Self::ModuleUnsupported => "module_unsupported",
+            Self::CameraNotAssigned => "camera_not_assigned",
+            Self::FeatureNotEnabled => "feature_not_enabled",
+            Self::FeatureIncomplete => "feature_incomplete",
+            Self::ShutdownFailed => "shutdown_failed",
+            Self::ParameterNoSubscribers => "parameter_no_subscribers",
+            Self::ParameterReadOnly => "parameter_read_only",
+            Self::ParameterInvalidChoice => "parameter_invalid_choice",
+            Self::ParameterNoReader => "parameter_no_reader",
+            Self::Io => "io",
+            Self::Tokio => "tokio",
+            Self::Processing => "processing",
+            Self::Storage => "storage",
+            Self::Hdf5 => "hdf5",
+            Self::Arrow => "arrow",
+            Self::Serde => "serde",
+            Self::TaskJoin => "task_join",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+impl std::fmt::Display for ErrorKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl std::str::FromStr for ErrorKind {
+    type Err = UnknownErrorKind;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s {
+            "config" => Ok(Self::Config),
+            "configuration" => Ok(Self::Configuration),
+            "instrument" => Ok(Self::Instrument),
+            "driver" => Ok(Self::Driver),
+            "serial" => Ok(Self::Serial),
+            "module_busy" => Ok(Self::ModuleBusy),
+            "serial_eof" => Ok(Self::SerialEof),
+            "serial_disabled" => Ok(Self::SerialDisabled),
+            "frame_dimensions" => Ok(Self::FrameDimensions),
+            "frame_too_large" => Ok(Self::FrameTooLarge),
+            "response_too_large" => Ok(Self::ResponseTooLarge),
+            "script_too_large" => Ok(Self::ScriptTooLarge),
+            "size_overflow" => Ok(Self::SizeOverflow),
+            "module_unsupported" => Ok(Self::ModuleUnsupported),
+            "camera_not_assigned" => Ok(Self::CameraNotAssigned),
+            "feature_not_enabled" => Ok(Self::FeatureNotEnabled),
+            "feature_incomplete" => Ok(Self::FeatureIncomplete),
+            "shutdown_failed" => Ok(Self::ShutdownFailed),
+            "parameter_no_subscribers" => Ok(Self::ParameterNoSubscribers),
+            "parameter_read_only" => Ok(Self::ParameterReadOnly),
+            "parameter_invalid_choice" => Ok(Self::ParameterInvalidChoice),
+            "parameter_no_reader" => Ok(Self::ParameterNoReader),
+            "io" => Ok(Self::Io),
+            "tokio" => Ok(Self::Tokio),
+            "processing" => Ok(Self::Processing),
+            "storage" => Ok(Self::Storage),
+            "hdf5" => Ok(Self::Hdf5),
+            "arrow" => Ok(Self::Arrow),
+            "serde" => Ok(Self::Serde),
+            "task_join" => Ok(Self::TaskJoin),
+            "unknown" => Ok(Self::Unknown),
+            _ => Err(UnknownErrorKind(s.to_string())),
+        }
+    }
+}
+
+/// Error returned when parsing an unrecognised `ErrorKind` wire string.
+#[derive(Debug, Clone, Error)]
+#[error("unknown error kind: {0}")]
+pub struct UnknownErrorKind(pub String);
+
+// =============================================================================
 // Storage Errors
 // =============================================================================
 
