@@ -15,11 +15,12 @@
 //!
 //! ```rust,ignore
 //! use client::error::ClientError;
+//! use common_traits::error::ErrorKind;
 //!
 //! match do_rpc_call().await {
 //!     Err(ClientError::RpcStatus(ref status)) => {
 //!         let err: &ClientError = &ClientError::from(status.clone());
-//!         if let Some("driver") = err.daq_error_kind() {
+//!         if err.daq_error_kind() == Some(ErrorKind::Driver) {
 //!             println!("Driver {} failed: {}", err.driver_type().unwrap_or("?"), status.message());
 //!         }
 //!     }
