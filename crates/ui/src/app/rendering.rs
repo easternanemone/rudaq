@@ -97,7 +97,7 @@ impl DaqApp {
                     // Daemon status
                     if let Some(ref mut launcher) = self.daemon_launcher {
                         if launcher.is_running() {
-                            ui.colored_label(egui::Color32::GREEN, "● Local daemon running");
+                            ui.colored_label(egui::Color32::GREEN, "Local daemon running");
                             if let Some(uptime) = launcher.uptime() {
                                 ui.small(format!("Uptime: {}s", uptime.as_secs()));
                             }
@@ -107,7 +107,7 @@ impl DaqApp {
                                 ui.close();
                             }
                         } else {
-                            ui.colored_label(egui::Color32::RED, "● Local daemon stopped");
+                            ui.colored_label(egui::Color32::RED, "Local daemon stopped");
                             if let Some(err) = launcher.last_error() {
                                 ui.small(err);
                             }
@@ -287,9 +287,8 @@ impl DaqApp {
                 };
                 let seconds_until_retry = self.connection.seconds_until_retry();
 
-                // Connection status indicator
-                ui.colored_label(state_color, "●");
-                ui.label(state_label);
+                // Connection status indicator — combined label for AccessKit readability
+                ui.colored_label(state_color, format!("● {state_label}"));
 
                 // Show reconnect countdown if reconnecting
                 if let Some(secs) = seconds_until_retry {

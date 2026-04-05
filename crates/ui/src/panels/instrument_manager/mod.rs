@@ -882,12 +882,12 @@ impl InstrumentManagerPanel {
 
         ui.horizontal_wrapped(|ui| {
             // Status indicator - green if online, gray if offline/unknown
-            let status_color = if state.map(|s| s.online).unwrap_or(false) {
-                egui::Color32::GREEN
+            let (status_color, status_text) = if state.map(|s| s.online).unwrap_or(false) {
+                (egui::Color32::GREEN, "● Online")
             } else {
-                egui::Color32::GRAY
+                (egui::Color32::GRAY, "● Offline")
             };
-            ui.colored_label(status_color, "●");
+            ui.colored_label(status_color, status_text);
 
             ui.dnd_drag_source(drag_id, DeviceDragId(device.id.clone()), |ui| {
                 ui.label(

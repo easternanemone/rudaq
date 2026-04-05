@@ -495,7 +495,7 @@ impl DeviceControlWidget for PowerMeterControlPanel {
         ui.label(egui::RichText::new("Wavelength Calibration").strong());
 
         ui.horizontal(|ui| {
-            ui.label("λ:");
+            ui.label("Wavelength:");
             let response = ui.add(
                 egui::TextEdit::singleline(&mut self.wavelength_input)
                     .desired_width(60.0)

@@ -297,16 +297,32 @@ impl DeviceControlWidget for StageControlPanel {
 
             let step: f64 = self.jog_step.parse().unwrap_or(1.0);
 
-            if ui.add_enabled(!is_busy, egui::Button::new("◀◀")).clicked() {
+            if ui
+                .add_enabled(!is_busy, egui::Button::new("◀◀"))
+                .on_hover_text(format!("Jog {:.0}", -step * 10.0))
+                .clicked()
+            {
                 self.move_relative(client.as_deref_mut(), runtime, &device_id, -step * 10.0);
             }
-            if ui.add_enabled(!is_busy, egui::Button::new("◀")).clicked() {
+            if ui
+                .add_enabled(!is_busy, egui::Button::new("◀"))
+                .on_hover_text(format!("Jog {:.0}", -step))
+                .clicked()
+            {
                 self.move_relative(client.as_deref_mut(), runtime, &device_id, -step);
             }
-            if ui.add_enabled(!is_busy, egui::Button::new("▶")).clicked() {
+            if ui
+                .add_enabled(!is_busy, egui::Button::new("▶"))
+                .on_hover_text(format!("Jog +{:.0}", step))
+                .clicked()
+            {
                 self.move_relative(client.as_deref_mut(), runtime, &device_id, step);
             }
-            if ui.add_enabled(!is_busy, egui::Button::new("▶▶")).clicked() {
+            if ui
+                .add_enabled(!is_busy, egui::Button::new("▶▶"))
+                .on_hover_text(format!("Jog +{:.0}", step * 10.0))
+                .clicked()
+            {
                 self.move_relative(client.as_deref_mut(), runtime, &device_id, step * 10.0);
             }
         });

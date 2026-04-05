@@ -678,7 +678,7 @@ impl GenericDevicePanel {
             ui.horizontal_wrapped(|ui| {
                 if let Some(ref emission) = self.emission {
                     let is_on = emission.value.unwrap_or(false);
-                    ui.label("Em:");
+                    ui.label("Emission:");
                     let text = if is_on { "ON" } else { "OFF" };
                     let color = if is_on {
                         egui::Color32::GREEN
@@ -726,7 +726,7 @@ impl GenericDevicePanel {
             let wl_min = wl.min_nm;
             let wl_max = wl.max_nm;
             ui.horizontal_wrapped(|ui| {
-                ui.label("\u{03bb}:");
+                ui.label("Wavelength:");
                 let slider_resp = ui.add(
                     egui::Slider::new(&mut wl.slider_value, wl_min..=wl_max)
                         .show_value(false)
@@ -799,24 +799,32 @@ impl GenericDevicePanel {
 
                 let step: f64 = motion.jog_step.parse().unwrap_or(1.0);
 
-                // Jog buttons
+                // Jog buttons — hover text provides units context for AccessKit
+                let units = if pos_units.is_empty() {
+                    "units"
+                } else {
+                    pos_units
+                };
                 if ui
                     .add_enabled(
                         !motion_busy,
                         egui::Button::new(format!("{:.0}", -step * 10.0)),
                     )
+                    .on_hover_text(format!("Jog {:.0} {units}", -step * 10.0))
                     .clicked()
                 {
                     self.move_relative(client.as_deref_mut(), runtime, &device_id, -step * 10.0);
                 }
                 if ui
                     .add_enabled(!motion_busy, egui::Button::new(format!("{:.0}", -step)))
+                    .on_hover_text(format!("Jog {:.0} {units}", -step))
                     .clicked()
                 {
                     self.move_relative(client.as_deref_mut(), runtime, &device_id, -step);
                 }
                 if ui
                     .add_enabled(!motion_busy, egui::Button::new(format!("+{:.0}", step)))
+                    .on_hover_text(format!("Jog +{:.0} {units}", step))
                     .clicked()
                 {
                     self.move_relative(client.as_deref_mut(), runtime, &device_id, step);
@@ -826,6 +834,7 @@ impl GenericDevicePanel {
                         !motion_busy,
                         egui::Button::new(format!("+{:.0}", step * 10.0)),
                     )
+                    .on_hover_text(format!("Jog +{:.0} {units}", step * 10.0))
                     .clicked()
                 {
                     self.move_relative(client.as_deref_mut(), runtime, &device_id, step * 10.0);
@@ -834,10 +843,11 @@ impl GenericDevicePanel {
                 ui.separator();
 
                 // Go-to input
+                ui.label("Go to:");
                 let response = ui.add(
                     egui::TextEdit::singleline(&mut motion.position_input)
                         .desired_width(50.0)
-                        .hint_text("go to"),
+                        .hint_text("position"),
                 );
                 if ui
                     .add_enabled(!motion_busy, egui::Button::new("Go"))
@@ -858,8 +868,8 @@ impl GenericDevicePanel {
                 }
 
                 if ui
-                    .add_enabled(!motion_busy, egui::Button::new("H"))
-                    .on_hover_text("Home (0.0)")
+                    .add_enabled(!motion_busy, egui::Button::new("Home"))
+                    .on_hover_text("Move to 0.0")
                     .clicked()
                 {
                     self.move_absolute(client.as_deref_mut(), runtime, &device_id, 0.0);
@@ -868,7 +878,7 @@ impl GenericDevicePanel {
                 ui.separator();
 
                 // Step size
-                ui.label("stp:");
+                ui.label("Step:");
                 ui.add(egui::TextEdit::singleline(&mut motion.jog_step).desired_width(30.0));
             });
 
