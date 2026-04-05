@@ -76,13 +76,21 @@ pub enum ClientError {
 impl ClientError {
     /// Extract the DAQ error kind from gRPC metadata, if available.
     ///
-    /// Returns the value of the `x-daq-error-kind` header set by the server
-    /// when mapping a `DaqError` to a gRPC `Status`.  Typical values include
-    /// `"driver"`, `"instrument"`, `"config"`, `"storage"`, `"processing"`, etc.
+    /// Returns the parsed [`ErrorKind`] from the `x-daq-error-kind` header set
+    /// by the server when mapping a `DaqError` to a gRPC `Status`.
     ///
-    /// Returns `None` if the error is not an `RpcStatus` variant or the
-    /// metadata header is missing.
-    pub fn daq_error_kind(&self) -> Option<&str> {
+    /// Returns `None` if the error is not an `RpcStatus` variant, the
+    /// metadata header is missing, or the value is not a recognised variant.
+    pub fn daq_error_kind(&self) -> Option<ErrorKind> {
+        self.rpc_metadata_str(ERROR_KIND_HEADER)
+            .and_then(|s| ErrorKind::from_str(s).ok())
+    }
+
+    /// Extract the raw DAQ error kind string from gRPC metadata, if available.
+    ///
+    /// Prefer [`daq_error_kind()`](Self::daq_error_kind) for type-safe matching.
+    /// This method is provided for backward compatibility and logging.
+    pub fn daq_error_kind_str(&self) -> Option<&str> {
         self.rpc_metadata_str(ERROR_KIND_HEADER)
     }
 
