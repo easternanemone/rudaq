@@ -77,12 +77,12 @@ fn insert_metadata(metadata: &mut MetadataMap, key: &'static str, value: &str) {
 fn status_with_metadata(
     code: Code,
     message: impl Into<String>,
-    error_kind: &'static str,
+    error_kind: ErrorKind,
     driver: Option<&DriverError>,
 ) -> Status {
     let mut status = Status::new(code, message.into());
     let metadata = status.metadata_mut();
-    insert_metadata(metadata, ERROR_KIND_HEADER, error_kind);
+    insert_metadata(metadata, ERROR_KIND_HEADER, error_kind.as_str());
     if let Some(driver) = driver {
         insert_metadata(metadata, DRIVER_TYPE_HEADER, &driver.driver_type);
         insert_metadata(metadata, DRIVER_KIND_HEADER, &driver.kind.to_string());
