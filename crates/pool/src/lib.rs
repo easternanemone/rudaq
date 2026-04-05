@@ -119,7 +119,7 @@ use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
-use tokio::sync::Semaphore;
+use tokio::sync::{Semaphore, SemaphorePermit};
 use tracing::{error, warn};
 
 #[cfg(feature = "metrics")]
@@ -428,22 +428,13 @@ impl<T: Send + 'static> Pool<T> {
         Ok(count)
     }
 
-    /// Acquire an item from the pool, blocking if none available.
+    /// Complete the acquire sequence after a permit has been obtained.
     ///
-    /// Returns a `Loaned<T>` that will automatically return the item
-    /// to the pool when dropped.
-    ///
-    /// # Note
-    ///
-    /// For PVCAM frame processing, prefer `try_acquire_timeout()` to avoid
-    /// blocking longer than the SDK's buffer window (~200ms at 100 FPS).
-    pub async fn acquire(self: &Arc<Self>) -> Loaned<T> {
-        // Wait for a permit
-        let permit = self
-            .semaphore
-            .acquire()
-            .await
-            .expect("semaphore closed unexpectedly");
+    /// This is the shared implementation for all acquire variants. Each public
+    /// method differs only in how it obtains the semaphore permit; the
+    /// post-permit logic (forget permit, pop index, cache slot pointer, update
+    /// metrics, construct `Loaned`) is identical and lives here.
+    fn complete_acquire(self: &Arc<Self>, permit: SemaphorePermit<'_>) -> Loaned<T> {
         // INV-5: Transfer permit ownership to Loaned. release() restores it.
         permit.forget();
 
@@ -474,6 +465,24 @@ impl<T: Send + 'static> Pool<T> {
         }
     }
 
+    /// Acquire an item from the pool, blocking if none available.
+    ///
+    /// Returns a `Loaned<T>` that will automatically return the item
+    /// to the pool when dropped.
+    ///
+    /// # Note
+    ///
+    /// For PVCAM frame processing, prefer `try_acquire_timeout()` to avoid
+    /// blocking longer than the SDK's buffer window (~200ms at 100 FPS).
+    pub async fn acquire(self: &Arc<Self>) -> Loaned<T> {
+        let permit = self
+            .semaphore
+            .acquire()
+            .await
+            .expect("semaphore closed unexpectedly");
+        self.complete_acquire(permit)
+    }
+
     /// Try to acquire an item from the pool without blocking.
     ///
     /// Returns `None` if no items are currently available.
@@ -482,31 +491,7 @@ impl<T: Send + 'static> Pool<T> {
     #[must_use]
     pub fn try_acquire(self: &Arc<Self>) -> Option<Loaned<T>> {
         let permit = self.semaphore.try_acquire().ok()?;
-        permit.forget(); // INV-5: transfer to Loaned
-
-        // INV-1: permit guarantees index availability
-        let idx = self
-            .free_indices
-            .pop()
-            .expect("free list empty after permit - internal invariant violated");
-
-        // INV-2 + INV-3: stable pointer cached for lock-free access
-        let slot_ptr = {
-            let slots = self.slots.read();
-            slots[idx].as_ref().get()
-        };
-
-        #[cfg(feature = "metrics")]
-        {
-            POOL_ACQUIRE_TOTAL.inc();
-            POOL_AVAILABLE.dec();
-        }
-
-        Some(Loaned {
-            pool: Arc::clone(self),
-            idx,
-            slot_ptr,
-        })
+        Some(self.complete_acquire(permit))
     }
 
     /// Try to acquire an item with a timeout.
@@ -518,7 +503,6 @@ impl<T: Send + 'static> Pool<T> {
     ///
     /// Returns `None` if timeout expires before a slot becomes available.
     pub async fn try_acquire_timeout(self: &Arc<Self>, timeout: Duration) -> Option<Loaned<T>> {
-        // Try to get permit with timeout
         let permit = match tokio::time::timeout(timeout, self.semaphore.acquire()).await {
             Ok(Ok(permit)) => permit,
             Ok(Err(_)) => return None, // Semaphore closed
@@ -532,31 +516,7 @@ impl<T: Send + 'static> Pool<T> {
                 return None;
             }
         };
-        permit.forget();
-
-        // Pop from free list
-        let idx = self
-            .free_indices
-            .pop()
-            .expect("free list empty after permit - internal invariant violated");
-
-        // Cache slot pointer (bd-0dax.1.6 fix)
-        let slot_ptr = {
-            let slots = self.slots.read();
-            slots[idx].as_ref().get()
-        };
-
-        #[cfg(feature = "metrics")]
-        {
-            POOL_ACQUIRE_TOTAL.inc();
-            POOL_AVAILABLE.dec();
-        }
-
-        Some(Loaned {
-            pool: Arc::clone(self),
-            idx,
-            slot_ptr,
-        })
+        Some(self.complete_acquire(permit))
     }
 
     /// Acquire an item from the pool with a configurable timeout, returning an error on failure.
@@ -592,34 +552,7 @@ impl<T: Send + 'static> Pool<T> {
         timeout: Duration,
     ) -> Result<Loaned<T>, PoolError> {
         match tokio::time::timeout(timeout, self.semaphore.acquire()).await {
-            Ok(Ok(permit)) => {
-                // INV-5: Transfer permit ownership to Loaned.
-                permit.forget();
-
-                // INV-1: Each permit maps to exactly one index.
-                let idx = self
-                    .free_indices
-                    .pop()
-                    .expect("free list empty after permit - internal invariant violated");
-
-                // Cache slot pointer while holding read lock (bd-0dax.1.6).
-                let slot_ptr = {
-                    let slots = self.slots.read();
-                    slots[idx].as_ref().get()
-                };
-
-                #[cfg(feature = "metrics")]
-                {
-                    POOL_ACQUIRE_TOTAL.inc();
-                    POOL_AVAILABLE.dec();
-                }
-
-                Ok(Loaned {
-                    pool: Arc::clone(self),
-                    idx,
-                    slot_ptr,
-                })
-            }
+            Ok(Ok(permit)) => Ok(self.complete_acquire(permit)),
             Ok(Err(_)) => {
                 // Semaphore closed — treat as timeout with current diagnostics
                 Err(PoolError::Timeout {
