@@ -195,45 +195,85 @@ func findAndPerformAction(
     return (result == .success, target.title ?? target.value)
 }
 
+/// Set a widget's value via the appropriate mechanism for its type.
+///
+/// - **Sliders/SpinButtons**: `AXUIElementSetAttributeValue` works directly because
+///   egui processes `Action::SetValue` with `ActionData::NumericValue` on next frame.
+/// - **TextEdits**: Cannot be set via AX APIs (egui's AccessKit is push-only for text).
+///   Returns a "use_grpc" hint so the agent knows to use `SetParameter` gRPC instead.
 func findAndSetValue(
     _ element: AXUIElement,
+    pid: pid_t,
     title: String,
     newValue: String
-) -> (success: Bool, elementTitle: String?) {
-    // Find text fields near the label
-    var results: [FoundElement] = []
-    findElements(element, role: "AXTextField", title: nil, value: nil, results: &results)
-
-    // Also search by label title to find the field after the label
+) -> (success: Bool, elementTitle: String?, hint: String?) {
+    // Search by title AND value (egui labels store text in value, not title)
     var labelResults: [FoundElement] = []
     findElements(element, role: nil, title: title, value: nil, results: &labelResults)
+    var valueLabelResults: [FoundElement] = []
+    findElements(element, role: nil, title: nil, value: title, results: &valueLabelResults)
+    let allLabels = labelResults + valueLabelResults
 
-    // Strategy: find the text field nearest to the label with matching title
-    // For egui, labels and fields are siblings — the field follows the label
-    if let label = labelResults.first {
+    // Try sliders first — direct SetAttributeValue works
+    var allSliders: [FoundElement] = []
+    findElements(element, role: "AXSlider", title: nil, value: nil, results: &allSliders)
+
+    for label in allLabels {
         let labelPath = label.path
-        // Look for a text field that's a sibling right after the label
-        for field in results {
-            if field.path.dropLast() == labelPath.dropLast(),
-               let fieldIdx = field.path.last, let labelIdx = labelPath.last,
-               fieldIdx > labelIdx, fieldIdx - labelIdx <= 3 {
-                guard let axElement = navigateToPath(element, path: field.path) else { continue }
-                let setResult = AXUIElementSetAttributeValue(axElement, kAXValueAttribute as CFString, newValue as AnyObject)
-                if setResult == .success { return (true, title) }
+        for slider in allSliders {
+            if slider.path.dropLast() == labelPath.dropLast(),
+               let sIdx = slider.path.last, let lIdx = labelPath.last,
+               sIdx > lIdx, sIdx - lIdx <= 5 {
+                guard let axEl = navigateToPath(element, path: slider.path) else { continue }
+                if let numValue = Double(newValue) {
+                    let result = AXUIElementSetAttributeValue(axEl, kAXValueAttribute as CFString, numValue as AnyObject)
+                    if result == .success {
+                        Thread.sleep(forTimeInterval: 0.2)
+                        return (true, title, nil)
+                    }
+                }
             }
         }
     }
 
-    // Fallback: try setting value on first text field matching value substring
-    var valueResults: [FoundElement] = []
-    findElements(element, role: "AXTextField", title: title, value: nil, results: &valueResults)
-    if let first = valueResults.first {
-        guard let axElement = navigateToPath(element, path: first.path) else { return (false, nil) }
-        let setResult = AXUIElementSetAttributeValue(axElement, kAXValueAttribute as CFString, newValue as AnyObject)
-        return (setResult == .success, first.title ?? first.value)
+    // Try SpinButtons (DragValue) — same SetValue path
+    var allSpinButtons: [FoundElement] = []
+    findElements(element, role: "AXSpinButton", title: nil, value: nil, results: &allSpinButtons)
+
+    for label in allLabels {
+        let labelPath = label.path
+        for spin in allSpinButtons {
+            if spin.path.dropLast() == labelPath.dropLast(),
+               let sIdx = spin.path.last, let lIdx = labelPath.last,
+               sIdx > lIdx, sIdx - lIdx <= 5 {
+                guard let axEl = navigateToPath(element, path: spin.path) else { continue }
+                if let numValue = Double(newValue) {
+                    let result = AXUIElementSetAttributeValue(axEl, kAXValueAttribute as CFString, numValue as AnyObject)
+                    if result == .success {
+                        Thread.sleep(forTimeInterval: 0.2)
+                        return (true, title, nil)
+                    }
+                }
+            }
+        }
     }
 
-    return (false, nil)
+    // Text fields — found but cannot set via AX
+    var allFields: [FoundElement] = []
+    findElements(element, role: "AXTextField", title: nil, value: nil, results: &allFields)
+
+    for label in allLabels {
+        let labelPath = label.path
+        for field in allFields {
+            if field.path.dropLast() == labelPath.dropLast(),
+               let fIdx = field.path.last, let lIdx = labelPath.last,
+               fIdx > lIdx, fIdx - lIdx <= 3 {
+                return (false, title, "text_field: use gRPC SetParameter to change this value")
+            }
+        }
+    }
+
+    return (false, nil, nil)
 }
 
 // MARK: - Commands
@@ -375,8 +415,9 @@ case "set-value":
     guard !title.isEmpty, !value.isEmpty else { outputError("--title and --value required"); exit(1) }
 
     let app = AXUIElementCreateApplication(pid)
-    let (success, elTitle) = findAndSetValue(app, title: title, newValue: value)
-    let result: [String: Any] = ["success": success, "field": elTitle ?? NSNull()]
+    let (success, elTitle, hint) = findAndSetValue(app, pid: pid, title: title, newValue: value)
+    var result: [String: Any] = ["success": success, "field": elTitle ?? NSNull()]
+    if let hint = hint { result["hint"] = hint }
     if let data = try? JSONSerialization.data(withJSONObject: result, options: .prettyPrinted),
        let str = String(data: data, encoding: .utf8) {
         print(str)
