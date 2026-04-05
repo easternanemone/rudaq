@@ -73,7 +73,7 @@ pub struct StreamConfig {
     pub roi: common::core::Roi,
     pub binning: (u16, u16),
     pub exposure_ms: f64,
-    pub buffer_mode: String,
+    pub buffer_mode: crate::components::features::BufferMode,
     pub host_summing_enabled: common::parameter::Parameter<bool>,
     pub host_summing_count: common::parameter::Parameter<u32>,
     pub smart_stream_enabled: common::parameter::Parameter<bool>,

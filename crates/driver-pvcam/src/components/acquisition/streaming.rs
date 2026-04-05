@@ -9,6 +9,7 @@ use super::StreamConfig;
 use super::callback_context::SEQUENCE_BATCH_SIZE;
 #[cfg(feature = "pvcam_sdk")]
 use super::{PvcamFeatures, get_pvcam_error};
+use crate::components::features::BufferMode;
 use anyhow::{Result, anyhow, bail};
 use common::core::Roi;
 use common::data::Frame;
@@ -310,10 +311,10 @@ impl PvcamAcquisition {
                 rgn
             };
 
-            // bd-9pel: Use sequence mode when buffer_mode is "Sequence" (runtime configurable).
+            // bd-9pel: Use sequence mode when buffer_mode is Sequence (runtime configurable).
             // Sequence mode uses pl_exp_setup_seq/start_seq for batch-based non-circular
             // acquisition. Useful for single-frame capture workflows or diagnostics.
-            if buffer_mode == "Sequence" {
+            if buffer_mode == BufferMode::Sequence {
                 return self
                     .start_stream_sequence_impl(
                         h,
@@ -348,7 +349,7 @@ impl PvcamAcquisition {
             // higher throughput, but risks subtle regressions in the frame pipeline.
             // Deferring until profiling shows CIRC_NO_OVERWRITE is the bottleneck.
             let mut circ_overwrite = false;
-            if matches!(buffer_mode.as_str(), "Overwrite") {
+            if buffer_mode == BufferMode::Overwrite {
                 tracing::warn!(
                     "CIRC_OVERWRITE requested but disabled (bd-g3ap): \
                      unlock-before-copy pattern is unsafe in overwrite mode"
@@ -1102,7 +1103,7 @@ impl PvcamAcquisition {
             roi,
             binning,
             exposure_ms,
-            buffer_mode: self.buffer_mode.get(),
+            buffer_mode: BufferMode::from_str(&self.buffer_mode.get()),
             host_summing_enabled,
             host_summing_count,
             smart_stream_enabled: smart_disabled,

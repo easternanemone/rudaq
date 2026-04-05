@@ -1147,3 +1147,58 @@ impl std::fmt::Display for ScanDirection {
         write!(f, "{}", self.as_str())
     }
 }
+
+// =============================================================================
+// Buffer Mode (bd-vw77y)
+// =============================================================================
+
+/// Acquisition buffer mode for PVCAM streaming (bd-vw77y).
+///
+/// Replaces the stringly-typed `buffer_mode: String` with a proper enum.
+/// These modes control how the PVCAM SDK manages the circular DMA buffer
+/// during continuous acquisition.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub enum BufferMode {
+    /// Circular buffer with overwrite: DMA continues writing, old frames discarded.
+    /// Currently force-disabled at runtime (bd-g3ap) due to unsafe unlock-before-copy
+    /// pattern, but kept as an option for future re-enablement.
+    #[default]
+    Overwrite,
+    /// Circular buffer without overwrite: DMA stops when buffer is full (FIFO).
+    #[serde(rename = "No Overwrite", alias = "NoOverwrite")]
+    NoOverwrite,
+    /// Sequence mode: batch-based non-circular acquisition via
+    /// `pl_exp_setup_seq`/`pl_exp_start_seq`. Useful for single-frame capture
+    /// workflows or diagnostics (bd-9pel).
+    Sequence,
+}
+
+impl BufferMode {
+    #[allow(clippy::should_implement_trait)]
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "Overwrite" => Self::Overwrite,
+            "No Overwrite" | "NoOverwrite" => Self::NoOverwrite,
+            "Sequence" => Self::Sequence,
+            _ => Self::Overwrite,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Overwrite => "Overwrite",
+            Self::NoOverwrite => "No Overwrite",
+            Self::Sequence => "Sequence",
+        }
+    }
+
+    pub fn all_choices() -> Vec<String> {
+        vec!["Overwrite".into(), "No Overwrite".into(), "Sequence".into()]
+    }
+}
+
+impl std::fmt::Display for BufferMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}

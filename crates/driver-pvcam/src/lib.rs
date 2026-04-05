@@ -55,7 +55,7 @@ use tokio::sync::Mutex;
 
 // Re-export public types from features component
 pub use crate::components::features::{
-    CameraInfo, CentroidsConfig, CentroidsMode, ClearMode, EdgeTrigger, ExposeOutMode,
+    BufferMode, CameraInfo, CentroidsConfig, CentroidsMode, ClearMode, EdgeTrigger, ExposeOutMode,
     ExposureMode, ExposureResolution, FanSpeed, FrameFlip, FrameRotate, GainMode, IoType,
     LocalizationEvent, LogicOutput, PPFeature, PPParam, ReadoutPort, ScanDirection, ScanMode,
     ShutterMode, ShutterStatus, SmartStreamEntry, SmartStreamMode, SpeedMode,
@@ -560,10 +560,13 @@ impl PvcamDriver {
         .with_choices_introspectable(EdgeTrigger::all_choices())
         .with_group("Trigger");
 
-        let buffer_mode = Parameter::new("acquisition.buffer_mode", "Overwrite".to_string())
-            .with_description("Acquisition buffer mode: Overwrite (circular, newest wins), No Overwrite (circular FIFO), or Sequence (batch-based, non-circular)")
-            .with_choices_introspectable(vec!["Overwrite".into(), "No Overwrite".into(), "Sequence".into()])
-            .with_group("Acquisition");
+        let buffer_mode = Parameter::new(
+            "acquisition.buffer_mode",
+            BufferMode::default().as_str().to_string(),
+        )
+        .with_description("Acquisition buffer mode: Overwrite (circular, newest wins), No Overwrite (circular FIFO), or Sequence (batch-based, non-circular)")
+        .with_choices_introspectable(BufferMode::all_choices())
+        .with_group("Acquisition");
 
         let roi = Parameter::new(
             "acquisition.roi",
@@ -3303,7 +3306,7 @@ impl FrameProducer for PvcamDriver {
             roi: self.roi.get(),
             binning: self.binning.get(),
             exposure_ms: self.exposure_ms.get(),
-            buffer_mode: self.buffer_mode.get(),
+            buffer_mode: BufferMode::from_str(&self.buffer_mode.get()),
             host_summing_enabled: self.host_summing_enabled.clone(),
             host_summing_count: self.host_summing_count.clone(),
             smart_stream_enabled: self.smart_stream_enabled.clone(),
