@@ -302,7 +302,7 @@ pub struct PvcamAcquisition {
     last_error: Arc<std::sync::Mutex<Option<AcquisitionError>>>,
 
     #[cfg(feature = "pvcam_sdk")]
-    pub(super) sdk_state: Arc<Mutex<SdkStreamingState>>,
+    pub(super) sdk_state: Arc<std::sync::Mutex<SdkStreamingState>>,
 
     // --- SDK atomics (lock-free, accessed from Drop and frame loops) ---
     #[cfg(feature = "pvcam_sdk")]
@@ -365,7 +365,7 @@ impl PvcamAcquisition {
             // SDK streaming state machine: starts Idle, transitions to Streaming
             // in start_stream(), back to Idle in stop_stream()
             #[cfg(feature = "pvcam_sdk")]
-            sdk_state: Arc::new(Mutex::new(SdkStreamingState::Idle)),
+            sdk_state: Arc::new(std::sync::Mutex::new(SdkStreamingState::Idle)),
 
             #[cfg(feature = "pvcam_sdk")]
             shutdown: Arc::new(AtomicBool::new(false)),
@@ -422,7 +422,7 @@ impl Drop for PvcamAcquisition {
             // circ_buffer must remain alive until AFTER pl_exp_stop_cont and
             // callback deregistration complete, because the PVCAM SDK holds raw
             // pointers into the buffer during acquisition.
-            let mut guard = self.sdk_state.blocking_lock();
+            let mut guard = self.sdk_state.lock().expect("sdk_state poisoned");
             let old_state = std::mem::replace(&mut *guard, SdkStreamingState::Idle);
             // Release the lock immediately — we only needed it for the swap.
             drop(guard);
