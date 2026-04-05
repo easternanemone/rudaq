@@ -45,7 +45,7 @@
 //! - **DeadlineExceeded**: Driver timeout
 //! - **NotFound**: Referenced device or resource not found
 
-use common::error::{DaqError, DriverError, StorageError};
+use common::error::{DaqError, DriverError, ErrorKind, StorageError};
 use std::str::FromStr;
 use tonic::metadata::{MetadataMap, MetadataValue};
 use tonic::{Code, Status};
@@ -77,12 +77,12 @@ fn insert_metadata(metadata: &mut MetadataMap, key: &'static str, value: &str) {
 fn status_with_metadata(
     code: Code,
     message: impl Into<String>,
-    error_kind: &'static str,
+    error_kind: ErrorKind,
     driver: Option<&DriverError>,
 ) -> Status {
     let mut status = Status::new(code, message.into());
     let metadata = status.metadata_mut();
-    insert_metadata(metadata, ERROR_KIND_HEADER, error_kind);
+    insert_metadata(metadata, ERROR_KIND_HEADER, error_kind.as_str());
     if let Some(driver) = driver {
         insert_metadata(metadata, DRIVER_TYPE_HEADER, &driver.driver_type);
         insert_metadata(metadata, DRIVER_KIND_HEADER, &driver.kind.to_string());
@@ -116,7 +116,7 @@ pub fn anyhow_to_status(err: anyhow::Error) -> Status {
         }
     }
     // Fallback: opaque internal error with the full anyhow display chain
-    status_with_metadata(Code::Internal, err.to_string(), "unknown", None)
+    status_with_metadata(Code::Internal, err.to_string(), ErrorKind::Unknown, None)
 }
 
 /// Map a DaqError to an appropriate gRPC Status.
@@ -142,13 +142,13 @@ pub fn map_daq_error_to_status(err: &DaqError) -> Status {
         DaqError::Config(e) => status_with_metadata(
             Code::InvalidArgument,
             format!("Config error: {e}"),
-            "config",
+            ErrorKind::Config,
             None,
         ),
         DaqError::Configuration(msg) => status_with_metadata(
             Code::InvalidArgument,
             format!("Configuration error: {msg}"),
-            "configuration",
+            ErrorKind::Configuration,
             None,
         ),
 
@@ -157,7 +157,7 @@ pub fn map_daq_error_to_status(err: &DaqError) -> Status {
         DaqError::Instrument(msg) => status_with_metadata(
             Code::Unavailable,
             format!("Instrument error: {msg}"),
-            "instrument",
+            ErrorKind::Instrument,
             None,
         ),
         DaqError::Driver(driver_err) => {
@@ -177,18 +177,23 @@ pub fn map_daq_error_to_status(err: &DaqError) -> Status {
                 DriverErrorKind::NotFound => Code::NotFound,
                 DriverErrorKind::Shutdown | DriverErrorKind::Unknown => Code::Internal,
             };
-            status_with_metadata(code, driver_err.to_string(), "driver", Some(driver_err))
+            status_with_metadata(
+                code,
+                driver_err.to_string(),
+                ErrorKind::Driver,
+                Some(driver_err),
+            )
         }
         DaqError::SerialPortNotConnected => status_with_metadata(
             Code::Unavailable,
             "Serial port not connected",
-            "serial",
+            ErrorKind::Serial,
             None,
         ),
         DaqError::ModuleBusyDuringOperation => status_with_metadata(
             Code::Unavailable,
             "Module busy during operation",
-            "module_busy",
+            ErrorKind::ModuleBusy,
             None,
         ),
 
@@ -196,13 +201,13 @@ pub fn map_daq_error_to_status(err: &DaqError) -> Status {
         DaqError::SerialUnexpectedEof => status_with_metadata(
             Code::Aborted,
             "Serial communication: unexpected EOF",
-            "serial_eof",
+            ErrorKind::SerialEof,
             None,
         ),
         DaqError::SerialFeatureDisabled => status_with_metadata(
             Code::Unimplemented,
             "Serial feature is disabled",
-            "serial_disabled",
+            ErrorKind::SerialDisabled,
             None,
         ),
 
@@ -214,31 +219,31 @@ pub fn map_daq_error_to_status(err: &DaqError) -> Status {
         } => status_with_metadata(
             Code::ResourceExhausted,
             format!("Frame dimensions {width}x{height} exceed maximum {max_dimension}"),
-            "frame_dimensions",
+            ErrorKind::FrameDimensions,
             None,
         ),
         DaqError::FrameTooLarge { bytes, max_bytes } => status_with_metadata(
             Code::ResourceExhausted,
             format!("Frame size {bytes} bytes exceeds maximum {max_bytes}"),
-            "frame_too_large",
+            ErrorKind::FrameTooLarge,
             None,
         ),
         DaqError::ResponseTooLarge { bytes, max_bytes } => status_with_metadata(
             Code::ResourceExhausted,
             format!("Response size {bytes} bytes exceeds maximum {max_bytes}"),
-            "response_too_large",
+            ErrorKind::ResponseTooLarge,
             None,
         ),
         DaqError::ScriptTooLarge { bytes, max_bytes } => status_with_metadata(
             Code::ResourceExhausted,
             format!("Script size {bytes} bytes exceeds maximum {max_bytes}"),
-            "script_too_large",
+            ErrorKind::ScriptTooLarge,
             None,
         ),
         DaqError::SizeOverflow { context } => status_with_metadata(
             Code::ResourceExhausted,
             format!("Size overflow in {context}"),
-            "size_overflow",
+            ErrorKind::SizeOverflow,
             None,
         ),
 
@@ -246,13 +251,13 @@ pub fn map_daq_error_to_status(err: &DaqError) -> Status {
         DaqError::ModuleOperationNotSupported(op) => status_with_metadata(
             Code::Unimplemented,
             format!("Operation not supported: {op}"),
-            "module_unsupported",
+            ErrorKind::ModuleUnsupported,
             None,
         ),
         DaqError::CameraNotAssigned => status_with_metadata(
             Code::FailedPrecondition,
             "Camera not assigned to module",
-            "camera_not_assigned",
+            ErrorKind::CameraNotAssigned,
             None,
         ),
 
@@ -260,13 +265,13 @@ pub fn map_daq_error_to_status(err: &DaqError) -> Status {
         DaqError::FeatureNotEnabled(feature) => status_with_metadata(
             Code::Unimplemented,
             format!("Feature not enabled: {feature}"),
-            "feature_not_enabled",
+            ErrorKind::FeatureNotEnabled,
             None,
         ),
         DaqError::FeatureIncomplete(feature, reason) => status_with_metadata(
             Code::Unimplemented,
             format!("Feature '{feature}' incomplete: {reason}"),
-            "feature_incomplete",
+            ErrorKind::FeatureIncomplete,
             None,
         ),
 
@@ -276,7 +281,7 @@ pub fn map_daq_error_to_status(err: &DaqError) -> Status {
             status_with_metadata(
                 Code::Internal,
                 format!("Shutdown failed: {}", messages.join("; ")),
-                "shutdown_failed",
+                ErrorKind::ShutdownFailed,
                 None,
             )
         }
@@ -285,37 +290,40 @@ pub fn map_daq_error_to_status(err: &DaqError) -> Status {
         DaqError::ParameterNoSubscribers => status_with_metadata(
             Code::FailedPrecondition,
             "No subscribers for parameter update",
-            "parameter_no_subscribers",
+            ErrorKind::ParameterNoSubscribers,
             None,
         ),
         DaqError::ParameterReadOnly => status_with_metadata(
             Code::PermissionDenied,
             "Parameter is read-only",
-            "parameter_read_only",
+            ErrorKind::ParameterReadOnly,
             None,
         ),
         DaqError::ParameterInvalidChoice => status_with_metadata(
             Code::InvalidArgument,
             "Invalid parameter choice",
-            "parameter_invalid_choice",
+            ErrorKind::ParameterInvalidChoice,
             None,
         ),
         DaqError::ParameterNoHardwareReader => status_with_metadata(
             Code::FailedPrecondition,
             "Parameter has no hardware reader configured",
-            "parameter_no_reader",
+            ErrorKind::ParameterNoReader,
             None,
         ),
 
         // I/O errors -> Internal
         // These are server-side failures that shouldn't happen in normal operation
-        DaqError::Io(e) => {
-            status_with_metadata(Code::Internal, format!("I/O error: {e}"), "io", None)
-        }
+        DaqError::Io(e) => status_with_metadata(
+            Code::Internal,
+            format!("I/O error: {e}"),
+            ErrorKind::Io,
+            None,
+        ),
         DaqError::Tokio(e) => status_with_metadata(
             Code::Internal,
             format!("Tokio I/O error: {e}"),
-            "tokio",
+            ErrorKind::Tokio,
             None,
         ),
 
@@ -323,7 +331,7 @@ pub fn map_daq_error_to_status(err: &DaqError) -> Status {
         DaqError::Processing(msg) => status_with_metadata(
             Code::Internal,
             format!("Processing error: {msg}"),
-            "processing",
+            ErrorKind::Processing,
             None,
         ),
 
@@ -342,29 +350,35 @@ pub fn map_daq_error_to_status(err: &DaqError) -> Status {
                 }
                 _ => format!("Storage error: {}", e.message),
             };
-            status_with_metadata(code, msg, "storage", None)
+            status_with_metadata(code, msg, ErrorKind::Storage, None)
         }
 
         // Feature-specific errors
         #[cfg(feature = "storage_hdf5")]
-        DaqError::Hdf5(e) => {
-            status_with_metadata(Code::Internal, format!("HDF5 error: {e}"), "hdf5", None)
-        }
+        DaqError::Hdf5(e) => status_with_metadata(
+            Code::Internal,
+            format!("HDF5 error: {e}"),
+            ErrorKind::Hdf5,
+            None,
+        ),
         #[cfg(feature = "storage_arrow")]
-        DaqError::Arrow(e) => {
-            status_with_metadata(Code::Internal, format!("Arrow error: {e}"), "arrow", None)
-        }
+        DaqError::Arrow(e) => status_with_metadata(
+            Code::Internal,
+            format!("Arrow error: {e}"),
+            ErrorKind::Arrow,
+            None,
+        ),
 
         DaqError::Serde(e) => status_with_metadata(
             Code::Internal,
             format!("Serialization error: {e}"),
-            "serde",
+            ErrorKind::Serde,
             None,
         ),
         DaqError::TaskJoin(e) => status_with_metadata(
             Code::Internal,
             format!("Task join error: {e}"),
-            "task_join",
+            ErrorKind::TaskJoin,
             None,
         ),
     }

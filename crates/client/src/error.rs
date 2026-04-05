@@ -15,11 +15,12 @@
 //!
 //! ```rust,ignore
 //! use client::error::ClientError;
+//! use common_traits::error::ErrorKind;
 //!
 //! match do_rpc_call().await {
 //!     Err(ClientError::RpcStatus(ref status)) => {
 //!         let err: &ClientError = &ClientError::from(status.clone());
-//!         if let Some("driver") = err.daq_error_kind() {
+//!         if err.daq_error_kind() == Some(ErrorKind::Driver) {
 //!             println!("Driver {} failed: {}", err.driver_type().unwrap_or("?"), status.message());
 //!         }
 //!     }
@@ -27,12 +28,13 @@
 //! }
 //! ```
 
+use std::str::FromStr;
 use thiserror::Error;
 
 // Import shared header constants from the single source of truth.
 use common_traits::error::{
-    GRPC_DRIVER_KIND_HEADER as DRIVER_KIND_HEADER, GRPC_DRIVER_TYPE_HEADER as DRIVER_TYPE_HEADER,
-    GRPC_ERROR_KIND_HEADER as ERROR_KIND_HEADER,
+    ErrorKind, GRPC_DRIVER_KIND_HEADER as DRIVER_KIND_HEADER,
+    GRPC_DRIVER_TYPE_HEADER as DRIVER_TYPE_HEADER, GRPC_ERROR_KIND_HEADER as ERROR_KIND_HEADER,
 };
 
 /// Result type alias using `ClientError`.
@@ -75,13 +77,21 @@ pub enum ClientError {
 impl ClientError {
     /// Extract the DAQ error kind from gRPC metadata, if available.
     ///
-    /// Returns the value of the `x-daq-error-kind` header set by the server
-    /// when mapping a `DaqError` to a gRPC `Status`.  Typical values include
-    /// `"driver"`, `"instrument"`, `"config"`, `"storage"`, `"processing"`, etc.
+    /// Returns the parsed [`ErrorKind`] from the `x-daq-error-kind` header set
+    /// by the server when mapping a `DaqError` to a gRPC `Status`.
     ///
-    /// Returns `None` if the error is not an `RpcStatus` variant or the
-    /// metadata header is missing.
-    pub fn daq_error_kind(&self) -> Option<&str> {
+    /// Returns `None` if the error is not an `RpcStatus` variant, the
+    /// metadata header is missing, or the value is not a recognised variant.
+    pub fn daq_error_kind(&self) -> Option<ErrorKind> {
+        self.rpc_metadata_str(ERROR_KIND_HEADER)
+            .and_then(|s| ErrorKind::from_str(s).ok())
+    }
+
+    /// Extract the raw DAQ error kind string from gRPC metadata, if available.
+    ///
+    /// Prefer [`daq_error_kind()`](Self::daq_error_kind) for type-safe matching.
+    /// This method is provided for backward compatibility and logging.
+    pub fn daq_error_kind_str(&self) -> Option<&str> {
         self.rpc_metadata_str(ERROR_KIND_HEADER)
     }
 
@@ -111,7 +121,7 @@ impl ClientError {
     /// Check if this error indicates a specific DAQ error category.
     ///
     /// Convenience method equivalent to `self.daq_error_kind() == Some(kind)`.
-    pub fn is_daq_error_kind(&self, kind: &str) -> bool {
+    pub fn is_daq_error_kind(&self, kind: ErrorKind) -> bool {
         self.daq_error_kind() == Some(kind)
     }
 
@@ -129,7 +139,6 @@ impl ClientError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::str::FromStr;
     use tonic::metadata::MetadataValue;
 
     /// Helper: build a `tonic::Status` with custom metadata headers, simulating
@@ -218,7 +227,7 @@ mod tests {
             ],
         );
         let err = ClientError::RpcStatus(status);
-        assert_eq!(err.daq_error_kind(), Some("driver"));
+        assert_eq!(err.daq_error_kind(), Some(ErrorKind::Driver));
         assert_eq!(err.driver_type(), Some("pvcam"));
         assert_eq!(err.driver_kind(), Some("communication"));
     }
@@ -231,7 +240,7 @@ mod tests {
             &[("x-daq-error-kind", "instrument")],
         );
         let err = ClientError::RpcStatus(status);
-        assert_eq!(err.daq_error_kind(), Some("instrument"));
+        assert_eq!(err.daq_error_kind(), Some(ErrorKind::Instrument));
         // No driver metadata for instrument errors
         assert_eq!(err.driver_type(), None);
         assert_eq!(err.driver_kind(), None);
@@ -245,7 +254,7 @@ mod tests {
             &[("x-daq-error-kind", "config")],
         );
         let err = ClientError::RpcStatus(status);
-        assert_eq!(err.daq_error_kind(), Some("config"));
+        assert_eq!(err.daq_error_kind(), Some(ErrorKind::Config));
     }
 
     #[test]
@@ -256,7 +265,7 @@ mod tests {
             &[("x-daq-error-kind", "storage")],
         );
         let err = ClientError::RpcStatus(status);
-        assert_eq!(err.daq_error_kind(), Some("storage"));
+        assert_eq!(err.daq_error_kind(), Some(ErrorKind::Storage));
     }
 
     #[test]
@@ -284,14 +293,14 @@ mod tests {
             &[("x-daq-error-kind", "module_busy")],
         );
         let err = ClientError::RpcStatus(status);
-        assert!(err.is_daq_error_kind("module_busy"));
-        assert!(!err.is_daq_error_kind("driver"));
+        assert!(err.is_daq_error_kind(ErrorKind::ModuleBusy));
+        assert!(!err.is_daq_error_kind(ErrorKind::Driver));
     }
 
     #[test]
     fn test_is_daq_error_kind_false_for_non_rpc() {
         let err = ClientError::Timeout("timed out".into());
-        assert!(!err.is_daq_error_kind("driver"));
+        assert!(!err.is_daq_error_kind(ErrorKind::Driver));
     }
 
     #[test]
@@ -326,6 +335,67 @@ mod tests {
                 err.driver_kind(),
                 Some(*kind),
                 "roundtrip failed for kind {kind}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_daq_error_kind_unrecognised_value_returns_none() {
+        let status = status_with_metadata(
+            tonic::Code::Internal,
+            "mystery error",
+            &[("x-daq-error-kind", "totally_unknown_value")],
+        );
+        let err = ClientError::RpcStatus(status);
+        // Typed accessor returns None for unrecognised strings
+        assert_eq!(err.daq_error_kind(), None);
+        // Raw string accessor still returns the value
+        assert_eq!(err.daq_error_kind_str(), Some("totally_unknown_value"));
+    }
+
+    #[test]
+    fn test_error_kind_roundtrip_all_variants() {
+        // Verify every ErrorKind variant survives the as_str -> from_str roundtrip
+        let variants = [
+            ErrorKind::Config,
+            ErrorKind::Configuration,
+            ErrorKind::Instrument,
+            ErrorKind::Driver,
+            ErrorKind::Serial,
+            ErrorKind::ModuleBusy,
+            ErrorKind::SerialEof,
+            ErrorKind::SerialDisabled,
+            ErrorKind::FrameDimensions,
+            ErrorKind::FrameTooLarge,
+            ErrorKind::ResponseTooLarge,
+            ErrorKind::ScriptTooLarge,
+            ErrorKind::SizeOverflow,
+            ErrorKind::ModuleUnsupported,
+            ErrorKind::CameraNotAssigned,
+            ErrorKind::FeatureNotEnabled,
+            ErrorKind::FeatureIncomplete,
+            ErrorKind::ShutdownFailed,
+            ErrorKind::ParameterNoSubscribers,
+            ErrorKind::ParameterReadOnly,
+            ErrorKind::ParameterInvalidChoice,
+            ErrorKind::ParameterNoReader,
+            ErrorKind::Io,
+            ErrorKind::Tokio,
+            ErrorKind::Processing,
+            ErrorKind::Storage,
+            ErrorKind::Hdf5,
+            ErrorKind::Arrow,
+            ErrorKind::Serde,
+            ErrorKind::TaskJoin,
+            ErrorKind::Unknown,
+        ];
+        for variant in &variants {
+            let wire = variant.as_str();
+            let parsed = ErrorKind::from_str(wire)
+                .unwrap_or_else(|_| panic!("failed to parse '{wire}' back to ErrorKind"));
+            assert_eq!(
+                *variant, parsed,
+                "roundtrip failed for {variant:?} -> '{wire}'"
             );
         }
     }
