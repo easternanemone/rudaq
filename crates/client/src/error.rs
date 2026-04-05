@@ -138,7 +138,6 @@ impl ClientError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::str::FromStr;
     use tonic::metadata::MetadataValue;
 
     /// Helper: build a `tonic::Status` with custom metadata headers, simulating
@@ -227,7 +226,7 @@ mod tests {
             ],
         );
         let err = ClientError::RpcStatus(status);
-        assert_eq!(err.daq_error_kind(), Some("driver"));
+        assert_eq!(err.daq_error_kind(), Some(ErrorKind::Driver));
         assert_eq!(err.driver_type(), Some("pvcam"));
         assert_eq!(err.driver_kind(), Some("communication"));
     }
@@ -240,7 +239,7 @@ mod tests {
             &[("x-daq-error-kind", "instrument")],
         );
         let err = ClientError::RpcStatus(status);
-        assert_eq!(err.daq_error_kind(), Some("instrument"));
+        assert_eq!(err.daq_error_kind(), Some(ErrorKind::Instrument));
         // No driver metadata for instrument errors
         assert_eq!(err.driver_type(), None);
         assert_eq!(err.driver_kind(), None);
@@ -254,7 +253,7 @@ mod tests {
             &[("x-daq-error-kind", "config")],
         );
         let err = ClientError::RpcStatus(status);
-        assert_eq!(err.daq_error_kind(), Some("config"));
+        assert_eq!(err.daq_error_kind(), Some(ErrorKind::Config));
     }
 
     #[test]
@@ -265,7 +264,7 @@ mod tests {
             &[("x-daq-error-kind", "storage")],
         );
         let err = ClientError::RpcStatus(status);
-        assert_eq!(err.daq_error_kind(), Some("storage"));
+        assert_eq!(err.daq_error_kind(), Some(ErrorKind::Storage));
     }
 
     #[test]
@@ -293,14 +292,14 @@ mod tests {
             &[("x-daq-error-kind", "module_busy")],
         );
         let err = ClientError::RpcStatus(status);
-        assert!(err.is_daq_error_kind("module_busy"));
-        assert!(!err.is_daq_error_kind("driver"));
+        assert!(err.is_daq_error_kind(ErrorKind::ModuleBusy));
+        assert!(!err.is_daq_error_kind(ErrorKind::Driver));
     }
 
     #[test]
     fn test_is_daq_error_kind_false_for_non_rpc() {
         let err = ClientError::Timeout("timed out".into());
-        assert!(!err.is_daq_error_kind("driver"));
+        assert!(!err.is_daq_error_kind(ErrorKind::Driver));
     }
 
     #[test]
@@ -335,6 +334,67 @@ mod tests {
                 err.driver_kind(),
                 Some(*kind),
                 "roundtrip failed for kind {kind}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_daq_error_kind_unrecognised_value_returns_none() {
+        let status = status_with_metadata(
+            tonic::Code::Internal,
+            "mystery error",
+            &[("x-daq-error-kind", "totally_unknown_value")],
+        );
+        let err = ClientError::RpcStatus(status);
+        // Typed accessor returns None for unrecognised strings
+        assert_eq!(err.daq_error_kind(), None);
+        // Raw string accessor still returns the value
+        assert_eq!(err.daq_error_kind_str(), Some("totally_unknown_value"));
+    }
+
+    #[test]
+    fn test_error_kind_roundtrip_all_variants() {
+        // Verify every ErrorKind variant survives the as_str -> from_str roundtrip
+        let variants = [
+            ErrorKind::Config,
+            ErrorKind::Configuration,
+            ErrorKind::Instrument,
+            ErrorKind::Driver,
+            ErrorKind::Serial,
+            ErrorKind::ModuleBusy,
+            ErrorKind::SerialEof,
+            ErrorKind::SerialDisabled,
+            ErrorKind::FrameDimensions,
+            ErrorKind::FrameTooLarge,
+            ErrorKind::ResponseTooLarge,
+            ErrorKind::ScriptTooLarge,
+            ErrorKind::SizeOverflow,
+            ErrorKind::ModuleUnsupported,
+            ErrorKind::CameraNotAssigned,
+            ErrorKind::FeatureNotEnabled,
+            ErrorKind::FeatureIncomplete,
+            ErrorKind::ShutdownFailed,
+            ErrorKind::ParameterNoSubscribers,
+            ErrorKind::ParameterReadOnly,
+            ErrorKind::ParameterInvalidChoice,
+            ErrorKind::ParameterNoReader,
+            ErrorKind::Io,
+            ErrorKind::Tokio,
+            ErrorKind::Processing,
+            ErrorKind::Storage,
+            ErrorKind::Hdf5,
+            ErrorKind::Arrow,
+            ErrorKind::Serde,
+            ErrorKind::TaskJoin,
+            ErrorKind::Unknown,
+        ];
+        for variant in &variants {
+            let wire = variant.as_str();
+            let parsed = ErrorKind::from_str(wire)
+                .unwrap_or_else(|_| panic!("failed to parse '{wire}' back to ErrorKind"));
+            assert_eq!(
+                *variant, parsed,
+                "roundtrip failed for {variant:?} -> '{wire}'"
             );
         }
     }
