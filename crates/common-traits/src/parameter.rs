@@ -929,7 +929,7 @@ mod tests {
         let hardware_value = Arc::new(AtomicU64::new(0));
         let hw_val_clone = hardware_value.clone();
 
-        let mut param = Parameter::new("exposure", 100.0);
+        let param = Parameter::new("exposure", 100.0);
         param.connect_to_hardware_write(move |val| {
             let hw = hw_val_clone.clone();
             Box::pin(async move {
