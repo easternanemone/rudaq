@@ -1068,7 +1068,7 @@ mod tests {
         let hardware_write_called = Arc::new(AtomicBool::new(false));
         let hw_called_clone = hardware_write_called.clone();
 
-        let mut param = Parameter::new("readonly_param", 42.0).read_only();
+        let param = Parameter::new("readonly_param", 42.0).read_only();
 
         param.connect_to_hardware_write(move |_val| {
             let hw_called = hw_called_clone.clone();
