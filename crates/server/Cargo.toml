@@ -25,7 +25,7 @@ anyhow.workspace = true
 # After bd-ga7k.10 (dependency inversion), hardware no longer has driver features.
 common = { path = "../common" }
 echelle = { path = "../echelle" }
-hardware = { path = "../hardware", default-features = false }
+hardware = { path = "../hardware", default-features = false, features = ["test-util"] }
 storage = { path = "../storage" }
 scripting = { path = "../scripting", optional = true }
 daq-modules = { path = "../daq-modules", optional = true, default-features = false }

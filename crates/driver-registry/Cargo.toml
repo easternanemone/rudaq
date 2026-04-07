@@ -7,7 +7,7 @@ license = "MIT"
 
 [dependencies]
 # Foundation: hardware provides DeviceRegistry, HardwareConfig, and abstract APIs
-hardware = { path = "../hardware", default-features = false }
+hardware = { path = "../hardware", default-features = false, features = ["test-util"] }
 common = { path = "../common" }
 tracing.workspace = true
 anyhow.workspace = true
@@ -32,6 +32,9 @@ default = ["serial", "runtime_probe"]
 
 # Serial communication (pass-through to hardware)
 serial = ["hardware/serial"]
+
+# Test utilities: canonical mock registry helpers (M-TEST-UTIL, bd-qd4zn)
+test-util = ["hardware/test-util"]
 
 # Runtime SDK probing via dlopen (detects SDK availability without linking)
 runtime_probe = ["dep:libloading"]

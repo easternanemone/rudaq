@@ -67,8 +67,9 @@ pub mod resource_pool;
 pub mod supervisor;
 
 pub use capabilities::*;
+#[cfg(all(not(target_arch = "wasm32"), any(test, feature = "test-util")))]
+pub use registry::register_mock_factories;
 #[cfg(not(target_arch = "wasm32"))]
 pub use registry::{
     DeviceConfig, DeviceInfo, DeviceRegistry, DriverConfig, populate_registry_from_config,
-    register_mock_factories,
 };

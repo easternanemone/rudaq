@@ -11,6 +11,7 @@
 
 /// Mock drivers for testing (re-exported from driver-mock)
 /// Note: Also available via `drivers::mock` module for backwards compatibility
+#[cfg(any(test, feature = "test-util"))]
 pub use driver_mock as mock_drivers;
 
 // Binary protocol support (Modbus RTU, etc.)
@@ -23,6 +24,7 @@ pub use binary_protocol::{BinaryFrameBuilder, BinaryResponseParser, ParsedValue}
 pub use binary_protocol::{CrcValue, calculate_crc, validate_crc};
 
 /// Mock drivers for testing (legacy module, re-exports from driver-mock)
+#[cfg(any(test, feature = "test-util"))]
 pub mod mock;
 
 /// Mock serial port for testing (local implementation)

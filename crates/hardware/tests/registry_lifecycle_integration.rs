@@ -2,6 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::{Result, anyhow};
 use common::driver::{DeviceComponents, DeviceLifecycle, DriverFactory};
+use driver_mock::MockStage;
 use hardware::DeviceRegistry;
 
 struct RecordingLifecycle {
@@ -49,7 +50,7 @@ impl DriverFactory for RecordingFactory {
     ) -> futures::future::BoxFuture<'static, Result<DeviceComponents>> {
         let lifecycle = self.lifecycle.clone();
         Box::pin(async move {
-            let driver = Arc::new(hardware::drivers::mock::MockStage::new());
+            let driver = Arc::new(MockStage::new());
             Ok(DeviceComponents::new()
                 .with_movable(driver.clone())
                 .with_parameterized(driver)

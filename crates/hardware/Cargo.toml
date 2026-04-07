@@ -56,6 +56,9 @@ default = ["serial"]
 # Serial communication (async via common::serial / serial2-tokio)
 serial = ["common/serial"]
 
+# Test utilities: mock drivers, mock registry helpers (M-TEST-UTIL, bd-qd4zn)
+test-util = []
+
 # Other features
 simulator = []
 plugins_hot_reload = ["dep:notify", "dep:hot-lib-reloader"]

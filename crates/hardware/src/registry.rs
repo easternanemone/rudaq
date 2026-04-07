@@ -2201,6 +2201,9 @@ pub async fn populate_registry_from_config(
 /// uses universal-driver emulators for universal-eligible instruments. This function
 /// uses handwritten `driver-mock` implementations that don't exercise the manifest
 /// emulator code path.
+///
+/// Requires the `test-util` feature (M-TEST-UTIL, bd-qd4zn).
+#[cfg(any(test, feature = "test-util"))]
 #[deprecated(
     note = "use driver_registry::create_canonical_mock_registry() for universal mock parity"
 )]
@@ -2260,6 +2263,9 @@ pub async fn create_mock_registry() -> Result<DeviceRegistry, DaqError> {
 ///     toml::Value::Table(Default::default()),
 /// ).await?;
 /// ```
+///
+/// Requires the `test-util` feature (M-TEST-UTIL, bd-qd4zn).
+#[cfg(any(test, feature = "test-util"))]
 pub fn register_mock_factories(registry: &DeviceRegistry) {
     use driver_mock::{MockCameraFactory, MockPowerMeterFactory, MockStageFactory};
 

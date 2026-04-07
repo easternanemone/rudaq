@@ -276,6 +276,9 @@ pub async fn create_registry_from_file(path: &std::path::Path) -> Result<DeviceR
 ///
 /// # Errors
 /// Returns `DaqError::Config` if `<workspace_root>/config/devices` does not exist.
+///
+/// Requires the `test-util` feature (M-TEST-UTIL, bd-qd4zn).
+#[cfg(any(test, feature = "test-util"))]
 pub async fn create_canonical_mock_registry(
     workspace_root: &std::path::Path,
 ) -> Result<DeviceRegistry, DaqError> {
@@ -296,6 +299,7 @@ pub async fn create_canonical_mock_registry(
 ///
 /// Universal-eligible instruments use `driver-universal` with `mock = true`.
 /// Camera uses native `mock_camera` (SDK-bound, not expressible as a manifest).
+#[cfg(any(test, feature = "test-util"))]
 const CANONICAL_MOCK_CONFIG: &str = r#"
 [[devices]]
 id = "stage"

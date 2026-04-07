@@ -7,7 +7,7 @@ publish = false
 [dependencies]
 common = { path = "../common" }
 echelle = { path = "../echelle" }
-hardware = { path = "../hardware" }
+hardware = { path = "../hardware", features = ["test-util"] }
 driver-registry = { path = "../driver-registry", features = ["all_hardware"] }
 experiment = { path = "../experiment" }
 daq-modules = { path = "../daq-modules", features = ["scripting"], optional = true }
