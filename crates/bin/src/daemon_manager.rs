@@ -40,9 +40,9 @@ pub struct DaemonConfig {
     pub lab_hardware: bool,
     /// Resolved runtime mode string (e.g. "mock", "native", "universal", "hybrid-db", "custom").
     pub runtime_mode: String,
-    /// Path for the SurrealDB database. Only used when `db-surreal-rocksdb` is
-    /// enabled. `None` = use in-memory engine (default for `db-surreal-mem`).
-    #[cfg(feature = "db-surreal")]
+    /// Path for the database file. When set, uses file-backed SQLite.
+    /// `None` = use in-memory engine (default).
+    #[cfg(feature = "db")]
     pub db_path: Option<PathBuf>,
     /// Optional path to the WASM web UI directory.
     pub web_ui_path: Option<PathBuf>,
@@ -272,14 +272,14 @@ pub struct DaemonInstance {
     sentinel: SafetySentinel,
     /// Embedded SurrealDB instance (control plane persistence).
     /// Kept alive for connection lifetime; will be read by gRPC ConfigService (Phase 2).
-    #[cfg(feature = "db-surreal")]
+    #[cfg(feature = "db")]
     #[allow(dead_code)] // Ownership anchor + used by ConfigService in Phase 2
     db: Option<db::DaqDb>,
     /// Safety heartbeat task — toggles a Comedi DIO channel to drive hardware interlock.
     #[cfg(feature = "comedi_hardware")]
     heartbeat_task: Option<JoinHandle<()>>,
     /// Background task running the watch reconciler (LIVE SELECT → reconcile loop).
-    #[cfg(feature = "db-surreal")]
+    #[cfg(feature = "db")]
     watch_reconciler_task: Option<JoinHandle<()>>,
     /// Records which shutdown phases have been executed, in order.
     /// Used by contract tests to verify the shutdown sequence.
@@ -322,17 +322,17 @@ impl DaemonInstance {
             metrics_collector.run().await;
         });
 
-        // --- Phase: Database (feature-gated: db-surreal) ---
-        #[cfg(feature = "db-surreal")]
+        // --- Phase: Database (feature-gated: db) ---
+        #[cfg(feature = "db")]
         let db = {
-            println!("🗄️  Initializing database (SurrealDB)...");
+            println!("🗄️  Initializing database (SQLite)...");
             let engine_name = if config.db_path.is_some() {
-                "rocksdb"
+                "file"
             } else {
-                "mem"
+                "memory"
             };
             let db_config = if let Some(ref path) = config.db_path {
-                println!("   Engine: RocksDB ({})", path.display());
+                println!("   Engine: file ({})", path.display());
                 db::DbConfig::rocksdb(path)
             } else {
                 println!("   Engine: in-memory (no persistence)");
@@ -340,34 +340,39 @@ impl DaemonInstance {
             };
             match db::DaqDb::init(db_config).await {
                 Ok(db) => {
-                    let info = db.info().await;
-                    println!(
-                        "   ✓ Database ready (schema v{}, {} drivers, {} instruments)",
-                        info.schema_version, info.driver_count, info.instrument_count
-                    );
-                    println!();
-                    // Record DB health in monitor (bd-9n9k.3)
-                    health
-                        .heartbeat_with_message(
-                            "database",
-                            Some(format!(
-                                "SurrealDB ({}) — schema v{}, {} drivers, {} instruments",
-                                engine_name,
-                                info.schema_version,
-                                info.driver_count,
-                                info.instrument_count,
-                            )),
-                        )
-                        .await;
+                    match db.info().await {
+                        Ok(info) => {
+                            println!(
+                                "   ✓ Database ready (schema v{}, {} drivers, {} instruments)",
+                                info.schema_version, info.driver_count, info.instrument_count
+                            );
+                            println!();
+                            health
+                                .heartbeat_with_message(
+                                    "database",
+                                    Some(format!(
+                                        "SQLite ({engine_name}) — schema v{}, {} drivers, {} instruments",
+                                        info.schema_version,
+                                        info.driver_count,
+                                        info.instrument_count,
+                                    )),
+                                )
+                                .await;
+                        }
+                        Err(e) => {
+                            tracing::warn!(error = %e, "Failed to query DB info after init");
+                            println!("   ✓ Database initialized ({engine_name})");
+                            println!();
+                        }
+                    }
                     Some(db)
                 }
                 Err(e) => {
                     // DB failure is non-fatal — the daemon can still run from TOML config.
-                    // Record structured error for health monitor (bd-9n9k.3).
                     tracing::warn!(
                         engine = engine_name,
                         error = %e,
-                        "SurrealDB initialization failed — running without database persistence. \
+                        "Database initialization failed — running without persistence. \
                          ConfigService and metadata catalogs will be unavailable. \
                          Use --db-path <dir> to configure persistent storage."
                     );
@@ -375,7 +380,7 @@ impl DaemonInstance {
                         .report_error(
                             "database",
                             common::health::ErrorSeverity::Warning,
-                            format!("SurrealDB init failed: {e}"),
+                            format!("SQLite init failed: {e}"),
                             vec![("engine", engine_name)],
                         )
                         .await;
@@ -502,10 +507,10 @@ impl DaemonInstance {
         let registry = Arc::new(DeviceRegistry::new());
 
         // --- Phase: Shadow Write to Database ---
-        // Mirror the parsed hardware config into SurrealDB (write-only shadow copy).
+        // Mirror the parsed hardware config into the DB (write-only shadow copy).
         // Reuses the HardwareConfig already parsed above — no redundant file I/O.
         // Non-fatal: if anything fails, log a warning and continue.
-        #[cfg(all(feature = "db-surreal", feature = "networking"))]
+        #[cfg(all(feature = "db", feature = "networking"))]
         if let (Some(db), Some(hw_config)) = (&db, &hw_config) {
             use crate::db_bridge;
             match db_bridge::shadow_write_with_registry(db, hw_config, &registry).await {
@@ -531,7 +536,7 @@ impl DaemonInstance {
         }
 
         // --- Phase: Reconciler Metrics (feature-gated) ---
-        #[cfg(all(feature = "db-surreal", feature = "metrics"))]
+        #[cfg(all(feature = "db", feature = "metrics"))]
         {
             crate::reconciler_metrics::init();
             println!("   📊 Reconciler Prometheus metrics registered");
@@ -541,7 +546,7 @@ impl DaemonInstance {
         // After shadow-writing config to DB, run one reconciliation pass to
         // converge the registry if the DB has instruments the TOML didn't include
         // (e.g., added via CLI between restarts).  Non-fatal.
-        #[cfg(feature = "db-surreal")]
+        #[cfg(feature = "db")]
         if let Some(ref db) = db {
             use crate::reconciler;
 
@@ -575,10 +580,10 @@ impl DaemonInstance {
         }
 
         // --- Phase: Restore Parameter State (bd-4wf7) ---
-        // Apply last-known parameter values from SurrealDB to devices.
+        // Apply last-known parameter values from the database to devices.
         // This restores user settings (exposure, trigger mode, etc.) across daemon restarts.
         // Runs after reconciliation to ensure devices exist in the registry.
-        #[cfg(feature = "db-surreal")]
+        #[cfg(feature = "db")]
         if let Some(ref db) = db {
             match restore_parameter_state(db, &registry).await {
                 Ok(count) if count > 0 => {
@@ -700,7 +705,7 @@ impl DaemonInstance {
         // --- Phase: Watch Reconciler (LIVE SELECT → debounce → reconcile) ---
         // Continuously watches SurrealDB for config changes and reconciles the
         // hardware registry.  Uses CancellationToken for graceful shutdown.
-        #[cfg(feature = "db-surreal")]
+        #[cfg(feature = "db")]
         let watch_reconciler_task = if let Some(ref db) = db {
             let wr_db = db.clone();
             let wr_registry = registry.clone();
@@ -736,7 +741,7 @@ impl DaemonInstance {
             println!("     - Preset save/load (PresetService)");
             println!("     - System Health Monitoring (HealthService)");
             // DB state summary in startup banner (bd-9n9k.3)
-            #[cfg(feature = "db-surreal")]
+            #[cfg(feature = "db")]
             if db.is_some() {
                 println!("     - Config management (ConfigService) [DB available]");
             } else {
@@ -744,14 +749,14 @@ impl DaemonInstance {
                     "     ⚠ ConfigService UNAVAILABLE (database init failed or not configured)"
                 );
             }
-            #[cfg(not(feature = "db-surreal"))]
-            println!("     ⚠ ConfigService UNAVAILABLE (compiled without db-surreal feature)");
+            #[cfg(not(feature = "db"))]
+            println!("     ⚠ ConfigService UNAVAILABLE (compiled without db feature)");
             println!();
 
             let srv_registry = registry.clone();
             let srv_health = health.clone();
             let srv_token = shutdown_token.clone();
-            #[cfg(feature = "db-surreal")]
+            #[cfg(feature = "db")]
             let srv_db = db.clone();
             tokio::spawn(async move {
                 start_server_with_hardware(
@@ -759,7 +764,7 @@ impl DaemonInstance {
                     srv_registry,
                     srv_health,
                     srv_token,
-                    #[cfg(feature = "db-surreal")]
+                    #[cfg(feature = "db")]
                     srv_db,
                 )
                 .await
@@ -783,9 +788,9 @@ impl DaemonInstance {
             sentinel,
             #[cfg(feature = "comedi_hardware")]
             heartbeat_task,
-            #[cfg(feature = "db-surreal")]
+            #[cfg(feature = "db")]
             db,
-            #[cfg(feature = "db-surreal")]
+            #[cfg(feature = "db")]
             watch_reconciler_task,
             #[cfg(test)]
             shutdown_log: Arc::new(std::sync::Mutex::new(Vec::new())),
@@ -908,7 +913,7 @@ impl DaemonInstance {
         self.registry_monitor_task.abort();
         self.metrics_task.abort();
         // Watch reconciler listens on the same CancellationToken, but abort as safety net
-        #[cfg(feature = "db-surreal")]
+        #[cfg(feature = "db")]
         if let Some(task) = self.watch_reconciler_task {
             task.abort();
         }
@@ -940,7 +945,7 @@ impl DaemonInstance {
 /// constrained choices (e.g., PVCAM readout Port -> Speed -> Gain) resolve correctly.
 /// Port must be set before Speed (which depends on available speeds for that port),
 /// and Speed before Gain (which depends on available gains for that speed).
-#[cfg(feature = "db-surreal")]
+#[cfg(feature = "db")]
 async fn restore_parameter_state(db: &db::DaqDb, registry: &DeviceRegistry) -> Result<usize> {
     let mut restored = 0;
     for device_info in registry.list_devices() {
@@ -1000,7 +1005,7 @@ async fn restore_parameter_state(db: &db::DaqDb, registry: &DeviceRegistry) -> R
 /// Speed table parameters must be applied in order: Port -> Speed -> Gain,
 /// because each constrains the choices available to the next. All other parameters
 /// are applied after the speed table group, in their original (alphabetical) order.
-#[cfg(feature = "db-surreal")]
+#[cfg(feature = "db")]
 fn order_params_for_restore(
     states: Vec<db::config_store::DeviceParamState>,
 ) -> Vec<db::config_store::DeviceParamState> {
@@ -1046,7 +1051,7 @@ mod tests {
             hardware_config: None,
             lab_hardware: false,
             runtime_mode: "mock".to_string(),
-            #[cfg(feature = "db-surreal")]
+            #[cfg(feature = "db")]
             db_path: None,
             web_ui_path: None,
         };
@@ -1332,7 +1337,7 @@ mod tests {
             hardware_config: Some(mock_profile_path()),
             lab_hardware: false,
             runtime_mode: "mock".to_string(),
-            #[cfg(feature = "db-surreal")]
+            #[cfg(feature = "db")]
             db_path: None,
             web_ui_path: None,
         };
@@ -1359,7 +1364,7 @@ mod tests {
             hardware_config: Some(mock_profile_path()),
             lab_hardware: false,
             runtime_mode: "mock".to_string(),
-            #[cfg(feature = "db-surreal")]
+            #[cfg(feature = "db")]
             db_path: None,
             web_ui_path: None,
         };
@@ -1387,7 +1392,7 @@ mod tests {
 
     // ── Parameter state restore ordering tests (bd-oqo7.8) ────────────
 
-    #[cfg(feature = "db-surreal")]
+    #[cfg(feature = "db")]
     mod param_restore_tests {
         use super::*;
         use db::config_store::DeviceParamState;

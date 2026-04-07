@@ -32,17 +32,17 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 mod calibrate;
 mod daemon_manager;
-#[cfg(feature = "db-surreal")]
+#[cfg(feature = "db")]
 mod db_bridge;
-#[cfg(feature = "db-surreal")]
+#[cfg(feature = "db")]
 mod reconciler;
-#[cfg(all(feature = "db-surreal", feature = "metrics"))]
+#[cfg(all(feature = "db", feature = "metrics"))]
 mod reconciler_metrics;
 mod safety_heartbeat_task;
 mod safety_sentinel;
 #[cfg(feature = "networking")]
 mod snapshot;
-#[cfg(feature = "db-surreal")]
+#[cfg(feature = "db")]
 mod watch_reconciler;
 
 use anyhow::{Context, Result};
@@ -136,7 +136,7 @@ enum Commands {
 
         /// Database path for SurrealDB RocksDB engine (daemon mode).
         /// Omit to use in-memory engine (db-surreal-mem builds).
-        #[cfg(feature = "db-surreal")]
+        #[cfg(feature = "db")]
         #[arg(long)]
         db_path: Option<PathBuf>,
 
@@ -152,7 +152,7 @@ enum Commands {
     Client(ClientCommands),
 
     /// Database configuration management (SurrealDB)
-    #[cfg(feature = "db-surreal")]
+    #[cfg(feature = "db")]
     #[command(subcommand)]
     Config(ConfigCommands),
 
@@ -232,7 +232,7 @@ enum Commands {
 }
 
 /// Subcommands for `rust-daq config ...`
-#[cfg(feature = "db-surreal")]
+#[cfg(feature = "db")]
 #[derive(Subcommand)]
 enum ConfigCommands {
     /// Import a TOML hardware config into the database
@@ -327,7 +327,7 @@ enum ClientCommands {
     },
 
     /// List instruments in the running daemon's database
-    #[cfg(feature = "db-surreal")]
+    #[cfg(feature = "db")]
     ConfigList {
         /// Daemon address
         #[arg(long, default_value = "http://localhost:50051")]
@@ -335,7 +335,7 @@ enum ClientCommands {
     },
 
     /// Get a specific instrument from the running daemon
-    #[cfg(feature = "db-surreal")]
+    #[cfg(feature = "db")]
     ConfigGet {
         /// Device ID to look up
         device_id: String,
@@ -345,7 +345,7 @@ enum ClientCommands {
     },
 
     /// Import a TOML hardware config into the running daemon's database
-    #[cfg(feature = "db-surreal")]
+    #[cfg(feature = "db")]
     ConfigImport {
         /// Path to hardware config file (TOML)
         file: PathBuf,
@@ -355,7 +355,7 @@ enum ClientCommands {
     },
 
     /// Export the running daemon's database as TOML
-    #[cfg(feature = "db-surreal")]
+    #[cfg(feature = "db")]
     ConfigExport {
         /// Daemon address
         #[arg(long, default_value = "http://localhost:50051")]
@@ -363,7 +363,7 @@ enum ClientCommands {
     },
 
     /// Delete an instrument from the running daemon's database
-    #[cfg(feature = "db-surreal")]
+    #[cfg(feature = "db")]
     ConfigDelete {
         /// Device ID to delete
         device_id: String,
@@ -373,7 +373,7 @@ enum ClientCommands {
     },
 
     /// Show database info from the running daemon
-    #[cfg(feature = "db-surreal")]
+    #[cfg(feature = "db")]
     ConfigInfo {
         /// Daemon address
         #[arg(long, default_value = "http://localhost:50051")]
@@ -381,7 +381,7 @@ enum ClientCommands {
     },
 
     /// Stream live config changes from the running daemon
-    #[cfg(feature = "db-surreal")]
+    #[cfg(feature = "db")]
     ConfigWatch {
         /// Daemon address
         #[arg(long, default_value = "http://localhost:50051")]
@@ -419,7 +419,7 @@ async fn main() -> Result<()> {
             runtime_mode,
             hardware_config,
             lab_hardware,
-            #[cfg(feature = "db-surreal")]
+            #[cfg(feature = "db")]
             db_path,
             web_ui_path,
         } => {
@@ -456,9 +456,9 @@ async fn main() -> Result<()> {
                 runtime_mode,
                 hardware_config,
                 lab_hardware,
-                #[cfg(feature = "db-surreal")]
+                #[cfg(feature = "db")]
                 db_path,
-                #[cfg(not(feature = "db-surreal"))]
+                #[cfg(not(feature = "db"))]
                 None,
                 web_ui_path,
             )
@@ -486,7 +486,7 @@ async fn main() -> Result<()> {
             grating_constant,
             temperature,
         } => handle_simulate(source, output, grating_constant, temperature),
-        #[cfg(feature = "db-surreal")]
+        #[cfg(feature = "db")]
         Commands::Config(cmd) => handle_config_command(cmd).await,
         Commands::Recover { input, output } => handle_recover(input, output).await,
     }
@@ -775,17 +775,17 @@ async fn start_daemon(
     }
 
     println!("🧭 Runtime mode: {resolved_runtime_mode}");
-    #[cfg(feature = "db-surreal")]
+    #[cfg(feature = "db")]
     if let Some(path) = db_path.as_ref() {
         println!("🗃️  Database path: {}", path.display());
     }
-    #[cfg(not(feature = "db-surreal"))]
+    #[cfg(not(feature = "db"))]
     if resolved_runtime_mode == "hybrid-db" {
         eprintln!(
             "⚠️  hybrid-db mode active but this build has no db-surreal feature; running universal TOML without DB persistence."
         );
     }
-    #[cfg(not(feature = "db-surreal"))]
+    #[cfg(not(feature = "db"))]
     let _ = db_path;
 
     let daemon_config = DaemonConfig {
@@ -793,7 +793,7 @@ async fn start_daemon(
         hardware_config: resolved_hardware_config,
         lab_hardware: resolved_lab_hardware,
         runtime_mode: resolved_runtime_mode.to_string(),
-        #[cfg(feature = "db-surreal")]
+        #[cfg(feature = "db")]
         db_path,
         web_ui_path,
     };
@@ -942,27 +942,27 @@ async fn handle_client_command(cmd: ClientCommands) -> Result<()> {
             Ok(())
         }
 
-        #[cfg(feature = "db-surreal")]
+        #[cfg(feature = "db")]
         ClientCommands::ConfigList { addr } => client_config_list(addr).await,
 
-        #[cfg(feature = "db-surreal")]
+        #[cfg(feature = "db")]
         ClientCommands::ConfigGet { device_id, addr } => client_config_get(device_id, addr).await,
 
-        #[cfg(feature = "db-surreal")]
+        #[cfg(feature = "db")]
         ClientCommands::ConfigImport { file, addr } => client_config_import(file, addr).await,
 
-        #[cfg(feature = "db-surreal")]
+        #[cfg(feature = "db")]
         ClientCommands::ConfigExport { addr } => client_config_export(addr).await,
 
-        #[cfg(feature = "db-surreal")]
+        #[cfg(feature = "db")]
         ClientCommands::ConfigDelete { device_id, addr } => {
             client_config_delete(device_id, addr).await
         }
 
-        #[cfg(feature = "db-surreal")]
+        #[cfg(feature = "db")]
         ClientCommands::ConfigInfo { addr } => client_config_info(addr).await,
 
-        #[cfg(feature = "db-surreal")]
+        #[cfg(feature = "db")]
         ClientCommands::ConfigWatch { addr } => client_config_watch(addr).await,
     }
 }
@@ -971,7 +971,7 @@ async fn handle_client_command(cmd: ClientCommands) -> Result<()> {
 // Config subcommands (db-surreal feature)
 // ---------------------------------------------------------------------------
 
-#[cfg(feature = "db-surreal")]
+#[cfg(feature = "db")]
 async fn handle_config_command(cmd: ConfigCommands) -> Result<()> {
     match cmd {
         ConfigCommands::Import { file, db_path } => config_import(file, db_path).await,
@@ -981,7 +981,7 @@ async fn handle_config_command(cmd: ConfigCommands) -> Result<()> {
 }
 
 /// Helper: open a DB connection from an optional path.
-#[cfg(feature = "db-surreal")]
+#[cfg(feature = "db")]
 async fn open_db(db_path: Option<PathBuf>) -> Result<db::DaqDb> {
     let db_config = match db_path {
         Some(ref path) => db::DbConfig::rocksdb(path),
@@ -993,7 +993,7 @@ async fn open_db(db_path: Option<PathBuf>) -> Result<db::DaqDb> {
 }
 
 /// `rust-daq config import <file>` — load TOML hardware config into DB.
-#[cfg(feature = "db-surreal")]
+#[cfg(feature = "db")]
 async fn config_import(file: PathBuf, db_path: Option<PathBuf>) -> Result<()> {
     use driver_registry::register_all_factories;
     use hardware::registry::{DeviceRegistry, HardwareConfig};
@@ -1030,7 +1030,7 @@ async fn config_import(file: PathBuf, db_path: Option<PathBuf>) -> Result<()> {
 }
 
 /// `rust-daq config export` — dump DB instruments as TOML to stdout.
-#[cfg(feature = "db-surreal")]
+#[cfg(feature = "db")]
 async fn config_export(db_path: Option<PathBuf>) -> Result<()> {
     let db = open_db(db_path).await?;
     let instruments = db
@@ -1053,7 +1053,7 @@ async fn config_export(db_path: Option<PathBuf>) -> Result<()> {
 // Online config commands (talk to running daemon via gRPC)
 // ---------------------------------------------------------------------------
 
-#[cfg(all(feature = "networking", feature = "db-surreal"))]
+#[cfg(all(feature = "networking", feature = "db"))]
 async fn config_client(
     addr: &str,
 ) -> Result<protocol::daq::config_service_client::ConfigServiceClient<tonic::transport::Channel>> {
@@ -1062,7 +1062,7 @@ async fn config_client(
         .map_err(|e| anyhow::anyhow!("Failed to connect to daemon at {addr}: {e}"))
 }
 
-#[cfg(all(feature = "networking", feature = "db-surreal"))]
+#[cfg(all(feature = "networking", feature = "db"))]
 async fn client_config_list(addr: String) -> Result<()> {
     let mut client = config_client(&addr).await?;
     let resp = client
@@ -1093,7 +1093,7 @@ async fn client_config_list(addr: String) -> Result<()> {
     Ok(())
 }
 
-#[cfg(all(feature = "networking", feature = "db-surreal"))]
+#[cfg(all(feature = "networking", feature = "db"))]
 async fn client_config_get(device_id: String, addr: String) -> Result<()> {
     let mut client = config_client(&addr).await?;
     let resp = client
@@ -1109,7 +1109,7 @@ async fn client_config_get(device_id: String, addr: String) -> Result<()> {
     Ok(())
 }
 
-#[cfg(all(feature = "networking", feature = "db-surreal"))]
+#[cfg(all(feature = "networking", feature = "db"))]
 async fn client_config_import(file: PathBuf, addr: String) -> Result<()> {
     let toml_content = tokio::fs::read_to_string(&file).await?;
     let mut client = config_client(&addr).await?;
@@ -1129,7 +1129,7 @@ async fn client_config_import(file: PathBuf, addr: String) -> Result<()> {
     Ok(())
 }
 
-#[cfg(all(feature = "networking", feature = "db-surreal"))]
+#[cfg(all(feature = "networking", feature = "db"))]
 async fn client_config_export(addr: String) -> Result<()> {
     let mut client = config_client(&addr).await?;
     let resp = client
@@ -1145,7 +1145,7 @@ async fn client_config_export(addr: String) -> Result<()> {
     Ok(())
 }
 
-#[cfg(all(feature = "networking", feature = "db-surreal"))]
+#[cfg(all(feature = "networking", feature = "db"))]
 async fn client_config_delete(device_id: String, addr: String) -> Result<()> {
     let mut client = config_client(&addr).await?;
     let resp = client
@@ -1163,7 +1163,7 @@ async fn client_config_delete(device_id: String, addr: String) -> Result<()> {
     Ok(())
 }
 
-#[cfg(all(feature = "networking", feature = "db-surreal"))]
+#[cfg(all(feature = "networking", feature = "db"))]
 async fn client_config_watch(addr: String) -> Result<()> {
     let mut client = config_client(&addr).await?;
     println!("Watching config changes on {addr}... (Ctrl+C to stop)");
@@ -1202,7 +1202,7 @@ async fn client_config_watch(addr: String) -> Result<()> {
     Ok(())
 }
 
-#[cfg(all(feature = "networking", feature = "db-surreal"))]
+#[cfg(all(feature = "networking", feature = "db"))]
 async fn client_config_info(addr: String) -> Result<()> {
     let mut client = config_client(&addr).await?;
     let resp = client
@@ -1222,7 +1222,7 @@ async fn client_config_info(addr: String) -> Result<()> {
 }
 
 /// `rust-daq config list` — list instruments in the database.
-#[cfg(feature = "db-surreal")]
+#[cfg(feature = "db")]
 async fn config_list(db_path: Option<PathBuf>) -> Result<()> {
     let db = open_db(db_path).await?;
     let instruments = db

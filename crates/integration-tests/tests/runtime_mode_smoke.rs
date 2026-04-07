@@ -180,7 +180,7 @@ async fn smoke_hybrid_driver_classification() {
 // hybrid-db-smoke (requires db-surreal-mem feature)
 // -------------------------------------------------------------------------
 
-#[cfg(feature = "db-surreal-mem")]
+#[cfg(feature = "db")]
 mod db_smoke {
     use super::*;
     use db::config_store::{DbDriver, DbInstrument, toml_to_json};
@@ -261,7 +261,7 @@ mod db_smoke {
 // hybrid-db-rocksdb-smoke (requires db-surreal-rocksdb feature)
 // -------------------------------------------------------------------------
 
-#[cfg(feature = "db-surreal-rocksdb")]
+#[cfg(feature = "db")]
 mod db_rocksdb_smoke {
     use db::config_store::{DbDriver, DbInstrument};
     use db::{DaqDb, DbConfig};

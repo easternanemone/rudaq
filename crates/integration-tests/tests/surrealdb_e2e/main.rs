@@ -12,7 +12,7 @@
 //! - Concurrent operations and MeasurementLock safety
 //!
 //! Run with: cargo nextest run -p integration-tests --features db-surreal-mem --test surrealdb_e2e
-#![cfg(any(feature = "db-surreal-mem", feature = "db-surreal-rocksdb"))]
+#![cfg(any(feature = "db", feature = "db"))]
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -24,17 +24,17 @@
 
 pub mod helpers;
 
-#[cfg(feature = "db-surreal-mem")]
+#[cfg(feature = "db")]
 mod startup_tests;
 
-#[cfg(all(feature = "server", feature = "db-surreal-mem"))]
+#[cfg(all(feature = "server", feature = "db"))]
 mod watch_reconciler_tests;
 
-#[cfg(feature = "db-surreal-mem")]
+#[cfg(feature = "db")]
 mod resilience_tests;
 
-#[cfg(feature = "db-surreal-mem")]
+#[cfg(feature = "db")]
 mod safety_tests;
 
-#[cfg(feature = "db-surreal-rocksdb")]
+#[cfg(feature = "db")]
 mod rocksdb_tests;

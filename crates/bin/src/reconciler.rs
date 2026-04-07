@@ -620,7 +620,7 @@ pub async fn start_polling_reconciler(
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
-#[cfg(feature = "db-surreal-mem")]
+#[cfg(feature = "db")]
 mod tests {
     use super::*;
     use db::DbConfig;

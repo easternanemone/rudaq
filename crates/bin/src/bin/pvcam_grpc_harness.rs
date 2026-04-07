@@ -832,7 +832,7 @@ async fn spawn_server(addr: &str) -> Result<()> {
             Arc::new(registry),
             health_monitor,
             tokio_util::sync::CancellationToken::new(),
-            #[cfg(feature = "db-surreal")]
+            #[cfg(feature = "db")]
             None,
         )
         .await

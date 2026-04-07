@@ -343,7 +343,7 @@ pub(super) async fn get_device_features(
     }
 
     // Attempt DB query (feature-gated).
-    #[cfg(feature = "db-surreal")]
+    #[cfg(feature = "db")]
     {
         if let Some(ref db) = svc.db {
             let db_features = db.get_device_features(&req.device_id).await.map_err(|e| {

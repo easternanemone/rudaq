@@ -1667,7 +1667,7 @@ pub async fn start_server_with_hardware(
     registry: std::sync::Arc<hardware::registry::DeviceRegistry>,
     health_monitor: std::sync::Arc<common::health::SystemHealthMonitor>,
     shutdown_token: CancellationToken,
-    #[cfg(feature = "db-surreal")] _db: Option<db::DaqDb>,
+    #[cfg(feature = "db")] _db: Option<db::DaqDb>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use crate::grpc::hardware_service::HardwareServiceImpl;
     use crate::grpc::module_service::ModuleServiceImpl;
@@ -1994,7 +1994,7 @@ pub async fn start_server_with_hardware(
             #[cfg(feature = "metrics")]
             daq_metrics,
         );
-        #[cfg(feature = "db-surreal")]
+        #[cfg(feature = "db")]
         let svc = svc.with_db(_db.clone());
         svc
     };
@@ -2091,7 +2091,7 @@ pub async fn start_server_with_hardware(
     let hardware_server = {
         let svc =
             HardwareServiceImpl::new(registry.clone()).with_state_broadcast(state_broadcast_tx);
-        #[cfg(feature = "db-surreal")]
+        #[cfg(feature = "db")]
         let svc = svc.with_db(_db.clone());
         svc
     };
@@ -2127,31 +2127,36 @@ pub async fn start_server_with_hardware(
             .with_registry(registry.clone());
 
     // Wire DB state into health responses (bd-9n9k.3)
-    #[cfg(feature = "db-surreal")]
+    #[cfg(feature = "db")]
     let custom_health_service = {
         let (db_available, engine, message) = if let Some(ref db) = _db {
-            let info = db.info().await;
-            // Expose only engine kind ("rocksdb", "mem") — avoid leaking filesystem paths.
-            let engine_kind = info
-                .engine
-                .split(':')
-                .next()
-                .unwrap_or("unknown")
-                .to_string();
-            // Base availability on actual DB health, not just init success.
-            let healthy = info.healthy;
-            (
-                healthy,
-                Some(engine_kind),
-                Some(if healthy {
-                    format!(
-                        "schema v{}, {} drivers, {} instruments",
-                        info.schema_version, info.driver_count, info.instrument_count
+            match db.info().await {
+                Ok(info) => {
+                    let engine_kind = info
+                        .engine
+                        .split(':')
+                        .next()
+                        .unwrap_or("unknown")
+                        .to_string();
+                    let healthy = info.healthy;
+                    (
+                        healthy,
+                        Some(engine_kind),
+                        Some(if healthy {
+                            format!(
+                                "schema v{}, {} drivers, {} instruments",
+                                info.schema_version, info.driver_count, info.instrument_count
+                            )
+                        } else {
+                            "Database initialized but health check failing".to_string()
+                        }),
                     )
-                } else {
-                    "Database initialized but health check failing".to_string()
-                }),
-            )
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "Failed to query DB info for health check");
+                    (false, None, Some(format!("DB info query failed: {e}")))
+                }
+            }
         } else {
             (
                 false,
@@ -2175,7 +2180,7 @@ pub async fn start_server_with_hardware(
     #[cfg(feature = "serial")]
     standard_health_service.set_serving_status("daq.PluginService", ServingStatus::Serving);
     // Register ConfigService status based on DB availability (bd-9n9k.3)
-    #[cfg(feature = "db-surreal")]
+    #[cfg(feature = "db")]
     if _db.is_some() {
         standard_health_service.set_serving_status("daq.ConfigService", ServingStatus::Serving);
     } else {
@@ -2253,7 +2258,7 @@ pub async fn start_server_with_hardware(
         .add_service(tonic_web::enable(StorageServiceServer::new(storage_server)));
 
     // ConfigService — SurrealDB config management (bd-itsc)
-    #[cfg(all(feature = "serial", feature = "db-surreal"))]
+    #[cfg(all(feature = "serial", feature = "db"))]
     let server_builder = if let Some(ref db) = _db {
         server_builder.add_service(tonic_web::enable(
             crate::grpc::proto::config_service_server::ConfigServiceServer::new(
@@ -2310,7 +2315,7 @@ pub async fn start_server_with_hardware(
         .add_service(tonic_web::enable(StorageServiceServer::new(storage_server)));
 
     // ConfigService — SurrealDB config management (bd-itsc)
-    #[cfg(all(not(feature = "serial"), feature = "db-surreal"))]
+    #[cfg(all(not(feature = "serial"), feature = "db"))]
     let server_builder = if let Some(ref db) = _db {
         server_builder.add_service(tonic_web::enable(
             crate::grpc::proto::config_service_server::ConfigServiceServer::new(

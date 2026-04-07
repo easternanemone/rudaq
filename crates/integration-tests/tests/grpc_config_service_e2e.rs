@@ -5,7 +5,7 @@
 //!
 //! Run with: cargo nextest run -p integration-tests --features db-surreal-mem --test grpc_config_service_e2e
 
-#![cfg(all(feature = "db-surreal-mem", feature = "server"))]
+#![cfg(all(feature = "db", feature = "server"))]
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,

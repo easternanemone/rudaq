@@ -153,7 +153,7 @@ fn test_golden_startup_runtime_mode_universal() {
 /// Golden test: daemon starts in default hybrid-db mode when no flags provided,
 /// using SurrealDB in-memory engine.
 #[test]
-#[cfg(feature = "db-surreal-mem")]
+#[cfg(feature = "db")]
 fn test_golden_default_runtime_hybrid_db_startup_shutdown() {
     let binary = daemon_binary_path();
     require_binary!(binary);
@@ -197,7 +197,7 @@ fn test_golden_default_runtime_hybrid_db_startup_shutdown() {
 /// Golden test: daemon in default hybrid-db mode registers devices from the
 /// default universal profile.
 #[test]
-#[cfg(feature = "db-surreal-mem")]
+#[cfg(feature = "db")]
 fn test_golden_default_runtime_registers_devices() {
     let binary = daemon_binary_path();
     require_binary!(binary);

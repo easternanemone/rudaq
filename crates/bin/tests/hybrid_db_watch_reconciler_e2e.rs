@@ -1,4 +1,4 @@
-#![cfg(feature = "db-surreal-mem")]
+#![cfg(feature = "db")]
 #![allow(unsafe_code)]
 //! Daemon subprocess + gRPC E2E for SurrealDB watch reconciler (bd-zyc8).
 //!
@@ -87,7 +87,7 @@ fn dump_daemon_output(child: &mut Child, label: &str) {
 }
 
 #[tokio::test]
-#[cfg(feature = "db-surreal-mem")]
+#[cfg(feature = "db")]
 async fn test_watch_reconciler_adds_removes_and_restarts_devices() {
     let binary = daemon_binary_path();
     require_binary!(binary);

@@ -9,7 +9,7 @@
 //! - Feature cleanup on device removal
 //!
 //! Run with: cargo nextest run -p integration-tests --features db-surreal-mem --test andor_dynamic_features
-#![cfg(feature = "db-surreal-mem")]
+#![cfg(feature = "db")]
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
