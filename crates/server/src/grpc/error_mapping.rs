@@ -427,7 +427,10 @@ fn map_storage_error_to_status(storage_err: &StorageError) -> Status {
 /// Extension trait for converting `Result<T, DaqError>` to `Result<T, Status>`.
 pub trait DaqResultExt<T> {
     /// Convert a `DaqError` result to a tonic `Status` result.
-    #[allow(clippy::result_large_err)] // tonic::Status (176 bytes) is the standard gRPC error type
+    #[expect(
+        clippy::result_large_err,
+        reason = "tonic::Status (176 bytes) is the standard gRPC error type"
+    )]
     fn map_daq_err(self) -> Result<T, Status>;
 }
 
@@ -443,7 +446,10 @@ impl<T> DaqResultExt<T> for Result<T, DaqError> {
 /// before falling back to an opaque `Code::Internal` status.
 pub trait AnyhowResultExt<T> {
     /// Convert an anyhow result to a tonic `Status` result via downcast chain.
-    #[allow(clippy::result_large_err)]
+    #[expect(
+        clippy::result_large_err,
+        reason = "tonic::Status is the standard gRPC error type (176 bytes)"
+    )]
     fn map_anyhow_err(self) -> Result<T, Status>;
 }
 

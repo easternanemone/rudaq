@@ -563,11 +563,15 @@ impl ModuleService for ModuleServiceImpl {
             .map(|instance| {
                 let assignments = instance.get_assignments();
                 let type_info = registry.get_type_info(instance.type_id());
-                #[allow(clippy::cast_possible_truncation)]
-                // SAFETY: value is bounded and fits in target type
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "collection length fits in protobuf u32 field"
+                )]
                 let required_total = type_info.map(|i| i.required_roles.len()).unwrap_or(0) as u32;
-                #[allow(clippy::cast_possible_truncation)]
-                // SAFETY: value is bounded and fits in target type
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "collection length fits in protobuf u32 field"
+                )]
                 let required_filled = type_info
                     .map(|info| {
                         info.required_roles
@@ -578,8 +582,10 @@ impl ModuleService for ModuleServiceImpl {
                     .unwrap_or(0) as u32;
 
                 let uptime_ns = instance.start_time_ns.map(|start| {
-                    #[allow(clippy::cast_possible_truncation)]
-                    // SAFETY: value is bounded and fits in target type
+                    #[expect(
+                        clippy::cast_possible_truncation,
+                        reason = "Unix epoch nanos will not exceed u64::MAX until year 2554"
+                    )]
                     let now = SystemTime::now()
                         .duration_since(UNIX_EPOCH)
                         .unwrap_or_default()
@@ -630,11 +636,15 @@ impl ModuleService for ModuleServiceImpl {
 
         let assignments = instance.get_assignments();
         let type_info = registry.get_type_info(instance.type_id());
-        #[allow(clippy::cast_possible_truncation)]
-        // SAFETY: value is bounded and fits in target type
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "collection length fits in protobuf u32 field"
+        )]
         let required_total = type_info.map(|i| i.required_roles.len()).unwrap_or(0) as u32;
-        #[allow(clippy::cast_possible_truncation)]
-        // SAFETY: value is bounded and fits in target type
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "collection length fits in protobuf u32 field"
+        )]
         let required_filled = type_info
             .map(|info| {
                 info.required_roles
@@ -645,8 +655,10 @@ impl ModuleService for ModuleServiceImpl {
             .unwrap_or(0) as u32;
 
         let uptime_ns = instance.start_time_ns.map(|start| {
-            #[allow(clippy::cast_possible_truncation)]
-            // SAFETY: value is bounded and fits in target type
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "Unix epoch nanos will not exceed u64::MAX until year 2554"
+            )]
             let now = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap_or_default()

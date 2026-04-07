@@ -312,8 +312,10 @@ impl StorageServiceImpl {
                     .map(|s| s.to_string_lossy().to_string())
                     .unwrap_or_default();
 
-                #[allow(clippy::cast_possible_truncation)]
-                // SAFETY: value is bounded and fits in target type
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "Unix epoch nanos will not exceed u64::MAX until year 2554"
+                )]
                 let created_at_ns = metadata
                     .created()
                     .ok()
@@ -472,8 +474,10 @@ impl StorageService for StorageServiceImpl {
         let output_path = validated_path;
 
         let recording_id = Uuid::new_v4().to_string();
-        #[allow(clippy::cast_possible_truncation)]
-        // SAFETY: value is bounded and fits in target type
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "Unix epoch nanos will not exceed u64::MAX until year 2554"
+        )]
         let start_time_ns = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
@@ -605,8 +609,10 @@ impl StorageService for StorageServiceImpl {
         *session.state.write().await = RecordingState::RecordingFinalizing;
 
         // Calculate duration
-        #[allow(clippy::cast_possible_truncation)]
-        // SAFETY: value is bounded and fits in target type
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "Unix epoch nanos will not exceed u64::MAX until year 2554"
+        )]
         let end_time_ns = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
@@ -704,8 +710,10 @@ impl StorageService for StorageServiceImpl {
                     }));
                 }
 
-                #[allow(clippy::cast_possible_truncation)]
-                // SAFETY: value is bounded and fits in target type
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "Unix epoch nanos will not exceed u64::MAX until year 2554"
+                )]
                 let now_ns = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .unwrap_or_default()
@@ -787,8 +795,10 @@ impl StorageService for StorageServiceImpl {
         // Sort by creation time, newest first
         results.sort_by(|a, b| b.created_at_ns.cmp(&a.created_at_ns));
 
-        #[allow(clippy::cast_possible_truncation)]
-        // SAFETY: value is bounded and fits in target type
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "collection length fits in protobuf u32 field"
+        )]
         let total_count = results.len() as u32;
 
         let summaries: Vec<AcquisitionSummary> = results
@@ -972,8 +982,10 @@ impl StorageService for StorageServiceImpl {
                 let recording = current_recording.read().await;
                 match &*recording {
                     Some(session) if session.id == scan_id => {
-                        #[allow(clippy::cast_possible_truncation)]
-                        // SAFETY: value is bounded and fits in target type
+                        #[expect(
+                            clippy::cast_possible_truncation,
+                            reason = "Unix epoch nanos will not exceed u64::MAX until year 2554"
+                        )]
                         let now_ns = SystemTime::now()
                             .duration_since(UNIX_EPOCH)
                             .unwrap_or_default()
@@ -983,11 +995,15 @@ impl StorageService for StorageServiceImpl {
                         let samples = session.samples_recorded.load(Ordering::SeqCst);
                         let bytes = session.bytes_written.load(Ordering::SeqCst);
                         let elapsed_ns = now_ns - session.start_time_ns;
-                        #[allow(clippy::cast_precision_loss)]
-                        // SAFETY: precision loss acceptable for metrics/display
+                        #[expect(
+                            clippy::cast_precision_loss,
+                            reason = "precision loss acceptable for metrics/display"
+                        )]
                         let elapsed_secs = elapsed_ns as f64 / 1_000_000_000.0;
-                        #[allow(clippy::cast_precision_loss)]
-                        // SAFETY: precision loss acceptable for metrics/display
+                        #[expect(
+                            clippy::cast_precision_loss,
+                            reason = "precision loss acceptable for metrics/display"
+                        )]
                         let samples_per_sec = if elapsed_secs > 0.0 {
                             samples as f64 / elapsed_secs
                         } else {
@@ -1067,10 +1083,10 @@ impl StorageService for StorageServiceImpl {
         }))
     }
 
-    #[allow(clippy::cast_possible_truncation)]
-    // SAFETY: value is bounded and fits in target type
-    #[allow(clippy::cast_possible_truncation)]
-    // SAFETY: value is bounded and fits in target type
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "tap status counters and buffer sizes fit in protobuf u32/u64 fields"
+    )]
     async fn get_tap_status(
         &self,
         request: Request<GetTapStatusRequest>,
@@ -1091,8 +1107,10 @@ impl StorageService for StorageServiceImpl {
             ring_buffer.tap_health()
         };
 
-        #[allow(clippy::cast_possible_truncation)]
-        // SAFETY: value is bounded and fits in target type
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "value fits in protobuf u32 field"
+        )]
         let taps = taps
             .into_iter()
             .map(|tap| TapStatus {

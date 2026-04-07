@@ -128,7 +128,10 @@ fn build_cors_layer(settings: &GrpcSettings) -> Result<CorsLayer, Box<dyn std::e
     Ok(cors)
 }
 
-#[allow(clippy::result_large_err)] // tonic::Status (176 bytes) is the standard gRPC error type
+#[expect(
+    clippy::result_large_err,
+    reason = "tonic::Status (176 bytes) is the standard gRPC error type"
+)]
 fn validate_auth(settings: &GrpcSettings, request: &Request<()>) -> Result<(), Status> {
     if !settings.auth_enabled {
         return Ok(());
@@ -635,8 +638,10 @@ fn metadata_f64_list(
 fn encode_measurement_frame(measurement: &Measurement) -> Result<Vec<u8>, bincode::Error> {
     let payload = bincode::serialize(measurement)?;
     let mut frame = Vec::with_capacity(4 + payload.len());
-    #[allow(clippy::cast_possible_truncation)]
-    // SAFETY: serialized measurement payload is well under u32::MAX bytes
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "serialized measurement payload is well under u32::MAX bytes"
+    )]
     let payload_len = payload.len() as u32;
     frame.extend_from_slice(&payload_len.to_le_bytes());
     frame.extend_from_slice(&payload);
@@ -837,7 +842,10 @@ impl Default for DaqServer {
 #[tonic::async_trait]
 impl ControlService for DaqServer {
     /// Upload and validate a script
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "script content size fits in protobuf u32 field"
+    )]
     async fn upload_script(
         &self,
         request: Request<UploadRequest>,
@@ -904,8 +912,10 @@ impl ControlService for DaqServer {
     }
 
     /// Start execution of an uploaded script
-    #[allow(clippy::cast_possible_truncation)]
-    // SAFETY: value is bounded and fits in target type
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "script execution timestamp nanos fit in protobuf u64 field"
+    )]
     async fn start_script(
         &self,
         request: Request<StartRequest>,
@@ -1067,8 +1077,10 @@ impl ControlService for DaqServer {
         let mut executions = self.executions.write().await;
         if let Some(exec) = executions.get_mut(&req.execution_id) {
             exec.state = "STOPPED".to_string();
-            #[allow(clippy::cast_possible_truncation)]
-            // SAFETY: Unix epoch nanos will not exceed u64::MAX until year 2554
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "Unix epoch nanos will not exceed u64::MAX until year 2554"
+            )]
             let end_ns = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap_or_default()
@@ -1148,8 +1160,10 @@ impl ControlService for DaqServer {
 
                 // Get memory usage in KB, convert to MB
                 let used_memory_kb = sys.used_memory();
-                #[allow(clippy::cast_precision_loss)]
-                // SAFETY: precision loss acceptable for metrics/display
+                #[expect(
+                    clippy::cast_precision_loss,
+                    reason = "precision loss acceptable for metrics/display"
+                )]
                 let used_memory_mb = used_memory_kb as f64 / 1024.0;
 
                 // Determine engine state based on CPU activity
@@ -1160,8 +1174,10 @@ impl ControlService for DaqServer {
                     "IDLE".to_string()
                 };
 
-                #[allow(clippy::cast_possible_truncation)]
-                // SAFETY: value is bounded and fits in target type
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "Unix epoch nanos will not exceed u64::MAX until year 2554"
+                )]
                 let status = SystemStatus {
                     current_state,
                     current_memory_usage_mb: used_memory_mb,
@@ -1252,8 +1268,10 @@ impl ControlService for DaqServer {
                         timestamp,
                         ..
                     } => {
-                        #[allow(clippy::cast_sign_loss)]
-                        // SAFETY: value is non-negative at this point
+                        #[expect(
+                            clippy::cast_sign_loss,
+                            reason = "value is non-negative at this point"
+                        )]
                         let ts_ns = timestamp.timestamp_nanos_opt().unwrap_or(0) as u64;
                         (name.clone(), *value, ts_ns)
                     }
@@ -1263,11 +1281,15 @@ impl ControlService for DaqServer {
                         timestamp,
                         ..
                     } => {
-                        #[allow(clippy::cast_sign_loss)]
-                        // SAFETY: timestamp nanos are non-negative
+                        #[expect(
+                            clippy::cast_sign_loss,
+                            reason = "timestamp nanos are non-negative"
+                        )]
                         let ts_ns = timestamp.timestamp_nanos_opt().unwrap_or(0) as u64;
-                        #[allow(clippy::cast_precision_loss)]
-                        // SAFETY: precision loss acceptable for metrics/display
+                        #[expect(
+                            clippy::cast_precision_loss,
+                            reason = "precision loss acceptable for metrics/display"
+                        )]
                         let len_f64 = values.len() as f64;
                         // For vectors, we can emit the length or first value
                         (format!("{name}_len"), len_f64, ts_ns)
@@ -1279,8 +1301,10 @@ impl ControlService for DaqServer {
                         timestamp,
                         ..
                     } => {
-                        #[allow(clippy::cast_sign_loss)]
-                        // SAFETY: timestamp nanos are non-negative
+                        #[expect(
+                            clippy::cast_sign_loss,
+                            reason = "timestamp nanos are non-negative"
+                        )]
                         let ts_ns = timestamp.timestamp_nanos_opt().unwrap_or(0) as u64;
                         (name.clone(), f64::from(width * height), ts_ns)
                     }
@@ -1290,11 +1314,15 @@ impl ControlService for DaqServer {
                         timestamp,
                         ..
                     } => {
-                        #[allow(clippy::cast_sign_loss)]
-                        // SAFETY: timestamp nanos are non-negative
+                        #[expect(
+                            clippy::cast_sign_loss,
+                            reason = "timestamp nanos are non-negative"
+                        )]
                         let ts_ns = timestamp.timestamp_nanos_opt().unwrap_or(0) as u64;
-                        #[allow(clippy::cast_precision_loss)]
-                        // SAFETY: precision loss acceptable for metrics/display
+                        #[expect(
+                            clippy::cast_precision_loss,
+                            reason = "precision loss acceptable for metrics/display"
+                        )]
                         let len_f64 = amplitudes.len() as f64;
                         (format!("{name}_spectrum"), len_f64, ts_ns)
                     }
@@ -1399,8 +1427,7 @@ impl ControlService for DaqServer {
                     limiter.tick().await;
                 }
 
-                #[allow(clippy::cast_sign_loss)]
-                // SAFETY: value is non-negative at this point
+                #[expect(clippy::cast_sign_loss, reason = "value is non-negative at this point")]
                 let timestamp_ns = timestamp.timestamp_nanos_opt().unwrap_or(0) as u64;
                 let proto_spectrum = spectrum_payload_from_parts(
                     name,
@@ -1493,12 +1520,18 @@ impl ControlService for DaqServer {
     }
 
     /// Get daemon version and capabilities
-    #[allow(clippy::vec_init_then_push)] // conditional cfg-gated pushes can't use vec![] macro
+    #[expect(
+        clippy::vec_init_then_push,
+        reason = "conditional cfg-gated pushes can't use vec![] macro"
+    )]
     async fn get_daemon_info(
         &self,
         _request: Request<DaemonInfoRequest>,
     ) -> Result<Response<DaemonInfoResponse>, Status> {
-        #[allow(unused_mut)] // features.push() only compiles under cfg'd features
+        #[expect(
+            unused_mut,
+            reason = "features.push() only compiles under cfg'd features"
+        )]
         let mut features = Vec::new();
 
         #[cfg(feature = "storage_hdf5")]
@@ -1687,7 +1720,10 @@ pub async fn start_server_with_hardware(
     use crate::grpc::proto::scan_service_server::ScanServiceServer;
     use crate::grpc::proto::storage_service_server::StorageServiceServer;
     // LEGACY: ScanService import, remove at v1.0. See deprecation-plan.md 1.2.
-    #[allow(deprecated)]
+    #[expect(
+        deprecated,
+        reason = "LEGACY: ScanService kept for backwards compatibility, remove at v1.0"
+    )]
     use crate::grpc::scan_service::ScanServiceImpl;
     use crate::grpc::storage_service::StorageServiceImpl;
 
@@ -1713,8 +1749,10 @@ pub async fn start_server_with_hardware(
     let ring_buffer_path = storage_settings.ring_buffer_path.clone();
     let ring_buffer_size = storage_settings.ring_buffer_size_mb as u64;
 
-    #[allow(clippy::cast_possible_truncation)]
-    // SAFETY: value is bounded and fits in target type
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "ring buffer size in MB fits in usize on 64-bit targets"
+    )]
     let ring_buffer = match tokio::task::spawn_blocking(move || {
         RingBuffer::create(&ring_buffer_path, ring_buffer_size as usize)
     })
@@ -2108,7 +2146,10 @@ pub async fn start_server_with_hardware(
 
     // LEGACY: ScanService wiring, deprecated in favor of RunEngineService.
     // Remove at v1.0. See docs/reference/deprecation-plan.md Section 1.2.
-    #[allow(deprecated)]
+    #[expect(
+        deprecated,
+        reason = "LEGACY: ScanService kept for backwards compatibility, remove at v1.0"
+    )]
     let scan_server = if let Some(rb) = ring_buffer.clone() {
         ScanServiceImpl::new(registry.clone()).with_ring_buffer(rb)
     } else {

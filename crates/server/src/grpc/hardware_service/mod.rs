@@ -486,8 +486,10 @@ impl HardwareService for HardwareServiceImpl {
     // =========================================================================
 
     #[instrument(skip(self, request), fields(method = "read_value"))]
-    #[allow(clippy::cast_possible_truncation)]
-    // SAFETY: value is bounded and fits in target type
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "hardware readback values fit in protobuf numeric fields"
+    )]
     async fn read_value(
         &self,
         request: Request<ReadValueRequest>,
@@ -863,7 +865,7 @@ mod tests {
             "Device should have 'movable' in capabilities list"
         );
         // Deprecated: is_movable boolean flag - kept for backwards compatibility
-        #[allow(deprecated)]
+        #[expect(deprecated, reason = "deprecated API used for backwards compatibility")]
         let _ = devices[0].is_movable; // Accessing triggers deprecation warning at compile time
     }
 
@@ -974,8 +976,10 @@ mod tests {
         let registry = create_mock_registry().await.unwrap();
         let service = HardwareServiceImpl::new(Arc::new(registry));
 
-        #[allow(clippy::cast_possible_truncation)]
-        // SAFETY: value is bounded and fits in target type
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "Unix epoch nanos will not exceed u64::MAX until year 2554"
+        )]
         let before = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -987,8 +991,10 @@ mod tests {
         let response = service.read_value(request).await.unwrap();
         let resp = response.into_inner();
 
-        #[allow(clippy::cast_possible_truncation)]
-        // SAFETY: value is bounded and fits in target type
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "Unix epoch nanos will not exceed u64::MAX until year 2554"
+        )]
         let after = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()

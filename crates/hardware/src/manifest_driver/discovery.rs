@@ -351,8 +351,10 @@ impl PluginScanner {
         let mut errors = Vec::new();
 
         for (priority, path) in self.search_paths.iter().enumerate() {
-            #[allow(clippy::cast_possible_truncation)]
-            // SAFETY: number of search paths is small; fits in u32
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "number of search paths is small; fits in u32"
+            )]
             let (found, errs) = self.scan_directory(path, priority as u32);
             plugins.extend(found);
             errors.extend(errs);

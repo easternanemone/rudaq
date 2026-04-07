@@ -577,8 +577,11 @@ async fn vcs_acquisition_task(
 
     // Frame interval estimate based on exposure time
     // In a real PSM system, this would be driven by the camera's line clock
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    // SAFETY: exposure_time_us is clamped to [1.0, 1_000_000.0] and floored to >= 1000.0
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "exposure_time_us is clamped to [1.0, 1_000_000.0] and floored to >= 1000.0"
+    )]
     let frame_interval = Duration::from_micros(config.exposure_time_us.max(1000.0) as u64);
     let mut ticker = tokio::time::interval(frame_interval);
 
@@ -615,7 +618,10 @@ async fn vcs_acquisition_task(
 
         // Sawtooth galvo position: in continuous mode, wraps every ROWS_PER_SCAN
         // frames (one full sensor sweep). In finite mode, maps to [0, 1].
-        #[allow(clippy::cast_precision_loss)]
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "precision loss acceptable for display metrics"
+        )]
         let progress = if target_count == u64::MAX {
             (count % ROWS_PER_SCAN) as f64 / ROWS_PER_SCAN as f64
         } else {
@@ -630,7 +636,10 @@ async fn vcs_acquisition_task(
 
         // Reuse preallocated HashMap
         frame_values.clear();
-        #[allow(clippy::cast_precision_loss)]
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "precision loss acceptable for display metrics"
+        )]
         {
             frame_values.insert(frame_number_key.clone(), count as f64);
             frame_values.insert(galvo_pos_key.clone(), galvo_pos);
@@ -641,7 +650,10 @@ async fn vcs_acquisition_task(
         if count.is_multiple_of(100) {
             let elapsed = start_time.elapsed().as_secs_f64();
             let mut metrics = HashMap::with_capacity(4);
-            #[allow(clippy::cast_precision_loss)]
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "precision loss acceptable for display metrics"
+            )]
             {
                 metrics.insert("frames_acquired".to_string(), count as f64);
                 metrics.insert("avg_frame_rate_hz".to_string(), count as f64 / elapsed);

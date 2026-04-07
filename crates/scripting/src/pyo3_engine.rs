@@ -112,7 +112,7 @@ impl PyO3Engine {
     }
 
     /// Convert a ScriptValue to a Python object
-    #[allow(deprecated)]
+    #[expect(deprecated, reason = "deprecated API used for backwards compatibility")]
     fn script_value_to_py(value: ScriptValue, py: Python) -> PyResult<Py<PyAny>> {
         // Try to downcast to common types
         if let Some(s) = value.downcast_ref::<String>() {

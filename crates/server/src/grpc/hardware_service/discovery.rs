@@ -201,8 +201,11 @@ pub(super) fn subscribe_device_state(
     }
 
     // Rate limiting interval
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    // SAFETY: value is validated/bounded before cast
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "value is validated/bounded before cast"
+    )]
     let interval_ms = if req.max_rate_hz > 0 {
         (1000.0 / (f64::from(req.max_rate_hz))).max(10.0) as u64
     } else {
@@ -268,7 +271,10 @@ pub(super) fn subscribe_device_state(
     Ok(Response::new(ReceiverStream::new(rx)))
 }
 
-#[allow(clippy::unused_async)] // async required when db-surreal feature is enabled
+#[expect(
+    clippy::unused_async,
+    reason = "async required when db-surreal feature is enabled"
+)]
 pub(super) async fn get_device_features(
     svc: &HardwareServiceImpl,
     request: Request<GetDeviceFeaturesRequest>,

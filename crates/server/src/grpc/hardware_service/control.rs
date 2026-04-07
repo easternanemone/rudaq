@@ -48,8 +48,10 @@ pub(super) async fn trigger(
         "not found or not triggerable"
     );
 
-    #[allow(clippy::cast_possible_truncation)]
-    // SAFETY: value is bounded and fits in target type
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "Unix epoch nanos will not exceed u64::MAX until year 2554"
+    )]
     let timestamp_ns = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -676,8 +678,7 @@ pub(super) async fn stream_frames(
 
                             // Log compression stats periodically
                             if frames_sent > 10 && frames_sent.is_multiple_of(30) {
-                                #[allow(clippy::cast_precision_loss)]
-                                // SAFETY: precision loss acceptable for metrics/display
+                                #[expect(clippy::cast_precision_loss, reason = "precision loss acceptable for metrics/display")]
                                 let ratio = if compressed_size > 0 {
                                     uncompressed_size as f64 / compressed_size as f64
                                 } else {
@@ -802,20 +803,17 @@ pub(super) async fn stream_frames(
                                     break;
                                 }
                             }
-                            #[allow(clippy::cast_precision_loss)]
-                            // SAFETY: precision loss acceptable for metrics/display
+                            #[expect(clippy::cast_precision_loss, reason = "precision loss acceptable for metrics/display")]
                             let current_fps = fps_window.len() as f64;
 
                             // Update latency tracking
                             if packet.timestamp_ns > 0 {
-                                #[allow(clippy::cast_precision_loss)]
-                                // SAFETY: precision loss acceptable for metrics/display
+                                #[expect(clippy::cast_precision_loss, reason = "precision loss acceptable for metrics/display")]
                                 let latency_ms =
                                     now_ns().saturating_sub(packet.timestamp_ns) as f64
                                         / 1_000_000.0;
                                 latency_samples = latency_samples.saturating_add(1);
-                                #[allow(clippy::cast_precision_loss)]
-                                // SAFETY: precision loss acceptable for running average
+                                #[expect(clippy::cast_precision_loss, reason = "precision loss acceptable for running average")]
                                 let samples_f64 = latency_samples as f64;
                                 avg_latency_ms += (latency_ms - avg_latency_ms) / samples_f64;
                             }

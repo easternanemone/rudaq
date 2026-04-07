@@ -94,7 +94,10 @@ fn db_instrument_to_proto(inst: &DbInstrument) -> InstrumentConfig {
     }
 }
 
-#[allow(clippy::result_large_err)] // tonic::Status is the standard gRPC error type
+#[expect(
+    clippy::result_large_err,
+    reason = "tonic::Status is the standard gRPC error type"
+)]
 fn proto_to_db_instrument(proto: &InstrumentConfig) -> Result<DbInstrument, Status> {
     let config: serde_json::Value = if proto.config_json.is_empty() {
         serde_json::json!({})
@@ -240,8 +243,10 @@ impl ConfigService for ConfigServiceImpl {
     }
 
     #[instrument(skip(self, req))]
-    #[allow(clippy::cast_possible_truncation)]
-    // SAFETY: value is bounded and fits in target type
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "config import device counts and timestamps fit in protobuf fields"
+    )]
     async fn import_config(
         &self,
         req: Request<ImportConfigRequest>,
@@ -265,8 +270,10 @@ impl ConfigService for ConfigServiceImpl {
             })
             .collect();
 
-        #[allow(clippy::cast_possible_truncation)]
-        // SAFETY: value is bounded and fits in target type
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "collection length fits in protobuf u32 field"
+        )]
         let drivers = self.drivers_from_config(&hw_config).await?;
 
         let driver_count = self
@@ -352,8 +359,10 @@ impl ConfigService for ConfigServiceImpl {
         tokio_stream::wrappers::ReceiverStream<Result<ConfigChangeEvent, Status>>;
 
     #[instrument(skip(self, _req))]
-    #[allow(clippy::cast_possible_truncation)]
-    // SAFETY: value is bounded and fits in target type
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "config change event timestamps fit in protobuf u64 fields"
+    )]
     async fn subscribe_config_changes(
         &self,
         _req: Request<SubscribeConfigRequest>,

@@ -146,8 +146,10 @@ impl PluginFactory {
         // Clone paths to avoid borrow conflict with scan_directory(&mut self)
         let paths: Vec<_> = self.search_paths.iter().cloned().enumerate().collect();
         for (priority, path) in paths {
-            #[allow(clippy::cast_possible_truncation)]
-            // SAFETY: number of search paths is small; fits in u32
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "number of search paths is small; fits in u32"
+            )]
             let path_errors = self.scan_directory(&path, priority as u32).await;
             errors.extend(path_errors);
         }

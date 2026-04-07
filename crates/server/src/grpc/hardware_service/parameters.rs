@@ -122,8 +122,10 @@ pub(super) async fn get_parameter(
                 map_hardware_error_to_status(&format!("Failed to get parameter: {e}"))
             })?;
             let units = param.metadata().units.unwrap_or_default();
-            #[allow(clippy::cast_possible_truncation)]
-            // SAFETY: value is bounded and fits in target type
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "Unix epoch nanos will not exceed u64::MAX until year 2554"
+            )]
             let timestamp_ns = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .map(|d| d.as_nanos() as u64)
@@ -155,8 +157,10 @@ pub(super) async fn get_parameter(
             .unwrap_or_default();
 
         // Get timestamp
-        #[allow(clippy::cast_possible_truncation)]
-        // SAFETY: value is bounded and fits in target type
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "Unix epoch nanos will not exceed u64::MAX until year 2554"
+        )]
         let timestamp_ns = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_nanos() as u64)
@@ -470,7 +474,10 @@ pub(super) fn stream_observables(
                 if (current_value - *last_value).abs() > deadband
                     && last_sent.elapsed() >= sample_interval
                 {
-                    #[allow(clippy::cast_possible_truncation)]
+                    #[expect(
+                        clippy::cast_possible_truncation,
+                        reason = "Unix epoch nanos will not exceed u64::MAX until year 2554"
+                    )]
                     let msg = ObservableValue {
                         device_id: device_id.clone(),
                         observable_name: obs_name.clone(),
@@ -563,8 +570,14 @@ fn snapshot_to_proto(snapshot: SystemStateSnapshot) -> ProtoSystemState {
 }
 
 /// Set or clear the favorite flag for a parameter (bd-4wf7).
-#[allow(unused_variables)] // svc and req only used with db-surreal feature
-#[allow(clippy::unused_async)] // conditionally async: .await used only with db-surreal feature
+#[expect(
+    unused_variables,
+    reason = "svc and req only used with db-surreal feature"
+)]
+#[expect(
+    clippy::unused_async,
+    reason = "conditionally async: .await used only with db-surreal feature"
+)]
 pub(super) async fn set_parameter_favorite(
     svc: &HardwareServiceImpl,
     request: Request<SetParameterFavoriteRequest>,
@@ -588,8 +601,14 @@ pub(super) async fn set_parameter_favorite(
 }
 
 /// Get all favorited parameter names for a device (bd-4wf7).
-#[allow(unused_variables)] // svc and req only used with db-surreal feature
-#[allow(clippy::unused_async)] // conditionally async: .await used only with db-surreal feature
+#[expect(
+    unused_variables,
+    reason = "svc and req only used with db-surreal feature"
+)]
+#[expect(
+    clippy::unused_async,
+    reason = "conditionally async: .await used only with db-surreal feature"
+)]
 pub(super) async fn get_parameter_favorites(
     svc: &HardwareServiceImpl,
     request: Request<GetParameterFavoritesRequest>,

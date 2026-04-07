@@ -27,7 +27,10 @@ use crate::plans::PlanCommand;
 impl RunEngine {
     /// Execute a single plan
     #[tracing::instrument(skip(self, queued), fields(run_uid = %queued.run_uid, plan_type = %queued.plan.plan_type()), err)]
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "plan event sequence numbers and point counts fit in u32 protobuf fields"
+    )]
     pub(crate) async fn execute_plan(&self, mut queued: QueuedPlan) -> anyhow::Result<()> {
         let plan = &mut queued.plan;
 
@@ -93,8 +96,7 @@ impl RunEngine {
         for det in plan.detectors() {
             if let Some(producer) = self.device_registry.get_frame_producer(&det) {
                 let (w, h) = producer.resolution();
-                #[allow(clippy::cast_possible_wrap)]
-                // SAFETY: value fits in target type range
+                #[expect(clippy::cast_possible_wrap, reason = "value fits in target type range")]
                 let mut key = DataKey::array(&det, vec![h as i32, w as i32]);
                 key.dtype = "uint16".to_string();
                 descriptor.data_keys.insert(det.clone(), key);
@@ -116,8 +118,10 @@ impl RunEngine {
         // Initialize run context
         {
             let mut ctx = self.run_context.lock().await;
-            #[allow(clippy::cast_possible_truncation)]
-            // SAFETY: Unix epoch nanos will not exceed u64::MAX until year 2554
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "Unix epoch nanos will not exceed u64::MAX until year 2554"
+            )]
             let start_ns = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_nanos() as u64)

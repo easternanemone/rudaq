@@ -309,8 +309,10 @@ pub(super) fn stream_position(
                 let is_moving = (position - last_position).abs() > 0.0001;
                 last_position = position;
 
-                #[allow(clippy::cast_possible_truncation)]
-                // SAFETY: value is bounded and fits in target type
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "Unix epoch nanos will not exceed u64::MAX until year 2554"
+                )]
                 let update = PositionUpdate {
                     device_id: device_id.clone(),
                     position,
@@ -335,8 +337,10 @@ pub(super) fn stream_position(
     )))
 }
 
-#[allow(clippy::cast_possible_truncation)]
-// SAFETY: value is bounded and fits in target type
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "hardware readback values fit in protobuf numeric fields"
+)]
 pub(super) async fn read_value(
     svc: &HardwareServiceImpl,
     request: Request<ReadValueRequest>,
@@ -419,8 +423,10 @@ pub(super) fn stream_values(
                 match readable.read().await {
                     Ok(value) => {
                         registry.report_device_success(&device_id);
-                        #[allow(clippy::cast_possible_truncation)]
-                        // SAFETY: value is bounded and fits in target type
+                        #[expect(
+                            clippy::cast_possible_truncation,
+                            reason = "Unix epoch nanos will not exceed u64::MAX until year 2554"
+                        )]
                         let update = ValueUpdate {
                             device_id: device_id.clone(),
                             value,

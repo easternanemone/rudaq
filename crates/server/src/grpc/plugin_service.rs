@@ -584,8 +584,10 @@ impl PluginService for PluginServiceImpl {
             .get(&instance_id)
             .ok_or_else(|| Status::not_found(format!("Instance '{instance_id}' not found")))?;
 
-        #[allow(clippy::cast_possible_truncation)]
-        // SAFETY: value is bounded and fits in target type
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "Unix epoch nanos will not exceed u64::MAX until year 2554"
+        )]
         let now_ns = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()

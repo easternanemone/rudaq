@@ -268,14 +268,18 @@ impl LineScan {
         self
     }
 
-    #[allow(clippy::cast_precision_loss)]
-    // SAFETY: precision loss acceptable for metrics/display
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "scan point counts and indices are small; usize-to-f64 is lossless in practice"
+    )]
     fn position_at(&self, point: usize) -> f64 {
         if self.num_points <= 1 {
             self.start
         } else {
-            #[allow(clippy::cast_precision_loss)]
-            // SAFETY: precision loss acceptable for metrics/display
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "scan point counts and indices are small; usize-to-f64 is lossless in practice"
+            )]
             let step = (self.stop - self.start) / (self.num_points - 1) as f64;
             self.start + step * point as f64
         }
@@ -435,7 +439,10 @@ enum GridScanStep {
 }
 
 impl GridScan {
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "scan execution requires these distinct coordination handles"
+    )]
     pub fn new(
         axis_outer: &str,
         outer_start: f64,
@@ -483,27 +490,35 @@ impl GridScan {
         self
     }
 
-    #[allow(clippy::cast_precision_loss)]
-    // SAFETY: precision loss acceptable for metrics/display
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "scan point counts and indices are small; usize-to-f64 is lossless in practice"
+    )]
     fn outer_position(&self, idx: usize) -> f64 {
         if self.outer_points <= 1 {
             self.outer_start
         } else {
-            #[allow(clippy::cast_precision_loss)]
-            // SAFETY: precision loss acceptable for metrics/display
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "scan point counts and indices are small; usize-to-f64 is lossless in practice"
+            )]
             let step = (self.outer_stop - self.outer_start) / (self.outer_points - 1) as f64;
             self.outer_start + step * idx as f64
         }
     }
 
-    #[allow(clippy::cast_precision_loss)]
-    // SAFETY: precision loss acceptable for metrics/display
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "scan point counts and indices are small; usize-to-f64 is lossless in practice"
+    )]
     fn inner_position(&self, idx: usize) -> f64 {
         if self.inner_points <= 1 {
             self.inner_start
         } else {
-            #[allow(clippy::cast_precision_loss)]
-            // SAFETY: precision loss acceptable for metrics/display
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "scan point counts and indices are small; usize-to-f64 is lossless in practice"
+            )]
             let step = (self.inner_stop - self.inner_start) / (self.inner_points - 1) as f64;
             self.inner_start + step * idx as f64
         }
@@ -545,10 +560,11 @@ impl Plan for GridScan {
         self.outer_points * self.inner_points
     }
 
-    #[allow(
+    #[expect(
         clippy::cast_possible_truncation,
         clippy::cast_possible_wrap,
-        clippy::cast_sign_loss
+        clippy::cast_sign_loss,
+        reason = "scan indices and point counts are small bounded values from user config"
     )]
     fn next_command(&mut self) -> Option<PlanCommand> {
         if self.outer_idx >= self.outer_points {
@@ -623,11 +639,17 @@ impl Plan for GridScan {
                 // Advance to next point
                 if self.snake {
                     // Snake pattern: alternate direction on inner axis
-                    #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
-                    // SAFETY: inner_idx and inner_points are bounded scan dimensions, fit in i32
+                    #[expect(
+                        clippy::cast_possible_truncation,
+                        clippy::cast_possible_wrap,
+                        reason = "inner_idx and inner_points are bounded scan dimensions, fit in i32"
+                    )]
                     let next_inner = self.inner_idx as i32 + self.inner_direction;
-                    #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
-                    // SAFETY: inner_points is a bounded scan dimension, fits in i32
+                    #[expect(
+                        clippy::cast_possible_truncation,
+                        clippy::cast_possible_wrap,
+                        reason = "inner_points is a bounded scan dimension, fits in i32"
+                    )]
                     let inner_limit = self.inner_points as i32;
                     if next_inner < 0 || next_inner >= inner_limit {
                         // Move to next outer row
@@ -635,8 +657,10 @@ impl Plan for GridScan {
                         self.inner_direction = -self.inner_direction;
                         self.current_step = GridScanStep::MoveOuter;
                     } else {
-                        #[allow(clippy::cast_sign_loss)]
-                        // SAFETY: next_inner is >= 0 (checked above)
+                        #[expect(
+                            clippy::cast_sign_loss,
+                            reason = "next_inner is >= 0 (checked above)"
+                        )]
                         let idx = next_inner as usize;
                         self.inner_idx = idx;
                         self.current_step = GridScanStep::MoveInner;

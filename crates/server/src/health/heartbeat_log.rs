@@ -135,7 +135,10 @@ pub async fn run_heartbeat_log(
     }
 }
 
-#[allow(clippy::cast_precision_loss)]
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "precision loss acceptable for memory metrics display"
+)]
 async fn collect_entry(
     sys: &mut System,
     disks: &mut Disks,

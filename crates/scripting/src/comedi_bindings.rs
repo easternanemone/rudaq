@@ -193,16 +193,13 @@ pub struct CounterHandle {
 /// - `AnalogOutput` - DAC output
 /// - `DigitalIO` - DIO pin control
 /// - `Counter` - Counter/timer operations
-#[allow(
+#[expect(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
     clippy::cast_precision_loss,
-    clippy::cast_possible_wrap
+    clippy::cast_possible_wrap,
+    reason = "Rhai i64 channel/pin indices are small (<256) and fit in u32; counter precision loss acceptable for scripting"
 )]
-// SAFETY: Rhai uses i64 for all integers. Channel/pin indices are small positive
-// values (typically < 256) and safely fit in u32. Counter u64 values may lose
-// precision when cast to f64 for Measurement or to i64 for Rhai, but this is
-// acceptable for scripting/display purposes.
 pub fn register_comedi_hardware(engine: &mut Engine) {
     // Register custom types
     engine.register_type_with_name::<AnalogInputHandle>("AnalogInput");
@@ -570,8 +567,11 @@ pub mod mock {
     impl AnalogOutput for MockAnalogOutput {
         fn write_voltage(&self, channel: u32, voltage: f64) -> Result<(), String> {
             // Convert -10V..+10V to 0..65535
-            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            // SAFETY: clamp(0.0, 65535.0) guarantees the value is non-negative and fits in u32
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "clamp(0.0, 65535.0) guarantees the value is non-negative and fits in u32"
+            )]
             let raw = (((voltage + 10.0) / 20.0) * 65535.0).clamp(0.0, 65535.0) as u32;
             self.write_raw(channel, raw)
         }

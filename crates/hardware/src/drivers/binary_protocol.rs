@@ -51,10 +51,11 @@ pub struct CrcValue {
 
 /// Calculate CRC for the given data using the specified algorithm.
 #[cfg(feature = "binary_protocol")]
-#[allow(clippy::cast_possible_truncation, clippy::cast_lossless)]
-// SAFETY: CRC values are produced at known widths (8, 16, or 32 bits) and stored in
-// u64 for uniformity. The narrowing casts back to u8/u16/u32 for byte encoding are
-// exact because the value was originally computed at that width.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_lossless,
+    reason = "CRC values are produced at known widths (8/16/32 bits); narrowing casts back to u8/u16/u32 are exact"
+)]
 pub fn calculate_crc(data: &[u8], config: &CrcConfig) -> CrcValue {
     use crc::{CRC_16_IBM_SDLC, CRC_16_MODBUS, CRC_16_XMODEM, CRC_32_ISCSI, CRC_32_ISO_HDLC, Crc};
 
@@ -180,14 +181,12 @@ impl BinaryFrameBuilder {
     }
 
     /// Append a single field to the frame.
-    #[allow(
+    #[expect(
         clippy::cast_possible_truncation,
         clippy::cast_sign_loss,
-        clippy::cast_precision_loss
+        clippy::cast_precision_loss,
+        reason = "binary protocol fields are typed by TOML config; f64 intermediate is narrowed to declared field type"
     )]
-    // SAFETY: Binary protocol fields are typed by the TOML config (u8, i16, u32, etc.).
-    // The f64 intermediate representation is narrowed to match the declared field type.
-    // Values are expected to be within the target type's range per the device protocol spec.
     fn append_field(
         &mut self,
         field: &BinaryFieldConfig,
@@ -292,9 +291,10 @@ impl BinaryFrameBuilder {
     /// - Hex literals: "0x03", "0xFF"
     /// - Parameter references: "${device_address}", "${count}"
     /// - Decimal literals: "123", "45.6"
-    #[allow(clippy::cast_precision_loss)]
-    // SAFETY: Hex literals in protocol configs are small register addresses/values
-    // that fit within f64's 52-bit mantissa without precision loss.
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "hex literals in protocol configs are small register addresses that fit within f64 52-bit mantissa"
+    )]
     fn resolve_value(&self, template: &str, params: &HashMap<String, f64>) -> Result<f64> {
         let template = template.trim();
 
@@ -355,9 +355,10 @@ pub enum ParsedValue {
 
 impl ParsedValue {
     /// Convert to f64 if possible.
-    #[allow(clippy::cast_precision_loss)]
-    // SAFETY: Lossy conversion is inherent to the f64 representation. Callers
-    // accept precision loss for display/calculation purposes.
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "lossy conversion inherent to f64 representation; callers accept precision loss for display"
+    )]
     pub fn as_f64(&self) -> Option<f64> {
         match self {
             ParsedValue::Unsigned(v) => Some(*v as f64),
@@ -368,9 +369,11 @@ impl ParsedValue {
     }
 
     /// Convert to i64 if possible.
-    #[allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
-    // SAFETY: Lossy conversion is inherent. Unsigned values > i64::MAX will wrap;
-    // float values are truncated. Callers accept this for protocol field access.
+    #[expect(
+        clippy::cast_possible_wrap,
+        clippy::cast_possible_truncation,
+        reason = "lossy conversion inherent; unsigned >i64::MAX wraps, floats truncate for protocol field access"
+    )]
     pub fn as_i64(&self) -> Option<i64> {
         match self {
             ParsedValue::Unsigned(v) => Some(*v as i64),
@@ -398,9 +401,10 @@ pub struct BinaryResponseParser;
 
 impl BinaryResponseParser {
     /// Parse a binary response frame using the provided configuration.
-    #[allow(clippy::cast_sign_loss)]
-    // SAFETY: min_length/max_length from config are small positive protocol frame
-    // sizes that fit in usize.
+    #[expect(
+        clippy::cast_sign_loss,
+        reason = "min_length/max_length from config are small positive protocol frame sizes that fit in usize"
+    )]
     #[instrument(skip(data, config), fields(data_len = data.len()), err)]
     pub fn parse(
         data: &[u8],
@@ -459,10 +463,11 @@ impl BinaryResponseParser {
     }
 
     /// Parse a single field from the response.
-    #[allow(clippy::cast_sign_loss, clippy::cast_possible_wrap)]
-    // SAFETY: Length fields from binary protocols are small positive values that
-    // fit in usize. Signed-to-unsigned comparison for expected value validation is
-    // intentional for protocol field matching.
+    #[expect(
+        clippy::cast_sign_loss,
+        clippy::cast_possible_wrap,
+        reason = "length fields from binary protocols are small positive values; signed-to-unsigned comparison intentional for field matching"
+    )]
     fn parse_field(
         data: &[u8],
         field: &BinaryResponseFieldConfig,
@@ -488,7 +493,11 @@ impl BinaryResponseParser {
             let len_value = parsed_so_far
                 .get(len_field)
                 .ok_or_else(|| anyhow!("Length field '{len_field}' not found"))?;
-            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "binary protocol length field is a small positive frame size that fits in usize"
+            )]
             {
                 len_value
                     .as_i64()
@@ -734,7 +743,10 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::float_cmp)]
+    #[expect(
+        clippy::float_cmp,
+        reason = "exact equality intended for protocol round-trip verification"
+    )]
     fn test_resolve_hex_value() {
         let builder = BinaryFrameBuilder::new();
         let params = HashMap::new();
@@ -745,7 +757,10 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::float_cmp)]
+    #[expect(
+        clippy::float_cmp,
+        reason = "exact equality intended for protocol round-trip verification"
+    )]
     fn test_resolve_param_value() {
         let builder = BinaryFrameBuilder::new();
         let mut params = HashMap::new();
@@ -755,7 +770,10 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::float_cmp)]
+    #[expect(
+        clippy::float_cmp,
+        reason = "exact equality intended for protocol round-trip verification"
+    )]
     fn test_resolve_decimal_value() {
         let builder = BinaryFrameBuilder::new();
         let params = HashMap::new();

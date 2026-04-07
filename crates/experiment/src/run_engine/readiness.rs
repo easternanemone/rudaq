@@ -374,8 +374,11 @@ impl ReadinessManager {
 
         let current_grating: u8 = match spectrometer.get_grating().await {
             Ok(grating) => {
-                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-                // Grating indices are small positive integers (1-3 typical)
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    clippy::cast_sign_loss,
+                    reason = "Grating indices are small positive integers (1-3 typical)"
+                )]
                 let g = grating as u8;
                 g
             }

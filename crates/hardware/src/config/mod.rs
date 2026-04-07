@@ -108,7 +108,7 @@ pub mod validation;
 // Re-exports for convenience
 #[cfg(not(target_arch = "wasm32"))]
 pub use loader::{load_all_devices, load_device_config, load_device_config_from_str};
-#[allow(deprecated)]
+#[expect(deprecated, reason = "deprecated API used for backwards compatibility")]
 pub use schema::{
     AddressFormat, BusConfig, BusType, CapabilityType, CommandConfig, CommandParameterType,
     ConnectionConfig, ConnectionType, ControlPanelConfig, ControlSection, ConversionConfig,
@@ -128,7 +128,7 @@ pub use schema::{
 /// let schema_json = daq_hardware::config::generate_json_schema()?;
 /// std::fs::write("config/schemas/device.schema.json", schema_json)?;
 /// ```
-#[allow(deprecated)]
+#[expect(deprecated, reason = "deprecated API used for backwards compatibility")]
 pub fn generate_json_schema() -> Result<String, serde_json::Error> {
     let schema = schemars::schema_for!(DeviceConfig);
     serde_json::to_string_pretty(&schema)

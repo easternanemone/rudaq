@@ -165,7 +165,10 @@ pub struct GenericDriver {
 
     /// Frame observers for secondary frame access (taps).
     /// Stores (observer_id, observer) pairs for dispatching on_frame() calls.
-    #[allow(clippy::type_complexity)]
+    #[expect(
+        clippy::type_complexity,
+        reason = "type alias would obscure the closure signature used at call site"
+    )]
     observers: std::sync::Arc<RwLock<Vec<(u64, Box<dyn crate::capabilities::FrameObserver>)>>>, // Lock #3
 
     /// Monotonic counter for generating unique observer IDs.
@@ -1468,19 +1471,21 @@ impl GenericDriver {
                     }
                 }
             }
-            "gradient" => {
-                #[allow(
+            "gradient" =>
+            {
+                #[expect(
                     clippy::cast_possible_truncation,
                     clippy::cast_precision_loss,
-                    clippy::cast_sign_loss
+                    clippy::cast_sign_loss,
+                    reason = "pixel index bounded by frame dimensions; gradient value bounded by u16 intensity range"
                 )]
-                // SAFETY: pixel index bounded by frame dimensions; gradient value bounded by intensity (u16 range)
                 for y in 0..height {
                     for x in 0..width {
-                        #[allow(
+                        #[expect(
                             clippy::cast_possible_truncation,
                             clippy::cast_precision_loss,
-                            clippy::cast_sign_loss
+                            clippy::cast_sign_loss,
+                            reason = "pixel index bounded by frame dimensions; gradient value bounded by u16 intensity range"
                         )]
                         let idx = (y * width + x) as usize;
                         buffer[idx] = ((x as f32 / width as f32) * f32::from(intensity)) as u16;
@@ -1516,7 +1521,10 @@ impl GenericDriver {
     /// # Returns
     /// * `Ok(())` if registration succeeded
     /// * `Err` if device doesn't support pooled frames
-    #[allow(clippy::unused_async)] // must be async to match FrameProducer trait signature
+    #[expect(
+        clippy::unused_async,
+        reason = "must be async to match FrameProducer trait signature"
+    )]
     pub async fn register_primary_output(
         &self,
         _tx: tokio::sync::mpsc::Sender<crate::capabilities::LoanedFrame>,

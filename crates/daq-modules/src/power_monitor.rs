@@ -115,8 +115,10 @@ impl Statistics {
         self.max = self.values.iter().copied().fold(f64::MIN, |a, b| a.max(b));
     }
 
-    #[allow(clippy::cast_precision_loss)]
-    // SAFETY: precision loss acceptable for metrics/display
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "sample count is small; usize-to-f64 is lossless for statistical aggregation"
+    )]
     fn mean(&self) -> f64 {
         if self.values.is_empty() {
             0.0
@@ -129,8 +131,10 @@ impl Statistics {
         if self.values.len() < 2 {
             0.0
         } else {
-            #[allow(clippy::cast_precision_loss)]
-            // SAFETY: precision loss acceptable for metrics/display
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "sample count is small; usize-to-f64 is lossless for statistical aggregation"
+            )]
             let n = self.values.len() as f64;
             let mean = self.sum / n;
             let variance = (self.sum_sq / n) - (mean * mean);
@@ -138,11 +142,15 @@ impl Statistics {
         }
     }
 
-    #[allow(clippy::cast_precision_loss)]
-    // SAFETY: precision loss acceptable for metrics/display
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "sample count is small; usize-to-f64 is lossless for statistical aggregation"
+    )]
     fn as_hashmap(&self) -> HashMap<String, f64> {
-        #[allow(clippy::cast_precision_loss)]
-        // SAFETY: precision loss acceptable for metrics/display
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "sample count is small; usize-to-f64 is lossless for statistical aggregation"
+        )]
         let mut map = HashMap::new();
         map.insert("mean".to_string(), self.mean());
         map.insert("std".to_string(), self.std());
@@ -344,8 +352,11 @@ impl Module for PowerMonitor {
 
     fn get_config(&self) -> HashMap<String, String> {
         let mut config = HashMap::new();
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        // SAFETY: sample_rate_hz is a positive f64 within u32 range in practice
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "sample_rate_hz is a positive f64 within u32 range in practice"
+        )]
         let rate_u32 = self.config.sample_rate_hz as u32;
         config.insert("sample_rate_hz".to_string(), format!("{rate_u32}"));
         if let Some(low) = self.config.low_threshold {
@@ -445,8 +456,11 @@ async fn power_monitor_task(
     power_meter: Arc<dyn hardware::capabilities::Readable>,
 ) {
     let interval = Duration::from_secs_f64(1.0 / config.sample_rate_hz);
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    // SAFETY: value is validated/bounded before cast
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "sample_rate * window_s product is a small positive f64 that fits in usize"
+    )]
     let window_size = (config.sample_rate_hz * config.averaging_window_s).ceil() as usize;
     let window_size = window_size.max(1);
 

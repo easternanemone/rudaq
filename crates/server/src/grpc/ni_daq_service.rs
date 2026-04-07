@@ -374,7 +374,11 @@ impl NiDaqService for NiDaqServiceImpl {
                     }
                     // Safe: validated finite and non-negative above; bounded by
                     // rate ≤ 100 kHz × duration ≤ u32::MAX ms ≈ 4.3e11, fits usize
-                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                    #[expect(
+                        clippy::cast_possible_truncation,
+                        clippy::cast_sign_loss,
+                        reason = "gRPC u64 field count fits in usize on 64-bit targets"
+                    )]
                     Some(total as usize)
                 }
                 Some(stream_analog_input_request::StopCondition::Continuous(_)) | None => None,
@@ -483,7 +487,10 @@ impl NiDaqService for NiDaqServiceImpl {
     type StreamAnalogInputStream =
         tokio_stream::wrappers::ReceiverStream<Result<AnalogInputData, Status>>;
 
-    #[allow(clippy::collapsible_if)]
+    #[expect(
+        clippy::collapsible_if,
+        reason = "separate conditions improve readability of NI-DAQ channel logic"
+    )]
     #[instrument(skip(self))]
     async fn configure_analog_input(
         &self,
@@ -570,19 +577,27 @@ impl NiDaqService for NiDaqServiceImpl {
             .map(|t| t.sample_rate_hz)
             .unwrap_or(1000.0); // Default 1 kHz if not specified
 
-        #[allow(clippy::cast_precision_loss)]
-        // SAFETY: precision loss acceptable for metrics/display
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "precision loss acceptable for metrics/display"
+        )]
         let n_channels = req.channel_configs.len() as f64;
 
         // Calculate intervals (simplified for Phase 1)
         // Convert interval: time per sample
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        // SAFETY: value is validated/bounded before cast
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "value is validated/bounded before cast"
+        )]
         let convert_interval_ns = ((1.0 / actual_sample_rate_hz) * 1_000_000_000.0) as u32;
 
         // Scan interval: time for all channels in a scan
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        // SAFETY: value is validated/bounded before cast
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "value is validated/bounded before cast"
+        )]
         let scan_interval_ns = (f64::from(convert_interval_ns) * n_channels) as u32;
 
         // Return success with validated configuration
@@ -1055,7 +1070,10 @@ impl NiDaqService for NiDaqServiceImpl {
             let port_json = self
                 .await_with_timeout("ReadDigitalPort", async move { s.get_value("port").await })
                 .await?;
-            #[allow(clippy::cast_possible_truncation)]
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "value bounded by protocol message field range"
+            )]
             let full_port = port_json.as_u64().unwrap_or(0) as u32;
             let value = full_port >> req.base_channel;
 
@@ -1118,7 +1136,10 @@ impl NiDaqService for NiDaqServiceImpl {
                 let current_json = self
                     .await_with_timeout("ReadDigitalPort", async move { s.get_value("port").await })
                     .await?;
-                #[allow(clippy::cast_possible_truncation)]
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "value bounded by protocol message field range"
+                )]
                 let current = current_json.as_u64().unwrap_or(0) as u32;
                 let shifted_mask = mask << base_channel;
                 let shifted_value = value << base_channel;
@@ -1185,7 +1206,11 @@ impl NiDaqService for NiDaqServiceImpl {
                 .await_with_timeout("ReadCounter", async move { readable.read().await })
                 .await?;
             // 24-bit counter values fit exactly in f64; cast is lossless
-            #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+            #[expect(
+                clippy::cast_sign_loss,
+                clippy::cast_possible_truncation,
+                reason = "timestamp nanos are non-negative"
+            )]
             let count = count_f64 as u64;
             let timestamp_ns = now_ns();
 

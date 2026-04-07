@@ -130,7 +130,10 @@ fn extract_numeric_value(value: &serde_json::Value) -> Option<f64> {
     }
 }
 
-#[allow(clippy::result_large_err)] // tonic::Status (176 bytes) is the standard gRPC error type
+#[expect(
+    clippy::result_large_err,
+    reason = "tonic::Status (176 bytes) is the standard gRPC error type"
+)]
 pub(super) fn validate_parameter_value(
     name: &str,
     metadata: Option<&CommonParameterMetadata>,
@@ -299,7 +302,7 @@ pub(super) fn device_info_to_proto_with_health(
                 common::health::DeviceHealth::Healthy,
             ));
 
-    #[allow(deprecated)]
+    #[expect(deprecated, reason = "deprecated API used for backwards compatibility")]
     DeviceInfo {
         id: info.id.clone(),
         name: info.name.clone(),

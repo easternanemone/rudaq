@@ -392,8 +392,10 @@ impl RunEngine {
             module_results,
         };
 
-        #[allow(clippy::cast_precision_loss)]
-        // SAFETY: nanosecond duration fits in f64 with acceptable precision for display
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "nanosecond duration fits in f64 with acceptable precision for display"
+        )]
         let duration_s = (end_time_ns - start_time_ns) as f64 / 1e9;
         info!(
             "Run {} completed: {} events in {:.2}s",

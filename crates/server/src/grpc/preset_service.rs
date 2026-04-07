@@ -498,8 +498,10 @@ impl PresetService for PresetServiceImpl {
 
         // Update timestamps
         let mut preset = preset;
-        #[allow(clippy::cast_possible_truncation)]
-        // SAFETY: value is bounded and fits in target type
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "Unix epoch nanos will not exceed u64::MAX until year 2554"
+        )]
         let now_ns = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
