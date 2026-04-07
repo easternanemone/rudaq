@@ -104,7 +104,10 @@ struct BufferPoolInner {
 }
 
 #[cfg(feature = "metrics")]
-#[allow(clippy::cast_possible_wrap)] // pool sizes are bounded, well within i64::MAX
+#[expect(
+    clippy::cast_possible_wrap,
+    reason = "pool sizes are bounded well within i64::MAX"
+)]
 fn update_metrics(pool: &BufferPoolInner) {
     BUFFER_POOL_AVAILABLE.set(pool.available.load(Ordering::Relaxed) as i64);
     BUFFER_POOL_TOTAL.set(pool.pool_size as i64);
@@ -185,8 +188,10 @@ impl BufferPool {
     ///
     /// Panics if `pool_size` is 0 or `buffer_capacity` is 0.
     #[must_use]
-    #[allow(clippy::cast_precision_loss)]
-    // SAFETY: precision loss acceptable for metrics/display
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "usize to f64 precision loss acceptable for MB display in log messages"
+    )]
     pub fn new(pool_size: usize, buffer_capacity: usize) -> Self {
         assert!(pool_size > 0, "pool_size must be > 0");
         assert!(buffer_capacity > 0, "buffer_capacity must be > 0");
@@ -195,8 +200,6 @@ impl BufferPool {
 
         // Pre-allocate all buffers
         for _ in 0..pool_size {
-            #[allow(clippy::cast_precision_loss)]
-            // SAFETY: precision loss acceptable for metrics/display
             let buffer = vec![0u8; buffer_capacity];
             free_buffers.push(buffer);
         }

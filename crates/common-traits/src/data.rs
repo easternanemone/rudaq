@@ -232,8 +232,10 @@ impl Frame {
     /// Create timestamp from current system time.
     ///
     /// Utility for drivers that don't have hardware timestamps.
-    #[allow(clippy::cast_possible_truncation)]
-    // SAFETY: value is bounded and fits in target type
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "nanos since epoch fits in u64 until year 2554"
+    )]
     pub fn timestamp_now() -> u64 {
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -282,7 +284,10 @@ impl Frame {
         // Vec<u8> is not guaranteed to be u16 aligned, so we rely on `align_to`.
         // Ideally we would use `bytemuck::cast_slice`, but we want to avoid deps if possible.
         // For now, we will perform a check-and-cast.
-        #[allow(unsafe_code)]
+        #[expect(
+            unsafe_code,
+            reason = "align_to required for zero-copy reinterpret of [u8] as [u16]"
+        )]
         let (prefix, mid, suffix) = unsafe { self.data.align_to::<u16>() };
 
         if !prefix.is_empty() || !suffix.is_empty() {
@@ -302,8 +307,11 @@ impl Frame {
     }
 
     /// Calculate mean pixel value.
-    #[allow(clippy::cast_lossless, clippy::cast_precision_loss)]
-    // SAFETY: u8/u16 -> u64 is lossless; precision loss acceptable for mean computation
+    #[expect(
+        clippy::cast_lossless,
+        clippy::cast_precision_loss,
+        reason = "u8/u16 widening is intentional; precision loss acceptable for mean computation"
+    )]
     pub fn mean(&self) -> f64 {
         match self.bit_depth {
             8 => {
@@ -608,8 +616,11 @@ impl<'a> FrameView<'a> {
             return None;
         }
 
-        // SAFETY: Casting [u8] to [u16] requires alignment check
-        #[allow(unsafe_code)]
+        // Casting [u8] to [u16] requires alignment check
+        #[expect(
+            unsafe_code,
+            reason = "align_to required for zero-copy reinterpret of [u8] as [u16]"
+        )]
         let (prefix, mid, suffix) = unsafe { self.pixels.align_to::<u16>() };
 
         if !prefix.is_empty() || !suffix.is_empty() {
@@ -635,8 +646,11 @@ impl<'a> FrameView<'a> {
 
     /// Calculate mean pixel value.
     #[must_use]
-    #[allow(clippy::cast_lossless, clippy::cast_precision_loss)]
-    // SAFETY: u8/u16 -> u64 is lossless; precision loss acceptable for mean computation
+    #[expect(
+        clippy::cast_lossless,
+        clippy::cast_precision_loss,
+        reason = "u8/u16 widening is intentional; precision loss acceptable for mean computation"
+    )]
     pub fn mean(&self) -> f64 {
         match self.bit_depth {
             8 => {

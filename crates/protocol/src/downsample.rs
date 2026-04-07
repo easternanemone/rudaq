@@ -70,8 +70,10 @@ pub fn downsample_2x2_into(data: &[u8], width: u32, height: u32, out: &mut Vec<u
             let p11 = u16::from_le_bytes([data[i11], data[i11 + 1]]);
 
             // Average the 4 pixels
-            #[allow(clippy::cast_possible_truncation)]
-            // SAFETY: average of four u16 values divided by 4 always fits in u16
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "average of four u16 values divided by 4 always fits in u16"
+            )]
             let avg =
                 ((u32::from(p00) + u32::from(p01) + u32::from(p10) + u32::from(p11)) / 4) as u16;
             out.extend_from_slice(&avg.to_le_bytes());
@@ -169,8 +171,10 @@ pub fn downsample_4x4_into(data: &[u8], width: u32, height: u32, out: &mut Vec<u
             }
 
             // Average (divide by 16)
-            #[allow(clippy::cast_possible_truncation)]
-            // SAFETY: value is bounded and fits in target type
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "sum of 16 u16 values divided by 16 always fits in u16"
+            )]
             let avg = (sum / 16) as u16;
             out.extend_from_slice(&avg.to_le_bytes());
         }

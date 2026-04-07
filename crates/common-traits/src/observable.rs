@@ -782,8 +782,10 @@ impl Observable<i64> {
     ///
     /// - [`with_range()`](Observable::with_range) - Validation only, no GUI introspection
     /// - [`ObservableMetadata`] - Documentation of metadata fields
-    #[allow(clippy::cast_precision_loss)]
-    // SAFETY: i64 range limits may lose precision in f64 but this is only for GUI display metadata
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "i64 range limits converted to f64 for GUI display metadata only; precision loss is acceptable"
+    )]
     pub fn with_range_introspectable(self, min: i64, max: i64) -> Self {
         // Validate bounds ordering at construction time
         assert!(min <= max, "min must be <= max: min={min}, max={max}");

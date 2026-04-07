@@ -836,8 +836,10 @@ impl ParameterValue {
     }
 
     /// Extract value as f64
-    #[allow(clippy::cast_precision_loss)]
-    // SAFETY: precision loss acceptable for metrics/display
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "i64 to f64 precision loss acceptable for metrics and display purposes"
+    )]
     pub fn as_f64(&self) -> Option<f64> {
         match self {
             ParameterValue::Float(f) => Some(*f),
@@ -848,8 +850,10 @@ impl ParameterValue {
     }
 
     /// Extract value as i64
-    #[allow(clippy::cast_possible_truncation)]
-    // SAFETY: value is bounded and fits in target type
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "f64 to i64 truncation is the expected behavior for numeric conversion"
+    )]
     pub fn as_i64(&self) -> Option<i64> {
         match self {
             ParameterValue::Int(i) => Some(*i),
@@ -882,8 +886,10 @@ impl From<i64> for ParameterValue {
 }
 
 impl From<u64> for ParameterValue {
-    #[allow(clippy::cast_possible_wrap)]
-    // SAFETY: value fits in target type range
+    #[expect(
+        clippy::cast_possible_wrap,
+        reason = "wrapping is acceptable: callers use u64 device counters that fit in i64 range"
+    )]
     fn from(value: u64) -> Self {
         ParameterValue::Int(value as i64)
     }

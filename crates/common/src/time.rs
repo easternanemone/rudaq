@@ -5,8 +5,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// Current timestamp in nanoseconds since Unix epoch.
 ///
 /// Returns 0 if system clock is before Unix epoch (bd-21yj).
-#[allow(clippy::cast_possible_truncation)]
-// SAFETY: value is bounded and fits in target type
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "nanos since epoch fits in u64 until year 2554"
+)]
 pub fn now_ns() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -18,8 +20,10 @@ pub fn now_ns() -> u64 {
 ///
 /// Useful for contexts where signed timestamps are expected (e.g., state cache).
 /// Returns 0 if system clock is before Unix epoch.
-#[allow(clippy::cast_possible_truncation)]
-// SAFETY: value is bounded and fits in target type
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "nanos since epoch fits in i64 until year 2262"
+)]
 pub fn now_ns_i64() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)

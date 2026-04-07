@@ -361,7 +361,10 @@ impl<T: Send + 'static> Pool<T> {
     }
 
     #[cfg(feature = "metrics")]
-    #[allow(clippy::cast_possible_wrap)] // pool sizes are bounded, well within i64::MAX
+    #[expect(
+        clippy::cast_possible_wrap,
+        reason = "pool sizes are bounded well within i64::MAX"
+    )]
     fn update_metrics(pool: &Self) {
         POOL_AVAILABLE.set(pool.semaphore.available_permits() as i64);
         POOL_TOTAL_CAPACITY.set(pool.current_size.load(Ordering::Relaxed) as i64);
@@ -421,7 +424,10 @@ impl<T: Send + 'static> Pool<T> {
         #[cfg(feature = "metrics")]
         {
             POOL_GROW_TOTAL.inc();
-            #[allow(clippy::cast_possible_wrap)] // pool sizes bounded, well within i64::MAX
+            #[expect(
+                clippy::cast_possible_wrap,
+                reason = "pool sizes are bounded well within i64::MAX"
+            )]
             POOL_TOTAL_CAPACITY.set(new_size as i64);
         }
 

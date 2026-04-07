@@ -24,8 +24,10 @@ use crate::daq::{CompressionType, FrameData};
 /// // frame.data is now LZ4 compressed
 /// ```
 pub fn compress_frame(frame: &mut FrameData) {
-    #[allow(clippy::cast_possible_truncation)]
-    // SAFETY: value is bounded and fits in target type
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "frame sizes are bounded by MAX_FRAME_BYTES (100MB) which fits in u32"
+    )]
     let uncompressed_size = frame.data.len() as u32;
     let compressed = lz4_flex::compress_prepend_size(&frame.data);
 
@@ -42,8 +44,10 @@ pub fn compress_frame(frame: &mut FrameData) {
 ///
 /// The compressed data is written into `buffer`, then swapped into `frame.data`.
 pub fn compress_frame_into(frame: &mut FrameData, buffer: &mut Vec<u8>) {
-    #[allow(clippy::cast_possible_truncation)]
-    // SAFETY: value is bounded and fits in target type
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "frame sizes are bounded by MAX_FRAME_BYTES (100MB) which fits in u32"
+    )]
     let uncompressed_size = frame.data.len() as u32;
 
     // 4-byte LE size prefix + worst-case compressed output
@@ -52,8 +56,10 @@ pub fn compress_frame_into(frame: &mut FrameData, buffer: &mut Vec<u8>) {
     buffer.resize(required, 0);
 
     // Write uncompressed size as 4-byte LE prefix (same format as compress_prepend_size)
-    #[allow(clippy::cast_possible_truncation)]
-    // SAFETY: frame sizes are bounded by MAX_FRAME_BYTES (100MB) which fits in u32
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "frame sizes are bounded by MAX_FRAME_BYTES (100MB) which fits in u32"
+    )]
     let size_prefix = (frame.data.len() as u32).to_le_bytes();
     buffer[..4].copy_from_slice(&size_prefix);
 
@@ -165,8 +171,10 @@ pub fn decompress_frame_into(frame: &mut FrameData, buffer: &mut Vec<u8>) -> Res
 ///
 /// Returns the ratio of uncompressed to compressed size.
 /// A value of 3.0 means the data was compressed to 1/3 of its original size.
-#[allow(clippy::cast_precision_loss)]
-// SAFETY: precision loss acceptable for metrics/display
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "precision loss acceptable for compression ratio display"
+)]
 pub fn compression_ratio(frame: &FrameData) -> f64 {
     if frame.data.is_empty() || frame.uncompressed_size == 0 {
         return 1.0;

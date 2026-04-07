@@ -101,16 +101,12 @@ impl ExponentialBackoff {
     ///
     /// Returns `min(initial_delay * multiplier^attempt, max_delay)`, with
     /// optional random jitter added on top.
-    #[allow(
+    #[expect(
         clippy::cast_possible_truncation,
         clippy::cast_sign_loss,
-        clippy::cast_precision_loss
+        clippy::cast_precision_loss,
+        reason = "delay nanos (up to ~30s) fit in f64 mantissa; result is clamped to max_delay and jitter is bounded by delay/4, both non-negative and within u64 range"
     )]
-    // cast_precision_loss: as_nanos() returns u128, but realistic delay values
-    // (up to ~30s = 30e9 nanos) are well within f64's 53-bit mantissa range.
-    // cast_possible_truncation + cast_sign_loss: we clamp the f64 multiplication
-    // result to max_delay and jitter_nanos is bounded by delay/4, both non-negative
-    // and well within u64 range.
     pub fn delay_for_attempt(&self, attempt: u32) -> Duration {
         let multiplier = self.multiplier.max(1.0);
         let base_nanos = self.initial_delay.as_nanos() as f64;
