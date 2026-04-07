@@ -12,7 +12,7 @@
 //! - Concurrent operations and MeasurementLock safety
 //!
 //! Run with: cargo nextest run -p integration-tests --features db-surreal-mem --test surrealdb_e2e
-#![cfg(any(feature = "db", feature = "db"))]
+#![cfg(feature = "db")]
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,

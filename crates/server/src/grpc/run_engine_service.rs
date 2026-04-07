@@ -467,7 +467,7 @@ impl RunEngineService for RunEngineServiceImpl {
             {
                 let _ = plan_id;
                 return Err(Status::unimplemented(
-                    "Stored plan loading requires db-surreal feature",
+                    "Stored plan loading requires db feature",
                 ));
             }
         } else {
@@ -731,9 +731,7 @@ impl RunEngineService for RunEngineServiceImpl {
         #[cfg(not(feature = "db"))]
         {
             let _ = request;
-            Err(Status::unimplemented(
-                "Plan storage requires db-surreal feature",
-            ))
+            Err(Status::unimplemented("Plan storage requires db feature"))
         }
     }
 
@@ -796,9 +794,7 @@ impl RunEngineService for RunEngineServiceImpl {
         #[cfg(not(feature = "db"))]
         {
             let _ = request;
-            Err(Status::unimplemented(
-                "Plan storage requires db-surreal feature",
-            ))
+            Err(Status::unimplemented("Plan storage requires db feature"))
         }
     }
 
@@ -834,9 +830,7 @@ impl RunEngineService for RunEngineServiceImpl {
         }
         #[cfg(not(feature = "db"))]
         {
-            Err(Status::unimplemented(
-                "Plan storage requires db-surreal feature",
-            ))
+            Err(Status::unimplemented("Plan storage requires db feature"))
         }
     }
 
@@ -866,9 +860,7 @@ impl RunEngineService for RunEngineServiceImpl {
         #[cfg(not(feature = "db"))]
         {
             let _ = request;
-            Err(Status::unimplemented(
-                "Plan storage requires db-surreal feature",
-            ))
+            Err(Status::unimplemented("Plan storage requires db feature"))
         }
     }
 
@@ -909,9 +901,7 @@ impl RunEngineService for RunEngineServiceImpl {
         #[cfg(not(feature = "db"))]
         {
             let _ = request;
-            Err(Status::unimplemented(
-                "Run history requires db-surreal feature",
-            ))
+            Err(Status::unimplemented("Run history requires db feature"))
         }
     }
 

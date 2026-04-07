@@ -284,11 +284,11 @@ mod db_rocksdb_smoke {
             .expect("RocksDB init");
 
         // Verify engine reports correctly
-        let info = db.info().await;
+        let info = db.info().await.expect("db info");
         assert!(info.healthy, "DB should be healthy after init");
-        assert!(
-            info.engine.starts_with("rocksdb"),
-            "engine should be rocksdb, got: {}",
+        assert_eq!(
+            info.engine, "sqlite",
+            "engine should be sqlite, got: {}",
             info.engine
         );
 

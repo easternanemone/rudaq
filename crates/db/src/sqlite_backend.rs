@@ -523,7 +523,7 @@ impl SqliteDb {
 
     /// Upsert a batch of instruments.
     ///
-    /// Uses `INSERT OR REPLACE` keyed on `device_id`.  Broadcasts
+    /// Uses `INSERT ... ON CONFLICT` keyed on `device_id`.  Broadcasts
     /// [`DbChangeEvent::InstrumentsUpdated`] once after the batch completes.
     /// Returns an [`ImportReport`] for compatibility with downstream callers.
     pub async fn upsert_instruments(&self, instruments: &[DbInstrument]) -> Result<ImportReport> {
@@ -536,9 +536,15 @@ impl SqliteDb {
                     let config_json = serde_json::to_string(&inst.config)
                         .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
                     tx.execute(
-                        "INSERT OR REPLACE INTO instrument \
+                        "INSERT INTO instrument \
                          (device_id, name, driver_type, config, enabled, updated_at) \
-                         VALUES (?1, ?2, ?3, ?4, ?5, datetime('now'))",
+                         VALUES (?1, ?2, ?3, ?4, ?5, datetime('now')) \
+                         ON CONFLICT(device_id) DO UPDATE SET \
+                         name = excluded.name, \
+                         driver_type = excluded.driver_type, \
+                         config = excluded.config, \
+                         enabled = excluded.enabled, \
+                         updated_at = datetime('now')",
                         rusqlite::params![
                             inst.device_id,
                             inst.name,
@@ -634,7 +640,7 @@ impl SqliteDb {
 
     /// Upsert a batch of drivers.
     ///
-    /// Uses `INSERT OR REPLACE` keyed on `driver_type`.
+    /// Uses `INSERT ... ON CONFLICT` keyed on `driver_type`.
     /// Returns the number of drivers upserted.
     pub async fn upsert_drivers(&self, drivers: &[DbDriver]) -> Result<usize> {
         let count = drivers.len();
@@ -648,9 +654,14 @@ impl SqliteDb {
                     let commands_json = serde_json::to_string(&drv.commands)
                         .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
                     tx.execute(
-                        "INSERT OR REPLACE INTO driver \
+                        "INSERT INTO driver \
                          (driver_type, name, capabilities, commands, updated_at) \
-                         VALUES (?1, ?2, ?3, ?4, datetime('now'))",
+                         VALUES (?1, ?2, ?3, ?4, datetime('now')) \
+                         ON CONFLICT(driver_type) DO UPDATE SET \
+                         name = excluded.name, \
+                         capabilities = excluded.capabilities, \
+                         commands = excluded.commands, \
+                         updated_at = datetime('now')",
                         rusqlite::params![
                             drv.driver_type,
                             drv.name,
