@@ -141,7 +141,7 @@ pub struct HardwareServiceImpl {
     /// Broadcast sender for system state snapshots (game loop output)
     state_broadcast_tx: Option<tokio::sync::broadcast::Sender<SystemStateSnapshot>>,
     /// Optional DB access for offline feature queries (bd-mmjc)
-    #[cfg(feature = "db-surreal")]
+    #[cfg(feature = "db")]
     db: Option<Arc<db::DaqDb>>,
 }
 
@@ -270,7 +270,7 @@ impl HardwareServiceImpl {
             stream_limiter: Arc::new(StreamLimiter::new()),
             param_change_tx,
             state_broadcast_tx: None,
-            #[cfg(feature = "db-surreal")]
+            #[cfg(feature = "db")]
             db: None,
         }
     }
@@ -286,7 +286,7 @@ impl HardwareServiceImpl {
             stream_limiter: Arc::new(StreamLimiter::new()),
             param_change_tx,
             state_broadcast_tx: None,
-            #[cfg(feature = "db-surreal")]
+            #[cfg(feature = "db")]
             db: None,
         }
     }
@@ -304,7 +304,7 @@ impl HardwareServiceImpl {
     ///
     /// Also spawns a debounced parameter state writer (bd-4wf7) that persists
     /// writable parameter changes to the `device_runtime_state` table every 2 seconds.
-    #[cfg(feature = "db-surreal")]
+    #[cfg(feature = "db")]
     pub fn with_db(mut self, db: Option<db::DaqDb>) -> Self {
         if let Some(ref db_instance) = db {
             self.spawn_parameter_state_writer(Arc::new(db_instance.clone()));
@@ -319,7 +319,7 @@ impl HardwareServiceImpl {
     /// into a batch. Every 2 seconds, the batch is flushed to `device_runtime_state` via
     /// `batch_upsert_device_state()`. Only writable parameters from user/script sources
     /// are persisted — read-only hardware telemetry is excluded.
-    #[cfg(feature = "db-surreal")]
+    #[cfg(feature = "db")]
     fn spawn_parameter_state_writer(&self, db: Arc<db::DaqDb>) {
         use std::collections::HashMap;
         use tokio::sync::broadcast::error::RecvError;

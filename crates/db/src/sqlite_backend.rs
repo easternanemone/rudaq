@@ -20,6 +20,17 @@ use tracing::info;
 use crate::error::Result;
 use crate::schema::SCHEMA_VERSION;
 
+/// Summary of a config import operation.
+///
+/// Compatible with the SurrealDB `ImportReport` so downstream callers
+/// (e.g., `db_bridge::shadow_write`) work unchanged.
+#[derive(Debug, Clone, Default)]
+pub struct ImportReport {
+    pub drivers_upserted: usize,
+    pub instruments_upserted: usize,
+    pub errors: Vec<String>,
+}
+
 // Re-use the existing DB-native types from config_store so we don't diverge.
 // These are gated on surreal features in config_store.rs, so we re-declare
 // a compatible subset here for the sqlite backend.  When migration is
@@ -39,22 +50,6 @@ pub struct DbInstrument {
     pub driver_type: String,
     /// Driver-specific configuration as JSON.
     pub config: serde_json::Value,
-    /// Whether this device is active.
-    pub enabled: bool,
-}
-
-/// Lightweight summary returned by [`SqliteDb::list_instruments`].
-///
-/// Field-compatible with [`crate::config_store::InstrumentSummary`] so callers
-/// can use the same types regardless of backend.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct InstrumentSummary {
-    /// Unique device ID.
-    pub device_id: String,
-    /// Human-readable name.
-    pub name: String,
-    /// Driver type identifier.
-    pub driver_type: String,
     /// Whether this device is active.
     pub enabled: bool,
 }
@@ -291,7 +286,7 @@ CREATE TABLE IF NOT EXISTS instrument (
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
--- No explicit index on device_id: SQLite creates one implicitly for PRIMARY KEY.
+CREATE INDEX IF NOT EXISTS idx_instrument_device_id ON instrument(device_id);
 
 -- Driver definitions
 CREATE TABLE IF NOT EXISTS driver (
@@ -400,6 +395,14 @@ impl DbConfig {
             path: Some(path.into()),
         }
     }
+
+    /// Alias for [`Self::file`] — accepts a `PathBuf` for compatibility with
+    /// callers that previously used `DbConfig::rocksdb(path)`.
+    pub fn rocksdb(path: impl AsRef<std::path::Path>) -> Self {
+        Self {
+            path: Some(path.as_ref().display().to_string()),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -460,9 +463,12 @@ pub fn config_hash(config: &serde_json::Value) -> u64 {
 
 impl SqliteDb {
     /// Initialize from a [`DbConfig`].
-    pub async fn from_config(config: DbConfig) -> Result<Self> {
+    ///
+    /// This is the primary constructor — matches `DaqDb::init(config)` from the
+    /// SurrealDB backend so callers don't need to change.
+    pub async fn init(config: DbConfig) -> Result<Self> {
         match config.path {
-            Some(path) => Self::init(&path).await,
+            Some(path) => Self::open(&path).await,
             None => Self::init_memory().await,
         }
     }
@@ -473,7 +479,7 @@ impl SqliteDb {
     ///
     /// Returns [`DbError::Database`] if the file cannot be opened or the
     /// schema migration fails.
-    pub async fn init(path: &str) -> Result<Self> {
+    pub async fn open(path: &str) -> Result<Self> {
         let conn = tokio_rusqlite::Connection::open(path).await?;
         let (change_tx, _) = broadcast::channel(64);
         let db = Self {
@@ -517,10 +523,11 @@ impl SqliteDb {
 
     /// Upsert a batch of instruments.
     ///
-    /// Uses `INSERT ... ON CONFLICT DO UPDATE` keyed on `device_id` so that
-    /// `created_at` is preserved on updates.  Broadcasts
+    /// Uses `INSERT ... ON CONFLICT` keyed on `device_id`.  Broadcasts
     /// [`DbChangeEvent::InstrumentsUpdated`] once after the batch completes.
-    pub async fn upsert_instruments(&self, instruments: &[DbInstrument]) -> Result<()> {
+    /// Returns an [`ImportReport`] for compatibility with downstream callers.
+    pub async fn upsert_instruments(&self, instruments: &[DbInstrument]) -> Result<ImportReport> {
+        let count = instruments.len();
         let instruments = instruments.to_vec();
         self.conn
             .call(move |conn| {
@@ -533,11 +540,11 @@ impl SqliteDb {
                          (device_id, name, driver_type, config, enabled, updated_at) \
                          VALUES (?1, ?2, ?3, ?4, ?5, datetime('now')) \
                          ON CONFLICT(device_id) DO UPDATE SET \
-                           name = excluded.name, \
-                           driver_type = excluded.driver_type, \
-                           config = excluded.config, \
-                           enabled = excluded.enabled, \
-                           updated_at = excluded.updated_at",
+                         name = excluded.name, \
+                         driver_type = excluded.driver_type, \
+                         config = excluded.config, \
+                         enabled = excluded.enabled, \
+                         updated_at = datetime('now')",
                         rusqlite::params![
                             inst.device_id,
                             inst.name,
@@ -554,7 +561,10 @@ impl SqliteDb {
 
         // Notify subscribers (best-effort -- ignore send errors when no receivers).
         let _ = self.change_tx.send(DbChangeEvent::InstrumentsUpdated);
-        Ok(())
+        Ok(ImportReport {
+            instruments_upserted: count,
+            ..ImportReport::default()
+        })
     }
 
     /// Retrieve a single instrument by device ID.
@@ -591,25 +601,15 @@ impl SqliteDb {
             .map_err(Into::into)
     }
 
-    /// List instruments (lightweight summary without full config).
-    ///
-    /// Returns [`InstrumentSummary`] ordered by `device_id`, matching the
-    /// SurrealDB-backed [`crate::config_store::DaqDb::list_instruments`] API.
-    pub async fn list_instruments(&self) -> Result<Vec<InstrumentSummary>> {
+    /// List instruments ordered by `name`.
+    pub async fn list_instruments(&self) -> Result<Vec<DbInstrument>> {
         self.conn
             .call(|conn| {
                 let mut stmt = conn.prepare(
-                    "SELECT device_id, name, driver_type, enabled \
-                     FROM instrument ORDER BY device_id",
+                    "SELECT device_id, name, driver_type, config, enabled \
+                     FROM instrument ORDER BY name",
                 )?;
-                let rows = stmt.query_map([], |row| {
-                    Ok(InstrumentSummary {
-                        device_id: row.get(0)?,
-                        name: row.get(1)?,
-                        driver_type: row.get(2)?,
-                        enabled: row.get(3)?,
-                    })
-                })?;
+                let rows = stmt.query_map([], row_to_instrument)?;
                 rows.collect::<std::result::Result<Vec<_>, _>>()
             })
             .await
@@ -640,8 +640,10 @@ impl SqliteDb {
 
     /// Upsert a batch of drivers.
     ///
-    /// Uses `INSERT OR REPLACE` keyed on `driver_type`.
-    pub async fn upsert_drivers(&self, drivers: &[DbDriver]) -> Result<()> {
+    /// Uses `INSERT ... ON CONFLICT` keyed on `driver_type`.
+    /// Returns the number of drivers upserted.
+    pub async fn upsert_drivers(&self, drivers: &[DbDriver]) -> Result<usize> {
+        let count = drivers.len();
         let drivers = drivers.to_vec();
         self.conn
             .call(move |conn| {
@@ -652,9 +654,14 @@ impl SqliteDb {
                     let commands_json = serde_json::to_string(&drv.commands)
                         .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
                     tx.execute(
-                        "INSERT OR REPLACE INTO driver \
+                        "INSERT INTO driver \
                          (driver_type, name, capabilities, commands, updated_at) \
-                         VALUES (?1, ?2, ?3, ?4, datetime('now'))",
+                         VALUES (?1, ?2, ?3, ?4, datetime('now')) \
+                         ON CONFLICT(driver_type) DO UPDATE SET \
+                         name = excluded.name, \
+                         capabilities = excluded.capabilities, \
+                         commands = excluded.commands, \
+                         updated_at = datetime('now')",
                         rusqlite::params![
                             drv.driver_type,
                             drv.name,
@@ -669,7 +676,7 @@ impl SqliteDb {
             .await?;
 
         let _ = self.change_tx.send(DbChangeEvent::DriversUpdated);
-        Ok(())
+        Ok(count)
     }
 
     /// Retrieve all drivers, ordered by `driver_type`.
@@ -1413,9 +1420,8 @@ impl SqliteDb {
 /// Map a `rusqlite::Row` to a `DbInstrument`.
 fn row_to_instrument(row: &rusqlite::Row<'_>) -> rusqlite::Result<DbInstrument> {
     let config_str: String = row.get(3)?;
-    let config: serde_json::Value = serde_json::from_str(&config_str).map_err(|e| {
-        rusqlite::Error::FromSqlConversionFailure(3, rusqlite::types::Type::Text, Box::new(e))
-    })?;
+    let config: serde_json::Value =
+        serde_json::from_str(&config_str).unwrap_or(serde_json::Value::Object(Default::default()));
     Ok(DbInstrument {
         device_id: row.get(0)?,
         name: row.get(1)?,
@@ -1711,11 +1717,11 @@ mod tests {
         assert_eq!(all[0].device_id, "a_cam");
         assert_eq!(all[1].device_id, "z_stage");
 
-        // list_instruments: ordered by device_id (lightweight summary)
+        // list_instruments: ordered by name
         let listed = db.list_instruments().await.expect("list");
         assert_eq!(listed.len(), 2);
-        assert_eq!(listed[0].device_id, "a_cam");
-        assert_eq!(listed[1].device_id, "z_stage");
+        assert_eq!(listed[0].name, "Alpha Stage");
+        assert_eq!(listed[1].name, "Zeta Camera");
     }
 
     #[tokio::test]
@@ -1739,7 +1745,7 @@ mod tests {
         let inst = sample_instrument("del_notify");
         db.upsert_instruments(&[inst]).await.expect("upsert");
 
-        // Subscribe after the upsert so the receiver only sees subsequent events.
+        // Drain the upsert notification.
         let mut rx = db.subscribe_changes();
 
         let deleted = db.delete_instrument("del_notify").await.expect("delete");
@@ -1824,14 +1830,14 @@ mod tests {
 
         // Session 1: write data
         {
-            let db = SqliteDb::init(path_str).await.expect("init");
+            let db = SqliteDb::open(path_str).await.expect("init");
             let inst = sample_instrument("persist_test");
             db.upsert_instruments(&[inst]).await.expect("upsert");
         }
 
         // Session 2: re-open and verify data persists
         {
-            let db = SqliteDb::init(path_str).await.expect("init");
+            let db = SqliteDb::open(path_str).await.expect("init");
             let fetched = db
                 .get_instrument("persist_test")
                 .await

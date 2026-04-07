@@ -8,7 +8,7 @@
 //! - Sustained streaming performance (100 frames, no corruption)
 //!
 //! Run with: cargo nextest run -p integration-tests --features db-surreal-mem --test andor_streaming
-#![cfg(feature = "db-surreal-mem")]
+#![cfg(feature = "db")]
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,

@@ -1,6 +1,6 @@
 #[cfg(feature = "server")]
 pub mod audit_log;
-#[cfg(feature = "db-surreal")]
+#[cfg(feature = "db")]
 pub mod config_service;
 pub mod custom_health_service;
 pub mod error_mapping;
@@ -349,13 +349,13 @@ pub use proto::{
 };
 
 // Re-export ConfigService types (bd-3gvx)
-#[cfg(feature = "db-surreal")]
+#[cfg(feature = "db")]
 pub use config_service::ConfigServiceImpl;
-#[cfg(feature = "db-surreal")]
+#[cfg(feature = "db")]
 pub use proto::config_service_client::ConfigServiceClient;
-#[cfg(feature = "db-surreal")]
+#[cfg(feature = "db")]
 pub use proto::config_service_server::{ConfigService, ConfigServiceServer};
-#[cfg(feature = "db-surreal")]
+#[cfg(feature = "db")]
 pub use proto::{
     ConfigChangeEvent, DbInfoResponse, DeleteInstrumentRequest, DeleteInstrumentResponse,
     DriverConfig, ExportConfigRequest, ExportConfigResponse, GetDbInfoRequest,

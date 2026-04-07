@@ -77,10 +77,12 @@ metrics = ["dep:prometheus", "dep:hyper", "storage/metrics"]  # Prometheus + met
 # ============================================================================
 # PASS-THROUGH (forwarded to downstream crates, no cfg usage in server itself)
 # ============================================================================
-# SurrealDB persistence (ConfigService gRPC handler)
-db-surreal = ["dep:db"]
-db-surreal-mem = ["db-surreal", "db/kv-mem"]
-db-surreal-rocksdb = ["db-surreal", "db/kv-rocksdb"]
+# Database persistence (ConfigService gRPC handler)
+db = ["dep:db"]
+# Legacy SurrealDB aliases (deprecated — db now defaults to sqlite)
+db-surreal = ["db"]
+db-surreal-mem = ["db"]
+db-surreal-rocksdb = ["db"]
 # Storage backends
 storage_hdf5 = ["dep:hdf5", "storage/storage_hdf5"]
 storage_arrow = ["storage/storage_arrow"]

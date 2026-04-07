@@ -192,7 +192,7 @@ fn test_runtime_mode_invalid_env_falls_back_to_default() {
 }
 
 #[test]
-#[cfg(feature = "db-surreal-mem")]
+#[cfg(feature = "db")]
 fn test_runtime_mode_default_hybrid_db_starts_from_workspace_root() {
     let binary = daemon_binary_path();
     require_binary!(binary);

@@ -584,7 +584,7 @@ pub(super) async fn set_parameter_favorite(
 ) -> Result<Response<SetParameterFavoriteResponse>, Status> {
     let req = request.into_inner();
 
-    #[cfg(feature = "db-surreal")]
+    #[cfg(feature = "db")]
     if let Some(ref db) = svc.db {
         db.set_parameter_favorite(&req.device_id, &req.parameter_name, req.is_favorite)
             .await
@@ -615,7 +615,7 @@ pub(super) async fn get_parameter_favorites(
 ) -> Result<Response<GetParameterFavoritesResponse>, Status> {
     let req = request.into_inner();
 
-    #[cfg(feature = "db-surreal")]
+    #[cfg(feature = "db")]
     if let Some(ref db) = svc.db {
         let names = db
             .get_favorites(&req.device_id)

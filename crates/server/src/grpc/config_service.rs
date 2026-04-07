@@ -334,11 +334,15 @@ impl ConfigService for ConfigServiceImpl {
         &self,
         _req: Request<GetDbInfoRequest>,
     ) -> Result<Response<DbInfoResponse>, Status> {
-        let info = self.db.info().await;
+        let info = self
+            .db
+            .info()
+            .await
+            .map_err(|e| Status::internal(format!("DB info query failed: {e}")))?;
         Ok(Response::new(DbInfoResponse {
             engine: info.engine,
-            namespace: info.namespace,
-            database: info.database,
+            namespace: String::new(), // SQLite has no namespace concept
+            database: String::new(),  // SQLite has no database concept
             schema_version: info.schema_version,
             uptime_secs: info.uptime_secs,
             healthy: info.healthy,
@@ -350,66 +354,65 @@ impl ConfigService for ConfigServiceImpl {
     type SubscribeConfigChangesStream =
         tokio_stream::wrappers::ReceiverStream<Result<ConfigChangeEvent, Status>>;
 
+    /// Subscribe to config changes via broadcast channel.
+    ///
+    /// Uses `DbChangeEvent::InstrumentsUpdated` from the SQLite backend
+    /// (replaces SurrealDB LIVE SELECT). On each event, fetches the current
+    /// instrument list and sends all instruments as "upsert" events.
+    ///
+    /// **Note**: Unlike the old SurrealDB LIVE SELECT, this does not distinguish
+    /// individual Create/Update/Delete actions — it sends the full instrument
+    /// snapshot on any change. This is simpler but coarser. No clients currently
+    /// consume this stream, so the semantic difference is acceptable.
     #[instrument(skip(self, _req))]
     #[allow(clippy::cast_possible_truncation)]
-    // SAFETY: value is bounded and fits in target type
+    // SAFETY: timestamp_ns truncation is acceptable for timestamps
     async fn subscribe_config_changes(
         &self,
         _req: Request<SubscribeConfigRequest>,
     ) -> Result<Response<Self::SubscribeConfigChangesStream>, Status> {
-        use futures::StreamExt;
-
         let db = self.db.clone();
+        let mut change_rx = db.subscribe_changes();
 
         let (tx, rx) = tokio::sync::mpsc::channel(64);
 
-        let live_stream = db.live_instruments().await.map_err(|e| {
-            tracing::error!("failed to start live query: {e}");
-            Status::internal(e.to_string())
-        })?;
-
         tokio::spawn(async move {
-            futures::pin_mut!(live_stream);
-            while let Some(result) = live_stream.next().await {
-                let event = match result {
-                    Ok(notification) => {
-                        use db::surrealdb::Action;
-                        let (change_type, device_id, instrument) = match notification.action {
-                            Action::Create | Action::Update => {
-                                let inst = &notification.data;
-                                (
-                                    match notification.action {
-                                        Action::Create => "create",
-                                        _ => "upsert",
-                                    },
-                                    inst.device_id.clone(),
-                                    Some(db_instrument_to_proto(inst)),
-                                )
+            loop {
+                match change_rx.recv().await {
+                    Ok(db::DbChangeEvent::InstrumentsUpdated) => {
+                        // Fetch current instruments and send as "upsert" events.
+                        let instruments = match db.get_all_instruments().await {
+                            Ok(insts) => insts,
+                            Err(e) => {
+                                tracing::warn!(error = %e, "failed to fetch instruments after change");
+                                continue;
                             }
-                            Action::Delete => {
-                                let inst = &notification.data;
-                                ("delete", inst.device_id.clone(), None)
-                            }
-                            _ => continue,
                         };
-                        ConfigChangeEvent {
-                            change_type: change_type.to_string(),
-                            device_id,
-                            instrument,
-                            timestamp_ns: std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .unwrap_or_default()
-                                .as_nanos() as u64,
+                        for inst in &instruments {
+                            let event = ConfigChangeEvent {
+                                change_type: "upsert".to_string(),
+                                device_id: inst.device_id.clone(),
+                                instrument: Some(db_instrument_to_proto(inst)),
+                                timestamp_ns: std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap_or_default()
+                                    .as_nanos()
+                                    as u64,
+                            };
+                            if tx.send(Ok(event)).await.is_err() {
+                                return; // Client disconnected
+                            }
                         }
                     }
-                    Err(e) => {
-                        tracing::warn!(error = %e, "live query error");
-                        continue;
+                    Ok(_) => {
+                        // Other change types (drivers, features, etc.) — not subscribed here
                     }
-                };
-
-                if tx.send(Ok(event)).await.is_err() {
-                    break; // Client disconnected
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                        tracing::warn!(missed = n, "config change subscriber lagged");
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                        break; // DB shut down
+                    }
                 }
             }
         });
@@ -425,7 +428,7 @@ impl ConfigService for ConfigServiceImpl {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
-#[cfg(feature = "db-surreal")]
+#[cfg(feature = "db")]
 mod tests {
     use super::*;
     use db::DbConfig;
@@ -736,8 +739,9 @@ mod tests {
             .await
             .unwrap();
         let info = resp.into_inner();
-        assert_eq!(info.engine, "mem");
-        assert_eq!(info.namespace, "daq");
+        assert_eq!(info.engine, "sqlite");
+        // SQLite has no namespace/database concepts — fields are empty.
+        assert_eq!(info.namespace, "");
         assert!(info.healthy);
     }
 }

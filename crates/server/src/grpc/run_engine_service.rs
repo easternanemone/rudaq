@@ -17,11 +17,11 @@ use crate::grpc::proto::{
     StartEngineResponse, StreamDocumentsRequest, StreamEngineStatusRequest,
     run_engine_service_server::RunEngineService,
 };
-#[cfg(feature = "db-surreal")]
+#[cfg(feature = "db")]
 use crate::grpc::proto::{RunRecord as ProtoRunRecord, SavedPlanSummary};
 use chrono::{DateTime, Utc};
 use experiment::Document; // Re-exported from common
-#[cfg(feature = "db-surreal")]
+#[cfg(feature = "db")]
 use experiment::plans::CommandReplayPlan;
 use experiment::plans::{CountBuilder, GridScanBuilder, LineScanBuilder, PlanRegistry};
 use experiment::run_engine::RunEngine;
@@ -57,7 +57,7 @@ pub struct RunEngineServiceImpl {
     #[cfg(feature = "metrics")]
     metrics: Option<Arc<crate::grpc::metrics_service::DaqMetrics>>,
     /// Optional SurrealDB handle for plan storage (bd-yz1w)
-    #[cfg(feature = "db-surreal")]
+    #[cfg(feature = "db")]
     db: Option<db::DaqDb>,
 }
 
@@ -226,13 +226,13 @@ impl RunEngineServiceImpl {
             proto_state_sender,
             #[cfg(feature = "metrics")]
             metrics,
-            #[cfg(feature = "db-surreal")]
+            #[cfg(feature = "db")]
             db: None,
         }
     }
 
     /// Set the database handle for plan storage.
-    #[cfg(feature = "db-surreal")]
+    #[cfg(feature = "db")]
     pub fn with_db(mut self, db: Option<db::DaqDb>) -> Self {
         self.db = db;
         self
@@ -250,7 +250,7 @@ impl Clone for RunEngineServiceImpl {
             proto_state_sender: self.proto_state_sender.clone(),
             #[cfg(feature = "metrics")]
             metrics: self.metrics.clone(),
-            #[cfg(feature = "db-surreal")]
+            #[cfg(feature = "db")]
             db: self.db.clone(),
         }
     }
@@ -443,7 +443,7 @@ impl RunEngineService for RunEngineServiceImpl {
         // Determine plan source: stored plan (by plan_id) or inline (by plan_type)
         let plan: Box<dyn experiment::plans::Plan> = if let Some(plan_id) = &req.plan_id {
             // Load stored plan from SurrealDB
-            #[cfg(feature = "db-surreal")]
+            #[cfg(feature = "db")]
             {
                 let db = self.db.as_ref().ok_or_else(|| {
                     Status::unavailable("Database not configured for stored plan loading")
@@ -472,11 +472,11 @@ impl RunEngineService for RunEngineServiceImpl {
                     stored.detectors.unwrap_or_default(),
                 ))
             }
-            #[cfg(not(feature = "db-surreal"))]
+            #[cfg(not(feature = "db"))]
             {
                 let _ = plan_id;
                 return Err(Status::unimplemented(
-                    "Stored plan loading requires db-surreal feature",
+                    "Stored plan loading requires db feature",
                 ));
             }
         } else {
@@ -676,7 +676,7 @@ impl RunEngineService for RunEngineServiceImpl {
         &self,
         request: Request<SavePlanRequest>,
     ) -> Result<Response<SavePlanResponse>, Status> {
-        #[cfg(feature = "db-surreal")]
+        #[cfg(feature = "db")]
         {
             let db = self
                 .db
@@ -739,12 +739,10 @@ impl RunEngineService for RunEngineServiceImpl {
                 error_message: String::new(),
             }))
         }
-        #[cfg(not(feature = "db-surreal"))]
+        #[cfg(not(feature = "db"))]
         {
             let _ = request;
-            Err(Status::unimplemented(
-                "Plan storage requires db-surreal feature",
-            ))
+            Err(Status::unimplemented("Plan storage requires db feature"))
         }
     }
 
@@ -757,7 +755,7 @@ impl RunEngineService for RunEngineServiceImpl {
         &self,
         request: Request<LoadPlanRequest>,
     ) -> Result<Response<LoadPlanResponse>, Status> {
-        #[cfg(feature = "db-surreal")]
+        #[cfg(feature = "db")]
         {
             let db = self
                 .db
@@ -807,12 +805,10 @@ impl RunEngineService for RunEngineServiceImpl {
                 })),
             }
         }
-        #[cfg(not(feature = "db-surreal"))]
+        #[cfg(not(feature = "db"))]
         {
             let _ = request;
-            Err(Status::unimplemented(
-                "Plan storage requires db-surreal feature",
-            ))
+            Err(Status::unimplemented("Plan storage requires db feature"))
         }
     }
 
@@ -825,7 +821,7 @@ impl RunEngineService for RunEngineServiceImpl {
         &self,
         _request: Request<ListSavedPlansRequest>,
     ) -> Result<Response<ListSavedPlansResponse>, Status> {
-        #[cfg(feature = "db-surreal")]
+        #[cfg(feature = "db")]
         {
             let db = self
                 .db
@@ -849,11 +845,9 @@ impl RunEngineService for RunEngineServiceImpl {
 
             Ok(Response::new(ListSavedPlansResponse { plans }))
         }
-        #[cfg(not(feature = "db-surreal"))]
+        #[cfg(not(feature = "db"))]
         {
-            Err(Status::unimplemented(
-                "Plan storage requires db-surreal feature",
-            ))
+            Err(Status::unimplemented("Plan storage requires db feature"))
         }
     }
 
@@ -861,7 +855,7 @@ impl RunEngineService for RunEngineServiceImpl {
         &self,
         request: Request<DeleteSavedPlanRequest>,
     ) -> Result<Response<DeleteSavedPlanResponse>, Status> {
-        #[cfg(feature = "db-surreal")]
+        #[cfg(feature = "db")]
         {
             let db = self
                 .db
@@ -880,12 +874,10 @@ impl RunEngineService for RunEngineServiceImpl {
                 error_message: String::new(),
             }))
         }
-        #[cfg(not(feature = "db-surreal"))]
+        #[cfg(not(feature = "db"))]
         {
             let _ = request;
-            Err(Status::unimplemented(
-                "Plan storage requires db-surreal feature",
-            ))
+            Err(Status::unimplemented("Plan storage requires db feature"))
         }
     }
 
@@ -898,7 +890,7 @@ impl RunEngineService for RunEngineServiceImpl {
         &self,
         request: Request<ListRunsRequest>,
     ) -> Result<Response<ListRunsResponse>, Status> {
-        #[cfg(feature = "db-surreal")]
+        #[cfg(feature = "db")]
         {
             let db = self
                 .db
@@ -926,12 +918,10 @@ impl RunEngineService for RunEngineServiceImpl {
 
             Ok(Response::new(ListRunsResponse { runs }))
         }
-        #[cfg(not(feature = "db-surreal"))]
+        #[cfg(not(feature = "db"))]
         {
             let _ = request;
-            Err(Status::unimplemented(
-                "Run history requires db-surreal feature",
-            ))
+            Err(Status::unimplemented("Run history requires db feature"))
         }
     }
 

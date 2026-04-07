@@ -226,6 +226,7 @@ DEFINE INDEX IF NOT EXISTS idx_device_param ON device_runtime_state FIELDS devic
 ";
 
 /// V8: Add is_favorite flag to device_runtime_state for UI quick-access pinning (bd-4wf7).
+#[cfg(any(feature = "kv-mem", feature = "kv-rocksdb"))]
 const SCHEMA_V8: &str = r"
 DEFINE FIELD IF NOT EXISTS is_favorite ON device_runtime_state TYPE bool DEFAULT false;
 ";
@@ -235,6 +236,7 @@ DEFINE FIELD IF NOT EXISTS is_favorite ON device_runtime_state TYPE bool DEFAULT
 /// Records state transitions with timestamps, enabling post-mortem analysis
 /// of camera health over long experiments. Indexed by device_id for efficient
 /// per-device queries.
+#[cfg(any(feature = "kv-mem", feature = "kv-rocksdb"))]
 const SCHEMA_V9: &str = r"
 DEFINE TABLE IF NOT EXISTS device_lifecycle_event SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS device_id   ON device_lifecycle_event TYPE string;

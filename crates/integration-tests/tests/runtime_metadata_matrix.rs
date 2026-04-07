@@ -12,13 +12,13 @@ use std::path::PathBuf;
 use driver_registry::{create_registry_from_config, register_all_factories};
 use hardware::registry::HardwareConfig;
 
-#[cfg(feature = "db-surreal-mem")]
+#[cfg(feature = "db")]
 use db::config_store::{DbDriver, DbInstrument, toml_to_json};
-#[cfg(feature = "db-surreal-mem")]
+#[cfg(feature = "db")]
 use db::{DaqDb, DbConfig};
-#[cfg(feature = "db-surreal-mem")]
+#[cfg(feature = "db")]
 use std::collections::HashMap;
-#[cfg(feature = "db-surreal-mem")]
+#[cfg(feature = "db")]
 use std::collections::HashSet;
 
 fn workspace_root() -> PathBuf {
@@ -347,7 +347,7 @@ async fn matrix_native_devices_no_manifest_features() {
     );
 }
 
-#[cfg(feature = "db-surreal-mem")]
+#[cfg(feature = "db")]
 #[tokio::test]
 async fn matrix_db_manifest_features_persisted() {
     let registry = create_profile_registry("config/profiles/mock_ell14.toml").await;
@@ -682,7 +682,7 @@ async fn matrix_comedi_and_dover_driver_types_remain_native_exceptions() {
     );
 }
 
-#[cfg(feature = "db-surreal-mem")]
+#[cfg(feature = "db")]
 #[tokio::test]
 async fn matrix_db_on_hybrid_driver_metadata_parity() {
     let config = load_profile("config/profiles/mock_maitai_lab.toml");
