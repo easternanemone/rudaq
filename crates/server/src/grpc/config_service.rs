@@ -359,7 +359,12 @@ impl ConfigService for ConfigServiceImpl {
     ///
     /// Uses `DbChangeEvent::InstrumentsUpdated` from the SQLite backend
     /// (replaces SurrealDB LIVE SELECT). On each event, fetches the current
-    /// instrument list and sends a change event to the gRPC client.
+    /// instrument list and sends all instruments as "upsert" events.
+    ///
+    /// **Note**: Unlike the old SurrealDB LIVE SELECT, this does not distinguish
+    /// individual Create/Update/Delete actions — it sends the full instrument
+    /// snapshot on any change. This is simpler but coarser. No clients currently
+    /// consume this stream, so the semantic difference is acceptable.
     #[instrument(skip(self, _req))]
     #[allow(clippy::cast_possible_truncation)]
     // SAFETY: timestamp_ns truncation is acceptable for timestamps
@@ -735,8 +740,9 @@ mod tests {
             .await
             .unwrap();
         let info = resp.into_inner();
-        assert_eq!(info.engine, "mem");
-        assert_eq!(info.namespace, "daq");
+        assert_eq!(info.engine, "sqlite");
+        // SQLite has no namespace/database concepts — fields are empty.
+        assert_eq!(info.namespace, "");
         assert!(info.healthy);
     }
 }
