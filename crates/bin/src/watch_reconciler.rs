@@ -148,6 +148,8 @@ async fn process_broadcast_stream(
                     }
                     Err(broadcast::error::RecvError::Lagged(n)) => {
                         warn!(missed = n, "watch: broadcast receiver lagged, triggering resync");
+                        pending = false;
+                        max_deadline = None;
                         do_reconcile(db, registry, "watch: lagged resync").await;
                     }
                     Err(broadcast::error::RecvError::Closed) => {
@@ -203,10 +205,7 @@ async fn do_reconcile(db: &DaqDb, registry: &DeviceRegistry, context: &str) {
 /// Generate a random jitter value in milliseconds using a lightweight xorshift.
 ///
 /// Avoids adding `rand` as a dependency for a single use case.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "retained for future use in retry backoff")
-)]
+#[cfg(test)] // Only used in tests; retained for future retry backoff
 fn jitter_ms(max_ms: u64) -> u64 {
     let seed = {
         #[allow(clippy::cast_possible_truncation)]
