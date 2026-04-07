@@ -93,7 +93,7 @@ impl PageAlignedBuffer {
     }
 
     /// Get the buffer length in bytes.
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "public API for buffer introspection; used in SDK acquisition paths")]
     pub fn len(&self) -> usize {
         self.len
     }

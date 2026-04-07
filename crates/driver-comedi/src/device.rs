@@ -45,9 +45,7 @@ impl SubdeviceType {
     /// Note: The Comedi API returns subdevice types as i32, but the constants
     /// are u32. This function accepts i32 and safely converts negative values
     /// to None.
-    #[allow(clippy::cast_sign_loss)]
-    // SAFETY: Negative values are rejected above; remaining i32 values are
-    // non-negative Comedi subdevice type constants that fit in u32.
+    #[expect(clippy::cast_sign_loss, reason = "negative values are rejected above; remaining i32 values are non-negative Comedi subdevice type constants")]
     pub fn from_raw(raw: i32) -> Option<Self> {
         // Handle negative values (error codes) by returning None
         if raw < 0 {
@@ -131,8 +129,7 @@ impl SubdeviceInfo {
     }
 
     /// Resolution in bits (derived from maxdata).
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    // SAFETY: log2(maxdata+1) for ADC maxdata (12-24 bit) is always a small positive integer.
+    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "log2(maxdata+1) for ADC maxdata (12-24 bit) is always a small positive integer")]
     pub fn resolution_bits(&self) -> u32 {
         if self.maxdata == 0 {
             0
@@ -336,7 +333,7 @@ impl DeviceInner {
             // SAFETY: handle is valid and subdev is in range.
             let subdev_type = unsafe { comedi_sys::comedi_get_subdevice_type(handle, subdev) };
 
-            #[allow(clippy::cast_sign_loss)]
+            #[expect(clippy::cast_sign_loss, reason = "Comedi API returns subdevice types as i32 but constants are u32; type checked above")]
             match subdev_type as u32 {
                 comedi_sys::COMEDI_SUBD_AO => {
                     self.zero_analog_outputs(handle, subdev);
@@ -354,7 +351,7 @@ impl DeviceInner {
     /// Uses `maxdata / 2` as the "zero" value, which produces approximately 0V
     /// on bipolar ranges (e.g., -10V to +10V) and mid-scale on unipolar ranges.
     /// This is the safest default without knowing the configured range.
-    #[allow(clippy::cast_sign_loss)]
+    #[expect(clippy::cast_sign_loss, reason = "Comedi API returns channel counts as i32; negative values are rejected before cast")]
     fn zero_analog_outputs(&self, handle: *mut comedi_t, subdev: u32) {
         // SAFETY: handle is valid and subdev is a valid AO subdevice index.
         let n_channels = unsafe { comedi_sys::comedi_get_n_channels(handle, subdev) };
@@ -422,7 +419,7 @@ impl DeviceInner {
     ///
     /// Writing LOW to input-configured DIO channels is a no-op in comedi,
     /// so we simply write 0 to every channel without checking direction.
-    #[allow(clippy::cast_sign_loss)]
+    #[expect(clippy::cast_sign_loss, reason = "Comedi API returns channel counts as i32; negative values are rejected before cast")]
     fn set_dio_low(&self, handle: *mut comedi_t, subdev: u32) {
         // SAFETY: handle is valid and subdev is a valid DIO/DO subdevice index.
         let n_channels = unsafe { comedi_sys::comedi_get_n_channels(handle, subdev) };
@@ -616,8 +613,7 @@ impl ComediDevice {
     }
 
     /// Get the number of subdevices.
-    #[allow(clippy::cast_sign_loss)]
-    // SAFETY: Comedi returns non-negative subdevice count as i32; fits in u32.
+    #[expect(clippy::cast_sign_loss, reason = "Comedi returns non-negative subdevice count as i32; fits in u32")]
     pub fn n_subdevices(&self) -> u32 {
         // SAFETY: handle is valid
         self.with_handle(|handle| unsafe { comedi_sys::comedi_get_n_subdevices(handle) as u32 })
@@ -656,8 +652,7 @@ impl ComediDevice {
         let subdev_type = self.subdevice_type(subdevice)?;
 
         // SAFETY: handle is valid and subdevice is in range.
-        // Comedi FFI returns i32 for counts/flags that are always non-negative.
-        #[allow(clippy::cast_sign_loss)]
+        #[expect(clippy::cast_sign_loss, reason = "Comedi FFI returns i32 for counts/flags that are always non-negative")]
         self.with_handle(|handle| unsafe {
             let n_channels = comedi_sys::comedi_get_n_channels(handle, subdevice) as u32;
             let maxdata = comedi_sys::comedi_get_maxdata(handle, subdevice, 0);

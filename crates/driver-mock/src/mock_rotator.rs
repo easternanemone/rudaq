@@ -139,7 +139,7 @@ impl DriverFactory for MockRotatorFactory {
 /// Mirrored from the real ELL14 driver for compatibility.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
-#[allow(dead_code)]
+#[expect(dead_code, reason = "enum mirrors real ELL14 status codes for protocol compatibility; not all variants are constructed in mock")]
 pub enum Ell14StatusCode {
     /// No error - command completed successfully
     Ok = 0x00,
@@ -232,7 +232,7 @@ pub struct MockRotator {
     velocity_param: Parameter<f64>,
 
     /// Calibration: pulses per degree (reserved for future use)
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "calibration value retained for protocol fidelity with real ELL14 driver")]
     pulses_per_degree: f64,
 
     /// Status code
@@ -283,8 +283,7 @@ impl MockRotator {
     }
 
     /// Get the current velocity percentage.
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    // SAFETY: Velocity parameter is constrained to [0, 100], fits in u8 after rounding.
+    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "velocity parameter is constrained to [0, 100], fits in u8 after rounding")]
     pub fn velocity(&self) -> u8 {
         self.velocity_param.get().round() as u8
     }
@@ -320,10 +319,9 @@ impl MockRotator {
     /// Home the device to mechanical zero.
     pub async fn home(&self) -> Result<()> {
         // Simulate homing motion
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        // SAFETY: Velocity is constrained to [0, 100], fits in u8. Duration is positive and bounded.
+        #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "velocity is constrained to [0, 100], fits in u8; duration is positive and bounded")]
         let velocity = self.velocity_param.get().round() as u8;
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "duration_ms is always positive and bounded by motor speed")]
         let duration_ms = (1000.0 * (100.0 / f64::from(velocity.max(1)))) as u64;
         sleep(Duration::from_millis(duration_ms)).await;
 
@@ -354,9 +352,7 @@ impl MockRotator {
     }
 
     /// Calculate movement duration based on distance and velocity.
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    // SAFETY: Velocity is [0, 100], fits in u8. Duration result is always positive
-    // and bounded by physical motor speeds, fits in u64.
+    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "velocity is [0, 100], fits in u8; duration is always positive and bounded by motor speed")]
     fn calculate_duration(&self, distance_degrees: f64) -> Duration {
         let velocity = self.velocity_param.get().round() as u8;
 

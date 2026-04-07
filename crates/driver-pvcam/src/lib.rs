@@ -212,7 +212,7 @@ impl DriverFactory for PvcamFactory {
 /// Fields drop in declaration order. `acquisition` MUST drop before `connection`
 /// to ensure the poll thread stops before the SDK is uninitialized. The explicit
 /// Drop impl also calls stop_stream() to ensure clean shutdown.
-#[allow(dead_code)]
+#[expect(dead_code, reason = "fields are read via Arc accessors in capability trait impls and drop order is load-bearing")]
 pub struct PvcamDriver {
     camera_name: String,
 
@@ -380,9 +380,9 @@ impl PvcamDriver {
     ) -> Result<Self> {
         // Query sensor size
         let (width, height) = {
-            #[allow(unused_mut)]
+            #[expect(unused_mut, reason = "mutated only when pvcam_sdk feature is enabled")]
             let mut w = 2048;
-            #[allow(unused_mut)]
+            #[expect(unused_mut, reason = "mutated only when pvcam_sdk feature is enabled")]
             let mut h = 2048;
             #[cfg(feature = "pvcam_sdk")]
             {
@@ -485,8 +485,7 @@ impl PvcamDriver {
                     .map(|p| p.name.clone())
                     .unwrap_or_else(|| "Sensitivity".to_string());
 
-                #[allow(clippy::cast_sign_loss)]
-                // SAFETY: PVCAM speed/gain indices are non-negative i16 values.
+                #[expect(clippy::cast_sign_loss, reason = "PVCAM speed/gain indices are non-negative i16 values")]
                 let speed = port.and_then(|p| {
                     p.speeds
                         .iter()
@@ -498,7 +497,7 @@ impl PvcamDriver {
                     .map(|s| s.name.clone())
                     .unwrap_or_else(|| "100 MHz".to_string());
 
-                #[allow(clippy::cast_sign_loss)]
+                #[expect(clippy::cast_sign_loss, reason = "PVCAM speed/gain indices are non-negative i16 values")]
                 let gain = speed.and_then(|s| {
                     s.gains
                         .iter()
@@ -2776,8 +2775,7 @@ impl PvcamDriver {
 
                                 let _ = bit_depth
                                     .set_from_hardware({
-                                        #[allow(clippy::cast_sign_loss)]
-                                        // SAFETY: PVCAM bit_depth is always positive (8, 12, 16)
+                                        #[expect(clippy::cast_sign_loss, reason = "PVCAM bit_depth is always positive (8, 12, 16)")]
                                         {
                                             speed.bit_depth as u16
                                         }
@@ -2826,8 +2824,7 @@ impl PvcamDriver {
 
                         let _ = bit_depth
                             .set_from_hardware({
-                                #[allow(clippy::cast_sign_loss)]
-                                // SAFETY: PVCAM bit_depth is always positive (8, 12, 16)
+                                #[expect(clippy::cast_sign_loss, reason = "PVCAM bit_depth is always positive (8, 12, 16)")]
                                 {
                                     speed.bit_depth as u16
                                 }
@@ -2894,8 +2891,7 @@ impl PvcamDriver {
                     let _ = self
                         .bit_depth
                         .set_from_hardware({
-                            #[allow(clippy::cast_sign_loss)]
-                            // SAFETY: PVCAM bit_depth is always positive (8, 12, 16)
+                            #[expect(clippy::cast_sign_loss, reason = "PVCAM bit_depth is always positive (8, 12, 16)")]
                             {
                                 speed.bit_depth as u16
                             }
@@ -3335,7 +3331,7 @@ impl FrameProducer for PvcamDriver {
         self.acquisition.frame_tx.receiver_count()
     }
 
-    #[allow(deprecated)]
+    #[expect(deprecated, reason = "implementing deprecated trait method for backward compatibility")]
     async fn subscribe_frames(&self) -> Option<tokio::sync::broadcast::Receiver<Arc<Frame>>> {
         tracing::warn!(
             target: "pvcam",
@@ -3462,8 +3458,7 @@ impl Commandable for PvcamDriver {
                     .and_then(|v| v.as_array())
                     .ok_or_else(|| anyhow::anyhow!("Missing 'exposures' array argument"))?;
 
-                #[allow(clippy::cast_possible_truncation)]
-                // SAFETY: SmartStream exposure values are in milliseconds, well within u32 range.
+                #[expect(clippy::cast_possible_truncation, reason = "SmartStream exposure values are in milliseconds, well within u32 range")]
                 let exposures_u32: Vec<u32> = exposures
                     .iter()
                     .map(|v| v.as_u64().unwrap_or(0) as u32)

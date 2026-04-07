@@ -166,7 +166,7 @@ impl ComediError {
     /// # Safety
     ///
     /// This function calls FFI functions.
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "error constructor available for Comedi FFI error paths that use explicit errno values")]
     pub(crate) unsafe fn from_errno_value(errno: i32) -> Self {
         // SAFETY: comedi_strerror is safe to call with any errno value
         let msg_ptr = unsafe { comedi_sys::comedi_strerror(errno) };

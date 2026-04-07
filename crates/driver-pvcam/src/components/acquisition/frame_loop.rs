@@ -40,7 +40,7 @@ impl PvcamAcquisition {
     /// Repeatedly acquires batches of frames using pl_exp_setup_seq/start_seq,
     /// polls for completion, and sends frames to channels.
     #[cfg(feature = "pvcam_sdk")]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments, reason = "PVCAM sequence frame loop requires all parameters for region, exposure, channels, and state tracking")]
     pub(super) fn frame_loop_sequence(
         hcam: i16,
         region: rgn_type,
@@ -356,7 +356,7 @@ impl PvcamAcquisition {
     ///                         When > 0, each frame's extended metadata includes `smart_stream_index`
     ///                         and `smart_stream_count` for downstream HDR merging.
     #[cfg(feature = "pvcam_sdk")]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments, reason = "hardware frame loop requires all parameters for SDK handle, channels, counters, callback context, and streaming config")]
     pub(super) fn frame_loop_hardware(
         hcam: i16,
         streaming: Parameter<bool>,

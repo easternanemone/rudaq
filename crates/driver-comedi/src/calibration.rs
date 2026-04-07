@@ -255,7 +255,7 @@ impl CalibrationPolynomial {
 
         // Horner's method for efficient polynomial evaluation
         let mut result = 0.0;
-        #[allow(clippy::cast_possible_truncation)]
+        #[expect(clippy::cast_possible_truncation, reason = "polynomial order is small (< 4), fits in usize")]
         for i in (0..=self.order as usize).rev() {
             result = result * x + self.coefficients[i];
         }
@@ -292,8 +292,7 @@ impl CalibrationPolynomial {
         };
 
         // Clamp to valid range
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        // SAFETY: Clamped to [0, maxdata]; round() produces exact integer in u32 range.
+        #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "clamped to [0, maxdata]; round() produces exact integer in u32 range")]
         {
             raw.clamp(0.0, f64::from(maxdata)).round() as u32
         }
@@ -330,13 +329,12 @@ impl CalibrationPolynomial {
     }
 
     /// Compute the derivative of the polynomial at a point.
-    #[allow(clippy::cast_precision_loss)]
-    // SAFETY: Polynomial order and index are small integers (< 4), exact in f64.
+    #[expect(clippy::cast_precision_loss, reason = "polynomial order and index are small integers (< 4), exact in f64")]
     fn derivative_at(&self, value: f64) -> f64 {
         let x = value - self.expansion_origin;
 
         let mut result = 0.0;
-        #[allow(clippy::cast_possible_truncation)]
+        #[expect(clippy::cast_possible_truncation, reason = "polynomial order is small (< 4), fits in usize")]
         for i in (1..=self.order as usize).rev() {
             result = result * x + (i as f64) * self.coefficients[i];
         }

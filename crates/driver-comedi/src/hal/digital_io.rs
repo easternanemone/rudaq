@@ -180,8 +180,7 @@ impl Settable for SwitchableDigitalIO {
     async fn set_value(&self, name: &str, value: Value) -> Result<()> {
         // Handle port-wide operations
         if name == "port" {
-            #[allow(clippy::cast_possible_truncation)]
-            // SAFETY: Port values are 32-bit bitmasks.
+            #[expect(clippy::cast_possible_truncation, reason = "port values are 32-bit bitmasks")]
             let port_value = value
                 .as_u64()
                 .ok_or_else(|| anyhow::anyhow!("port value must be an unsigned integer"))?

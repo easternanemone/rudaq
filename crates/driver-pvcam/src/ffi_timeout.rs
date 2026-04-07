@@ -31,18 +31,18 @@ pub const PARAM_QUERY_TIMEOUT: Duration = Duration::from_secs(5);
 pub const CONFIG_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// Timeout for acquisition start/stop and heavy setup operations.
-#[allow(dead_code)]
+#[expect(dead_code, reason = "timeout tier defined for completeness; used when pvcam_sdk feature is enabled")]
 pub const ACQUISITION_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Timeout for SDK init, device open, and reinitialization.
 pub const INIT_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// Timeout for single-frame readout operations.
-#[allow(dead_code)]
+#[expect(dead_code, reason = "timeout tier defined for completeness; used when pvcam_sdk feature is enabled")]
 pub const FRAME_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Timeout for serial-port / USB open operations.
-#[allow(dead_code)]
+#[expect(dead_code, reason = "timeout tier defined for completeness; used when pvcam_sdk feature is enabled")]
 pub const SERIAL_OPEN_TIMEOUT: Duration = Duration::from_secs(10);
 
 // ---------------------------------------------------------------------------

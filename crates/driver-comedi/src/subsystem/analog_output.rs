@@ -55,8 +55,7 @@ impl AnalogOutput {
             });
         }
 
-        #[allow(clippy::cast_sign_loss)]
-        // SAFETY: Comedi FFI returns non-negative channel count as i32.
+        #[expect(clippy::cast_sign_loss, reason = "Comedi FFI returns non-negative channel count as i32")]
         let (n_channels, maxdata) = device.with_handle(|handle| unsafe {
             let n = comedi_sys::comedi_get_n_channels(handle, subdevice) as u32;
             let m = comedi_sys::comedi_get_maxdata(handle, subdevice, 0);
@@ -89,8 +88,7 @@ impl AnalogOutput {
     }
 
     /// Get the resolution in bits.
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    // SAFETY: log2(maxdata+1) for DAC maxdata (12-16 bit) is always a small positive integer.
+    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "log2(maxdata+1) for DAC maxdata (12-16 bit) is always a small positive integer")]
     pub fn resolution_bits(&self) -> u32 {
         if self.maxdata == 0 {
             0
@@ -107,8 +105,7 @@ impl AnalogOutput {
             comedi_sys::comedi_get_n_ranges(handle, self.subdevice, channel)
         });
 
-        #[allow(clippy::cast_sign_loss)]
-        // SAFETY: Comedi returns non-negative range count.
+        #[expect(clippy::cast_sign_loss, reason = "Comedi returns non-negative range count")]
         Ok(n as u32)
     }
 
@@ -199,8 +196,7 @@ impl AnalogOutput {
             if range_ptr.is_null() {
                 // Fallback to manual calculation
                 let fraction = (voltage - range.min) / range.span();
-                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-                // SAFETY: Clamped to [0, maxdata], fits in lsampl_t.
+                #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "clamped to [0, maxdata], fits in lsampl_t")]
                 {
                     (fraction * f64::from(self.maxdata)).clamp(0.0, f64::from(self.maxdata))
                         as lsampl_t

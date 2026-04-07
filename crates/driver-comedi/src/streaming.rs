@@ -215,17 +215,14 @@ impl StreamConfig {
     }
 
     /// Calculate the scan interval in nanoseconds.
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    // SAFETY: Scan rate produces intervals in the range of microseconds-to-seconds,
-    // well within u32 range (max ~4.3 seconds in nanoseconds).
+    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "scan rate produces intervals in microsecond-to-second range, well within u32")]
     pub fn scan_interval_ns(&self) -> u32 {
         let scan_rate = self.scan_rate.unwrap_or(self.sample_rate);
         (1e9 / scan_rate) as u32
     }
 
     /// Calculate the convert interval in nanoseconds.
-    #[allow(clippy::cast_possible_truncation)]
-    // SAFETY: Channel count is small (typically < 64), fits in u32.
+    #[expect(clippy::cast_possible_truncation, reason = "channel count is small (typically < 64), fits in u32")]
     pub fn convert_interval_ns(&self) -> u32 {
         self.convert_interval_ns.unwrap_or_else(|| {
             // Default: evenly space conversions within scan
@@ -368,7 +365,7 @@ pub struct StreamStats {
 }
 
 /// Internal state for the acquisition.
-#[allow(dead_code)]
+#[expect(dead_code, reason = "fields read during streaming operations via command execution and buffer management")]
 struct StreamState {
     /// Comedi command structure
     cmd: comedi_cmd,
@@ -573,15 +570,12 @@ impl StreamAcquisition {
     ///
     /// Returns a vector of voltage readings organized as [scan0_ch0, scan0_ch1, ...].
     /// Returns None if acquisition is not running.
-    #[allow(
+    #[expect(
         clippy::cast_possible_truncation,
         clippy::cast_sign_loss,
-        clippy::cast_precision_loss
+        clippy::cast_precision_loss,
+        reason = "buffer sizes and sample counts from Comedi are bounded by kernel DMA buffer (typically 64K-1M)"
     )]
-    // SAFETY: Buffer sizes, byte counts, and sample counts from Comedi are bounded
-    // by the kernel DMA buffer (typically 64K-1M). The usize/u64/u32 casts are
-    // safe for these sizes. The u64 cast for samples_acquired is for atomic
-    // statistics only.
     pub fn read_available(&self) -> Result<Option<Vec<f64>>> {
         if !self.running.load(Ordering::SeqCst) {
             return Ok(None);
@@ -748,9 +742,7 @@ impl StreamAcquisition {
     }
 
     /// Get current statistics.
-    #[allow(clippy::cast_precision_loss)]
-    // SAFETY: Sample counts cast to f64 for rate calculation; precision loss is
-    // acceptable for statistics display.
+    #[expect(clippy::cast_precision_loss, reason = "sample counts cast to f64 for rate calculation; precision loss acceptable for statistics display")]
     pub fn stats(&self) -> StreamStats {
         let state = self.state.lock();
         let samples = self.samples_acquired.load(Ordering::SeqCst);
@@ -805,9 +797,7 @@ impl StreamAcquisition {
     }
 
     /// Build the comedi command structure.
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    // SAFETY: Channel count, stop counts, and duration-to-sample conversions are
-    // bounded by hardware limits and fit within u32.
+    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "channel count, stop counts, and duration-to-sample conversions are bounded by hardware limits")]
     fn build_command(&self, state: &mut StreamState) -> Result<()> {
         let n_channels = self.config.channels.len() as u32;
 

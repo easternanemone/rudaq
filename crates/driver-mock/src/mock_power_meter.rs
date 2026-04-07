@@ -578,7 +578,7 @@ impl Readable for MockPowerMeter {
 #[async_trait]
 impl ReadableWithMetadata for MockPowerMeter {
     async fn read_with_metadata(&self, _channel: u32) -> Result<ReadResult> {
-        #[allow(clippy::cast_possible_truncation)] // Nanoseconds since epoch fit in u64 until ~2554
+        #[expect(clippy::cast_possible_truncation, reason = "nanosecond timestamps won't exceed u64 until year ~2554")]
         let timestamp_ns = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .expect("system clock before UNIX epoch")

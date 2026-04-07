@@ -1179,8 +1179,7 @@ impl PvcamAcquisition {
             let frame_size = (binned_width * binned_height) as usize;
 
             while streaming.get() {
-                #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-                // SAFETY: Exposure time is always positive and within millisecond range.
+                #[expect(clippy::cast_sign_loss, clippy::cast_possible_truncation, reason = "exposure time is always positive and within millisecond range")]
                 tokio::time::sleep(Duration::from_millis(exposure_ms as u64)).await;
                 if !streaming.get() {
                     break;
@@ -1190,8 +1189,7 @@ impl PvcamAcquisition {
                 let mut pixels = vec![0u16; frame_size];
                 for y in 0..binned_height {
                     for x in 0..binned_width {
-                        #[allow(clippy::cast_possible_truncation)]
-                        // SAFETY: Modulo 4096 guarantees value fits in u16.
+                        #[expect(clippy::cast_possible_truncation, reason = "modulo 4096 guarantees value fits in u16")]
                         let value =
                             (((x + y + frame_num as u32) % 4096) as u16).saturating_add(100);
                         pixels[(y * binned_width + x) as usize] = value;
@@ -1210,8 +1208,7 @@ impl PvcamAcquisition {
                         frame_data.roi_x = roi.x;
                         frame_data.roi_y = roi.y;
                         frame_data.binning = Some(binning);
-                        #[allow(clippy::cast_possible_truncation)]
-                        // SAFETY: Nanosecond timestamps won't exceed u64 until year ~2554
+                        #[expect(clippy::cast_possible_truncation, reason = "nanosecond timestamps won't exceed u64 until year ~2554")]
                         {
                             frame_data.timestamp_ns = std::time::SystemTime::now()
                                 .duration_since(std::time::UNIX_EPOCH)
@@ -1395,7 +1392,7 @@ impl PvcamAcquisition {
     /// Works in batches of SEQUENCE_BATCH_SIZE frames, polling for completion,
     /// then restarting for continuous streaming.
     #[cfg(feature = "pvcam_sdk")]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments, reason = "PVCAM sequence mode requires all these parameters for region, exposure, binning, and channel config")]
     async fn start_stream_sequence_impl(
         &self,
         hcam: i16,

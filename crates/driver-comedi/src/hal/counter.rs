@@ -120,8 +120,7 @@ impl Settable for ReadableCounter {
     async fn set_value(&self, name: &str, value: Value) -> Result<()> {
         match name {
             "value" | "count" => {
-                #[allow(clippy::cast_possible_truncation)]
-                // SAFETY: Counter values are bounded by maxdata (16-32 bit), fits in u32.
+                #[expect(clippy::cast_possible_truncation, reason = "counter values are bounded by maxdata (16-32 bit), fits in u32")]
                 let count = value
                     .as_u64()
                     .ok_or_else(|| anyhow::anyhow!("count must be an unsigned integer"))?
