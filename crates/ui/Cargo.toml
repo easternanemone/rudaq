@@ -47,6 +47,9 @@ egui_dock = { version = "0.18", optional = true, features = ["serde"] }
 egui_plot = { version = "0.34", optional = true }
 egui-phosphor = { version = "0.11", optional = true }
 
+# Graph editor logic (extracted per M-SMALLER-CRATES)
+ui-graph = { path = "../ui-graph" }
+
 # --- Cross-platform dependencies (pure Rust, compile on native + WASM) ---
 egui-snarl = { version = "0.9", features = ["serde"] }
 undo = "0.52"

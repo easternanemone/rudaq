@@ -3,7 +3,7 @@
 //! Provides runtime evaluation of trigger conditions for adaptive scans.
 //! Triggers can detect threshold crossings or peaks in signal data.
 
-use crate::graph::nodes::{ThresholdOp, TriggerCondition, TriggerLogic};
+use crate::nodes::{ThresholdOp, TriggerCondition, TriggerLogic};
 use find_peaks::PeakFinder;
 
 /// Detected peak information.

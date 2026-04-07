@@ -23,6 +23,7 @@ members = [
     "crates/bin", "crates/server", "crates/experiment",
     "crates/storage",
     "crates/ui",
+    "crates/ui-graph",
     "crates/daq-modules",
     "crates/integration-tests",
     "crates/db",
