@@ -76,8 +76,23 @@ criterion = { version = "0.5", features = ["html_reports"] }
 
 # Workspace-wide lints (applied to all crates)
 [workspace.lints.clippy]
-# Enable pedantic lints for stricter code quality
+# MS Rust Guidelines M-STATIC-VERIFICATION: Enable major lint categories
+cargo = { level = "warn", priority = -1 }
+complexity = { level = "warn", priority = -1 }
+correctness = { level = "warn", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
+perf = { level = "warn", priority = -1 }
+style = { level = "warn", priority = -1 }
+suspicious = { level = "warn", priority = -1 }
+
+# MS Rust Guidelines: restriction lints for consistency and quality
+allow_attributes_without_reason = "warn"
+clone_on_ref_ptr = "warn"
+empty_enum_variants_with_brackets = "warn"
+empty_structs_with_brackets = "warn"
+semicolon_outside_block = "warn"
+string_to_string = "warn"
+undocumented_unsafe_blocks = "warn"
 
 # Allow common pedantic lints that are too noisy for this project
 module_name_repetitions = "allow"    # e.g., `common::core::Frame` is fine
@@ -133,8 +148,20 @@ map_unwrap_or = "allow"              # .map().unwrap_or() can be clearer than .m
 
 [workspace.lints.rust]
 unsafe_code = "warn"
-# Disabled for now - too many missing docs
+# MS Rust Guidelines M-STATIC-VERIFICATION: recommended compiler lints
+ambiguous_negative_literals = "warn"
+redundant_imports = "warn"
+redundant_lifetimes = "warn"
+trivial_numeric_casts = "warn"
+unsafe_op_in_unsafe_fn = "warn"
+unused_lifetimes = "warn"
+# Disabled for now - too many missing docs/impls
 # missing_docs = "warn"
+# missing_debug_implementations = "warn"  # enable after W3.3 (Display impls)
+
+# MS Rust Guidelines M-HOTPATH: enable debug symbols for profiling
+[profile.bench]
+debug = 1
 
 # Release profile optimizations
 [profile.release]
