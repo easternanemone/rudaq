@@ -18,26 +18,28 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { execFileSync } from "node:child_process";
+import { execFile as execFileCb } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
+
+const execFile = promisify(execFileCb);
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // In dev (tsx): src/index.ts → ax-bridge is in parent dir
 // In prod (compiled): dist/index.js → ax-bridge is in parent dir
 const AX_BRIDGE = join(__dirname, "..", "ax-bridge");
 
-function runBridge(args: string[]): unknown {
+async function runBridge(args: string[]): Promise<unknown> {
   try {
-    const stdout = execFileSync(AX_BRIDGE, args, {
+    const { stdout } = await execFile(AX_BRIDGE, args, {
       timeout: 15_000,
       encoding: "utf-8",
       maxBuffer: 5 * 1024 * 1024, // 5MB for large trees
     });
     return JSON.parse(stdout);
   } catch (err: unknown) {
-    if (err instanceof Error && "status" in err) {
-      // execFileSync error with stderr
+    if (err instanceof Error && "stderr" in err) {
       const execErr = err as Error & { stderr?: string };
       const stderr = execErr.stderr?.toString().trim() ?? "";
       if (stderr.includes("not found") || stderr.includes("No such file")) {
@@ -53,11 +55,11 @@ function runBridge(args: string[]): unknown {
 }
 
 // Resolve a PID from either a direct PID or an app name
-function resolvePid(pid?: number, appName?: string): number {
+async function resolvePid(pid?: number, appName?: string): Promise<number> {
   if (pid) return pid;
   if (!appName) throw new Error("Either pid or app_name is required");
 
-  const apps = runBridge(["list-apps"]) as Array<{
+  const apps = (await runBridge(["list-apps"])) as Array<{
     name: string;
     pid: number;
     bundleId: string | null;
@@ -89,7 +91,7 @@ server.tool(
   "List running GUI applications with their PIDs. Use this first to find the target app's PID.",
   {},
   async () => {
-    const apps = runBridge(["list-apps"]);
+    const apps = await runBridge(["list-apps"]);
     return {
       content: [{ type: "text", text: JSON.stringify(apps, null, 2) }],
     };
@@ -111,8 +113,8 @@ server.tool(
       .describe("Maximum tree traversal depth (default: 6)"),
   },
   async ({ pid, app_name, depth }) => {
-    const resolvedPid = resolvePid(pid, app_name);
-    const tree = runBridge([
+    const resolvedPid = await resolvePid(pid, app_name);
+    const tree = await runBridge([
       "tree",
       String(resolvedPid),
       "--depth",
@@ -149,13 +151,13 @@ server.tool(
       .describe("Value substring to match (case-insensitive)"),
   },
   async ({ pid, app_name, role, title, value }) => {
-    const resolvedPid = resolvePid(pid, app_name);
+    const resolvedPid = await resolvePid(pid, app_name);
     const args = ["find", String(resolvedPid)];
     if (role) args.push("--role", role);
     if (title) args.push("--title", title);
     if (value) args.push("--value", value);
 
-    const results = runBridge(args);
+    const results = await runBridge(args);
     return {
       content: [{ type: "text", text: JSON.stringify(results, null, 2) }],
     };
@@ -176,8 +178,8 @@ server.tool(
       .describe("Title substring of the element to click (case-insensitive)"),
   },
   async ({ pid, app_name, title }) => {
-    const resolvedPid = resolvePid(pid, app_name);
-    const result = runBridge([
+    const resolvedPid = await resolvePid(pid, app_name);
+    const result = await runBridge([
       "click",
       String(resolvedPid),
       "--title",
@@ -204,8 +206,8 @@ server.tool(
     value: z.string().describe("New value to set"),
   },
   async ({ pid, app_name, title, value }) => {
-    const resolvedPid = resolvePid(pid, app_name);
-    const result = runBridge([
+    const resolvedPid = await resolvePid(pid, app_name);
+    const result = await runBridge([
       "set-value",
       String(resolvedPid),
       "--title",
@@ -233,8 +235,8 @@ server.tool(
       .describe("Title or label substring to search for (case-insensitive)"),
   },
   async ({ pid, app_name, title }) => {
-    const resolvedPid = resolvePid(pid, app_name);
-    const result = runBridge([
+    const resolvedPid = await resolvePid(pid, app_name);
+    const result = await runBridge([
       "read-value",
       String(resolvedPid),
       "--title",
@@ -268,8 +270,8 @@ server.tool(
       .describe("Number of step increments/decrements to perform (default: 1)"),
   },
   async ({ pid, app_name, title, direction, steps }) => {
-    const resolvedPid = resolvePid(pid, app_name);
-    const result = runBridge([
+    const resolvedPid = await resolvePid(pid, app_name);
+    const result = await runBridge([
       direction,
       String(resolvedPid),
       "--title",
@@ -298,8 +300,8 @@ server.tool(
       .describe("Output file path for the PNG screenshot"),
   },
   async ({ pid, app_name, output }) => {
-    const resolvedPid = resolvePid(pid, app_name);
-    const result = runBridge([
+    const resolvedPid = await resolvePid(pid, app_name);
+    const result = await runBridge([
       "screenshot",
       String(resolvedPid),
       "--output",
@@ -322,8 +324,8 @@ server.tool(
       .describe("App name substring (alternative to PID)"),
   },
   async ({ pid, app_name }) => {
-    const resolvedPid = resolvePid(pid, app_name);
-    const result = runBridge(["app-status", String(resolvedPid)]);
+    const resolvedPid = await resolvePid(pid, app_name);
+    const result = await runBridge(["app-status", String(resolvedPid)]);
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
     };
@@ -350,7 +352,7 @@ server.tool(
     const args = ["launch", "--path", path];
     if (daemon_url) args.push("--daemon-url", daemon_url);
     if (runtime_mode) args.push("--runtime-mode", runtime_mode);
-    const result = runBridge(args);
+    const result = await runBridge(args);
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
     };

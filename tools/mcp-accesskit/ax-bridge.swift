@@ -32,21 +32,21 @@ func getActions(_ element: AXUIElement) -> [String] {
 }
 
 func getPosition(_ element: AXUIElement) -> (x: Double, y: Double)? {
-    guard let value = getAttr(element, kAXPositionAttribute) else { return nil }
+    guard let raw = getAttr(element, kAXPositionAttribute) else { return nil }
+    // AXValue is a CF type — cast always succeeds, but AXValueGetValue
+    // fails safely if the type doesn't match .cgPoint
+    let value = raw as! AXValue  // swiftlint:disable:this force_cast
     var point = CGPoint.zero
-    if AXValueGetValue(value as! AXValue, .cgPoint, &point) {
-        return (Double(point.x), Double(point.y))
-    }
-    return nil
+    guard AXValueGetValue(value, .cgPoint, &point) else { return nil }
+    return (Double(point.x), Double(point.y))
 }
 
 func getSize(_ element: AXUIElement) -> (w: Double, h: Double)? {
-    guard let value = getAttr(element, kAXSizeAttribute) else { return nil }
+    guard let raw = getAttr(element, kAXSizeAttribute) else { return nil }
+    let value = raw as! AXValue  // swiftlint:disable:this force_cast
     var size = CGSize.zero
-    if AXValueGetValue(value as! AXValue, .cgSize, &size) {
-        return (Double(size.width), Double(size.height))
-    }
-    return nil
+    guard AXValueGetValue(value, .cgSize, &size) else { return nil }
+    return (Double(size.width), Double(size.height))
 }
 
 // MARK: - Tree Building
@@ -203,7 +203,7 @@ func findAndPerformAction(
 ///   Returns a "use_grpc" hint so the agent knows to use `SetParameter` gRPC instead.
 func findAndSetValue(
     _ element: AXUIElement,
-    pid: pid_t,
+    pid _: pid_t,
     title: String,
     newValue: String
 ) -> (success: Bool, elementTitle: String?, hint: String?) {
@@ -282,39 +282,6 @@ struct AppInfo: Codable {
     let name: String
     let pid: Int32
     let bundleId: String?
-}
-
-struct CommandResult: Codable {
-    let success: Bool
-    let error: String?
-    let data: AnyCodable?
-}
-
-// Simple type-erased Codable wrapper
-struct AnyCodable: Codable {
-    let value: Any
-
-    init(_ value: Any) { self.value = value }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        if let str = try? container.decode(String.self) { value = str; return }
-        if let num = try? container.decode(Double.self) { value = num; return }
-        if let bool = try? container.decode(Bool.self) { value = bool; return }
-        value = "unsupported"
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.singleValueContainer()
-        switch value {
-        case let str as String: try container.encode(str)
-        case let num as Double: try container.encode(num)
-        case let num as Int: try container.encode(num)
-        case let bool as Bool: try container.encode(bool)
-        case let arr as [Codable]: try container.encode(arr.map { "\($0)" })
-        default: try container.encode("\(value)")
-        }
-    }
 }
 
 func outputJSON<T: Encodable>(_ value: T) {
@@ -625,7 +592,8 @@ case "app-status":
        let str = String(data: data, encoding: .utf8) { print(str) }
 
 case "launch":
-    // Launch the DAQ GUI with specified arguments
+    // Launch the DAQ GUI with specified arguments.
+    // Security: only allows launching binaries named "rust-daq-gui" or "rust-daq-daemon".
     var guiPath = ""
     var guiArgs: [String] = []
     if let idx = args.firstIndex(of: "--path"), idx + 1 < args.count { guiPath = args[idx + 1] }
@@ -636,6 +604,20 @@ case "launch":
         guiArgs += ["--runtime-mode", args[idx + 1]]
     }
     guard !guiPath.isEmpty else { outputError("--path required (path to rust-daq-gui binary)"); exit(1) }
+
+    // Allowlist: only launch known rust-daq binaries
+    let allowedNames = ["rust-daq-gui", "rust-daq-daemon"]
+    let binaryName = URL(fileURLWithPath: guiPath).lastPathComponent
+    guard allowedNames.contains(binaryName) else {
+        outputError("Refused to launch '\(binaryName)': only \(allowedNames) are allowed")
+        exit(1)
+    }
+
+    let fm = FileManager.default
+    guard fm.isExecutableFile(atPath: guiPath) else {
+        outputError("Binary not found or not executable: \(guiPath)")
+        exit(1)
+    }
 
     let proc = Process()
     proc.executableURL = URL(fileURLWithPath: guiPath)
