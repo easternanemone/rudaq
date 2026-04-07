@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! Module System for Experiment Modules
 //!
 //! This module provides the infrastructure for experiment modules with runtime

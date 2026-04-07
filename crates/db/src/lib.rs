@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! Embedded SurrealDB persistence layer for rust-daq.
 //!
 //! This crate provides the **control plane** database — configuration, topology,

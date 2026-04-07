@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 // Allow Rust 1.93+ clippy lints that require significant refactoring
 // These can be addressed incrementally in future PRs
 #![allow(
