@@ -95,7 +95,7 @@ pub struct RunEngine {
     pub(crate) state: RwLock<EngineState>,
 
     /// Device registry for hardware operations
-    pub(crate) device_registry: Arc<DeviceRegistry>,
+    pub(crate) device_registry: DeviceRegistry,
 
     /// Plan queue (composed component)
     pub(crate) task_queue: TaskQueue,
@@ -140,7 +140,7 @@ pub struct RunEngine {
 
 impl RunEngine {
     /// Create a new RunEngine
-    pub fn new(device_registry: Arc<DeviceRegistry>) -> Self {
+    pub fn new(device_registry: DeviceRegistry) -> Self {
         let (doc_sender, _) = broadcast::channel(1024);
         let (state_sender, _) = broadcast::channel(16);
         let (feedback_tx, feedback_rx) = mpsc::channel(256);

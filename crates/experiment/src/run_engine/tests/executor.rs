@@ -12,7 +12,7 @@ use hardware::registry::DeviceRegistry;
 
 #[tokio::test]
 async fn test_engine_state_transitions() {
-    let registry = Arc::new(DeviceRegistry::new());
+    let registry = DeviceRegistry::new();
     let engine = RunEngine::new(registry);
 
     assert_eq!(engine.state().await, EngineState::Idle);
@@ -26,7 +26,7 @@ async fn test_engine_state_transitions() {
 
 #[tokio::test]
 async fn test_document_subscription() {
-    let registry = Arc::new(DeviceRegistry::new());
+    let registry = DeviceRegistry::new();
     let engine = RunEngine::new(registry);
 
     let mut rx = engine.subscribe();
@@ -75,7 +75,7 @@ async fn test_document_subscription() {
 /// Test that Wait command can be interrupted by abort (bd-lnoi)
 #[tokio::test]
 async fn test_wait_interruptible_by_abort() {
-    let registry = Arc::new(DeviceRegistry::new());
+    let registry = DeviceRegistry::new();
     let engine = Arc::new(RunEngine::new(registry));
 
     let mut rx = engine.subscribe();
@@ -140,7 +140,7 @@ async fn test_wait_interruptible_by_abort() {
 /// Test that normal Wait still works correctly (bd-lnoi)
 #[tokio::test]
 async fn test_wait_completes_normally() {
-    let registry = Arc::new(DeviceRegistry::new());
+    let registry = DeviceRegistry::new();
     let engine = Arc::new(RunEngine::new(registry));
 
     let mut rx = engine.subscribe();
@@ -193,7 +193,7 @@ async fn test_wait_completes_normally() {
 
 #[tokio::test]
 async fn test_state_returns_correct_value() {
-    let registry = Arc::new(DeviceRegistry::new());
+    let registry = DeviceRegistry::new();
     let engine = RunEngine::new(registry);
 
     let state = engine.state().await;
@@ -202,7 +202,7 @@ async fn test_state_returns_correct_value() {
 
 #[tokio::test]
 async fn test_engine_abort_when_idle() {
-    let registry = Arc::new(DeviceRegistry::new());
+    let registry = DeviceRegistry::new();
     let engine = RunEngine::new(registry);
 
     let result = engine.abort("Test abort").await;
@@ -217,7 +217,7 @@ async fn test_engine_abort_when_idle() {
 
 #[tokio::test]
 async fn test_manifest_contains_plan_info() {
-    let registry = Arc::new(DeviceRegistry::new());
+    let registry = DeviceRegistry::new();
     let engine = RunEngine::new(registry);
     let mut rx = engine.subscribe();
 
@@ -247,7 +247,7 @@ async fn test_manifest_contains_plan_info() {
 
 #[tokio::test]
 async fn test_subscribe_multiple_times() {
-    let registry = Arc::new(DeviceRegistry::new());
+    let registry = DeviceRegistry::new();
     let engine = RunEngine::new(registry);
 
     let mut rx1 = engine.subscribe();

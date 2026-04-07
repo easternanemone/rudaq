@@ -52,7 +52,7 @@ pub struct RunEngineHandle {
 
 impl RunEngineHandle {
     /// Create a new RunEngineHandle wrapping a DeviceRegistry
-    pub fn new(registry: Arc<DeviceRegistry>) -> Self {
+    pub fn new(registry: DeviceRegistry) -> Self {
         Self {
             engine: Arc::new(RunEngine::new(registry)),
         }
@@ -109,11 +109,7 @@ fn validate_points(points: i64) -> Result<usize, Box<EvalAltResult>> {
             format!("points exceeds maximum ({MAX_SCAN_POINTS}), got {points}"),
         ));
     }
-    #[expect(
-        clippy::cast_sign_loss,
-        clippy::cast_possible_truncation,
-        reason = "value validated non-negative before cast"
-    )]
+    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
     Ok(points as usize)
 }
 
@@ -245,10 +241,8 @@ pub fn register_plans(engine: &mut Engine) {
     });
 
     engine.register_fn("num_points", |plan: &mut PlanHandle| -> i64 {
-        #[expect(
-            clippy::cast_possible_wrap,
-            reason = "num_points is small enough to fit in i64 for Rhai scripting"
-        )]
+        #[allow(clippy::cast_possible_wrap)]
+        // num_points is small enough to fit in i64 for Rhai scripting
         plan.plan
             .lock()
             .ok()
@@ -350,10 +344,8 @@ pub fn register_plans(engine: &mut Engine) {
     });
 
     // run_engine.queue_len() -> int
-    #[expect(
-        clippy::cast_possible_wrap,
-        reason = "queue length is small; fits in i64 for Rhai scripting"
-    )]
+    #[allow(clippy::cast_possible_wrap)]
+    // SAFETY: queue length is small; fits in i64 for Rhai scripting
     engine.register_fn("queue_len", |re: &mut RunEngineHandle| -> i64 {
         block_in_place(|| Handle::current().block_on(re.engine.queue_len())) as i64
     });
@@ -404,7 +396,7 @@ mod tests {
         let mut engine = RhaiEngine::with_hardware().unwrap();
 
         // Create and inject run_engine
-        let registry = Arc::new(DeviceRegistry::new());
+        let registry = DeviceRegistry::new();
         let run_engine = RunEngineHandle::new(registry);
         engine
             .set_run_engine(run_engine)

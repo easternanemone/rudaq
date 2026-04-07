@@ -23,7 +23,7 @@ use tonic::{Request, Response, Status};
 /// gRPC service for health monitoring
 pub struct HealthServiceImpl {
     monitor: Arc<SystemHealthMonitor>,
-    registry: Option<Arc<DeviceRegistry>>,
+    registry: Option<DeviceRegistry>,
     /// Whether SurrealDB initialized successfully (bd-9n9k.3).
     db_available: bool,
     /// Whether ConfigService is registered in the gRPC server (bd-9n9k.3).
@@ -48,7 +48,7 @@ impl HealthServiceImpl {
     }
 
     /// Attach a device registry for per-device health reporting (bd-qa36.4.3).
-    pub fn with_registry(mut self, registry: Arc<DeviceRegistry>) -> Self {
+    pub fn with_registry(mut self, registry: DeviceRegistry) -> Self {
         self.registry = Some(registry);
         self
     }
@@ -78,10 +78,8 @@ fn instant_to_ns(instant: std::time::Instant) -> u64 {
     let elapsed = now_instant.duration_since(instant);
     let system_time = now_system - elapsed;
 
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "Unix epoch nanos will not exceed u64::MAX until year 2554"
-    )]
+    #[allow(clippy::cast_possible_truncation)]
+    // SAFETY: Unix epoch nanos will not exceed u64::MAX until year 2554
     let ts = system_time
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -152,31 +150,23 @@ fn proto_to_error_severity(level: ErrorSeverityLevel) -> ErrorSeverity {
 
 #[tonic::async_trait]
 impl HealthService for HealthServiceImpl {
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "health metric counts and timestamps fit in protobuf u32/u64 fields"
-    )]
+    #[allow(clippy::cast_possible_truncation)]
+    // SAFETY: value is bounded and fits in target type
     async fn get_system_health(
         &self,
         _request: Request<GetSystemHealthRequest>,
     ) -> Result<Response<GetSystemHealthResponse>, Status> {
         let health_status = self.monitor.get_system_health().await;
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "collection length fits in protobuf u32 field"
-        )]
+        #[allow(clippy::cast_possible_truncation)]
+        // SAFETY: value is bounded and fits in target type
         let modules = self.monitor.get_module_health().await;
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "collection length fits in protobuf u32 field"
-        )]
+        #[allow(clippy::cast_possible_truncation)]
+        // SAFETY: value is bounded and fits in target type
         let errors = self.monitor.get_error_history(None).await;
 
         let healthy_count = modules.iter().filter(|m| m.is_healthy).count() as u32;
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "collection length fits in protobuf u32 field"
-        )]
+        #[allow(clippy::cast_possible_truncation)]
+        // SAFETY: value is bounded and fits in target type
         let unhealthy_count = (modules.len() as u32).saturating_sub(healthy_count);
 
         let critical_count = errors
@@ -184,10 +174,8 @@ impl HealthService for HealthServiceImpl {
             .filter(|e| e.severity == ErrorSeverity::Critical)
             .count() as u32;
 
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "Unix epoch nanos will not exceed u64::MAX until year 2554"
-        )]
+        #[allow(clippy::cast_possible_truncation)]
+        // SAFETY: value is bounded and fits in target type
         let response = GetSystemHealthResponse {
             status: system_health_to_proto(health_status) as i32,
             total_modules: modules.len() as u32,
@@ -311,10 +299,8 @@ impl HealthService for HealthServiceImpl {
 
         let total_count = self.monitor.error_count().await;
 
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "Unix epoch nanos will not exceed u64::MAX until year 2554"
-        )]
+        #[allow(clippy::cast_possible_truncation)]
+        // SAFETY: value is bounded and fits in target type
         let response = GetErrorHistoryResponse {
             errors: proto_errors,
             total_error_count: total_count as u32,

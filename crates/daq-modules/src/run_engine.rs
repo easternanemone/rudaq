@@ -285,7 +285,7 @@ impl RunEngine {
         let (doc_tx, mut doc_rx) = mpsc::channel::<Document>(config.document_buffer_size);
 
         // Stage all modules
-        let staged = StagedModules::new(module_ids.clone(), Arc::clone(&self.registry)).await?;
+        let staged = StagedModules::new(module_ids.clone(), self.registry.clone()).await?;
 
         // Track results
         let mut num_events = 0u64;
@@ -392,10 +392,8 @@ impl RunEngine {
             module_results,
         };
 
-        #[expect(
-            clippy::cast_precision_loss,
-            reason = "nanosecond duration fits in f64 with acceptable precision for display"
-        )]
+        #[allow(clippy::cast_precision_loss)]
+        // SAFETY: nanosecond duration fits in f64 with acceptable precision for display
         let duration_s = (end_time_ns - start_time_ns) as f64 / 1e9;
         info!(
             "Run {} completed: {} events in {:.2}s",

@@ -3,10 +3,9 @@
 use super::*;
 
 use std::collections::HashMap;
-use std::sync::Arc;
 
 pub(super) async fn fetch_device_state(
-    registry: &Arc<DeviceRegistry>,
+    registry: &DeviceRegistry,
     device_id: &str,
 ) -> Result<DeviceStateResponse, Status> {
     // No global lock needed with DashMap
@@ -130,10 +129,7 @@ fn extract_numeric_value(value: &serde_json::Value) -> Option<f64> {
     }
 }
 
-#[expect(
-    clippy::result_large_err,
-    reason = "tonic::Status (176 bytes) is the standard gRPC error type"
-)]
+#[allow(clippy::result_large_err)] // tonic::Status (176 bytes) is the standard gRPC error type
 pub(super) fn validate_parameter_value(
     name: &str,
     metadata: Option<&CommonParameterMetadata>,
@@ -302,7 +298,7 @@ pub(super) fn device_info_to_proto_with_health(
                 common::health::DeviceHealth::Healthy,
             ));
 
-    #[expect(deprecated, reason = "deprecated API used for backwards compatibility")]
+    #[allow(deprecated)]
     DeviceInfo {
         id: info.id.clone(),
         name: info.name.clone(),

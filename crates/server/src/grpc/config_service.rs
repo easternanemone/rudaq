@@ -8,7 +8,6 @@ use db::DaqDb;
 use db::config_store::{DbDriver, DbInstrument};
 use hardware::registry::DeviceRegistry;
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 use tonic::{Request, Response, Status};
 use tracing::instrument;
 
@@ -24,11 +23,11 @@ use crate::grpc::proto::{
 /// ConfigService gRPC handler backed by SurrealDB.
 pub struct ConfigServiceImpl {
     db: DaqDb,
-    registry: Option<Arc<DeviceRegistry>>,
+    registry: Option<DeviceRegistry>,
 }
 
 impl ConfigServiceImpl {
-    pub fn new(db: DaqDb, registry: Option<Arc<DeviceRegistry>>) -> Self {
+    pub fn new(db: DaqDb, registry: Option<DeviceRegistry>) -> Self {
         Self { db, registry }
     }
 
@@ -94,10 +93,7 @@ fn db_instrument_to_proto(inst: &DbInstrument) -> InstrumentConfig {
     }
 }
 
-#[expect(
-    clippy::result_large_err,
-    reason = "tonic::Status is the standard gRPC error type"
-)]
+#[allow(clippy::result_large_err)] // tonic::Status is the standard gRPC error type
 fn proto_to_db_instrument(proto: &InstrumentConfig) -> Result<DbInstrument, Status> {
     let config: serde_json::Value = if proto.config_json.is_empty() {
         serde_json::json!({})
@@ -243,10 +239,8 @@ impl ConfigService for ConfigServiceImpl {
     }
 
     #[instrument(skip(self, req))]
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "config import device counts and timestamps fit in protobuf fields"
-    )]
+    #[allow(clippy::cast_possible_truncation)]
+    // SAFETY: value is bounded and fits in target type
     async fn import_config(
         &self,
         req: Request<ImportConfigRequest>,
@@ -270,10 +264,8 @@ impl ConfigService for ConfigServiceImpl {
             })
             .collect();
 
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "collection length fits in protobuf u32 field"
-        )]
+        #[allow(clippy::cast_possible_truncation)]
+        // SAFETY: value is bounded and fits in target type
         let drivers = self.drivers_from_config(&hw_config).await?;
 
         let driver_count = self
@@ -359,10 +351,8 @@ impl ConfigService for ConfigServiceImpl {
         tokio_stream::wrappers::ReceiverStream<Result<ConfigChangeEvent, Status>>;
 
     #[instrument(skip(self, _req))]
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "config change event timestamps fit in protobuf u64 fields"
-    )]
+    #[allow(clippy::cast_possible_truncation)]
+    // SAFETY: value is bounded and fits in target type
     async fn subscribe_config_changes(
         &self,
         _req: Request<SubscribeConfigRequest>,

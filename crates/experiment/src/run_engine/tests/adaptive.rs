@@ -82,7 +82,7 @@ async fn test_adaptive_scan_feedback_integration() {
 /// is received (AC-4: linear fallback).
 #[tokio::test]
 async fn test_adaptive_scan_linear_fallback() {
-    let registry = Arc::new(DeviceRegistry::new());
+    let registry = DeviceRegistry::new();
     let engine = Arc::new(RunEngine::new(registry));
 
     // Simple count plan — no feedback injected at all.
@@ -101,7 +101,7 @@ async fn test_adaptive_scan_linear_fallback() {
 /// and None on value updates (AC-2: logged with rationale).
 #[tokio::test]
 async fn test_adapt_scan_point_decisions() {
-    let registry = Arc::new(DeviceRegistry::new());
+    let registry = DeviceRegistry::new();
     let engine = RunEngine::new(registry);
 
     // ThresholdCrossed should return adjusted position.
@@ -137,7 +137,7 @@ async fn test_adapt_scan_point_decisions() {
 /// Test that check_feedback is non-blocking and drains the channel.
 #[tokio::test]
 async fn test_check_feedback_nonblocking() {
-    let registry = Arc::new(DeviceRegistry::new());
+    let registry = DeviceRegistry::new();
     let engine = RunEngine::new(registry);
     let tx = engine.feedback_sender();
 
@@ -217,7 +217,7 @@ async fn test_evaluate_condition_threshold_below() {
 #[tokio::test]
 async fn test_evaluate_condition_threshold_missing_device() {
     // Non-existent device => false
-    let registry = Arc::new(DeviceRegistry::new());
+    let registry = DeviceRegistry::new();
     let engine = RunEngine::new(registry);
 
     let cond = EvalCondition::Threshold {

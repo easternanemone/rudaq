@@ -7,7 +7,7 @@ use tokio::time::Duration;
 
 #[tokio::test]
 async fn test_run_uid_consistency() {
-    let registry = Arc::new(DeviceRegistry::new());
+    let registry = DeviceRegistry::new();
     let engine = RunEngine::new(registry);
     let mut rx = engine.subscribe();
 

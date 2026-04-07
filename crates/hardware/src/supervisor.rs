@@ -12,7 +12,6 @@
 //! - Stops when the CancellationToken is cancelled
 
 use crate::registry::DeviceRegistry;
-use std::sync::Arc;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
@@ -60,7 +59,7 @@ impl Default for SupervisorConfig {
 /// ));
 /// ```
 pub async fn run_device_supervisor(
-    registry: Arc<DeviceRegistry>,
+    registry: DeviceRegistry,
     config: SupervisorConfig,
     cancel: CancellationToken,
 ) {
@@ -170,7 +169,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_supervisor_exits_on_cancel() {
-        let registry = Arc::new(DeviceRegistry::new());
+        let registry = DeviceRegistry::new();
         let cancel = CancellationToken::new();
 
         let cancel_clone = cancel.clone();
@@ -189,7 +188,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_supervisor_no_faulted_devices_is_noop() {
-        let registry = Arc::new(DeviceRegistry::new());
+        let registry = DeviceRegistry::new();
         let config = SupervisorConfig {
             check_interval: Duration::from_millis(50),
             ..Default::default()

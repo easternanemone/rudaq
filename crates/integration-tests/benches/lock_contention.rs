@@ -90,8 +90,8 @@ fn print_stats(label: &str, stats: &LatencyStats) {
 // Registry setup
 // =============================================================================
 
-async fn create_populated_registry() -> Arc<DeviceRegistry> {
-    let registry = Arc::new(DeviceRegistry::new());
+async fn create_populated_registry() -> DeviceRegistry {
+    let registry = DeviceRegistry::new();
     register_mock_factories(&registry);
 
     // Register three mock devices via TOML config
@@ -132,12 +132,12 @@ async fn create_populated_registry() -> Arc<DeviceRegistry> {
 // Benchmark: Read-only contention (get_device_info, get_movable, list_devices)
 // =============================================================================
 
-async fn bench_read_only(registry: &Arc<DeviceRegistry>) -> Vec<Duration> {
+async fn bench_read_only(registry: &DeviceRegistry) -> Vec<Duration> {
     let mut handles = Vec::with_capacity(READER_TASKS);
     let barrier = Arc::new(tokio::sync::Barrier::new(READER_TASKS));
 
     for task_id in 0..READER_TASKS {
-        let reg = Arc::clone(registry);
+        let reg = registry.clone();
         let bar = Arc::clone(&barrier);
         handles.push(tokio::spawn(async move {
             let mut latencies = Vec::with_capacity(READ_ITERATIONS);
@@ -178,14 +178,14 @@ async fn bench_read_only(registry: &Arc<DeviceRegistry>) -> Vec<Duration> {
 // Benchmark: Mixed read/write contention
 // =============================================================================
 
-async fn bench_mixed_rw(registry: &Arc<DeviceRegistry>) -> (Vec<Duration>, Vec<Duration>) {
+async fn bench_mixed_rw(registry: &DeviceRegistry) -> (Vec<Duration>, Vec<Duration>) {
     let reader_barrier = Arc::new(tokio::sync::Barrier::new(READER_TASKS + WRITER_TASKS));
     let mut reader_handles = Vec::with_capacity(READER_TASKS);
     let mut writer_handles = Vec::with_capacity(WRITER_TASKS);
 
     // Spawn reader tasks
     for task_id in 0..READER_TASKS {
-        let reg = Arc::clone(registry);
+        let reg = registry.clone();
         let bar = Arc::clone(&reader_barrier);
         reader_handles.push(tokio::spawn(async move {
             let mut latencies = Vec::with_capacity(READ_ITERATIONS);
@@ -218,7 +218,7 @@ async fn bench_mixed_rw(registry: &Arc<DeviceRegistry>) -> (Vec<Duration>, Vec<D
 
     // Spawn writer tasks that register/unregister ephemeral devices
     for task_id in 0..WRITER_TASKS {
-        let reg = Arc::clone(registry);
+        let reg = registry.clone();
         let bar = Arc::clone(&reader_barrier);
         writer_handles.push(tokio::spawn(async move {
             let mut latencies = Vec::with_capacity(WRITE_ITERATIONS * 2);
@@ -269,12 +269,12 @@ async fn bench_mixed_rw(registry: &Arc<DeviceRegistry>) -> (Vec<Duration>, Vec<D
 // Benchmark: Capability lookup throughput
 // =============================================================================
 
-async fn bench_capability_lookups(registry: &Arc<DeviceRegistry>) -> Vec<Duration> {
+async fn bench_capability_lookups(registry: &DeviceRegistry) -> Vec<Duration> {
     let mut handles = Vec::with_capacity(READER_TASKS);
     let barrier = Arc::new(tokio::sync::Barrier::new(READER_TASKS));
 
     for _task_id in 0..READER_TASKS {
-        let reg = Arc::clone(registry);
+        let reg = registry.clone();
         let bar = Arc::clone(&barrier);
         handles.push(tokio::spawn(async move {
             let mut latencies = Vec::with_capacity(READ_ITERATIONS);

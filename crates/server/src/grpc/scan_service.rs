@@ -107,19 +107,14 @@ impl ScanExecution {
     }
 
     fn to_status(&self, scan_id: &str) -> ScanStatus {
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "Unix epoch nanos will not exceed u64::MAX until year 2554"
-        )]
+        #[allow(clippy::cast_possible_truncation)]
+        // SAFETY: value is bounded and fits in target type
         let elapsed_ns = self
             .start_time
             .map(|t| t.elapsed().as_nanos() as u64)
             .unwrap_or(0);
 
-        #[expect(
-            clippy::cast_lossless,
-            reason = "explicit widening cast preferred for clarity in gRPC boundary code"
-        )]
+        #[allow(clippy::cast_lossless)]
         let progress = if self.total_points > 0 {
             (f64::from(self.current_point) / self.total_points as f64) * 100.0
         } else {
@@ -172,7 +167,7 @@ impl ScanExecution {
     note = "Use RunEngineService instead. See scan_service module docs for migration guide. Sunset: v1.0"
 )]
 pub struct ScanServiceImpl {
-    registry: Arc<DeviceRegistry>,
+    registry: DeviceRegistry,
     scans: Arc<Mutex<HashMap<String, ScanExecution>>>,
     next_scan_id: Arc<std::sync::atomic::AtomicU64>,
     /// Optional ring buffer for data persistence
@@ -180,10 +175,7 @@ pub struct ScanServiceImpl {
 }
 
 // Allow self-referential deprecation warnings within the deprecated module
-#[expect(
-    deprecated,
-    reason = "LEGACY: ScanService kept for backwards compatibility, remove at v1.0"
-)]
+#[allow(deprecated)]
 impl ScanServiceImpl {
     async fn with_request_deadline<F, T>(&self, operation: &str, fut: F) -> Result<T, Status>
     where
@@ -199,7 +191,7 @@ impl ScanServiceImpl {
     }
 
     /// Create a new ScanService with the given device registry
-    pub fn new(registry: Arc<DeviceRegistry>) -> Self {
+    pub fn new(registry: DeviceRegistry) -> Self {
         Self {
             registry,
             scans: Arc::new(Mutex::new(HashMap::new())),
@@ -237,26 +229,20 @@ impl ScanServiceImpl {
             .axes
             .iter()
             .map(|axis| {
-                #[expect(
-                    clippy::cast_precision_loss,
-                    reason = "precision loss acceptable for metrics/display"
-                )]
+                #[allow(clippy::cast_precision_loss)]
+                // SAFETY: precision loss acceptable for metrics/display
                 let n = axis.num_points.max(1) as usize;
                 if n == 1 {
                     vec![axis.start_position]
                 } else {
-                    #[expect(
-                        clippy::cast_precision_loss,
-                        reason = "precision loss acceptable for scan point computation"
-                    )]
+                    #[allow(clippy::cast_precision_loss)]
+                    // SAFETY: precision loss acceptable for scan point computation
                     let n_minus_1 = (n - 1) as f64;
                     let step = (axis.end_position - axis.start_position) / n_minus_1;
                     (0..n)
                         .map(|i| {
-                            #[expect(
-                                clippy::cast_precision_loss,
-                                reason = "scan index fits in f64"
-                            )]
+                            #[allow(clippy::cast_precision_loss)]
+                            // SAFETY: scan index fits in f64
                             let i_f64 = i as f64;
                             axis.start_position + step * i_f64
                         })
@@ -362,16 +348,10 @@ impl ScanServiceImpl {
     }
 
     /// Execute scan in background task
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "scan execution requires these distinct coordination handles"
-    )]
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "scan point counts and dwell times bounded by user-supplied config"
-    )]
+    #[allow(clippy::too_many_arguments)] // scan execution requires these distinct coordination handles
+    #[allow(clippy::cast_possible_truncation)]
     async fn run_scan(
-        registry: Arc<DeviceRegistry>,
+        registry: DeviceRegistry,
         scan_id: String,
         config: ScanConfig,
         scans: Arc<Mutex<HashMap<String, ScanExecution>>>,
@@ -383,16 +363,11 @@ impl ScanServiceImpl {
         use std::sync::atomic::Ordering;
 
         let points = Self::generate_scan_points(&config);
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "collection length fits in protobuf u32 field"
-        )]
+        #[allow(clippy::cast_possible_truncation)]
+        // SAFETY: value is bounded and fits in target type
         let total_points = points.len() as u32;
-        #[expect(
-            clippy::cast_possible_truncation,
-            clippy::cast_sign_loss,
-            reason = "value is validated/bounded before cast"
-        )]
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        // SAFETY: value is validated/bounded before cast
         let dwell_ms = config.dwell_time_ms.max(0.0) as u64;
         let triggers = config.triggers_per_point.max(1);
 
@@ -502,10 +477,8 @@ impl ScanServiceImpl {
                 }
 
                 // Read all acquisition devices
-                #[expect(
-                    clippy::cast_possible_truncation,
-                    reason = "Unix epoch nanos will not exceed u64::MAX until year 2554"
-                )]
+                #[allow(clippy::cast_possible_truncation)]
+                // SAFETY: value is bounded and fits in target type
                 let timestamp_ns = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .unwrap_or_default()
@@ -537,10 +510,8 @@ impl ScanServiceImpl {
             // Send progress update with backpressure handling (bd-6qaj)
             // Use try_send to avoid blocking if client is slow; drop updates rather than
             // accumulating spawned tasks or erroring the scan.
-            #[expect(
-                clippy::cast_possible_truncation,
-                reason = "Unix epoch nanos will not exceed u64::MAX until year 2554"
-            )]
+            #[allow(clippy::cast_possible_truncation)]
+            // SAFETY: value is bounded and fits in target type
             let progress = ScanProgress {
                 scan_id: scan_id.clone(),
                 state: ScanState::ScanRunning.into(),
@@ -560,14 +531,9 @@ impl ScanServiceImpl {
                 use prost::Message;
                 let msg_len = progress.encoded_len();
                 // Allocate buffer: 4 bytes for length + message bytes
-                #[expect(
-                    clippy::cast_possible_truncation,
-                    reason = "value fits in protobuf u32 field"
-                )]
-                #[expect(
-                    clippy::cast_possible_truncation,
-                    reason = "serialized payload length is well under u32::MAX"
-                )]
+                #[allow(clippy::cast_possible_truncation)]
+                // SAFETY: value is bounded and fits in target type
+                #[allow(clippy::cast_possible_truncation)]
                 let mut buf = Vec::with_capacity(4 + msg_len);
                 // Write length prefix (4 bytes, little-endian)
                 buf.extend_from_slice(&(msg_len as u32).to_le_bytes());
@@ -606,14 +572,9 @@ impl ScanServiceImpl {
 
             // Update current point
             {
-                #[expect(
-                    clippy::cast_possible_truncation,
-                    reason = "collection length fits in protobuf u32 field"
-                )]
-                #[expect(
-                    clippy::cast_possible_truncation,
-                    reason = "scan point count bounded by user-supplied config"
-                )]
+                #[allow(clippy::cast_possible_truncation)]
+                // SAFETY: value is bounded and fits in target type
+                #[allow(clippy::cast_possible_truncation)]
                 let mut scans_guard = scans.lock().await;
                 if let Some(scan) = scans_guard.get_mut(&scan_id) {
                     scan.current_point = point_idx as u32 + 1;
@@ -703,10 +664,8 @@ impl ScanServiceImpl {
             )));
         }
 
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "Unix epoch nanos will not exceed u64::MAX until year 2554"
-        )]
+        #[allow(clippy::cast_possible_truncation)]
+        // SAFETY: value is bounded and fits in target type
         let start_time_ns = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
@@ -845,10 +804,7 @@ impl ScanServiceImpl {
 }
 
 #[tonic::async_trait]
-#[expect(
-    deprecated,
-    reason = "LEGACY: ScanService kept for backwards compatibility, remove at v1.0"
-)]
+#[allow(deprecated)]
 impl ScanService for ScanServiceImpl {
     async fn create_scan(
         &self,

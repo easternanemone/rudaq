@@ -829,7 +829,7 @@ async fn spawn_server(addr: &str) -> Result<()> {
     tokio::spawn(async move {
         if let Err(err) = server::grpc::server::start_server_with_hardware(
             addr,
-            Arc::new(registry),
+            registry,
             health_monitor,
             tokio_util::sync::CancellationToken::new(),
             #[cfg(feature = "db-surreal")]

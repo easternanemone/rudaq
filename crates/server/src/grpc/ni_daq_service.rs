@@ -49,6 +49,7 @@ use hardware::registry::DeviceRegistry;
 use protocol::ni_daq::ni_daq_service_server::NiDaqService;
 use protocol::ni_daq::*;
 use std::future::Future;
+#[cfg(feature = "comedi")]
 use std::sync::Arc;
 use tonic::{Request, Response, Status};
 use tracing::instrument;
@@ -80,7 +81,7 @@ use tracing::instrument;
 #[derive(Clone)]
 pub struct NiDaqServiceImpl {
     /// Device registry for looking up Comedi devices
-    registry: Arc<DeviceRegistry>,
+    registry: DeviceRegistry,
     /// Serializes streaming acquisition to prevent concurrent opens of
     /// `/dev/comedi0` which can deadlock the kernel driver.
     /// NOTE: Only used by `stream_analog_input` which still opens its own handle.
@@ -96,7 +97,7 @@ pub struct NiDaqServiceImpl {
 
 impl NiDaqServiceImpl {
     /// Create a new NI DAQ service instance.
-    pub fn new(registry: Arc<DeviceRegistry>) -> Self {
+    pub fn new(registry: DeviceRegistry) -> Self {
         Self {
             registry,
             #[cfg(feature = "comedi")]
@@ -374,11 +375,7 @@ impl NiDaqService for NiDaqServiceImpl {
                     }
                     // Safe: validated finite and non-negative above; bounded by
                     // rate ≤ 100 kHz × duration ≤ u32::MAX ms ≈ 4.3e11, fits usize
-                    #[expect(
-                        clippy::cast_possible_truncation,
-                        clippy::cast_sign_loss,
-                        reason = "gRPC u64 field count fits in usize on 64-bit targets"
-                    )]
+                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                     Some(total as usize)
                 }
                 Some(stream_analog_input_request::StopCondition::Continuous(_)) | None => None,
@@ -487,10 +484,7 @@ impl NiDaqService for NiDaqServiceImpl {
     type StreamAnalogInputStream =
         tokio_stream::wrappers::ReceiverStream<Result<AnalogInputData, Status>>;
 
-    #[expect(
-        clippy::collapsible_if,
-        reason = "separate conditions improve readability of NI-DAQ channel logic"
-    )]
+    #[allow(clippy::collapsible_if)]
     #[instrument(skip(self))]
     async fn configure_analog_input(
         &self,
@@ -577,27 +571,19 @@ impl NiDaqService for NiDaqServiceImpl {
             .map(|t| t.sample_rate_hz)
             .unwrap_or(1000.0); // Default 1 kHz if not specified
 
-        #[expect(
-            clippy::cast_precision_loss,
-            reason = "precision loss acceptable for metrics/display"
-        )]
+        #[allow(clippy::cast_precision_loss)]
+        // SAFETY: precision loss acceptable for metrics/display
         let n_channels = req.channel_configs.len() as f64;
 
         // Calculate intervals (simplified for Phase 1)
         // Convert interval: time per sample
-        #[expect(
-            clippy::cast_possible_truncation,
-            clippy::cast_sign_loss,
-            reason = "value is validated/bounded before cast"
-        )]
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        // SAFETY: value is validated/bounded before cast
         let convert_interval_ns = ((1.0 / actual_sample_rate_hz) * 1_000_000_000.0) as u32;
 
         // Scan interval: time for all channels in a scan
-        #[expect(
-            clippy::cast_possible_truncation,
-            clippy::cast_sign_loss,
-            reason = "value is validated/bounded before cast"
-        )]
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        // SAFETY: value is validated/bounded before cast
         let scan_interval_ns = (f64::from(convert_interval_ns) * n_channels) as u32;
 
         // Return success with validated configuration
@@ -1070,10 +1056,7 @@ impl NiDaqService for NiDaqServiceImpl {
             let port_json = self
                 .await_with_timeout("ReadDigitalPort", async move { s.get_value("port").await })
                 .await?;
-            #[expect(
-                clippy::cast_possible_truncation,
-                reason = "value bounded by protocol message field range"
-            )]
+            #[allow(clippy::cast_possible_truncation)]
             let full_port = port_json.as_u64().unwrap_or(0) as u32;
             let value = full_port >> req.base_channel;
 
@@ -1136,10 +1119,7 @@ impl NiDaqService for NiDaqServiceImpl {
                 let current_json = self
                     .await_with_timeout("ReadDigitalPort", async move { s.get_value("port").await })
                     .await?;
-                #[expect(
-                    clippy::cast_possible_truncation,
-                    reason = "value bounded by protocol message field range"
-                )]
+                #[allow(clippy::cast_possible_truncation)]
                 let current = current_json.as_u64().unwrap_or(0) as u32;
                 let shifted_mask = mask << base_channel;
                 let shifted_value = value << base_channel;
@@ -1206,11 +1186,7 @@ impl NiDaqService for NiDaqServiceImpl {
                 .await_with_timeout("ReadCounter", async move { readable.read().await })
                 .await?;
             // 24-bit counter values fit exactly in f64; cast is lossless
-            #[expect(
-                clippy::cast_sign_loss,
-                clippy::cast_possible_truncation,
-                reason = "timestamp nanos are non-negative"
-            )]
+            #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
             let count = count_f64 as u64;
             let timestamp_ns = now_ns();
 

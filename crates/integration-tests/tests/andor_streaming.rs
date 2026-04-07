@@ -36,7 +36,7 @@ use tonic::Request;
 // ---------------------------------------------------------------------------
 
 /// Create a registry with all factories and register the Andor mock camera.
-async fn setup_andor_streaming() -> Option<(Arc<DeviceRegistry>, HardwareServiceImpl)> {
+async fn setup_andor_streaming() -> Option<(DeviceRegistry, HardwareServiceImpl)> {
     let registry = DeviceRegistry::new();
     register_all_factories(&registry, None)
         .await
@@ -56,7 +56,7 @@ async fn setup_andor_streaming() -> Option<(Arc<DeviceRegistry>, HardwareService
         return None;
     }
 
-    let registry = Arc::new(registry);
+    let registry = registry;
     let service = HardwareServiceImpl::new(registry.clone());
     Some((registry, service))
 }

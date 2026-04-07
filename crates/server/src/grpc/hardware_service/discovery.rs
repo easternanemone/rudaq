@@ -201,11 +201,8 @@ pub(super) fn subscribe_device_state(
     }
 
     // Rate limiting interval
-    #[expect(
-        clippy::cast_possible_truncation,
-        clippy::cast_sign_loss,
-        reason = "value is validated/bounded before cast"
-    )]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    // SAFETY: value is validated/bounded before cast
     let interval_ms = if req.max_rate_hz > 0 {
         (1000.0 / (f64::from(req.max_rate_hz))).max(10.0) as u64
     } else {
@@ -214,7 +211,7 @@ pub(super) fn subscribe_device_state(
 
     let include_snapshot = req.include_snapshot;
     let last_seen_version = req.last_seen_version;
-    let registry = Arc::clone(&svc.registry);
+    let registry = svc.registry.clone();
     let (tx, rx) = tokio::sync::mpsc::channel(32);
 
     tokio::spawn(async move {
@@ -271,10 +268,7 @@ pub(super) fn subscribe_device_state(
     Ok(Response::new(ReceiverStream::new(rx)))
 }
 
-#[expect(
-    clippy::unused_async,
-    reason = "async required when db-surreal feature is enabled"
-)]
+#[allow(clippy::unused_async)] // async required when db-surreal feature is enabled
 pub(super) async fn get_device_features(
     svc: &HardwareServiceImpl,
     request: Request<GetDeviceFeaturesRequest>,

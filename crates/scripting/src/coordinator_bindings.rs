@@ -75,11 +75,9 @@ pub fn register_coordinator(engine: &mut Engine) {
     // -- validate(registry) -----------------------------------------------
     engine.register_fn(
         "validate",
-        |h: &mut CoordinatorHandle,
-         registry: Arc<DeviceRegistry>|
-         -> Result<(), Box<EvalAltResult>> {
+        |h: &mut CoordinatorHandle, registry: DeviceRegistry| -> Result<(), Box<EvalAltResult>> {
             h.inner
-                .validate(registry.as_ref())
+                .validate(&registry)
                 .map_err(|e| rhai_error("AcquisitionCoordinator validate", e))
         },
     );
@@ -88,12 +86,12 @@ pub fn register_coordinator(engine: &mut Engine) {
     engine.register_fn(
         "acquire_at",
         |h: &mut CoordinatorHandle,
-         registry: Arc<DeviceRegistry>,
+         registry: DeviceRegistry,
          position: f64|
          -> Result<(), Box<EvalAltResult>> {
             let coord = h.inner.clone();
             run_blocking("AcquisitionCoordinator acquire_at", async move {
-                coord.acquire_at(registry.as_ref(), position).await
+                coord.acquire_at(&registry, position).await
             })
         },
     );
@@ -102,7 +100,7 @@ pub fn register_coordinator(engine: &mut Engine) {
     engine.register_fn(
         "acquire_scan",
         |h: &mut CoordinatorHandle,
-         registry: Arc<DeviceRegistry>,
+         registry: DeviceRegistry,
          positions: Array|
          -> Result<(), Box<EvalAltResult>> {
             // Convert Rhai Array (Vec<Dynamic>) to Vec<f64>
@@ -121,7 +119,7 @@ pub fn register_coordinator(engine: &mut Engine) {
 
             let coord = h.inner.clone();
             run_blocking("AcquisitionCoordinator acquire_scan", async move {
-                coord.acquire_scan(registry.as_ref(), &positions).await
+                coord.acquire_scan(&registry, &positions).await
             })
         },
     );

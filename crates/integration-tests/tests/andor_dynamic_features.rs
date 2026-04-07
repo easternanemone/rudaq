@@ -97,7 +97,7 @@ async fn test_andor_list_parameters_returns_dynamic_features() {
         return;
     }
 
-    let registry = Arc::new(registry);
+    let registry = registry;
     let service = HardwareServiceImpl::new(registry.clone());
 
     let resp = service
@@ -157,7 +157,7 @@ async fn test_andor_set_get_enum_parameter() {
         return;
     }
 
-    let registry = Arc::new(registry);
+    let registry = registry;
     let service = HardwareServiceImpl::new(registry.clone());
 
     // Set TriggerMode (enum) to "External".
@@ -195,7 +195,7 @@ async fn test_andor_set_get_bool_parameter() {
         return;
     }
 
-    let registry = Arc::new(registry);
+    let registry = registry;
     let service = HardwareServiceImpl::new(registry.clone());
 
     // SensorCooling is a writable bool.
@@ -228,7 +228,7 @@ async fn test_andor_set_get_float_parameter() {
         return;
     }
 
-    let registry = Arc::new(registry);
+    let registry = registry;
     let service = HardwareServiceImpl::new(registry.clone());
 
     // DDGOutputDelay is a writable float.
@@ -262,7 +262,7 @@ async fn test_andor_set_get_int_parameter() {
         return;
     }
 
-    let registry = Arc::new(registry);
+    let registry = registry;
     let service = HardwareServiceImpl::new(registry.clone());
 
     // FrameCount is a writable int.
@@ -299,7 +299,7 @@ async fn test_andor_readonly_parameter_rejects_set() {
         return;
     }
 
-    let registry = Arc::new(registry);
+    let registry = registry;
     let service = HardwareServiceImpl::new(registry.clone());
 
     // SensorWidth is read-only.
@@ -484,7 +484,7 @@ async fn test_andor_parameters_have_group_assignments() {
         return;
     }
 
-    let registry = Arc::new(registry);
+    let registry = registry;
     let service = HardwareServiceImpl::new(registry.clone());
 
     let resp = service

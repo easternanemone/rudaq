@@ -45,7 +45,7 @@ async fn test_pvcam_with_run_engine() -> anyhow::Result<()> {
     }
 
     // 3. Initialize RunEngine
-    let registry_arc = Arc::new(registry);
+    let registry_arc = registry;
     let run_engine = Arc::new(RunEngine::new(registry_arc.clone()));
 
     // 4. Subscribe to events

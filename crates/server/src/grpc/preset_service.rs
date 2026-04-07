@@ -19,7 +19,6 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs as std_fs;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
@@ -35,7 +34,7 @@ const MANIFEST_FILENAME: &str = "manifest.json";
 /// - Last-N backup retention (configurable, default 3)
 /// - Manifest file for fast listing
 pub struct PresetServiceImpl {
-    registry: Arc<DeviceRegistry>,
+    registry: DeviceRegistry,
     storage_path: PathBuf,
     max_backups: usize,
 }
@@ -43,7 +42,7 @@ pub struct PresetServiceImpl {
 impl std::fmt::Debug for PresetServiceImpl {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PresetServiceImpl")
-            .field("registry", &"<Arc<DeviceRegistry>>")
+            .field("registry", &"<DeviceRegistry>")
             .field("storage_path", &self.storage_path)
             .field("max_backups", &self.max_backups)
             .finish()
@@ -52,7 +51,7 @@ impl std::fmt::Debug for PresetServiceImpl {
 
 impl PresetServiceImpl {
     /// Create a new PresetService with the given storage directory
-    pub fn new(registry: Arc<DeviceRegistry>, storage_path: PathBuf) -> Self {
+    pub fn new(registry: DeviceRegistry, storage_path: PathBuf) -> Self {
         // Ensure storage directory exists (sync I/O in constructor is acceptable)
         if let Err(e) = std_fs::create_dir_all(&storage_path) {
             tracing::warn!("Failed to create preset storage directory: {}", e);
@@ -498,10 +497,8 @@ impl PresetService for PresetServiceImpl {
 
         // Update timestamps
         let mut preset = preset;
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "Unix epoch nanos will not exceed u64::MAX until year 2554"
-        )]
+        #[allow(clippy::cast_possible_truncation)]
+        // SAFETY: value is bounded and fits in target type
         let now_ns = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
@@ -702,7 +699,7 @@ mod tests {
     #[tokio::test]
     async fn test_save_and_load_preset() {
         let temp_dir = TempDir::new().unwrap();
-        let registry = Arc::new(DeviceRegistry::new());
+        let registry = DeviceRegistry::new();
         let service = PresetServiceImpl::new(registry, temp_dir.path().to_path_buf());
 
         let preset = create_test_preset("test1");
@@ -725,7 +722,7 @@ mod tests {
     #[tokio::test]
     async fn test_list_presets() {
         let temp_dir = TempDir::new().unwrap();
-        let registry = Arc::new(DeviceRegistry::new());
+        let registry = DeviceRegistry::new();
         let service = PresetServiceImpl::new(registry, temp_dir.path().to_path_buf());
 
         // Save multiple presets
@@ -745,7 +742,7 @@ mod tests {
     #[tokio::test]
     async fn test_delete_preset() {
         let temp_dir = TempDir::new().unwrap();
-        let registry = Arc::new(DeviceRegistry::new());
+        let registry = DeviceRegistry::new();
         let service = PresetServiceImpl::new(registry, temp_dir.path().to_path_buf());
 
         service
@@ -761,7 +758,7 @@ mod tests {
     #[tokio::test]
     async fn test_backup_rotation() {
         let temp_dir = TempDir::new().unwrap();
-        let registry = Arc::new(DeviceRegistry::new());
+        let registry = DeviceRegistry::new();
         let service =
             PresetServiceImpl::new(registry, temp_dir.path().to_path_buf()).with_max_backups(2);
 
@@ -797,7 +794,7 @@ mod tests {
     #[tokio::test]
     async fn test_integrity_check() {
         let temp_dir = TempDir::new().unwrap();
-        let registry = Arc::new(DeviceRegistry::new());
+        let registry = DeviceRegistry::new();
         let service = PresetServiceImpl::new(registry, temp_dir.path().to_path_buf());
 
         service

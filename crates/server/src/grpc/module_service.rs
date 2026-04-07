@@ -383,7 +383,7 @@ fn get_static_module_type_info(type_id: &str) -> Option<ModuleTypeInfo> {
 /// - Event and data streaming
 pub struct ModuleServiceImpl {
     /// Device registry for hardware access
-    device_registry: Arc<DeviceRegistry>,
+    device_registry: DeviceRegistry,
 
     /// Stub module storage (used when modules feature is disabled)
     #[cfg(not(feature = "modules"))]
@@ -397,7 +397,7 @@ pub struct ModuleServiceImpl {
 impl ModuleServiceImpl {
     /// Create a new ModuleService (stub mode - without modules feature)
     #[cfg(not(feature = "modules"))]
-    pub fn new(registry: Arc<DeviceRegistry>) -> Self {
+    pub fn new(registry: DeviceRegistry) -> Self {
         Self {
             device_registry: registry,
             stub_modules: Arc::new(RwLock::new(HashMap::new())),
@@ -406,7 +406,7 @@ impl ModuleServiceImpl {
 
     /// Create a new ModuleService (full mode - with modules feature)
     #[cfg(feature = "modules")]
-    pub fn new(registry: Arc<DeviceRegistry>) -> Self {
+    pub fn new(registry: DeviceRegistry) -> Self {
         let module_registry = ModuleRegistry::new(registry.clone());
         Self {
             device_registry: registry,
@@ -563,15 +563,11 @@ impl ModuleService for ModuleServiceImpl {
             .map(|instance| {
                 let assignments = instance.get_assignments();
                 let type_info = registry.get_type_info(instance.type_id());
-                #[expect(
-                    clippy::cast_possible_truncation,
-                    reason = "collection length fits in protobuf u32 field"
-                )]
+                #[allow(clippy::cast_possible_truncation)]
+                // SAFETY: value is bounded and fits in target type
                 let required_total = type_info.map(|i| i.required_roles.len()).unwrap_or(0) as u32;
-                #[expect(
-                    clippy::cast_possible_truncation,
-                    reason = "collection length fits in protobuf u32 field"
-                )]
+                #[allow(clippy::cast_possible_truncation)]
+                // SAFETY: value is bounded and fits in target type
                 let required_filled = type_info
                     .map(|info| {
                         info.required_roles
@@ -582,10 +578,8 @@ impl ModuleService for ModuleServiceImpl {
                     .unwrap_or(0) as u32;
 
                 let uptime_ns = instance.start_time_ns.map(|start| {
-                    #[expect(
-                        clippy::cast_possible_truncation,
-                        reason = "Unix epoch nanos will not exceed u64::MAX until year 2554"
-                    )]
+                    #[allow(clippy::cast_possible_truncation)]
+                    // SAFETY: value is bounded and fits in target type
                     let now = SystemTime::now()
                         .duration_since(UNIX_EPOCH)
                         .unwrap_or_default()
@@ -636,15 +630,11 @@ impl ModuleService for ModuleServiceImpl {
 
         let assignments = instance.get_assignments();
         let type_info = registry.get_type_info(instance.type_id());
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "collection length fits in protobuf u32 field"
-        )]
+        #[allow(clippy::cast_possible_truncation)]
+        // SAFETY: value is bounded and fits in target type
         let required_total = type_info.map(|i| i.required_roles.len()).unwrap_or(0) as u32;
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "collection length fits in protobuf u32 field"
-        )]
+        #[allow(clippy::cast_possible_truncation)]
+        // SAFETY: value is bounded and fits in target type
         let required_filled = type_info
             .map(|info| {
                 info.required_roles
@@ -655,10 +645,8 @@ impl ModuleService for ModuleServiceImpl {
             .unwrap_or(0) as u32;
 
         let uptime_ns = instance.start_time_ns.map(|start| {
-            #[expect(
-                clippy::cast_possible_truncation,
-                reason = "Unix epoch nanos will not exceed u64::MAX until year 2554"
-            )]
+            #[allow(clippy::cast_possible_truncation)]
+            // SAFETY: value is bounded and fits in target type
             let now = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap_or_default()
@@ -1651,7 +1639,7 @@ mod tests {
     use std::collections::HashMap;
 
     fn create_test_service() -> ModuleServiceImpl {
-        let registry = Arc::new(DeviceRegistry::new());
+        let registry = DeviceRegistry::new();
         ModuleServiceImpl::new(registry)
     }
 

@@ -21,7 +21,7 @@ use super::helpers::*;
 ///
 /// Returns (registry, db, config_service, shutdown_token).
 async fn setup_watch_env() -> (
-    Arc<hardware::registry::DeviceRegistry>,
+    hardware::registry::DeviceRegistry,
     DaqDb,
     ConfigServiceImpl,
     CancellationToken,
@@ -37,7 +37,7 @@ async fn setup_watch_env() -> (
         registry.set_config_hash(&inst.device_id, hash);
     }
 
-    let registry = Arc::new(registry);
+    let registry = registry;
     let shutdown = CancellationToken::new();
 
     // Start watch reconciler

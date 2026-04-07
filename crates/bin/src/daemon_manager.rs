@@ -255,7 +255,7 @@ pub const SHUTDOWN_PHASE_ORDER: &[DaemonPhase] = &[
 pub struct DaemonInstance {
     _config: DaemonConfig,
     _health: Arc<SystemHealthMonitor>,
-    registry: Arc<DeviceRegistry>,
+    registry: DeviceRegistry,
     shutdown_token: CancellationToken,
     metrics_task: JoinHandle<()>,
     registry_monitor_task: JoinHandle<()>,
@@ -495,11 +495,11 @@ impl DaemonInstance {
             }
             println!();
 
-            (Arc::new(registry), hw_config)
+            (registry, hw_config)
         };
 
         #[cfg(not(feature = "networking"))]
-        let registry = Arc::new(DeviceRegistry::new());
+        let registry = DeviceRegistry::new();
 
         // --- Phase: Shadow Write to Database ---
         // Mirror the parsed hardware config into SurrealDB (write-only shadow copy).

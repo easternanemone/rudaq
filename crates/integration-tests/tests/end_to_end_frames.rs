@@ -47,7 +47,7 @@ async fn test_end_to_end_frames() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let registry_arc = Arc::new(registry);
+    let registry_arc = registry;
 
     // 2. Setup RunEngine
     let run_engine = Arc::new(RunEngine::new(registry_arc.clone()));

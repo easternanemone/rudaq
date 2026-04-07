@@ -57,7 +57,7 @@ async fn test_grpc_camera_control_stream() -> Result<()> {
         return Ok(());
     }
 
-    let registry = Arc::new(registry);
+    let registry = registry;
     let service = HardwareServiceImpl::new(registry.clone());
 
     // 2. Verify Parameter Control (Exposure)

@@ -10,7 +10,6 @@
 //! A polling loop (`start_polling_reconciler`) can run in the background.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 
 use common::error::DaqError;
 use db::DaqDb;
@@ -580,7 +579,7 @@ pub async fn cleanup_stale_runs(db: &DaqDb, stale_threshold: std::time::Duration
 #[allow(dead_code)] // Wired in Phase 3b2 (LIVE SELECT watch)
 pub async fn start_polling_reconciler(
     db: DaqDb,
-    registry: Arc<DeviceRegistry>,
+    registry: DeviceRegistry,
     interval: std::time::Duration,
     shutdown: tokio_util::sync::CancellationToken,
 ) {
@@ -1052,7 +1051,7 @@ mod tests {
         use tokio_util::sync::CancellationToken;
 
         let db = DaqDb::init(DbConfig::in_memory()).await.unwrap();
-        let registry = Arc::new(test_registry());
+        let registry = test_registry();
         let shutdown = CancellationToken::new();
 
         // Start watch reconciler.
@@ -1112,7 +1111,7 @@ mod tests {
         use tokio_util::sync::CancellationToken;
 
         let db = DaqDb::init(DbConfig::in_memory()).await.unwrap();
-        let registry = Arc::new(test_registry());
+        let registry = test_registry();
         let shutdown = CancellationToken::new();
 
         // Start watch reconciler.
@@ -1172,7 +1171,7 @@ mod tests {
         use tokio_util::sync::CancellationToken;
 
         let db = DaqDb::init(DbConfig::in_memory()).await.unwrap();
-        let registry = Arc::new(test_registry());
+        let registry = test_registry();
         let shutdown = CancellationToken::new();
 
         let db2 = db.clone();
@@ -1252,7 +1251,7 @@ mod tests {
         use tokio_util::sync::CancellationToken;
 
         let db = DaqDb::init(DbConfig::in_memory()).await.unwrap();
-        let registry = Arc::new(test_registry());
+        let registry = test_registry();
         let shutdown = CancellationToken::new();
 
         // Start watch reconciler.
@@ -1363,7 +1362,7 @@ mod tests {
         use tokio_util::sync::CancellationToken;
 
         let db = DaqDb::init(DbConfig::in_memory()).await.unwrap();
-        let registry = Arc::new(test_registry());
+        let registry = test_registry();
         let shutdown = CancellationToken::new();
 
         // Start watch reconciler with short resync for the "after release" phase.
@@ -1450,7 +1449,7 @@ mod tests {
         use tokio_util::sync::CancellationToken;
 
         let db = DaqDb::init(DbConfig::in_memory()).await.unwrap();
-        let registry = Arc::new(test_registry());
+        let registry = test_registry();
         let shutdown = CancellationToken::new();
 
         let db2 = db.clone();

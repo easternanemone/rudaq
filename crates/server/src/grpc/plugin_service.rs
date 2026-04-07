@@ -71,7 +71,7 @@ pub struct PluginServiceImpl {
     #[cfg(feature = "serial")]
     factory: Arc<RwLock<PluginFactory>>,
     #[cfg(feature = "serial")]
-    registry: Arc<DeviceRegistry>,
+    registry: DeviceRegistry,
     instances: Arc<RwLock<HashMap<String, PluginInstance>>>,
     #[cfg(feature = "serial")]
     next_instance_id: Arc<RwLock<u64>>,
@@ -88,7 +88,7 @@ impl std::fmt::Debug for PluginServiceImpl {
 impl PluginServiceImpl {
     /// Create a new PluginService with the given plugin factory and device registry
     #[cfg(feature = "serial")]
-    pub fn new(factory: Arc<RwLock<PluginFactory>>, registry: Arc<DeviceRegistry>) -> Self {
+    pub fn new(factory: Arc<RwLock<PluginFactory>>, registry: DeviceRegistry) -> Self {
         Self {
             factory,
             registry,
@@ -584,10 +584,8 @@ impl PluginService for PluginServiceImpl {
             .get(&instance_id)
             .ok_or_else(|| Status::not_found(format!("Instance '{instance_id}' not found")))?;
 
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "Unix epoch nanos will not exceed u64::MAX until year 2554"
-        )]
+        #[allow(clippy::cast_possible_truncation)]
+        // SAFETY: value is bounded and fits in target type
         let now_ns = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -768,7 +766,7 @@ mod tests {
         use hardware::registry::DeviceRegistry;
 
         let factory = Arc::new(RwLock::new(PluginFactory::new()));
-        let registry = Arc::new(DeviceRegistry::new());
+        let registry = DeviceRegistry::new();
         let service = PluginServiceImpl::new(factory, registry);
 
         // Service should be created successfully
@@ -783,7 +781,7 @@ mod tests {
         use hardware::registry::DeviceRegistry;
 
         let factory = Arc::new(RwLock::new(PluginFactory::new()));
-        let registry = Arc::new(DeviceRegistry::new());
+        let registry = DeviceRegistry::new();
         let service = PluginServiceImpl::new(factory, registry);
 
         let id1 = service.next_instance_id().await;
@@ -861,7 +859,7 @@ mod tests {
         use hardware::registry::DeviceRegistry;
 
         let factory = Arc::new(RwLock::new(PluginFactory::new()));
-        let registry = Arc::new(DeviceRegistry::new());
+        let registry = DeviceRegistry::new();
         let service = PluginServiceImpl::new(factory, registry);
 
         let request = Request::new(ListPluginsRequest {
@@ -881,7 +879,7 @@ mod tests {
         use hardware::registry::DeviceRegistry;
 
         let factory = Arc::new(RwLock::new(PluginFactory::new()));
-        let registry = Arc::new(DeviceRegistry::new());
+        let registry = DeviceRegistry::new();
         let service = PluginServiceImpl::new(factory, registry);
 
         let request = Request::new(GetPluginInfoRequest {

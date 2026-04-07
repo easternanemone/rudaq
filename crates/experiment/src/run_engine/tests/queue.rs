@@ -11,7 +11,7 @@ use hardware::registry::DeviceRegistry;
 
 #[tokio::test]
 async fn test_queue_plan() {
-    let registry = Arc::new(DeviceRegistry::new());
+    let registry = DeviceRegistry::new();
     let engine = RunEngine::new(registry);
 
     let plan = Box::new(Count::new(5));
@@ -22,7 +22,7 @@ async fn test_queue_plan() {
 
 #[tokio::test]
 async fn test_clear_queue() {
-    let registry = Arc::new(DeviceRegistry::new());
+    let registry = DeviceRegistry::new();
     let engine = RunEngine::new(registry);
 
     let plan1 = Box::new(Count::new(5));
@@ -38,7 +38,7 @@ async fn test_clear_queue() {
 
 #[tokio::test]
 async fn test_multiple_plan_execution() {
-    let registry = Arc::new(DeviceRegistry::new());
+    let registry = DeviceRegistry::new();
     let engine = Arc::new(RunEngine::new(registry));
 
     let mut rx = engine.subscribe();

@@ -68,7 +68,7 @@ async fn hardware_service_maps_daq_errors_via_central_mapping() {
         .await
         .unwrap();
 
-    let service = HardwareServiceImpl::new(Arc::new(registry));
+    let service = HardwareServiceImpl::new(registry);
 
     let request = Request::new(MoveRequest {
         device_id: "test-device".to_string(),
