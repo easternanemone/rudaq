@@ -103,3 +103,101 @@ pub fn validate_frame_size(
 
     Ok(FrameSize { pixels, bytes })
 }
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_validate_frame_size_normal() {
+        let result = validate_frame_size(640, 480, 2).unwrap();
+        assert_eq!(result.pixels, 640 * 480);
+        assert_eq!(result.bytes, 640 * 480 * 2);
+    }
+
+    #[test]
+    fn test_validate_frame_size_single_pixel() {
+        let result = validate_frame_size(1, 1, 1).unwrap();
+        assert_eq!(result.pixels, 1);
+        assert_eq!(result.bytes, 1);
+    }
+
+    #[test]
+    fn test_validate_frame_size_max_dimension() {
+        // Width exactly at the limit should succeed.
+        let result = validate_frame_size(MAX_FRAME_DIMENSION, 1, 1).unwrap();
+        assert_eq!(result.pixels, MAX_FRAME_DIMENSION as usize);
+        // Height exactly at the limit should succeed.
+        let result = validate_frame_size(1, MAX_FRAME_DIMENSION, 1).unwrap();
+        assert_eq!(result.pixels, MAX_FRAME_DIMENSION as usize);
+    }
+
+    #[test]
+    fn test_validate_frame_size_exceeds_width() {
+        let err = validate_frame_size(MAX_FRAME_DIMENSION + 1, 1, 1).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                DaqError::FrameDimensionsTooLarge { width, .. } if width == MAX_FRAME_DIMENSION + 1
+            ),
+            "expected FrameDimensionsTooLarge, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn test_validate_frame_size_exceeds_height() {
+        let err = validate_frame_size(1, MAX_FRAME_DIMENSION + 1, 1).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                DaqError::FrameDimensionsTooLarge { height, .. } if height == MAX_FRAME_DIMENSION + 1
+            ),
+            "expected FrameDimensionsTooLarge, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn test_validate_frame_size_too_large_bytes() {
+        // 10000x10000 with 2 bytes/px = 200MB > 100MB limit
+        let err = validate_frame_size(10_000, 10_000, 2).unwrap_err();
+        assert!(
+            matches!(err, DaqError::FrameTooLarge { .. }),
+            "expected FrameTooLarge, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn test_validate_frame_size_bytes_per_pixel_zero() {
+        // Zero bytes per pixel yields 0-byte frame — within limit.
+        let result = validate_frame_size(1920, 1080, 0).unwrap();
+        assert_eq!(result.pixels, 1920 * 1080);
+        assert_eq!(result.bytes, 0);
+    }
+
+    #[test]
+    fn test_frame_size_equality() {
+        let a = FrameSize {
+            pixels: 100,
+            bytes: 200,
+        };
+        let b = FrameSize {
+            pixels: 100,
+            bytes: 200,
+        };
+        assert_eq!(a, b);
+        assert_eq!(a, a.clone());
+    }
+
+    #[test]
+    fn test_validate_frame_size_4k_16bit() {
+        // 3840x2160 @ 16-bit (2 bytes) = ~15.9MB which is within limit
+        let result = validate_frame_size(3840, 2160, 2).unwrap();
+        assert_eq!(result.pixels, 3840 * 2160);
+        assert_eq!(result.bytes, 3840 * 2160 * 2);
+        assert!(result.bytes < MAX_FRAME_BYTES);
+    }
+}

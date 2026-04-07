@@ -40,3 +40,76 @@ pub enum FeedbackEvent {
         value: f64,
     },
 }
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_feedback_event_threshold_crossed_clone() {
+        let event = FeedbackEvent::ThresholdCrossed {
+            device_id: DeviceId::from("pm_1"),
+            field: "intensity".to_string(),
+            value: 0.5,
+            threshold: 0.3,
+        };
+        let cloned = event.clone();
+        assert!(
+            matches!(
+                &cloned,
+                FeedbackEvent::ThresholdCrossed { value, threshold, .. }
+                if (*value - 0.5).abs() < f64::EPSILON && (*threshold - 0.3).abs() < f64::EPSILON
+            )
+        );
+    }
+
+    #[test]
+    fn test_feedback_event_stability_reached_clone() {
+        let event = FeedbackEvent::StabilityReached {
+            device_id: DeviceId::from("stage_1"),
+            field: "position".to_string(),
+            variance: 0.001,
+        };
+        let cloned = event.clone();
+        assert!(
+            matches!(
+                &cloned,
+                FeedbackEvent::StabilityReached { variance, .. }
+                if (*variance - 0.001).abs() < f64::EPSILON
+            )
+        );
+    }
+
+    #[test]
+    fn test_feedback_event_value_update_clone() {
+        let event = FeedbackEvent::ValueUpdate {
+            device_id: DeviceId::from("detector"),
+            field: "count".to_string(),
+            value: 42.0,
+        };
+        let cloned = event.clone();
+        assert!(
+            matches!(
+                &cloned,
+                FeedbackEvent::ValueUpdate { value, .. }
+                if (*value - 42.0).abs() < f64::EPSILON
+            )
+        );
+    }
+
+    #[test]
+    fn test_feedback_event_debug() {
+        let event = FeedbackEvent::ValueUpdate {
+            device_id: DeviceId::from("pm"),
+            field: "power".to_string(),
+            value: 1.23,
+        };
+        let dbg = format!("{event:?}");
+        assert!(dbg.contains("ValueUpdate"));
+        assert!(dbg.contains("power"));
+    }
+}

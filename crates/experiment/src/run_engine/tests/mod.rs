@@ -13,6 +13,7 @@
 mod helpers;
 
 mod adaptive;
+mod command_dispatch;
 mod executor;
 mod queue;
 mod readiness;

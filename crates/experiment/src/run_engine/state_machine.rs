@@ -96,3 +96,55 @@ impl FrameObserver for ExperimentFrameObserver {
         "experiment_capture"
     }
 }
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_engine_state_display() {
+        assert_eq!(EngineState::Idle.to_string(), "idle");
+        assert_eq!(EngineState::Running.to_string(), "running");
+        assert_eq!(EngineState::Paused.to_string(), "paused");
+        assert_eq!(EngineState::Aborting.to_string(), "aborting");
+    }
+
+    #[test]
+    fn test_engine_state_equality() {
+        assert_eq!(EngineState::Idle, EngineState::Idle);
+        assert_eq!(EngineState::Running, EngineState::Running);
+        assert_ne!(EngineState::Idle, EngineState::Running);
+        assert_ne!(EngineState::Paused, EngineState::Aborting);
+    }
+
+    #[test]
+    fn test_engine_state_copy() {
+        let state = EngineState::Running;
+        let copy = state;
+        assert_eq!(state, copy);
+    }
+
+    #[test]
+    fn test_engine_state_debug() {
+        let dbg = format!("{:?}", EngineState::Paused);
+        assert!(dbg.contains("Paused"));
+    }
+
+    #[test]
+    fn test_all_engine_state_variants_covered() {
+        let variants = [
+            EngineState::Idle,
+            EngineState::Running,
+            EngineState::Paused,
+            EngineState::Aborting,
+        ];
+        for v in &variants {
+            // Ensures Display doesn't panic on any variant.
+            let _ = v.to_string();
+        }
+    }
+}
