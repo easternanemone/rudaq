@@ -77,3 +77,6 @@ pub mod experiment_store;
 // Re-export surrealdb for downstream crates that need raw access.
 #[cfg(any(feature = "kv-mem", feature = "kv-rocksdb"))]
 pub use surrealdb;
+
+#[cfg(feature = "sqlite")]
+pub mod sqlite_backend;

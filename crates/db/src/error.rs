@@ -47,4 +47,18 @@ impl From<surrealdb::Error> for DbError {
     }
 }
 
+#[cfg(feature = "sqlite")]
+impl From<rusqlite::Error> for DbError {
+    fn from(e: rusqlite::Error) -> Self {
+        Self::Database(e.to_string())
+    }
+}
+
+#[cfg(feature = "sqlite")]
+impl From<tokio_rusqlite::Error> for DbError {
+    fn from(e: tokio_rusqlite::Error) -> Self {
+        Self::Database(e.to_string())
+    }
+}
+
 pub type Result<T> = std::result::Result<T, DbError>;
