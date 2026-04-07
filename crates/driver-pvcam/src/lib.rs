@@ -1020,22 +1020,6 @@ impl PvcamDriver {
         // BEFORE the speed table build. Moving it here (after speed table) is too late —
         // speed table enumeration changes readout config which invalidates PP state.
 
-        let mut clear_cycles_param = None;
-        let mut exposure_resolution_param = None;
-        let mut exposure_resolution_index_param = None;
-        let mut binning_serial_choices_param = None;
-        let mut binning_parallel_choices_param = None;
-        let mut centroids_enabled_param = None;
-        let mut centroids_mode_param = None;
-        let mut centroids_radius_param = None;
-        let mut centroids_max_count_param = None;
-        let mut centroids_threshold_param = None;
-        let mut scan_mode_param = None;
-        let mut scan_direction_param = None;
-        let mut scan_line_delay_param = None;
-        let mut scan_width_param = None;
-        let mut scan_line_time_param = None;
-
         {
             let conn_guard = connection.lock().await;
 
@@ -1044,7 +1028,7 @@ impl PvcamDriver {
                     .with_description("Number of sensor clearing cycles before exposure")
                     .read_only()
                     .with_group("Acquisition");
-                clear_cycles_param = Some(param);
+                params.register(param.clone());
             }
 
             if let Ok(current_res) = PvcamFeatures::get_exposure_resolution(&conn_guard) {
@@ -1074,7 +1058,7 @@ impl PvcamDriver {
                         })
                     }
                 });
-                exposure_resolution_param = Some(param);
+                params.register(param.clone());
             }
 
             if let Ok(current_index) = PvcamFeatures::get_exposure_resolution_index(&conn_guard) {
@@ -1083,31 +1067,29 @@ impl PvcamDriver {
                     .with_description("Raw PVCAM exposure-resolution index (informational)")
                     .read_only()
                     .with_group("Acquisition");
-                exposure_resolution_index_param = Some(param);
+                params.register(param.clone());
             }
 
             if let Ok(factors) = PvcamFeatures::list_serial_binning(&conn_guard) {
-                binning_serial_choices_param = Some(
-                    Parameter::new(
-                        "acquisition.binning_serial_choices",
-                        serde_json::to_string(&factors).unwrap_or_else(|_| "[]".to_string()),
-                    )
-                    .with_description("Available horizontal binning factors as JSON array")
-                    .read_only()
-                    .with_group("Acquisition"),
-                );
+                let param = Parameter::new(
+                    "acquisition.binning_serial_choices",
+                    serde_json::to_string(&factors).unwrap_or_else(|_| "[]".to_string()),
+                )
+                .with_description("Available horizontal binning factors as JSON array")
+                .read_only()
+                .with_group("Acquisition");
+                params.register(param.clone());
             }
 
             if let Ok(factors) = PvcamFeatures::list_parallel_binning(&conn_guard) {
-                binning_parallel_choices_param = Some(
-                    Parameter::new(
-                        "acquisition.binning_parallel_choices",
-                        serde_json::to_string(&factors).unwrap_or_else(|_| "[]".to_string()),
-                    )
-                    .with_description("Available vertical binning factors as JSON array")
-                    .read_only()
-                    .with_group("Acquisition"),
-                );
+                let param = Parameter::new(
+                    "acquisition.binning_parallel_choices",
+                    serde_json::to_string(&factors).unwrap_or_else(|_| "[]".to_string()),
+                )
+                .with_description("Available vertical binning factors as JSON array")
+                .read_only()
+                .with_group("Acquisition");
+                params.register(param.clone());
             }
 
             if let Ok(config) = PvcamFeatures::get_centroids_config(&conn_guard) {
@@ -1136,7 +1118,7 @@ impl PvcamDriver {
                         })
                     }
                 });
-                centroids_enabled_param = Some(enabled);
+                params.register(enabled.clone());
 
                 let threshold = Parameter::new(
                     "processing.centroids_threshold",
@@ -1152,17 +1134,11 @@ impl PvcamDriver {
                 .with_description("Centroids processing mode")
                 .with_choices_introspectable(CentroidsMode::all_choices())
                 .with_group("Post-Processing");
-                // PrimeLocate not available on this camera (Teledyne confirmed) — read-only
                 let radius = Parameter::new("processing.centroids_radius", config.radius)
-                    .with_description("Centroids search radius (PrimeLocate not available)")
-                    .read_only()
+                    .with_description("Centroids search radius")
                     .with_group("Post-Processing");
-                // PrimeLocate not available on this camera (Teledyne confirmed) — read-only
                 let max_count = Parameter::new("processing.centroids_max_count", config.max_count)
-                    .with_description(
-                        "Maximum number of centroids per frame (PrimeLocate not available)",
-                    )
-                    .read_only()
+                    .with_description("Maximum number of centroids per frame")
                     .with_group("Post-Processing");
 
                 {
@@ -1196,7 +1172,67 @@ impl PvcamDriver {
                     });
                 }
 
-                // radius and max_count are read-only (PrimeLocate N/A) — no hardware write callbacks
+                {
+                    let conn = connection.clone();
+                    let mode_param = mode.clone();
+                    let max_count_param = max_count.clone();
+                    let threshold_param = threshold.clone();
+                    radius.connect_to_hardware_write(move |val| {
+                        let conn = conn.clone();
+                        let mode = CentroidsMode::from_str(&mode_param.get());
+                        let max_count = max_count_param.get();
+                        let threshold = threshold_param.get();
+                        Box::pin(async move {
+                            let conn_guard = conn.lock_owned().await;
+                            let config = CentroidsConfig {
+                                mode,
+                                radius: val,
+                                max_count,
+                                threshold,
+                            };
+                            ffi_timeout::ffi_with_timeout_daq(
+                                "set_centroids_config",
+                                ffi_timeout::CONFIG_TIMEOUT,
+                                move || {
+                                    PvcamFeatures::set_centroids_config(&conn_guard, &config)
+                                        .map_err(|e| DaqError::Instrument(e.to_string()))
+                                },
+                            )
+                            .await
+                        })
+                    });
+                }
+
+                {
+                    let conn = connection.clone();
+                    let mode_param = mode.clone();
+                    let radius_param = radius.clone();
+                    let threshold_param = threshold.clone();
+                    max_count.connect_to_hardware_write(move |val| {
+                        let conn = conn.clone();
+                        let mode = CentroidsMode::from_str(&mode_param.get());
+                        let radius = radius_param.get();
+                        let threshold = threshold_param.get();
+                        Box::pin(async move {
+                            let conn_guard = conn.lock_owned().await;
+                            let config = CentroidsConfig {
+                                mode,
+                                radius,
+                                max_count: val,
+                                threshold,
+                            };
+                            ffi_timeout::ffi_with_timeout_daq(
+                                "set_centroids_config",
+                                ffi_timeout::CONFIG_TIMEOUT,
+                                move || {
+                                    PvcamFeatures::set_centroids_config(&conn_guard, &config)
+                                        .map_err(|e| DaqError::Instrument(e.to_string()))
+                                },
+                            )
+                            .await
+                        })
+                    });
+                }
 
                 threshold.connect_to_hardware_write({
                     let conn = connection.clone();
@@ -1217,10 +1253,10 @@ impl PvcamDriver {
                     }
                 });
 
-                centroids_mode_param = Some(mode);
-                centroids_radius_param = Some(radius);
-                centroids_max_count_param = Some(max_count);
-                centroids_threshold_param = Some(threshold);
+                params.register(mode.clone());
+                params.register(radius.clone());
+                params.register(max_count.clone());
+                params.register(threshold.clone());
             }
 
             if let Ok(scan_mode) = PvcamFeatures::get_scan_mode(&conn_guard) {
@@ -1235,7 +1271,7 @@ impl PvcamDriver {
                     )
                     .read_only()
                     .with_group("Trigger");
-                scan_mode_param = Some(param);
+                params.register(param.clone());
             }
 
             if let Ok(scan_direction) = PvcamFeatures::get_scan_direction(&conn_guard) {
@@ -1272,7 +1308,7 @@ impl PvcamDriver {
                         })
                     }
                 });
-                scan_direction_param = Some(param);
+                params.register(param.clone());
             }
 
             if let Ok(scan_line_delay) = PvcamFeatures::get_scan_line_delay(&conn_guard) {
@@ -1281,7 +1317,7 @@ impl PvcamDriver {
                     .with_description("Programmable scan line delay in line clocks (not available)")
                     .read_only()
                     .with_group("Trigger");
-                scan_line_delay_param = Some(param);
+                params.register(param.clone());
             }
 
             if let Ok(scan_width) = PvcamFeatures::get_scan_width(&conn_guard) {
@@ -1292,16 +1328,15 @@ impl PvcamDriver {
                     )
                     .read_only()
                     .with_group("Trigger");
-                scan_width_param = Some(param);
+                params.register(param.clone());
             }
 
             if let Ok(scan_line_time_ns) = PvcamFeatures::get_scan_line_time_ns(&conn_guard) {
-                scan_line_time_param = Some(
-                    Parameter::new("diagnostics.scan_line_time_ns", scan_line_time_ns)
-                        .with_description("Derived programmable scan line time in nanoseconds")
-                        .read_only()
-                        .with_group("Diagnostics"),
-                );
+                let param = Parameter::new("diagnostics.scan_line_time_ns", scan_line_time_ns)
+                    .with_description("Derived programmable scan line time in nanoseconds")
+                    .read_only()
+                    .with_group("Diagnostics");
+                params.register(param.clone());
             }
         }
 
@@ -1523,51 +1558,6 @@ impl PvcamDriver {
         params.register(frame_transfer_mode.clone());
         params.register(io_script_cmd.clone());
         params.register(multi_roi_config.clone());
-        if let Some(param) = &clear_cycles_param {
-            params.register(param.clone());
-        }
-        if let Some(param) = &exposure_resolution_param {
-            params.register(param.clone());
-        }
-        if let Some(param) = &exposure_resolution_index_param {
-            params.register(param.clone());
-        }
-        if let Some(param) = &binning_serial_choices_param {
-            params.register(param.clone());
-        }
-        if let Some(param) = &binning_parallel_choices_param {
-            params.register(param.clone());
-        }
-        if let Some(param) = &centroids_enabled_param {
-            params.register(param.clone());
-        }
-        if let Some(param) = &centroids_mode_param {
-            params.register(param.clone());
-        }
-        if let Some(param) = &centroids_radius_param {
-            params.register(param.clone());
-        }
-        if let Some(param) = &centroids_max_count_param {
-            params.register(param.clone());
-        }
-        if let Some(param) = &centroids_threshold_param {
-            params.register(param.clone());
-        }
-        if let Some(param) = &scan_mode_param {
-            params.register(param.clone());
-        }
-        if let Some(param) = &scan_direction_param {
-            params.register(param.clone());
-        }
-        if let Some(param) = &scan_line_delay_param {
-            params.register(param.clone());
-        }
-        if let Some(param) = &scan_width_param {
-            params.register(param.clone());
-        }
-        if let Some(param) = &scan_line_time_param {
-            params.register(param.clone());
-        }
         // I/O Diagnostics (bd-oqo7.6)
         params.register(io_bitdepth.clone());
         params.register(io_type.clone());
