@@ -14,6 +14,21 @@ pub enum ModuleState {
     Error = 7,
 }
 
+impl std::fmt::Display for ModuleState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Unknown => write!(f, "Unknown"),
+            Self::Created => write!(f, "Created"),
+            Self::Configured => write!(f, "Configured"),
+            Self::Staged => write!(f, "Staged"),
+            Self::Running => write!(f, "Running"),
+            Self::Paused => write!(f, "Paused"),
+            Self::Stopped => write!(f, "Stopped"),
+            Self::Error => write!(f, "Error"),
+        }
+    }
+}
+
 /// Severity level for module events
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ModuleEventSeverity {

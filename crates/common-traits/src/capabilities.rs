@@ -139,6 +139,12 @@ impl DeviceCategory {
     }
 }
 
+impl std::fmt::Display for DeviceCategory {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.label())
+    }
+}
+
 // =============================================================================
 // Capability Traits
 // =============================================================================
@@ -1385,6 +1391,16 @@ pub enum TriggerSource {
     Position,
 }
 
+impl std::fmt::Display for TriggerSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Software => write!(f, "Software"),
+            Self::External { channel } => write!(f, "External({channel})"),
+            Self::Position => write!(f, "Position"),
+        }
+    }
+}
+
 /// Capability: Trigger on Position (Dover Motion Controllers)
 ///
 /// Motion stages that can generate trigger pulses at precise position increments.
@@ -1453,6 +1469,16 @@ pub enum InterlockStatus {
     Open,
     /// Interlock status cannot be determined
     Unknown,
+}
+
+impl std::fmt::Display for InterlockStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Closed => write!(f, "Closed"),
+            Self::Open => write!(f, "Open"),
+            Self::Unknown => write!(f, "Unknown"),
+        }
+    }
 }
 
 /// Capability: Safety Interlock
@@ -1580,6 +1606,15 @@ impl MeasurementLock {
     }
 }
 
+impl std::fmt::Display for MeasurementLock {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Idle => write!(f, "Idle"),
+            Self::Measuring => write!(f, "Measuring"),
+        }
+    }
+}
+
 // =============================================================================
 // Counter/Timer Configuration (bd-f3pq)
 // =============================================================================
@@ -1602,6 +1637,19 @@ pub enum CounterMode {
     PulseWidth,
 }
 
+impl std::fmt::Display for CounterMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::EventCounting => write!(f, "Event Counting"),
+            Self::FrequencyMeasurement => write!(f, "Frequency Measurement"),
+            Self::PeriodMeasurement => write!(f, "Period Measurement"),
+            Self::PulseGeneration => write!(f, "Pulse Generation"),
+            Self::QuadratureEncoder => write!(f, "Quadrature Encoder"),
+            Self::PulseWidth => write!(f, "Pulse Width"),
+        }
+    }
+}
+
 /// Edge selection for counter triggers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -1612,6 +1660,16 @@ pub enum CounterEdge {
     Falling,
     /// Trigger on both edges.
     Both,
+}
+
+impl std::fmt::Display for CounterEdge {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Rising => write!(f, "Rising"),
+            Self::Falling => write!(f, "Falling"),
+            Self::Both => write!(f, "Both"),
+        }
+    }
 }
 
 /// Configuration for a DAQ counter/timer channel.
@@ -1653,6 +1711,16 @@ pub enum RangeUnit {
     MilliAmps,
     /// Dimensionless / unknown.
     None,
+}
+
+impl std::fmt::Display for RangeUnit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Volts => write!(f, "Volts"),
+            Self::MilliAmps => write!(f, "MilliAmps"),
+            Self::None => write!(f, "None"),
+        }
+    }
 }
 
 /// Description of an analog voltage/current range.
