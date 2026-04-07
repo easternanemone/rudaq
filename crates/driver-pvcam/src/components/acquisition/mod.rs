@@ -224,7 +224,10 @@ pub(super) enum SdkStreamingState {
         /// calling FFI cleanup functions.
         poll_thread_done_rx: std::sync::mpsc::Receiver<()>,
         /// Owned here for lifetime management; the frame loop holds a clone.
-        #[expect(dead_code, reason = "sender is held here for lifetime management; frame loop holds a clone")]
+        #[expect(
+            dead_code,
+            reason = "sender is held here for lifetime management; frame loop holds a clone"
+        )]
         poll_thread_done_tx: std::sync::mpsc::Sender<()>,
     },
 }

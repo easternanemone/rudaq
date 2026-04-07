@@ -267,7 +267,10 @@ impl MockAnalogOutput {
 /// ```
 pub struct ComediAnalogInputDriver {
     /// Real hardware (None if mock mode)
-    #[expect(dead_code, reason = "device handle retained for lifetime management and drop-order safety")]
+    #[expect(
+        dead_code,
+        reason = "device handle retained for lifetime management and drop-order safety"
+    )]
     device: Option<ComediDevice>,
     analog_input: Option<AnalogInput>,
 
@@ -287,15 +290,24 @@ pub struct ComediAnalogInputDriver {
     params: Arc<ParameterSet>,
 
     /// Voltage reading parameter (updated on each read)
-    #[expect(dead_code, reason = "parameter exposed via ParameterSet for remote introspection")]
+    #[expect(
+        dead_code,
+        reason = "parameter exposed via ParameterSet for remote introspection"
+    )]
     voltage: Parameter<f64>,
 
     /// Channel parameter (read-only info)
-    #[expect(dead_code, reason = "parameter exposed via ParameterSet for remote introspection")]
+    #[expect(
+        dead_code,
+        reason = "parameter exposed via ParameterSet for remote introspection"
+    )]
     channel_param: Parameter<f64>,
 
     /// Input mode parameter (read-only info)
-    #[expect(dead_code, reason = "parameter exposed via ParameterSet for remote introspection")]
+    #[expect(
+        dead_code,
+        reason = "parameter exposed via ParameterSet for remote introspection"
+    )]
     input_mode_param: Parameter<f64>,
 }
 
@@ -504,7 +516,10 @@ impl ReadableWithMetadata for ComediAnalogInputDriver {
     async fn read_with_metadata(&self, _channel: u32) -> Result<ReadResult> {
         if let Some(mock) = &self.mock {
             let voltage = mock.read_voltage().await?;
-            #[expect(clippy::cast_possible_truncation, reason = "nanosecond timestamps won't exceed u64 until year ~2554")]
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "nanosecond timestamps won't exceed u64 until year ~2554"
+            )]
             let timestamp_ns = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .expect("system clock before UNIX epoch")
@@ -538,7 +553,10 @@ impl ReadableWithMetadata for ComediAnalogInputDriver {
 
         let voltage = ai.raw_to_voltage(raw, &range);
 
-        #[expect(clippy::cast_possible_truncation, reason = "nanosecond timestamps won't exceed u64 until year ~2554")]
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "nanosecond timestamps won't exceed u64 until year ~2554"
+        )]
         let timestamp_ns = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .expect("system clock before UNIX epoch")
@@ -565,7 +583,10 @@ impl ReadableWithMetadata for ComediAnalogInputDriver {
 /// such as PID feedback loops.
 pub struct ComediAnalogOutputDriver {
     /// Real hardware
-    #[expect(dead_code, reason = "device handle retained for lifetime management and drop-order safety")]
+    #[expect(
+        dead_code,
+        reason = "device handle retained for lifetime management and drop-order safety"
+    )]
     device: Option<ComediDevice>,
     analog_output: Option<AnalogOutput>,
 
@@ -938,7 +959,10 @@ impl DriverFactory for ComediAnalogOutputFactory {
 /// Wraps the DIO subsystem through [`SwitchableDigitalIO`] and exposes it
 /// via the `Settable` trait for registry integration.
 pub struct ComediDigitalIODriver {
-    #[expect(dead_code, reason = "device handle retained for lifetime management and drop-order safety")]
+    #[expect(
+        dead_code,
+        reason = "device handle retained for lifetime management and drop-order safety"
+    )]
     device: Option<ComediDevice>,
     dio: Option<crate::SwitchableDigitalIO>,
     mock: Option<MockDigitalIO>,
@@ -1167,7 +1191,10 @@ impl DriverFactory for ComediDigitalIOFactory {
 /// Wraps a single counter channel through [`ReadableCounter`] and exposes it
 /// via `Readable` + `Settable` for registry integration.
 pub struct ComediCounterDriver {
-    #[expect(dead_code, reason = "device handle retained for lifetime management and drop-order safety")]
+    #[expect(
+        dead_code,
+        reason = "device handle retained for lifetime management and drop-order safety"
+    )]
     device: Option<ComediDevice>,
     counter: Option<crate::ReadableCounter>,
     mock: Option<MockCounter>,
@@ -1269,7 +1296,10 @@ impl Settable for ComediCounterDriver {
                     Ok(())
                 }
                 "value" | "count" => {
-                    #[expect(clippy::cast_possible_truncation, reason = "counter values are bounded by maxdata (16-32 bit), fits in u32")]
+                    #[expect(
+                        clippy::cast_possible_truncation,
+                        reason = "counter values are bounded by maxdata (16-32 bit), fits in u32"
+                    )]
                     let v = value
                         .as_u64()
                         .ok_or_else(|| anyhow::anyhow!("count must be an unsigned integer"))?

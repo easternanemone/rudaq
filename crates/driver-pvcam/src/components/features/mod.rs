@@ -1877,7 +1877,10 @@ impl PvcamFeatures {
             let state = _conn.mock_state.lock().unwrap();
             return Ok(state.pre_trigger_delay_us);
         }
-        #[expect(unreachable_code, reason = "fallback after cfg-conditional early returns; unreachable but required by compiler")]
+        #[expect(
+            unreachable_code,
+            reason = "fallback after cfg-conditional early returns; unreachable but required by compiler"
+        )]
         Ok(0)
     }
 
@@ -1910,7 +1913,10 @@ impl PvcamFeatures {
             let state = _conn.mock_state.lock().unwrap();
             return Ok(state.post_trigger_delay_us);
         }
-        #[expect(unreachable_code, reason = "fallback after cfg-conditional early returns; unreachable but required by compiler")]
+        #[expect(
+            unreachable_code,
+            reason = "fallback after cfg-conditional early returns; unreachable but required by compiler"
+        )]
         Ok(0)
     }
 

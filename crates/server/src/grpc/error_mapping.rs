@@ -109,10 +109,10 @@ pub fn anyhow_to_status(err: anyhow::Error) -> Status {
             return map_daq_error_to_status(daq_err);
         }
         if let Some(driver_err) = cause.downcast_ref::<DriverError>() {
-            return map_daq_error_to_status(&DaqError::Driver(driver_err.clone()));
+            return map_driver_error_to_status(driver_err);
         }
         if let Some(storage_err) = cause.downcast_ref::<StorageError>() {
-            return map_daq_error_to_status(&DaqError::Storage(storage_err.clone()));
+            return map_storage_error_to_status(storage_err);
         }
     }
     // Fallback: opaque internal error with the full anyhow display chain
@@ -382,6 +382,46 @@ pub fn map_daq_error_to_status(err: &DaqError) -> Status {
             None,
         ),
     }
+}
+
+/// Map a standalone `DriverError` to gRPC Status without cloning.
+fn map_driver_error_to_status(driver_err: &DriverError) -> Status {
+    use common::error::DriverErrorKind;
+    let code = match driver_err.kind {
+        DriverErrorKind::Configuration | DriverErrorKind::InvalidParameter => Code::InvalidArgument,
+        DriverErrorKind::Initialization | DriverErrorKind::Safety => Code::FailedPrecondition,
+        DriverErrorKind::Communication | DriverErrorKind::Hardware | DriverErrorKind::Busy => {
+            Code::Unavailable
+        }
+        DriverErrorKind::Timeout => Code::DeadlineExceeded,
+        DriverErrorKind::Permission => Code::PermissionDenied,
+        DriverErrorKind::NotFound => Code::NotFound,
+        DriverErrorKind::Shutdown | DriverErrorKind::Unknown => Code::Internal,
+    };
+    status_with_metadata(
+        code,
+        driver_err.to_string(),
+        ErrorKind::Driver,
+        Some(driver_err),
+    )
+}
+
+/// Map a standalone `StorageError` to gRPC Status without cloning.
+fn map_storage_error_to_status(storage_err: &StorageError) -> Status {
+    let code = match storage_err.kind {
+        common::error::StorageErrorKind::Configuration => Code::InvalidArgument,
+        _ => Code::Internal,
+    };
+    let msg = match storage_err.kind {
+        common::error::StorageErrorKind::Configuration => {
+            format!("Storage configuration error: {}", storage_err.message)
+        }
+        common::error::StorageErrorKind::Io => {
+            format!("Storage I/O error: {}", storage_err.message)
+        }
+        _ => format!("Storage error: {}", storage_err.message),
+    };
+    status_with_metadata(code, msg, ErrorKind::Storage, None)
 }
 
 /// Extension trait for converting `Result<T, DaqError>` to `Result<T, Status>`.

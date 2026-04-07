@@ -171,7 +171,10 @@ impl Default for SinkConfig {
 
 /// Internal sink state.
 struct Sink {
-    #[expect(dead_code, reason = "config retained for diagnostics and future sink introspection")]
+    #[expect(
+        dead_code,
+        reason = "config retained for diagnostics and future sink introspection"
+    )]
     config: SinkConfig,
     sender: mpsc::Sender<SampleBatch>,
     drops: AtomicU64,
@@ -199,7 +202,10 @@ pub struct ContinuousStats {
 /// This provides indefinite-duration streaming with backpressure handling
 /// and multiple output sinks.
 pub struct ContinuousStream {
-    #[expect(dead_code, reason = "device handle retained for lifetime management; used by acquisition subsystem")]
+    #[expect(
+        dead_code,
+        reason = "device handle retained for lifetime management; used by acquisition subsystem"
+    )]
     device: ComediDevice,
     config: StreamConfig,
     acquisition: Arc<StreamAcquisition>,
@@ -362,7 +368,10 @@ impl ContinuousStream {
                                     Ok(()) => {}
                                     Err(mpsc::error::TrySendError::Full(_)) => {
                                         sink.drops.fetch_add(1, Ordering::SeqCst);
-                                        #[expect(clippy::cast_possible_truncation, reason = "batch_size * n_channels is small, fits in u64")]
+                                        #[expect(
+                                            clippy::cast_possible_truncation,
+                                            reason = "batch_size * n_channels is small, fits in u64"
+                                        )]
                                         samples_dropped.fetch_add(
                                             (batch_size * n_channels) as u64,
                                             Ordering::SeqCst,
@@ -455,7 +464,10 @@ impl ContinuousStream {
                 // The number of messages sitting in the channel is
                 // (capacity - available permits).
                 let queued = capacity - sink.sender.capacity();
-                #[expect(clippy::cast_precision_loss, reason = "channel capacity is small; precision loss is negligible for backpressure ratio")]
+                #[expect(
+                    clippy::cast_precision_loss,
+                    reason = "channel capacity is small; precision loss is negligible for backpressure ratio"
+                )]
                 let fill = queued as f64 / capacity as f64;
                 if fill > max_sink_pressure {
                     max_sink_pressure = fill;
