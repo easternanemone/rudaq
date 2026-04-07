@@ -615,15 +615,15 @@ async fn test_pipeline_data_integrity() {
     // Verify data integrity: check positions match expected
     let mut position_count = 0;
     for measurement in &actual_measurements {
-        if let Measurement::Scalar { name, value, .. } = measurement {
-            if name == "stage_x" {
-                let expected = expected_positions[position_count];
-                assert!(
-                    (*value - expected).abs() < 0.001,
-                    "Position mismatch: expected {expected}, got {value}"
-                );
-                position_count += 1;
-            }
+        if let Measurement::Scalar { name, value, .. } = measurement
+            && name == "stage_x"
+        {
+            let expected = expected_positions[position_count];
+            assert!(
+                (*value - expected).abs() < 0.001,
+                "Position mismatch: expected {expected}, got {value}"
+            );
+            position_count += 1;
         }
     }
 

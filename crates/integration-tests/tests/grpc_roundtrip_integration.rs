@@ -363,10 +363,10 @@ async fn test_concurrent_moves() {
 
     let mut success_count = 0;
     for result in results {
-        if let Ok(Ok(response)) = result {
-            if response.into_inner().success {
-                success_count += 1;
-            }
+        if let Ok(Ok(response)) = result
+            && response.into_inner().success
+        {
+            success_count += 1;
         }
     }
 
