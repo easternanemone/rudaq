@@ -52,10 +52,16 @@
 pub mod error;
 pub mod schema;
 
+// Compile-time guard: sqlite and kv-mem/kv-rocksdb are mutually exclusive.
+#[cfg(all(feature = "sqlite", any(feature = "kv-mem", feature = "kv-rocksdb")))]
+compile_error!(
+    "Features `sqlite` and `kv-mem`/`kv-rocksdb` are mutually exclusive. \
+     Use `sqlite` (default) or one of the legacy SurrealDB backends, not both."
+);
+
 // =========================================================================
 // SQLite backend (default, forward path)
 // =========================================================================
-// When sqlite is enabled, it takes priority over the legacy SurrealDB backend.
 
 #[cfg(feature = "sqlite")]
 pub mod sqlite_backend;
