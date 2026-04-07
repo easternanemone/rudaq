@@ -20,6 +20,17 @@ use tracing::info;
 use crate::error::Result;
 use crate::schema::SCHEMA_VERSION;
 
+/// Summary of a config import operation.
+///
+/// Compatible with the SurrealDB `ImportReport` so downstream callers
+/// (e.g., `db_bridge::shadow_write`) work unchanged.
+#[derive(Debug, Clone, Default)]
+pub struct ImportReport {
+    pub drivers_upserted: usize,
+    pub instruments_upserted: usize,
+    pub errors: Vec<String>,
+}
+
 // Re-use the existing DB-native types from config_store so we don't diverge.
 // These are gated on surreal features in config_store.rs, so we re-declare
 // a compatible subset here for the sqlite backend.  When migration is
@@ -384,6 +395,14 @@ impl DbConfig {
             path: Some(path.into()),
         }
     }
+
+    /// Alias for [`Self::file`] — accepts a `PathBuf` for compatibility with
+    /// callers that previously used `DbConfig::rocksdb(path)`.
+    pub fn rocksdb(path: impl AsRef<std::path::Path>) -> Self {
+        Self {
+            path: Some(path.as_ref().display().to_string()),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -444,9 +463,12 @@ pub fn config_hash(config: &serde_json::Value) -> u64 {
 
 impl SqliteDb {
     /// Initialize from a [`DbConfig`].
-    pub async fn from_config(config: DbConfig) -> Result<Self> {
+    ///
+    /// This is the primary constructor — matches `DaqDb::init(config)` from the
+    /// SurrealDB backend so callers don't need to change.
+    pub async fn init(config: DbConfig) -> Result<Self> {
         match config.path {
-            Some(path) => Self::init(&path).await,
+            Some(path) => Self::open(&path).await,
             None => Self::init_memory().await,
         }
     }
@@ -457,7 +479,7 @@ impl SqliteDb {
     ///
     /// Returns [`DbError::Database`] if the file cannot be opened or the
     /// schema migration fails.
-    pub async fn init(path: &str) -> Result<Self> {
+    pub async fn open(path: &str) -> Result<Self> {
         let conn = tokio_rusqlite::Connection::open(path).await?;
         let (change_tx, _) = broadcast::channel(64);
         let db = Self {
@@ -503,7 +525,9 @@ impl SqliteDb {
     ///
     /// Uses `INSERT OR REPLACE` keyed on `device_id`.  Broadcasts
     /// [`DbChangeEvent::InstrumentsUpdated`] once after the batch completes.
-    pub async fn upsert_instruments(&self, instruments: &[DbInstrument]) -> Result<()> {
+    /// Returns an [`ImportReport`] for compatibility with downstream callers.
+    pub async fn upsert_instruments(&self, instruments: &[DbInstrument]) -> Result<ImportReport> {
+        let count = instruments.len();
         let instruments = instruments.to_vec();
         self.conn
             .call(move |conn| {
@@ -531,7 +555,10 @@ impl SqliteDb {
 
         // Notify subscribers (best-effort -- ignore send errors when no receivers).
         let _ = self.change_tx.send(DbChangeEvent::InstrumentsUpdated);
-        Ok(())
+        Ok(ImportReport {
+            instruments_upserted: count,
+            ..ImportReport::default()
+        })
     }
 
     /// Retrieve a single instrument by device ID.
@@ -608,7 +635,9 @@ impl SqliteDb {
     /// Upsert a batch of drivers.
     ///
     /// Uses `INSERT OR REPLACE` keyed on `driver_type`.
-    pub async fn upsert_drivers(&self, drivers: &[DbDriver]) -> Result<()> {
+    /// Returns the number of drivers upserted.
+    pub async fn upsert_drivers(&self, drivers: &[DbDriver]) -> Result<usize> {
+        let count = drivers.len();
         let drivers = drivers.to_vec();
         self.conn
             .call(move |conn| {
@@ -636,7 +665,7 @@ impl SqliteDb {
             .await?;
 
         let _ = self.change_tx.send(DbChangeEvent::DriversUpdated);
-        Ok(())
+        Ok(count)
     }
 
     /// Retrieve all drivers, ordered by `driver_type`.
@@ -1790,14 +1819,14 @@ mod tests {
 
         // Session 1: write data
         {
-            let db = SqliteDb::init(path_str).await.expect("init");
+            let db = SqliteDb::open(path_str).await.expect("init");
             let inst = sample_instrument("persist_test");
             db.upsert_instruments(&[inst]).await.expect("upsert");
         }
 
         // Session 2: re-open and verify data persists
         {
-            let db = SqliteDb::init(path_str).await.expect("init");
+            let db = SqliteDb::open(path_str).await.expect("init");
             let fetched = db
                 .get_instrument("persist_test")
                 .await

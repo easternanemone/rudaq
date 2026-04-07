@@ -45,7 +45,7 @@ tracing-subscriber = { version = "0.3", features = ["registry"] }
 
 
 [features]
-default = ["server", "scripting", "storage_hdf5", "storage_arrow", "serial", "modules", "pvcam", "universal", "db-surreal-mem"]
+default = ["server", "scripting", "storage_hdf5", "storage_arrow", "serial", "modules", "pvcam", "universal", "db"]
 
 # ============================================================================
 # CRATE-LOCAL ONLY (no downstream forwarding, gate test code only)
@@ -72,8 +72,10 @@ pvcam = ["dep:driver-pvcam", "driver-registry/pvcam"]   # pvcam_integration, end
 pvcam_sdk = ["pvcam", "driver-registry/pvcam_sdk"]       # pvcam_streaming_test, module_exports
 serial = ["hardware/serial"]              # plugin_system_integration
 modules = ["daq-modules"]                 # module_exports_test
-db-surreal-mem = ["dep:db", "db/kv-mem", "dep:server", "server/db-surreal-mem"]  # surrealdb_e2e, andor tests, runtime_metadata
-db-surreal-rocksdb = ["dep:db", "db/kv-rocksdb", "dep:server", "server/db-surreal-rocksdb"]
+db = ["dep:db", "dep:server", "server/db"]           # DB e2e tests, andor tests, runtime_metadata
+# Legacy aliases (deprecated)
+db-surreal-mem = ["db"]
+db-surreal-rocksdb = ["db"]
 
 [[bench]]
 name = "lock_contention"

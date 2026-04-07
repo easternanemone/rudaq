@@ -42,7 +42,7 @@ libc = "0.2"
 tempfile.workspace = true
 
 [features]
-default = ["networking", "server", "db-surreal-mem"]
+default = ["networking", "server", "db"]
 
 # ============================================================================
 # CRATE-SPECIFIC (used in #[cfg(feature = "...")] within bin source code)
@@ -58,7 +58,12 @@ storage_arrow = ["storage/storage_arrow"]            # cfg-gated storage service
 comedi_hardware = ["driver-registry/comedi_hardware", "server/comedi", "dep:driver-comedi"]  # cfg-gated safety heartbeat + comedi init
 modules = ["dep:daq-modules"]                        # Activates optional dep (implicit cfg via dep:)
 metrics = ["dep:prometheus", "server/metrics"]        # cfg-gated Prometheus endpoint in watch_reconciler
-db-surreal = ["dep:db", "server/db-surreal"]          # cfg-gated DB init paths in main + daemon_manager
+db = ["dep:db", "server/db"]                          # cfg-gated DB init paths in main + daemon_manager
+
+# Legacy aliases (deprecated — db now uses sqlite by default)
+db-surreal = ["db"]
+db-surreal-mem = ["db"]
+db-surreal-rocksdb = ["db"]
 
 # ============================================================================
 # PURE PASS-THROUGH (forwarded only, no #[cfg] usage in bin source)
@@ -70,41 +75,15 @@ all_hardware = ["driver-registry/all_hardware", "server/comedi"]
 scripting_python = ["scripting/python"]
 
 # ============================================================================
-# DATABASE ENGINE (pass-through to db + server; db-surreal base is hybrid above)
-# ============================================================================
-db-surreal-mem = ["db-surreal", "db/kv-mem", "server/db-surreal-mem"]
-db-surreal-rocksdb = ["db-surreal", "db/kv-rocksdb", "server/db-surreal-rocksdb"]
-
-# ============================================================================
 # HIGH-LEVEL PROFILES (composition of the above features)
 # ============================================================================
 backend = ["modules", "all_hardware"]
 cli = ["all_hardware", "scripting_python"]
 full = ["storage_arrow", "serial", "modules", "all_hardware"]
-production = ["db-surreal-rocksdb", "modules", "all_hardware"]
+production = ["db", "modules", "all_hardware"]
 
 # ============================================================================
 # MAITAI LAB PROFILE - COMPLETE HARDWARE STACK
-# ============================================================================
-# This feature flag enables ALL real hardware on the maitai machine.
-# CRITICAL: This must include EVERY hardware driver, not just PVCAM!
-#
-# Build command: bash scripts/ops/build-maitai.sh
-# or manually: cargo build --release -p bin --features maitai
-#
-# Enabled drivers:
-#   - pvcam_hardware    : Real PVCAM SDK (Prime BSI camera)
-#   - comedi_hardware   : NI PCI-MIO-16XE-10 DAQ card
-#   - serial            : Base serial port communication
-#
-# Serial/SCPI devices (ELL14, ESP300, MaiTai, Newport 1830-C, Red Pitaya PID)
-# now use driver-universal with TOML manifests from config/devices/.
-# No feature flags needed — driver-universal is always compiled.
-#
-# Expected devices (9+ total):
-#   1. prime_bsi (PVCAM camera)
-#   2. photodiode, ni_daq_ao0 (Comedi DAQ channels)
-#   3+ Universal devices from config/devices/*.toml manifests
 # ============================================================================
 maitai = [
     "pvcam_hardware",              # Real PVCAM SDK (NOT mock)
@@ -115,30 +94,13 @@ maitai = [
 # ============================================================================
 # LEABS LAB PROFILE - LASER ENERGY ASSISTED BREAKDOWN SPECTROSCOPY
 # ============================================================================
-# Build (mock):     cargo build --release -p bin --features leabs
-# Build (hardware): bash scripts/deploy/deploy-leabs.sh
-#   or on leabs-dev: source config/hosts/leabs-dev.env && cargo build --release -p bin --features leabs_hardware
-#
-# Enabled drivers:
-#   - andor              : Andor iStar sCMOS (mock or real SDK3)
-#   - universal drivers  : IPG YLPP-200 laser (TCP), Thorlabs PM400 (USB TMC)
-#     (driver-universal is always compiled; no feature flag needed)
-#
-# Expected devices (3):
-#   1. ipg_laser (IPG YLPP-200-1-50-R fiber laser, TCP 10.0.0.15:10001)
-#   2. istar_camera (Andor iStar sCMOS)
-#   3. power_meter (Thorlabs PM400, /dev/usbtmc0)
-# ============================================================================
 leabs = [
     "driver-registry/andor",          # Andor iStar (mock mode)
-    # IPG laser + PM400 use driver-universal (always compiled, no feature needed)
 ]
 
 # LEABS real hardware (requires Andor SDK3 on leabs-dev)
-# Includes the same universal drivers as `leabs` but with real SDK3 for the camera.
 leabs_hardware = [
     "driver-registry/andor_hardware", # Andor iStar (real SDK3, requires ANDOR_SDK3_DIR)
-    # IPG laser + PM400 use driver-universal (always compiled, no feature needed)
 ]
 
 [lints]

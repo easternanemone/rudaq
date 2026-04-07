@@ -2,7 +2,7 @@
 name = "db"
 version = "0.1.0"
 edition = "2024"
-description = "Embedded SurrealDB persistence layer for rust-daq (control plane)"
+description = "Embedded SQLite persistence layer for rust-daq (control plane)"
 license = "MIT"
 
 [dependencies]
@@ -17,12 +17,10 @@ chrono.workspace = true
 toml.workspace = true
 futures.workspace = true
 
-# SurrealDB — optional per storage engine.
-# Use `kv-mem` for tests/dev (fast compile), `kv-rocksdb` for production.
-# The `Any` engine lets callers decide at runtime.
+# SurrealDB — legacy backend (deprecated, will be removed).
 surrealdb = { version = "2", default-features = false, optional = true }
 
-# SQLite — lightweight alternative backend (bd-ba6cd).
+# SQLite — primary backend (bd-2a2ne).
 rusqlite = { version = "0.37", features = ["bundled"], optional = true }
 tokio-rusqlite = { version = "0.7", optional = true }
 
@@ -32,19 +30,15 @@ tokio = { workspace = true, features = ["rt", "macros", "test-util"] }
 criterion = { version = "0.5", features = ["async_tokio"] }
 
 [features]
-default = ["kv-mem"]
+default = ["sqlite"]
 
-# In-memory engine — fast compilation, no disk persistence.
-# Good for development and unit tests.
-kv-mem = ["dep:surrealdb", "surrealdb/kv-mem"]
-
-# RocksDB engine — persistent embedded storage.
-# Requires librocksdb; slower to compile.
-kv-rocksdb = ["dep:surrealdb", "surrealdb/kv-rocksdb"]
-
-# SQLite backend — lightweight replacement for SurrealDB (bd-ba6cd).
-# ~15 deps, ~20s compile vs SurrealDB's 118 deps / 10+ min.
+# SQLite backend — lightweight embedded database (bd-2a2ne).
+# ~15 deps, ~20s compile.  Primary backend going forward.
 sqlite = ["dep:rusqlite", "dep:tokio-rusqlite"]
+
+# Legacy SurrealDB engines (deprecated — use sqlite instead).
+kv-mem = ["dep:surrealdb", "surrealdb/kv-mem"]
+kv-rocksdb = ["dep:surrealdb", "surrealdb/kv-rocksdb"]
 
 [[bench]]
 name = "startup"
