@@ -1,0 +1,4 @@
+node_modules/
+dist/
+ax-bridge
+*.js.map

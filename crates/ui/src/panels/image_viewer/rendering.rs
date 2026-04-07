@@ -87,12 +87,12 @@ impl ImageViewerPanel {
             // Connection state indicator (colored dot)
             let (state_color, state_text) = match self.connection_state {
                 ConnectionState::Idle => (colors::MUTED, ""),
-                ConnectionState::Connected => (colors::CONNECTED, ""),
-                ConnectionState::Disconnected => (colors::ERROR, ""),
-                ConnectionState::Reconnecting => (colors::CONNECTING, ""),
+                ConnectionState::Connected => (colors::CONNECTED, "● Stream Connected"),
+                ConnectionState::Disconnected => (colors::ERROR, "● Stream Disconnected"),
+                ConnectionState::Reconnecting => (colors::CONNECTING, "● Stream Reconnecting"),
             };
             if self.connection_state != ConnectionState::Idle {
-                ui.colored_label(state_color, "●");
+                ui.colored_label(state_color, state_text);
             }
 
             ui.heading("Image Viewer");
