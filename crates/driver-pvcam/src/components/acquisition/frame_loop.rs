@@ -14,8 +14,6 @@ use super::{CallbackContext, FrameMetadata, get_pvcam_error};
 #[cfg(feature = "pvcam_sdk")]
 use crate::components::features::PvcamFeatures;
 #[cfg(feature = "pvcam_sdk")]
-use crate::components::features::PvcamFeatures;
-#[cfg(feature = "pvcam_sdk")]
 use bytes::Bytes;
 #[cfg(feature = "pvcam_sdk")]
 use common::data::Frame;
