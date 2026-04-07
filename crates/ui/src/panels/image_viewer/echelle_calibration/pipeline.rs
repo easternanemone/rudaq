@@ -622,7 +622,7 @@ impl ImageViewerPanel {
 
         if let Some(profile) = self.echelle_cal_ui.editor_profile.as_mut() {
             profile.corrections.blaze = Some(EchelleArtifactRef {
-                path: path.display().to_string(),
+                path: path.to_path_buf(),
                 sha256: None,
                 format: Some("csv".to_string()),
             });

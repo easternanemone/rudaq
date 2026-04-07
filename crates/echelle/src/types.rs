@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashSet;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 pub const ECHELLE_PROFILE_SCHEMA_MAJOR: u32 = 1;
@@ -202,7 +202,7 @@ pub struct EchelleOrderCalibration {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EchelleArtifactRef {
-    pub path: String,
+    pub path: PathBuf,
     #[serde(default)]
     pub sha256: Option<String>,
     #[serde(default)]
@@ -2244,7 +2244,7 @@ mod tests {
             ],
             corrections: EchelleCorrections {
                 blaze: Some(EchelleArtifactRef {
-                    path: "calib/blaze_mechelle_demo.npz".to_string(),
+                    path: PathBuf::from("calib/blaze_mechelle_demo.npz"),
                     sha256: Some("deadbeef".repeat(8)),
                     format: Some("npz".to_string()),
                 }),

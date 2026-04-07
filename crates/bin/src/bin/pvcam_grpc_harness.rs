@@ -14,6 +14,7 @@ use protocol::daq::{
 };
 use serde::Serialize;
 use std::fs;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::time::Instant;
@@ -40,7 +41,7 @@ struct HarnessConfig {
     param_churn: bool,
     roi: Option<RoiConfig>,
     binning: Option<(u16, u16)>,
-    output_path: Option<String>,
+    output_path: Option<PathBuf>,
 }
 
 #[derive(Debug, Default)]
@@ -150,7 +151,7 @@ fn parse_args() -> Result<HarnessConfig> {
     let mut param_churn = false;
     let mut roi: Option<RoiConfig> = None;
     let mut binning: Option<(u16, u16)> = None;
-    let mut output_path: Option<String> = None;
+    let mut output_path: Option<PathBuf> = None;
 
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -181,7 +182,11 @@ fn parse_args() -> Result<HarnessConfig> {
                 let value = args.next().context("Missing --binning value")?;
                 binning = Some(parse_binning(&value)?);
             }
-            "--output" => output_path = Some(args.next().context("Missing --output value")?),
+            "--output" => {
+                output_path = Some(PathBuf::from(
+                    args.next().context("Missing --output value")?,
+                ));
+            }
             "--help" => {
                 usage();
                 std::process::exit(0);
@@ -933,7 +938,7 @@ async fn main() -> Result<()> {
     if let Some(path) = &config.output_path {
         let json = serde_json::to_string_pretty(&summary)?;
         fs::write(path, json)?;
-        println!("Summary written to {path}");
+        println!("Summary written to {}", path.display());
     }
 
     if summary.success {
