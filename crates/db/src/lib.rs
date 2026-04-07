@@ -80,3 +80,12 @@ pub use surrealdb;
 
 #[cfg(feature = "sqlite")]
 pub mod sqlite_backend;
+
+// When sqlite is the active backend, re-export SqliteDb and all types
+// so downstream code uses `db::SqliteDb`, `db::DbInstrument`, etc.
+#[cfg(feature = "sqlite")]
+pub use sqlite_backend::{
+    DbChangeEvent, DbConfig as SqliteDbConfig, DbDeviceFeature, DbDriver, DbExperimentPlan,
+    DbInstrument, DbRunRecord, DeviceLifecycleEvent, DeviceParamState, SqliteDb, SqliteDbInfo,
+    config_hash, json_to_toml, toml_to_json,
+};

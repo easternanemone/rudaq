@@ -359,7 +359,98 @@ CREATE TABLE IF NOT EXISTS device_lifecycle_event (
 CREATE INDEX IF NOT EXISTS idx_lifecycle_device ON device_lifecycle_event(device_id, timestamp);
 ";
 
+// ---------------------------------------------------------------------------
+// DbConfig
+// ---------------------------------------------------------------------------
+
+/// Configuration for [`SqliteDb`].
+#[derive(Debug, Clone)]
+pub struct DbConfig {
+    /// File path for persistent storage, or `None` for in-memory.
+    pub path: Option<String>,
+}
+
+impl DbConfig {
+    /// In-memory database (useful for tests and development).
+    #[must_use]
+    pub fn in_memory() -> Self {
+        Self { path: None }
+    }
+
+    /// File-backed SQLite database at the given path.
+    #[must_use]
+    pub fn file(path: impl Into<String>) -> Self {
+        Self {
+            path: Some(path.into()),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Utility functions
+// ---------------------------------------------------------------------------
+
+/// Convert a TOML value to a JSON value (recursive).
+pub fn toml_to_json(v: &toml::Value) -> serde_json::Value {
+    match v {
+        toml::Value::String(s) => serde_json::Value::String(s.clone()),
+        toml::Value::Integer(i) => serde_json::json!(*i),
+        toml::Value::Float(f) => serde_json::json!(*f),
+        toml::Value::Boolean(b) => serde_json::Value::Bool(*b),
+        toml::Value::Datetime(d) => serde_json::Value::String(d.to_string()),
+        toml::Value::Array(a) => serde_json::Value::Array(a.iter().map(toml_to_json).collect()),
+        toml::Value::Table(t) => {
+            let map = t
+                .iter()
+                .map(|(k, v)| (k.clone(), toml_to_json(v)))
+                .collect();
+            serde_json::Value::Object(map)
+        }
+    }
+}
+
+/// Convert a JSON value to a TOML value (recursive).
+pub fn json_to_toml(v: &serde_json::Value) -> toml::Value {
+    match v {
+        serde_json::Value::String(s) => toml::Value::String(s.clone()),
+        serde_json::Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                toml::Value::Integer(i)
+            } else {
+                toml::Value::Float(n.as_f64().unwrap_or(0.0))
+            }
+        }
+        serde_json::Value::Bool(b) => toml::Value::Boolean(*b),
+        serde_json::Value::Null => toml::Value::String(String::new()),
+        serde_json::Value::Array(a) => toml::Value::Array(a.iter().map(json_to_toml).collect()),
+        serde_json::Value::Object(m) => {
+            let map = m
+                .iter()
+                .map(|(k, v)| (k.clone(), json_to_toml(v)))
+                .collect();
+            toml::Value::Table(map)
+        }
+    }
+}
+
+/// Compute a hash of a JSON config value for change detection.
+pub fn config_hash(config: &serde_json::Value) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let s = serde_json::to_string(config).unwrap_or_default();
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    s.hash(&mut hasher);
+    hasher.finish()
+}
+
 impl SqliteDb {
+    /// Initialize from a [`DbConfig`].
+    pub async fn from_config(config: DbConfig) -> Result<Self> {
+        match config.path {
+            Some(path) => Self::init(&path).await,
+            None => Self::init_memory().await,
+        }
+    }
+
     /// Open (or create) a SQLite database at `path` and apply the schema.
     ///
     /// # Errors

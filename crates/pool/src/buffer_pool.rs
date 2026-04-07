@@ -651,8 +651,10 @@ impl AsRef<[u8]> for PooledBuffer {
     }
 }
 
-// Required for Bytes::from_owner() - PooledBuffer is safe to send between threads
-// because the underlying Vec<u8> is Send and the pool Arc is Send+Sync
+// SAFETY: PooledBuffer is safe to send between threads because its fields are:
+// - Vec<u8>: Send by default
+// - Arc<BufferPoolInner>: Send+Sync (atomic ref-counted, thread-safe inner)
+// Required for Bytes::from_owner().
 unsafe impl Send for PooledBuffer {}
 
 /// Internal wrapper for buffer ownership in Bytes.
@@ -691,7 +693,11 @@ impl Drop for BufferOwner {
     }
 }
 
-// Required for Bytes::from_owner()
+// SAFETY: BufferOwner is safe to send/share between threads because its fields are:
+// - Vec<u8>: Send by default
+// - usize: Copy, trivially Send+Sync
+// - Arc<BufferPoolInner>: Send+Sync (atomic ref-counted, thread-safe inner)
+// Required for Bytes::from_owner().
 unsafe impl Send for BufferOwner {}
 unsafe impl Sync for BufferOwner {}
 
