@@ -43,11 +43,16 @@
 //!
 //! # Feature Flags
 //!
-//! - **`kv-mem`** — In-memory engine (fast compile, no persistence). Use for tests.
-//! - **`kv-rocksdb`** — RocksDB engine (persistent, production). Requires librocksdb.
+//! - **`kv-mem`** — In-memory SurrealDB engine (fast compile, no persistence). Use for tests.
+//! - **`kv-rocksdb`** — RocksDB SurrealDB engine (persistent, production). Requires librocksdb.
+//! - **`sqlite`** — Lightweight SQLite backend via `rusqlite`/`tokio-rusqlite` (~15 deps
+//!   vs SurrealDB's 118).  Provides [`SqliteDb`] instead of [`DaqDb`].
 //!
-//! Enable exactly one engine feature.  Without either, the crate compiles but
-//! [`DaqDb`] is not available (useful as a documentation-only dependency).
+//! The `sqlite` feature is independent of the `kv-*` features and can be enabled
+//! alongside them (e.g., for migration testing).  For production use, pick
+//! **one** backend: either `sqlite` or one of the `kv-*` features.
+//! Without any engine feature, the crate compiles but no database type is
+//! available (useful as a documentation-only dependency).
 //!
 //! # Quick Start
 //!
@@ -77,3 +82,15 @@ pub mod experiment_store;
 // Re-export surrealdb for downstream crates that need raw access.
 #[cfg(any(feature = "kv-mem", feature = "kv-rocksdb"))]
 pub use surrealdb;
+
+#[cfg(feature = "sqlite")]
+pub mod sqlite_backend;
+
+// When sqlite is the active backend, re-export SqliteDb and all types
+// so downstream code uses `db::SqliteDb`, `db::DbInstrument`, etc.
+#[cfg(feature = "sqlite")]
+pub use sqlite_backend::{
+    DbChangeEvent, DbConfig as SqliteDbConfig, DbDeviceFeature, DbDriver, DbExperimentPlan,
+    DbInstrument, DbRunRecord, DeviceLifecycleEvent, DeviceParamState, InstrumentSummary, SqliteDb,
+    SqliteDbInfo, config_hash, json_to_toml, toml_to_json,
+};

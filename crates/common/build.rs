@@ -1,4 +1,7 @@
-#![allow(clippy::collapsible_if)]
+#![expect(
+    clippy::collapsible_if,
+    reason = "git command chains are clearer with nested ifs"
+)]
 use std::process::Command;
 
 fn main() {

@@ -22,6 +22,10 @@ futures.workspace = true
 # The `Any` engine lets callers decide at runtime.
 surrealdb = { version = "2", default-features = false, optional = true }
 
+# SQLite — lightweight alternative backend (bd-ba6cd).
+rusqlite = { version = "0.37", features = ["bundled"], optional = true }
+tokio-rusqlite = { version = "0.7", optional = true }
+
 [dev-dependencies]
 tempfile.workspace = true
 tokio = { workspace = true, features = ["rt", "macros", "test-util"] }
@@ -37,6 +41,12 @@ kv-mem = ["dep:surrealdb", "surrealdb/kv-mem"]
 # RocksDB engine — persistent embedded storage.
 # Requires librocksdb; slower to compile.
 kv-rocksdb = ["dep:surrealdb", "surrealdb/kv-rocksdb"]
+
+# SQLite backend — lightweight replacement for SurrealDB (bd-ba6cd).
+# ~15 deps, ~20s compile vs SurrealDB's 118 deps / 10+ min.
+# Can be enabled alongside kv-* features (e.g. for migration testing),
+# but for production use pick one backend: either `sqlite` or a `kv-*` feature.
+sqlite = ["dep:rusqlite", "dep:tokio-rusqlite"]
 
 [[bench]]
 name = "startup"

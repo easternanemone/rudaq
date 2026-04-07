@@ -131,12 +131,25 @@
 //! }
 //! ```
 
-#![allow(non_upper_case_globals)]
-#![allow(non_camel_case_types)]
-#![allow(non_snake_case)]
-#![allow(dead_code)]
-#![allow(clippy::all, clippy::pedantic)] // Suppress all clippy for generated FFI bindings
-#![allow(unsafe_code)] // FFI bindings require unsafe
+#![expect(
+    non_upper_case_globals,
+    reason = "generated FFI bindings use C naming conventions"
+)]
+#![expect(
+    non_camel_case_types,
+    reason = "generated FFI bindings use C naming conventions"
+)]
+#![expect(
+    non_snake_case,
+    reason = "generated FFI bindings use C naming conventions"
+)]
+#![expect(dead_code, reason = "generated FFI bindings expose full SDK surface")]
+#![expect(
+    clippy::all,
+    clippy::pedantic,
+    reason = "generated FFI bindings — lint suppression intentional"
+)]
+#![expect(unsafe_code, reason = "FFI bindings require unsafe")]
 
 // Include the generated bindings
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
@@ -215,8 +228,10 @@ pub fn from_wide_string(buffer: &[AT_WC]) -> String {
     buffer[..len]
         .iter()
         .map(|&c| {
-            #[allow(clippy::cast_lossless)]
-            // SAFETY: AT_WC (i32) to u32 — required for char::from_u32 FFI boundary
+            #[expect(
+                clippy::cast_lossless,
+                reason = "AT_WC (i32) to u32 — required for char::from_u32 FFI boundary"
+            )]
             let code = c as u32;
             char::from_u32(code).unwrap_or(char::REPLACEMENT_CHARACTER)
         })
@@ -227,7 +242,7 @@ pub fn from_wide_string(buffer: &[AT_WC]) -> String {
 ///
 /// Use this for receiving string values from the SDK.
 pub fn wide_string_buffer(size: usize) -> Vec<AT_WC> {
-    vec![0 as AT_WC; size]
+    vec![AT_WC::default(); size]
 }
 
 /// Andor SDK3 feature name constants.
