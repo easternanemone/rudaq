@@ -14,8 +14,8 @@ use async_trait::async_trait;
 use tokio::sync::mpsc;
 
 use common::capabilities::{DeviceCategory, Movable, Readable, Settable, Triggerable};
-use common::driver::{Capability as DeviceCapability, DeviceComponents, DriverFactory};
 use common::device_id::DeviceId;
+use common::driver::{Capability as DeviceCapability, DeviceComponents, DriverFactory};
 use hardware::registry::DeviceRegistry;
 use serde_json::Value;
 
@@ -306,7 +306,9 @@ async fn test_execute_move_missing_device_returns_error() {
 #[tokio::test]
 async fn test_execute_read_returns_value() {
     let registry = Arc::new(DeviceRegistry::new());
-    registry.register_factory(Box::new(FixedReadableFactory { value: 3.14 }));
+    registry.register_factory(Box::new(FixedReadableFactory {
+        value: std::f64::consts::PI,
+    }));
     registry
         .register_from_toml(
             "detector",
@@ -324,7 +326,10 @@ async fn test_execute_read_returns_value() {
     };
 
     let value = dispatcher.execute_read("detector").await.unwrap();
-    assert!((value - 3.14).abs() < f64::EPSILON, "got {value}");
+    assert!(
+        (value - std::f64::consts::PI).abs() < f64::EPSILON,
+        "got {value}"
+    );
 }
 
 #[tokio::test]

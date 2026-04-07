@@ -558,8 +558,14 @@ mod tests {
 
     #[test]
     fn test_scpi_response_type_parse_float() {
-        assert_eq!(ScpiResponseType::parse("float"), Some(ScpiResponseType::Float));
-        assert_eq!(ScpiResponseType::parse("FLOAT"), Some(ScpiResponseType::Float));
+        assert_eq!(
+            ScpiResponseType::parse("float"),
+            Some(ScpiResponseType::Float)
+        );
+        assert_eq!(
+            ScpiResponseType::parse("FLOAT"),
+            Some(ScpiResponseType::Float)
+        );
     }
 
     #[test]
@@ -568,8 +574,14 @@ mod tests {
             ScpiResponseType::parse("integer"),
             Some(ScpiResponseType::Integer)
         );
-        assert_eq!(ScpiResponseType::parse("int"), Some(ScpiResponseType::Integer));
-        assert_eq!(ScpiResponseType::parse("INT"), Some(ScpiResponseType::Integer));
+        assert_eq!(
+            ScpiResponseType::parse("int"),
+            Some(ScpiResponseType::Integer)
+        );
+        assert_eq!(
+            ScpiResponseType::parse("INT"),
+            Some(ScpiResponseType::Integer)
+        );
     }
 
     #[test]
@@ -578,7 +590,10 @@ mod tests {
             ScpiResponseType::parse("string"),
             Some(ScpiResponseType::String)
         );
-        assert_eq!(ScpiResponseType::parse("str"), Some(ScpiResponseType::String));
+        assert_eq!(
+            ScpiResponseType::parse("str"),
+            Some(ScpiResponseType::String)
+        );
     }
 
     #[test]

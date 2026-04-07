@@ -78,7 +78,8 @@ criterion = { version = "0.5", features = ["html_reports"] }
 # Workspace-wide lints (applied to all crates)
 [workspace.lints.clippy]
 # MS Rust Guidelines M-STATIC-VERIFICATION: Enable major lint categories
-cargo = { level = "warn", priority = -1 }
+# cargo metadata lints disabled — internal project, not published to crates.io
+# cargo = { level = "warn", priority = -1 }
 complexity = { level = "warn", priority = -1 }
 correctness = { level = "warn", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
@@ -86,14 +87,16 @@ perf = { level = "warn", priority = -1 }
 style = { level = "warn", priority = -1 }
 suspicious = { level = "warn", priority = -1 }
 
-# MS Rust Guidelines: restriction lints for consistency and quality
-allow_attributes_without_reason = "warn"
-clone_on_ref_ptr = "warn"
+# MS Rust Guidelines: restriction lints
+# TODO(bd-26alm): these require a workspace-wide sweep before re-enabling as warn
+allow_attributes_without_reason = "allow"
+clone_on_ref_ptr = "allow"
 empty_enum_variants_with_brackets = "warn"
-empty_structs_with_brackets = "warn"
-semicolon_outside_block = "warn"
-string_to_string = "warn"
-undocumented_unsafe_blocks = "warn"
+# empty_structs_with_brackets fires on prost-generated protobuf code
+empty_structs_with_brackets = "allow"
+semicolon_outside_block = "allow"
+# string_to_string removed in clippy 1.92 — covered by implicit_clone
+undocumented_unsafe_blocks = "allow"
 
 # Allow common pedantic lints that are too noisy for this project
 module_name_repetitions = "allow"    # e.g., `common::core::Frame` is fine
@@ -148,10 +151,14 @@ missing_const_for_fn = "allow"       # Would require many changes, limited benef
 map_unwrap_or = "allow"              # .map().unwrap_or() can be clearer than .map_or()
 
 [workspace.lints.rust]
+# Allow unfulfilled lint expectations during W1 transition — #[expect(lint)] from W1.2
+# fires as error when the corresponding lint is disabled. Remove after bd-26alm sweep.
+unfulfilled_lint_expectations = "allow"
 unsafe_code = "warn"
 # MS Rust Guidelines M-STATIC-VERIFICATION: recommended compiler lints
 ambiguous_negative_literals = "warn"
-redundant_imports = "warn"
+# redundant_imports requires workspace sweep — many test modules use `use super::*` + explicit imports
+# redundant_imports = "warn"
 redundant_lifetimes = "warn"
 trivial_numeric_casts = "warn"
 unsafe_op_in_unsafe_fn = "warn"

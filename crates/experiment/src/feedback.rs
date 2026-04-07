@@ -58,13 +58,11 @@ mod tests {
             threshold: 0.3,
         };
         let cloned = event.clone();
-        assert!(
-            matches!(
-                &cloned,
-                FeedbackEvent::ThresholdCrossed { value, threshold, .. }
-                if (*value - 0.5).abs() < f64::EPSILON && (*threshold - 0.3).abs() < f64::EPSILON
-            )
-        );
+        assert!(matches!(
+            &cloned,
+            FeedbackEvent::ThresholdCrossed { value, threshold, .. }
+            if (*value - 0.5).abs() < f64::EPSILON && (*threshold - 0.3).abs() < f64::EPSILON
+        ));
     }
 
     #[test]
@@ -75,13 +73,11 @@ mod tests {
             variance: 0.001,
         };
         let cloned = event.clone();
-        assert!(
-            matches!(
-                &cloned,
-                FeedbackEvent::StabilityReached { variance, .. }
-                if (*variance - 0.001).abs() < f64::EPSILON
-            )
-        );
+        assert!(matches!(
+            &cloned,
+            FeedbackEvent::StabilityReached { variance, .. }
+            if (*variance - 0.001).abs() < f64::EPSILON
+        ));
     }
 
     #[test]
@@ -92,13 +88,11 @@ mod tests {
             value: 42.0,
         };
         let cloned = event.clone();
-        assert!(
-            matches!(
-                &cloned,
-                FeedbackEvent::ValueUpdate { value, .. }
-                if (*value - 42.0).abs() < f64::EPSILON
-            )
-        );
+        assert!(matches!(
+            &cloned,
+            FeedbackEvent::ValueUpdate { value, .. }
+            if (*value - 42.0).abs() < f64::EPSILON
+        ));
     }
 
     #[test]

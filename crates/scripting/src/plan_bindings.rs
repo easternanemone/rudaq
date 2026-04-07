@@ -374,7 +374,6 @@ mod tests {
     use crate::rhai_engine::RhaiEngine;
     use crate::traits::ScriptEngine;
     use hardware::registry::DeviceRegistry;
-    use std::sync::Arc;
 
     #[tokio::test]
     async fn test_plan_bindings_registered() {
