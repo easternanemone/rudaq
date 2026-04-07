@@ -104,7 +104,10 @@ impl FanSpeed {
         }
     }
 
-    #[expect(clippy::should_implement_trait, reason = "infallible from_str returns default on unknown input; cannot implement FromStr which returns Result")]
+    #[expect(
+        clippy::should_implement_trait,
+        reason = "infallible from_str returns default on unknown input; cannot implement FromStr which returns Result"
+    )]
     pub fn from_str(s: &str) -> Self {
         match s {
             "High" => FanSpeed::High,
@@ -172,7 +175,10 @@ impl CentroidsMode {
         }
     }
 
-    #[expect(clippy::should_implement_trait, reason = "infallible from_str returns default on unknown input; cannot implement FromStr which returns Result")]
+    #[expect(
+        clippy::should_implement_trait,
+        reason = "infallible from_str returns default on unknown input; cannot implement FromStr which returns Result"
+    )]
     pub fn from_str(s: &str) -> Self {
         match s {
             "Locate" => Self::Locate,
@@ -243,7 +249,10 @@ impl SmartStreamMode {
         }
     }
 
-    #[expect(clippy::should_implement_trait, reason = "infallible from_str returns default on unknown input; cannot implement FromStr which returns Result")]
+    #[expect(
+        clippy::should_implement_trait,
+        reason = "infallible from_str returns default on unknown input; cannot implement FromStr which returns Result"
+    )]
     pub fn from_str(s: &str) -> Self {
         match s {
             "Exposures" => SmartStreamMode::Exposures,
@@ -308,7 +317,10 @@ impl ShutterMode {
         }
     }
 
-    #[expect(clippy::should_implement_trait, reason = "infallible from_str returns default on unknown input; cannot implement FromStr which returns Result")]
+    #[expect(
+        clippy::should_implement_trait,
+        reason = "infallible from_str returns default on unknown input; cannot implement FromStr which returns Result"
+    )]
     pub fn from_str(s: &str) -> Self {
         match s {
             "Normal" => ShutterMode::Normal,
@@ -434,7 +446,10 @@ impl ExposureMode {
         }
     }
 
-    #[expect(clippy::should_implement_trait, reason = "infallible from_str returns default on unknown input; cannot implement FromStr which returns Result")]
+    #[expect(
+        clippy::should_implement_trait,
+        reason = "infallible from_str returns default on unknown input; cannot implement FromStr which returns Result"
+    )]
     pub fn from_str(s: &str) -> Self {
         match s {
             "Timed" => ExposureMode::Timed,
@@ -508,7 +523,10 @@ impl ClearMode {
         }
     }
 
-    #[expect(clippy::should_implement_trait, reason = "infallible from_str returns default on unknown input; cannot implement FromStr which returns Result")]
+    #[expect(
+        clippy::should_implement_trait,
+        reason = "infallible from_str returns default on unknown input; cannot implement FromStr which returns Result"
+    )]
     pub fn from_str(s: &str) -> Self {
         match s {
             "Never" => ClearMode::Never,
@@ -569,7 +587,10 @@ impl ExposureResolution {
         }
     }
 
-    #[expect(clippy::should_implement_trait, reason = "infallible from_str returns default on unknown input; cannot implement FromStr which returns Result")]
+    #[expect(
+        clippy::should_implement_trait,
+        reason = "infallible from_str returns default on unknown input; cannot implement FromStr which returns Result"
+    )]
     pub fn from_str(s: &str) -> Self {
         match s {
             "Milliseconds" => Self::Milliseconds,
@@ -624,7 +645,10 @@ impl FrameRotate {
         }
     }
 
-    #[expect(clippy::should_implement_trait, reason = "infallible from_str returns default on unknown input; cannot implement FromStr which returns Result")]
+    #[expect(
+        clippy::should_implement_trait,
+        reason = "infallible from_str returns default on unknown input; cannot implement FromStr which returns Result"
+    )]
     pub fn from_str(s: &str) -> Self {
         match s {
             "None" => FrameRotate::None,
@@ -682,7 +706,10 @@ impl FrameFlip {
         }
     }
 
-    #[expect(clippy::should_implement_trait, reason = "infallible from_str returns default on unknown input; cannot implement FromStr which returns Result")]
+    #[expect(
+        clippy::should_implement_trait,
+        reason = "infallible from_str returns default on unknown input; cannot implement FromStr which returns Result"
+    )]
     pub fn from_str(s: &str) -> Self {
         match s {
             "None" => FrameFlip::None,
@@ -744,7 +771,10 @@ impl ExposeOutMode {
         }
     }
 
-    #[expect(clippy::should_implement_trait, reason = "infallible from_str returns default on unknown input; cannot implement FromStr which returns Result")]
+    #[expect(
+        clippy::should_implement_trait,
+        reason = "infallible from_str returns default on unknown input; cannot implement FromStr which returns Result"
+    )]
     pub fn from_str(s: &str) -> Self {
         match s {
             "FirstRow" => ExposeOutMode::FirstRow,
@@ -812,7 +842,10 @@ impl EdgeTrigger {
         }
     }
 
-    #[expect(clippy::should_implement_trait, reason = "infallible from_str returns default on unknown input; cannot implement FromStr which returns Result")]
+    #[expect(
+        clippy::should_implement_trait,
+        reason = "infallible from_str returns default on unknown input; cannot implement FromStr which returns Result"
+    )]
     pub fn from_str(s: &str) -> Self {
         match s {
             "First" => EdgeTrigger::First,
@@ -955,7 +988,10 @@ impl LogicOutput {
         }
     }
 
-    #[expect(clippy::should_implement_trait, reason = "infallible from_str returns default on unknown input; cannot implement FromStr which returns Result")]
+    #[expect(
+        clippy::should_implement_trait,
+        reason = "infallible from_str returns default on unknown input; cannot implement FromStr which returns Result"
+    )]
     pub fn from_str(s: &str) -> Self {
         match s {
             "NotScan" => Self::NotScan,
@@ -1061,7 +1097,10 @@ impl ScanMode {
         }
     }
 
-    #[expect(clippy::should_implement_trait, reason = "infallible from_str returns default on unknown input; cannot implement FromStr which returns Result")]
+    #[expect(
+        clippy::should_implement_trait,
+        reason = "infallible from_str returns default on unknown input; cannot implement FromStr which returns Result"
+    )]
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "auto" => Some(Self::Auto),
@@ -1119,7 +1158,10 @@ impl ScanDirection {
         }
     }
 
-    #[expect(clippy::should_implement_trait, reason = "infallible from_str returns default on unknown input; cannot implement FromStr which returns Result")]
+    #[expect(
+        clippy::should_implement_trait,
+        reason = "infallible from_str returns default on unknown input; cannot implement FromStr which returns Result"
+    )]
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "down" => Some(Self::Down),

@@ -100,7 +100,10 @@ pub fn probe_available() -> DiscoveredSdks {
 fn try_load_library(name: &str) -> bool {
     // SAFETY: We only load the library to check existence — we never resolve
     // symbols or call into it. The library is dropped immediately after the check.
-    #[expect(unsafe_code, reason = "required to probe for dynamic library existence via libloading")]
+    #[expect(
+        unsafe_code,
+        reason = "required to probe for dynamic library existence via libloading"
+    )]
     unsafe { libloading::Library::new(name) }.is_ok()
 }
 
@@ -126,7 +129,10 @@ fn try_load_library(name: &str) -> bool {
 /// let registry = DeviceRegistry::new();
 /// register_all_factories(&registry, Some(Path::new("config/devices"))).await?;
 /// ```
-#[expect(clippy::unused_async, reason = "async for API compatibility; concrete driver features add .await points")]
+#[expect(
+    clippy::unused_async,
+    reason = "async for API compatibility; concrete driver features add .await points"
+)]
 pub async fn register_all_factories(
     registry: &DeviceRegistry,
     config_dir: Option<&std::path::Path>,
@@ -135,7 +141,10 @@ pub async fn register_all_factories(
     // This lets us warn early when a driver feature is compiled in but the
     // shared library isn't actually present on this machine.
     // sdks is used in #[cfg(feature)] blocks below — unused when no SDK features enabled
-    #[expect(unused_variables, reason = "sdks is used in #[cfg(feature)] blocks below; unused when no SDK features enabled")]
+    #[expect(
+        unused_variables,
+        reason = "sdks is used in #[cfg(feature)] blocks below; unused when no SDK features enabled"
+    )]
     let sdks = probe_available();
 
     // Register mock factories (always available)

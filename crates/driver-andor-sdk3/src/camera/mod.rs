@@ -425,35 +425,56 @@ impl AndorCamera {
         let sensor_width = info.sensor_width;
         let sensor_height = info.sensor_height;
 
-        #[expect(unused_mut, reason = "mutated only when andor_hardware SDK feature is enabled")]
+        #[expect(
+            unused_mut,
+            reason = "mutated only when andor_hardware SDK feature is enabled"
+        )]
         let mut exposure_s = Parameter::new("exposure_s", 0.001)
             .with_unit("s")
             .with_description("Integration time");
 
-        #[expect(unused_mut, reason = "mutated only when andor_hardware SDK feature is enabled")]
+        #[expect(
+            unused_mut,
+            reason = "mutated only when andor_hardware SDK feature is enabled"
+        )]
         let mut trigger_mode =
             Parameter::new("trigger_mode", TriggerMode::Internal).with_description("Trigger mode");
 
-        #[expect(unused_mut, reason = "mutated only when andor_hardware SDK feature is enabled")]
+        #[expect(
+            unused_mut,
+            reason = "mutated only when andor_hardware SDK feature is enabled"
+        )]
         let mut gate_mode =
             Parameter::new("gate_mode", GateMode::CWOn).with_description("MCP gate mode");
 
-        #[expect(unused_mut, reason = "mutated only when andor_hardware SDK feature is enabled")]
+        #[expect(
+            unused_mut,
+            reason = "mutated only when andor_hardware SDK feature is enabled"
+        )]
         let mut mcp_gain = Parameter::new("mcp_gain", 0u32)
             .with_description("MCP gain (0-4095)")
             .with_range(0, 4095);
 
-        #[expect(unused_mut, reason = "mutated only when andor_hardware SDK feature is enabled")]
+        #[expect(
+            unused_mut,
+            reason = "mutated only when andor_hardware SDK feature is enabled"
+        )]
         let mut ddg_output_delay_ps = Parameter::new("ddg_output_delay_ps", 0u64)
             .with_unit("ps")
             .with_description("DDG output delay");
 
-        #[expect(unused_mut, reason = "mutated only when andor_hardware SDK feature is enabled")]
+        #[expect(
+            unused_mut,
+            reason = "mutated only when andor_hardware SDK feature is enabled"
+        )]
         let mut ddg_output_width_ps = Parameter::new("ddg_output_width_ps", 1_000_000u64)
             .with_unit("ps")
             .with_description("DDG output width");
 
-        #[expect(unused_mut, reason = "mutated only when andor_hardware SDK feature is enabled")]
+        #[expect(
+            unused_mut,
+            reason = "mutated only when andor_hardware SDK feature is enabled"
+        )]
         let mut roi = Parameter::new(
             "roi",
             Roi {
@@ -465,62 +486,98 @@ impl AndorCamera {
         )
         .with_description("Region of interest");
 
-        #[expect(unused_mut, reason = "mutated only when andor_hardware SDK feature is enabled")]
+        #[expect(
+            unused_mut,
+            reason = "mutated only when andor_hardware SDK feature is enabled"
+        )]
         let mut binning =
             Parameter::new("binning", (1u32, 1u32)).with_description("Pixel binning (x, y)");
 
-        #[expect(unused_mut, reason = "mutated only when andor_hardware SDK feature is enabled")]
+        #[expect(
+            unused_mut,
+            reason = "mutated only when andor_hardware SDK feature is enabled"
+        )]
         let mut temperature_c = Parameter::new("temperature_c", 20.0)
             .with_unit("\u{00b0}C")
             .with_description("Sensor temperature");
 
-        #[expect(unused_mut, reason = "mutated only when andor_hardware SDK feature is enabled")]
+        #[expect(
+            unused_mut,
+            reason = "mutated only when andor_hardware SDK feature is enabled"
+        )]
         let mut target_temperature_c = Parameter::new("target_temperature_c", -20.0)
             .with_unit("\u{00b0}C")
             .with_description(
                 "Target cooling temperature (read-only, set via TemperatureControl enum)",
             );
 
-        #[expect(unused_mut, reason = "mutated only when andor_hardware SDK feature is enabled")]
+        #[expect(
+            unused_mut,
+            reason = "mutated only when andor_hardware SDK feature is enabled"
+        )]
         let mut electronic_shuttering =
             Parameter::new("electronic_shuttering", ElectronicShutteringMode::Rolling)
                 .with_description("Electronic shuttering mode");
 
         // bd-zg9e: iStar intensifier parameters
-        #[expect(unused_mut, reason = "mutated only when andor_hardware SDK feature is enabled")]
+        #[expect(
+            unused_mut,
+            reason = "mutated only when andor_hardware SDK feature is enabled"
+        )]
         let mut mcp_intelligate = Parameter::new("mcp_intelligate", false).with_description(
             "MCP Intelligate (simultaneous photocathode+MCP gating for UV safety)",
         );
 
-        #[expect(unused_mut, reason = "mutated only when andor_hardware SDK feature is enabled")]
+        #[expect(
+            unused_mut,
+            reason = "mutated only when andor_hardware SDK feature is enabled"
+        )]
         let mut mcp_voltage = Parameter::new("mcp_voltage", 0u32)
             .with_description("MCP high voltage read-back")
             .read_only();
 
-        #[expect(unused_mut, reason = "mutated only when andor_hardware SDK feature is enabled")]
+        #[expect(
+            unused_mut,
+            reason = "mutated only when andor_hardware SDK feature is enabled"
+        )]
         let mut insertion_delay = Parameter::new("insertion_delay", InsertionDelay::Normal)
             .with_description("Intensifier insertion delay (Normal ~40ns, Fast <19ns)");
 
         // bd-zg9e: per-frame metadata toggles
-        #[expect(unused_mut, reason = "mutated only when andor_hardware SDK feature is enabled")]
+        #[expect(
+            unused_mut,
+            reason = "mutated only when andor_hardware SDK feature is enabled"
+        )]
         let mut metadata_ddg_info = Parameter::new("metadata_ddg_info", false)
             .with_description("Include DDG timing in per-frame metadata");
 
-        #[expect(unused_mut, reason = "mutated only when andor_hardware SDK feature is enabled")]
+        #[expect(
+            unused_mut,
+            reason = "mutated only when andor_hardware SDK feature is enabled"
+        )]
         let mut metadata_mcp_gain_param = Parameter::new("metadata_mcp_gain", false)
             .with_description("Include MCP gain in per-frame metadata");
 
-        #[expect(unused_mut, reason = "mutated only when andor_hardware SDK feature is enabled")]
+        #[expect(
+            unused_mut,
+            reason = "mutated only when andor_hardware SDK feature is enabled"
+        )]
         let mut metadata_frame_info = Parameter::new("metadata_frame_info", false)
             .with_description("Include frame info in per-frame metadata");
 
         // bd-zg9e: acquisition status + diagnostics
-        #[expect(unused_mut, reason = "mutated only when andor_hardware SDK feature is enabled")]
+        #[expect(
+            unused_mut,
+            reason = "mutated only when andor_hardware SDK feature is enabled"
+        )]
         let mut camera_acquiring = Parameter::new("camera_acquiring", false)
             .with_description("Camera is actively acquiring")
             .read_only();
 
-        #[expect(unused_mut, reason = "mutated only when andor_hardware SDK feature is enabled")]
+        #[expect(
+            unused_mut,
+            reason = "mutated only when andor_hardware SDK feature is enabled"
+        )]
         let mut baseline_level = Parameter::new("baseline_level", 0i64)
             .with_description("Electronic baseline level (ADU)")
             .read_only();

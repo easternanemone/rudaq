@@ -95,9 +95,15 @@ pub type LoanedFrame = Loaned<FrameData>;
 /// ```
 #[must_use]
 pub fn create_frame_pool(pool_size: usize, frame_capacity: usize) -> FramePool {
-    #[expect(clippy::cast_precision_loss, reason = "byte counts are small enough that f64 precision is sufficient for human-readable MB display")]
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "byte counts are small enough that f64 precision is sufficient for human-readable MB display"
+    )]
     let frame_capacity_mb = frame_capacity as f64 / (1024.0 * 1024.0);
-    #[expect(clippy::cast_precision_loss, reason = "byte counts are small enough that f64 precision is sufficient for human-readable MB display")]
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "byte counts are small enough that f64 precision is sufficient for human-readable MB display"
+    )]
     let total_mb = (pool_size * frame_capacity) as f64 / (1024.0 * 1024.0);
     tracing::info!(
         pool_size,

@@ -154,21 +154,33 @@ impl AndorSpectrograph {
         let info = Self::mock_spectrograph_info(device_index);
 
         // Create parameters with descriptive metadata
-        #[expect(unused_mut, reason = "mutated only when spectrograph SDK feature is enabled")]
+        #[expect(
+            unused_mut,
+            reason = "mutated only when spectrograph SDK feature is enabled"
+        )]
         let mut wavelength_nm = Parameter::new("wavelength_nm", 310.0)
             .with_unit("nm")
             .with_description("Center wavelength");
 
-        #[expect(unused_mut, reason = "mutated only when spectrograph SDK feature is enabled")]
+        #[expect(
+            unused_mut,
+            reason = "mutated only when spectrograph SDK feature is enabled"
+        )]
         let mut grating =
             Parameter::new("grating", Grating::Grating2).with_description("Active grating");
 
-        #[expect(unused_mut, reason = "mutated only when spectrograph SDK feature is enabled")]
+        #[expect(
+            unused_mut,
+            reason = "mutated only when spectrograph SDK feature is enabled"
+        )]
         let mut slit_width_um = Parameter::new("slit_width_um", 150.0)
             .with_unit("µm")
             .with_description("Slit width");
 
-        #[expect(unused_mut, reason = "mutated only when spectrograph SDK feature is enabled")]
+        #[expect(
+            unused_mut,
+            reason = "mutated only when spectrograph SDK feature is enabled"
+        )]
         let mut flipper_mirror = Parameter::new("flipper_mirror", FlipperMirror::Direct)
             .with_description("Flipper mirror position");
 
@@ -1241,7 +1253,10 @@ impl common::capabilities::SpectrometerControl for AndorSpectrograph {
     }
 
     async fn get_calibration(&self, num_pixels: usize) -> anyhow::Result<Vec<f64>> {
-        #[expect(clippy::cast_possible_truncation, reason = "pixel count for spectrograph calibration is always within u32 range")]
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "pixel count for spectrograph calibration is always within u32 range"
+        )]
         let cal = self.get_wavelength_calibration(num_pixels as u32).await?;
         Ok(cal.wavelengths_nm)
     }

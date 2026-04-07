@@ -77,11 +77,17 @@ impl SpectrometerControl for MockSpectrograph {
     async fn get_calibration(&self, num_pixels: usize) -> Result<Vec<f64>> {
         let center = *self.wavelength_nm.lock().await;
         let dispersion = 0.05; // nm per pixel
-        #[expect(clippy::cast_precision_loss, reason = "pixel count is small enough that f64 precision is sufficient for wavelength calculation")]
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "pixel count is small enough that f64 precision is sufficient for wavelength calculation"
+        )]
         let half = num_pixels as f64 / 2.0;
         let wavelengths: Vec<f64> = (0..num_pixels)
             .map(|i| {
-                #[expect(clippy::cast_precision_loss, reason = "pixel index is small enough for exact f64 representation")]
+                #[expect(
+                    clippy::cast_precision_loss,
+                    reason = "pixel index is small enough for exact f64 representation"
+                )]
                 let fi = i as f64;
                 center + (fi - half) * dispersion
             })

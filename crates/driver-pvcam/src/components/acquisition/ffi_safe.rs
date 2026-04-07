@@ -75,7 +75,10 @@ pub fn restart_acquisition(
 ///
 /// # Returns
 /// `Ok(frame_bytes)` on success, `Err(String)` on failure
-#[expect(clippy::too_many_arguments, reason = "PVCAM SDK acquisition setup requires all these parameters for ROI, binning, exposure, and buffer config")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "PVCAM SDK acquisition setup requires all these parameters for ROI, binning, exposure, and buffer config"
+)]
 pub(crate) fn full_restart_acquisition(
     hcam: i16,
     roi_x: u32,

@@ -62,7 +62,10 @@ pub fn generate_libs_spectrum(
     let mut spectrum = vec![0.0f64; num_pixels];
 
     // ── Continuum background (decays ~1/e per µs) ────────────────────────
-    #[expect(clippy::cast_precision_loss, reason = "delay_ps is u64; precision loss acceptable for simulation purposes")]
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "delay_ps is u64; precision loss acceptable for simulation purposes"
+    )]
     let delay_us = delay_ps as f64 / 1.0e6;
     let continuum_amp = 8000.0 * (-delay_us / 1.0).exp();
     for v in &mut spectrum {
@@ -76,7 +79,10 @@ pub fn generate_libs_spectrum(
     // Pixel positions assume ~0.15 nm/pixel dispersion centred at 400 nm
     // (wavelength range ≈ 208–592 nm for 2560-pixel detector).
     // Positions are scaled proportionally for other pixel counts.
-    #[expect(clippy::cast_precision_loss, reason = "num_pixels is usize; precision loss acceptable for scaling calculation")]
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "num_pixels is usize; precision loss acceptable for scaling calculation"
+    )]
     let scale = num_pixels as f64 / 2560.0;
     let emission_lines: &[(f64, f64, f64)] = &[
         // Si I 288 nm
@@ -97,7 +103,10 @@ pub fn generate_libs_spectrum(
 
     for &(center, amplitude, sigma) in emission_lines {
         for (i, v) in spectrum.iter_mut().enumerate() {
-            #[expect(clippy::cast_precision_loss, reason = "pixel index is usize; precision loss acceptable for Gaussian profile calculation")]
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "pixel index is usize; precision loss acceptable for Gaussian profile calculation"
+            )]
             let dx = i as f64 - center;
             *v += amplitude * gain_scale * (-0.5 * (dx / sigma).powi(2)).exp();
         }
@@ -265,7 +274,10 @@ impl MockCamera {
                     let pix_a = ((i + offset) % 4096) as u16;
                     if (i as usize + 1) < size {
                         let pix_b = ((i + 1 + offset) % 4096) as u16;
-                        #[expect(clippy::cast_possible_truncation, reason = "12-bit packed pixel encoding -- values are masked to fit in u8")]
+                        #[expect(
+                            clippy::cast_possible_truncation,
+                            reason = "12-bit packed pixel encoding -- values are masked to fit in u8"
+                        )]
                         {
                             buf.push((pix_a & 0xFF) as u8);
                             buf.push(((pix_b & 0x0F) << 4 | (pix_a >> 8) & 0x0F) as u8);
@@ -303,7 +315,10 @@ impl MockCamera {
             }
         };
 
-        #[expect(clippy::cast_possible_truncation, reason = "nanosecond timestamps won't exceed u64 until year ~2554")]
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "nanosecond timestamps won't exceed u64 until year ~2554"
+        )]
         let timestamp_ns = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_else(|_| std::time::Duration::from_secs(0))
@@ -339,13 +354,20 @@ impl MockCamera {
             generate_libs_spectrum(delay_ps, mcp_gain, num_pixels as usize, frame_number);
 
         // Pack as Mono16 (2 bytes per pixel, 1 row)
-        #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "spectrum values are clamped to 0..65535, always non-negative")]
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "spectrum values are clamped to 0..65535, always non-negative"
+        )]
         let data: Vec<u8> = spectrum
             .iter()
             .flat_map(|&v| (v.min(65535.0) as u16).to_le_bytes())
             .collect();
 
-        #[expect(clippy::cast_possible_truncation, reason = "nanosecond timestamps won't exceed u64 until year ~2554")]
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "nanosecond timestamps won't exceed u64 until year ~2554"
+        )]
         let timestamp_ns = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_else(|_| std::time::Duration::from_secs(0))

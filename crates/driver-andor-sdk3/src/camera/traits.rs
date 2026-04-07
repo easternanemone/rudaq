@@ -563,7 +563,10 @@ impl AndorCamera {
 
                 let offset = (frame_nr % 100) as u16;
                 let buf = &mut loaned.pixels[..actual_len];
-                #[expect(clippy::cast_possible_truncation, reason = "pixel values use modulo 65535 which fits in u16; indices bounded by frame dimensions")]
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "pixel values use modulo 65535 which fits in u16; indices bounded by frame dimensions"
+                )]
                 for y in 0..height {
                     for x in 0..width {
                         let idx = ((y * width + x) as usize) * 2;
@@ -580,7 +583,10 @@ impl AndorCamera {
                 loaned.width = width;
                 loaned.height = height;
                 loaned.bit_depth = 16;
-                #[expect(clippy::cast_possible_truncation, reason = "nanosecond timestamps won't exceed u64 until year ~2554")]
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "nanosecond timestamps won't exceed u64 until year ~2554"
+                )]
                 {
                     loaned.timestamp_ns = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
@@ -590,7 +596,10 @@ impl AndorCamera {
                 loaned.exposure_ms = exposure * 1000.0;
                 loaned.temperature_c = Some(inner.temperature_c.get());
                 let bin = inner.binning.get();
-                #[expect(clippy::cast_possible_truncation, reason = "binning values are small (1-8), always fit in u16")]
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "binning values are small (1-8), always fit in u16"
+                )]
                 {
                     loaned.binning = Some((bin.0 as u16, bin.1 as u16));
                 }

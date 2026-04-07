@@ -59,7 +59,10 @@ impl DigitalIO {
             }
         }
 
-        #[expect(clippy::cast_sign_loss, reason = "Comedi FFI returns non-negative channel count as i32")]
+        #[expect(
+            clippy::cast_sign_loss,
+            reason = "Comedi FFI returns non-negative channel count as i32"
+        )]
         let n_channels = device
             .with_handle(|h| unsafe { comedi_sys::comedi_get_n_channels(h, subdevice) as u32 });
 

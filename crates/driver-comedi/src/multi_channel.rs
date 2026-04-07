@@ -92,7 +92,10 @@ impl SimpleRingBuffer {
     /// # Panics
     ///
     /// Panics if scan length doesn't match n_channels.
-    #[expect(clippy::cast_possible_truncation, reason = "write position wraps around buffer capacity; truncation to usize is safe")]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "write position wraps around buffer capacity; truncation to usize is safe"
+    )]
     fn write_scan(&self, scan: &[f64]) {
         assert_eq!(scan.len(), self.n_channels, "Scan length mismatch");
 
@@ -110,7 +113,10 @@ impl SimpleRingBuffer {
         }
 
         // Update write position
-        #[expect(clippy::cast_possible_truncation, reason = "n_channels is small (< 64), fits in u64")]
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "n_channels is small (< 64), fits in u64"
+        )]
         self.write_pos
             .fetch_add(self.n_channels as u64, Ordering::Release);
     }
@@ -122,7 +128,10 @@ impl SimpleRingBuffer {
     /// # Arguments
     ///
     /// * `num_samples` - Number of samples to read per channel
-    #[expect(clippy::cast_possible_truncation, reason = "total written samples is bounded by buffer capacity; truncation to usize is safe")]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "total written samples is bounded by buffer capacity; truncation to usize is safe"
+    )]
     fn read_latest(&self, num_samples: usize) -> Vec<Vec<f64>> {
         let total_written = self.write_pos.load(Ordering::Acquire);
         let scans_written = (total_written as usize) / self.n_channels;
@@ -137,9 +146,15 @@ impl SimpleRingBuffer {
         }
 
         // Calculate start position (read backwards from write position)
-        #[expect(clippy::cast_possible_truncation, reason = "scan count * n_channels is bounded by buffer capacity, fits in u64")]
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "scan count * n_channels is bounded by buffer capacity, fits in u64"
+        )]
         let read_start = total_written.saturating_sub((scans_to_read * self.n_channels) as u64);
-        #[expect(clippy::cast_possible_truncation, reason = "read_start wraps around buffer capacity; truncation to usize is safe")]
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "read_start wraps around buffer capacity; truncation to usize is safe"
+        )]
         let start_idx = (read_start as usize) % self.capacity;
 
         // Pre-allocate channel vectors
@@ -159,7 +174,10 @@ impl SimpleRingBuffer {
     }
 
     /// Get the total number of scans written (may exceed capacity).
-    #[expect(clippy::cast_possible_truncation, reason = "total scans written is bounded by practical limits, fits in usize")]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "total scans written is bounded by practical limits, fits in usize"
+    )]
     fn scans_written(&self) -> usize {
         (self.write_pos.load(Ordering::Acquire) as usize) / self.n_channels
     }
@@ -365,7 +383,10 @@ impl ComediMultiChannelAcquisition {
                             buffer.write_scan(scan);
                         }
 
-                        #[expect(clippy::cast_possible_truncation, reason = "n_scans per batch is small, fits in u64")]
+                        #[expect(
+                            clippy::cast_possible_truncation,
+                            reason = "n_scans per batch is small, fits in u64"
+                        )]
                         samples_acquired.fetch_add(n_scans as u64, Ordering::Relaxed);
 
                         // Periodic logging

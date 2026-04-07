@@ -259,14 +259,22 @@ impl TimingConfig {
     }
 
     /// Calculate the scan interval in nanoseconds.
-    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "sample rates produce intervals in the ns-to-seconds range, fitting u32")]
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "sample rates produce intervals in the ns-to-seconds range, fitting u32"
+    )]
     pub fn scan_interval_ns(&self) -> u32 {
         self.scan_interval_ns
             .unwrap_or_else(|| (1e9 / self.sample_rate) as u32)
     }
 
     /// Calculate the convert interval in nanoseconds.
-    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "convert interval is derived from scan interval divided by channels, always positive and fits in u32")]
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "convert interval is derived from scan interval divided by channels, always positive and fits in u32"
+    )]
     pub fn convert_interval_ns(&self) -> u32 {
         self.convert_interval_ns.unwrap_or_else(|| {
             if self.n_channels <= 1 {
@@ -431,7 +439,11 @@ impl TimingConfigBuilder {
 /// Helper functions for common timing calculations.
 pub mod timing_utils {
     /// Convert sample rate to nanosecond interval.
-    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "sample rates produce intervals fitting in u32 (max ~4.3s in ns)")]
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "sample rates produce intervals fitting in u32 (max ~4.3s in ns)"
+    )]
     pub fn rate_to_ns(rate_hz: f64) -> u32 {
         (1e9 / rate_hz) as u32
     }

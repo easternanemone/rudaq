@@ -97,7 +97,10 @@ impl SettableAnalogOutput {
     }
 
     /// Set voltage on a channel (sync version, used internally).
-    #[expect(dead_code, reason = "internal helper for direct voltage writes; used by test and calibration paths")]
+    #[expect(
+        dead_code,
+        reason = "internal helper for direct voltage writes; used by test and calibration paths"
+    )]
     fn set_voltage(&self, channel: u32, voltage: f64) -> Result<()> {
         let range = self.get_range()?;
         self.inner
@@ -106,7 +109,10 @@ impl SettableAnalogOutput {
     }
 
     /// Set raw DAC value on a channel (sync version, used internally).
-    #[expect(dead_code, reason = "internal helper for raw DAC writes; used by test and calibration paths")]
+    #[expect(
+        dead_code,
+        reason = "internal helper for raw DAC writes; used by test and calibration paths"
+    )]
     fn set_raw(&self, channel: u32, raw: u32) -> Result<()> {
         use crate::subsystem::AnalogReference;
         self.inner
@@ -146,7 +152,10 @@ impl Settable for SettableAnalogOutput {
             }
 
             "raw" => {
-                #[expect(clippy::cast_possible_truncation, reason = "raw DAC values are within maxdata (typically 12-16 bit), fits in u32")]
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "raw DAC values are within maxdata (typically 12-16 bit), fits in u32"
+                )]
                 let raw = value
                     .as_u64()
                     .ok_or_else(|| anyhow::anyhow!("raw must be an unsigned integer"))?

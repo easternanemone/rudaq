@@ -75,7 +75,10 @@ impl Counter {
             }
         }
 
-        #[expect(clippy::cast_sign_loss, reason = "Comedi FFI returns non-negative channel count as i32")]
+        #[expect(
+            clippy::cast_sign_loss,
+            reason = "Comedi FFI returns non-negative channel count as i32"
+        )]
         let (n_channels, maxdata) = device.with_handle(|h| unsafe {
             let n = comedi_sys::comedi_get_n_channels(h, subdevice) as u32;
             let m = comedi_sys::comedi_get_maxdata(h, subdevice, 0);
@@ -108,7 +111,11 @@ impl Counter {
     }
 
     /// Get the counter bit width.
-    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "log2(maxdata+1) for counter maxdata (16-32 bit) is a small positive integer")]
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "log2(maxdata+1) for counter maxdata (16-32 bit) is a small positive integer"
+    )]
     pub fn bit_width(&self) -> u32 {
         if self.maxdata == 0 {
             0

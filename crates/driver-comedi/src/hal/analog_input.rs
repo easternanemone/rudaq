@@ -159,7 +159,10 @@ impl ReadableWithMetadata for ReadableAnalogInput {
             anyhow::anyhow!("ADC raw sample {raw} exceeds i32::MAX; cannot represent as i32")
         })?;
 
-        #[expect(clippy::cast_possible_truncation, reason = "nanosecond timestamps won't exceed u64 until year ~2554")]
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "nanosecond timestamps won't exceed u64 until year ~2554"
+        )]
         let timestamp_ns = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("system clock before UNIX epoch")
