@@ -107,16 +107,11 @@ pub fn convert_legacy_template(template: &str) -> String {
 
 /// Checks if a string is a valid variable identifier.
 fn is_valid_identifier(s: &str) -> bool {
-    if s.is_empty() {
+    let Some(first) = s.chars().next() else {
         return false;
-    }
+    };
 
-    let first = s.chars().next().unwrap();
-    if !first.is_alphabetic() && first != '_' {
-        return false;
-    }
-
-    s.chars().all(|c| c.is_alphanumeric() || c == '_')
+    (first.is_alphabetic() || first == '_') && s.chars().all(|c| c.is_alphanumeric() || c == '_')
 }
 
 /// Renders a command template with the given context.
