@@ -167,7 +167,7 @@ impl ScanExecution {
     note = "Use RunEngineService instead. See scan_service module docs for migration guide. Sunset: v1.0"
 )]
 pub struct ScanServiceImpl {
-    registry: Arc<DeviceRegistry>,
+    registry: DeviceRegistry,
     scans: Arc<Mutex<HashMap<String, ScanExecution>>>,
     next_scan_id: Arc<std::sync::atomic::AtomicU64>,
     /// Optional ring buffer for data persistence
@@ -191,7 +191,7 @@ impl ScanServiceImpl {
     }
 
     /// Create a new ScanService with the given device registry
-    pub fn new(registry: Arc<DeviceRegistry>) -> Self {
+    pub fn new(registry: DeviceRegistry) -> Self {
         Self {
             registry,
             scans: Arc::new(Mutex::new(HashMap::new())),
@@ -351,7 +351,7 @@ impl ScanServiceImpl {
     #[allow(clippy::too_many_arguments)] // scan execution requires these distinct coordination handles
     #[allow(clippy::cast_possible_truncation)]
     async fn run_scan(
-        registry: Arc<DeviceRegistry>,
+        registry: DeviceRegistry,
         scan_id: String,
         config: ScanConfig,
         scans: Arc<Mutex<HashMap<String, ScanExecution>>>,

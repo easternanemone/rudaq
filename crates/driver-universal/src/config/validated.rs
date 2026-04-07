@@ -456,3 +456,179 @@ pub struct WaitSettledConfig {
     /// Total timeout.
     pub timeout_ms: u32,
 }
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ---- BaudRate ----
+
+    #[test]
+    fn test_baud_rate_valid_minimum() {
+        let b = BaudRate::new(300).unwrap();
+        assert_eq!(b.value(), 300);
+    }
+
+    #[test]
+    fn test_baud_rate_valid_maximum() {
+        let b = BaudRate::new(921_600).unwrap();
+        assert_eq!(b.value(), 921_600);
+    }
+
+    #[test]
+    fn test_baud_rate_common_values() {
+        for &rate in &[9600u32, 19200, 38400, 57600, 115200] {
+            BaudRate::new(rate).unwrap_or_else(|e| panic!("{rate} should be valid: {e}"));
+        }
+    }
+
+    #[test]
+    fn test_baud_rate_below_minimum() {
+        let err = BaudRate::new(299).unwrap_err();
+        assert!(err.contains("out of range"), "error message: {err}");
+    }
+
+    #[test]
+    fn test_baud_rate_zero_is_invalid() {
+        assert!(BaudRate::new(0).is_err());
+    }
+
+    #[test]
+    fn test_baud_rate_above_maximum() {
+        let err = BaudRate::new(921_601).unwrap_err();
+        assert!(err.contains("out of range"), "error message: {err}");
+    }
+
+    #[test]
+    fn test_baud_rate_copy() {
+        let b = BaudRate::new(9600).unwrap();
+        let c = b;
+        assert_eq!(b.value(), c.value());
+    }
+
+    // ---- Timeout ----
+
+    #[test]
+    fn test_timeout_valid_minimum() {
+        let t = Timeout::new(1).unwrap();
+        assert_eq!(t.value(), 1);
+    }
+
+    #[test]
+    fn test_timeout_valid_maximum() {
+        let t = Timeout::new(60_000).unwrap();
+        assert_eq!(t.value(), 60_000);
+    }
+
+    #[test]
+    fn test_timeout_zero_is_invalid() {
+        assert!(Timeout::new(0).is_err());
+    }
+
+    #[test]
+    fn test_timeout_above_maximum() {
+        let err = Timeout::new(60_001).unwrap_err();
+        assert!(err.contains("out of range"), "error message: {err}");
+    }
+
+    #[test]
+    fn test_timeout_as_duration() {
+        let t = Timeout::new(1000).unwrap();
+        assert_eq!(t.as_duration(), std::time::Duration::from_millis(1000));
+    }
+
+    #[test]
+    fn test_timeout_as_duration_minimum() {
+        let t = Timeout::new(1).unwrap();
+        assert_eq!(t.as_duration(), std::time::Duration::from_millis(1));
+    }
+
+    #[test]
+    fn test_timeout_copy() {
+        let t = Timeout::new(500).unwrap();
+        let c = t;
+        assert_eq!(t.value(), c.value());
+    }
+
+    // ---- ScpiResponseType ----
+
+    #[test]
+    fn test_scpi_response_type_parse_float() {
+        assert_eq!(
+            ScpiResponseType::parse("float"),
+            Some(ScpiResponseType::Float)
+        );
+        assert_eq!(
+            ScpiResponseType::parse("FLOAT"),
+            Some(ScpiResponseType::Float)
+        );
+    }
+
+    #[test]
+    fn test_scpi_response_type_parse_integer() {
+        assert_eq!(
+            ScpiResponseType::parse("integer"),
+            Some(ScpiResponseType::Integer)
+        );
+        assert_eq!(
+            ScpiResponseType::parse("int"),
+            Some(ScpiResponseType::Integer)
+        );
+        assert_eq!(
+            ScpiResponseType::parse("INT"),
+            Some(ScpiResponseType::Integer)
+        );
+    }
+
+    #[test]
+    fn test_scpi_response_type_parse_string() {
+        assert_eq!(
+            ScpiResponseType::parse("string"),
+            Some(ScpiResponseType::String)
+        );
+        assert_eq!(
+            ScpiResponseType::parse("str"),
+            Some(ScpiResponseType::String)
+        );
+    }
+
+    #[test]
+    fn test_scpi_response_type_parse_boolean() {
+        assert_eq!(
+            ScpiResponseType::parse("boolean"),
+            Some(ScpiResponseType::Boolean)
+        );
+        assert_eq!(
+            ScpiResponseType::parse("bool"),
+            Some(ScpiResponseType::Boolean)
+        );
+    }
+
+    #[test]
+    fn test_scpi_response_type_parse_array_float() {
+        assert_eq!(
+            ScpiResponseType::parse("array_float"),
+            Some(ScpiResponseType::ArrayFloat)
+        );
+        assert_eq!(
+            ScpiResponseType::parse("arrayfloat"),
+            Some(ScpiResponseType::ArrayFloat)
+        );
+    }
+
+    #[test]
+    fn test_scpi_response_type_parse_unknown() {
+        assert_eq!(ScpiResponseType::parse("unknown_type"), None);
+        assert_eq!(ScpiResponseType::parse(""), None);
+    }
+
+    #[test]
+    fn test_scpi_response_type_equality() {
+        assert_eq!(ScpiResponseType::Float, ScpiResponseType::Float);
+        assert_ne!(ScpiResponseType::Float, ScpiResponseType::Integer);
+    }
+}

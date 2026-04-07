@@ -8,7 +8,6 @@ use db::DaqDb;
 use db::config_store::{DbDriver, DbInstrument};
 use hardware::registry::DeviceRegistry;
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 use tonic::{Request, Response, Status};
 use tracing::instrument;
 
@@ -24,11 +23,11 @@ use crate::grpc::proto::{
 /// ConfigService gRPC handler backed by SurrealDB.
 pub struct ConfigServiceImpl {
     db: DaqDb,
-    registry: Option<Arc<DeviceRegistry>>,
+    registry: Option<DeviceRegistry>,
 }
 
 impl ConfigServiceImpl {
-    pub fn new(db: DaqDb, registry: Option<Arc<DeviceRegistry>>) -> Self {
+    pub fn new(db: DaqDb, registry: Option<DeviceRegistry>) -> Self {
         Self { db, registry }
     }
 

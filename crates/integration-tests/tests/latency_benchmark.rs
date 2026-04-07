@@ -42,7 +42,7 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Setup a test server on a random local port and return the address
 async fn setup_server() -> std::net::SocketAddr {
-    let registry = Arc::new(DeviceRegistry::new());
+    let registry = DeviceRegistry::new();
     let run_engine = Arc::new(RunEngine::new(registry));
     let service = DaqServer::new(run_engine).expect("Failed to create DaqServer");
 

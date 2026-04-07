@@ -142,7 +142,10 @@ impl PortSpec {
                 model: self.model.clone(),
                 serial: self.serial.clone(),
             }),
-            1 => Ok(matches.into_iter().next().expect("checked len == 1")),
+            1 => {
+                // Infallible: len checked above; pop() returns the single element
+                Ok(matches.pop().unwrap_or_default())
+            }
             _ => Err(PortResolveError::AmbiguousMatch(matches)),
         }
     }
@@ -313,7 +316,7 @@ fn parse_by_id_name(name: &str) -> (Option<String>, Option<String>, Option<Strin
         _ => {
             // First is vendor, last is serial, middle parts are model
             let vendor = parts[0].to_string();
-            let serial = parts.last().expect("checked len >= 3").to_string();
+            let serial = parts[parts.len() - 1].to_string();
             let model = parts[1..parts.len() - 1].join("_");
             (Some(vendor), Some(model), Some(serial))
         }

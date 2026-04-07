@@ -56,7 +56,10 @@ fn data_directory() -> &'static Path {
 
 /// Helper to create a security rejection error with generic user message.
 /// Detailed information is logged server-side only.
-#[allow(clippy::unnecessary_box_returns)] // Box<EvalAltResult> is the standard Rhai error type
+#[expect(
+    clippy::unnecessary_box_returns,
+    reason = "Box<EvalAltResult> is the standard Rhai error type"
+)]
 fn security_reject(user_msg: &str) -> Box<EvalAltResult> {
     Box::new(EvalAltResult::ErrorRuntime(user_msg.into(), Position::NONE))
 }

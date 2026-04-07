@@ -96,15 +96,15 @@ impl DriverFactory for MockSpectrometerFactory {
     }
 }
 
-pub(super) async fn make_spectroscopy_registry() -> Arc<DeviceRegistry> {
+pub(super) async fn make_spectroscopy_registry() -> DeviceRegistry {
     make_spectroscopy_registry_with_spectrometer(1, 300.0).await
 }
 
 pub(super) async fn make_spectroscopy_registry_with_spectrometer(
     grating: i32,
     wavelength_nm: f64,
-) -> Arc<DeviceRegistry> {
-    let registry = Arc::new(DeviceRegistry::new());
+) -> DeviceRegistry {
+    let registry = DeviceRegistry::new();
     registry.register_factory(Box::new(MockSpectrometerFactory {
         grating,
         wavelength_nm,
@@ -256,8 +256,8 @@ impl DriverFactory for MockGatedCameraFactory {
     }
 }
 
-pub(super) async fn make_echelle_registry(config: MockEchelleCameraConfig) -> Arc<DeviceRegistry> {
-    let registry = Arc::new(DeviceRegistry::new());
+pub(super) async fn make_echelle_registry(config: MockEchelleCameraConfig) -> DeviceRegistry {
+    let registry = DeviceRegistry::new();
     registry.register_factory(Box::new(MockGatedCameraFactory { config }));
     registry
         .register_from_toml(
@@ -316,8 +316,8 @@ impl DriverFactory for FixedReadableFactory {
     }
 }
 
-pub(super) async fn make_readable_registry(device_id: &str, value: f64) -> Arc<DeviceRegistry> {
-    let registry = Arc::new(DeviceRegistry::new());
+pub(super) async fn make_readable_registry(device_id: &str, value: f64) -> DeviceRegistry {
+    let registry = DeviceRegistry::new();
     registry.register_factory(Box::new(FixedReadableFactory { value }));
     registry
         .register_from_toml(
@@ -336,8 +336,8 @@ pub(super) async fn make_two_readable_registry(
     val_a: f64,
     id_b: &str,
     val_b: f64,
-) -> Arc<DeviceRegistry> {
-    let registry = Arc::new(DeviceRegistry::new());
+) -> DeviceRegistry {
+    let registry = DeviceRegistry::new();
     registry.register_factory(Box::new(FixedReadableFactory { value: val_a }));
     registry
         .register_from_toml(

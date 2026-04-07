@@ -211,7 +211,7 @@ pub(super) fn subscribe_device_state(
 
     let include_snapshot = req.include_snapshot;
     let last_seen_version = req.last_seen_version;
-    let registry = Arc::clone(&svc.registry);
+    let registry = svc.registry.clone();
     let (tx, rx) = tokio::sync::mpsc::channel(32);
 
     tokio::spawn(async move {

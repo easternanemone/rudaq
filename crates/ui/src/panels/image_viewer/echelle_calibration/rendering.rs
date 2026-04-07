@@ -1859,7 +1859,8 @@ impl ImageViewerPanel {
                     .corrections
                     .blaze
                     .as_ref()
-                    .map(|b| b.path.as_str())
+                    .map(|b| b.path.to_string_lossy())
+                    .as_deref()
                     .unwrap_or("<not set>")
             ));
             ui.small(format!(
@@ -1868,7 +1869,8 @@ impl ImageViewerPanel {
                     .corrections
                     .flat_field
                     .as_ref()
-                    .map(|f| f.path.as_str())
+                    .map(|f| f.path.to_string_lossy())
+                    .as_deref()
                     .unwrap_or("<not set>")
             ));
         }

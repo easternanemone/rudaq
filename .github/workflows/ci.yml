@@ -103,6 +103,8 @@ jobs:
         run: |
           cargo clippy --workspace --all-targets \
             --exclude ui \
+            --exclude ui-graph \
+            --exclude integration-tests \
             --exclude comedi-sys \
             --exclude driver-comedi \
             -- -D warnings

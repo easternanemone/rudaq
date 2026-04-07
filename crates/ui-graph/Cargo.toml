@@ -1,0 +1,43 @@
+[package]
+name = "ui-graph"
+version = "0.1.0"
+edition = "2024"
+description = "Node graph editor for experiment design (extracted from ui crate per M-SMALLER-CRATES)"
+
+[lib]
+name = "ui_graph"
+path = "src/lib.rs"
+
+[dependencies]
+# Graph widget
+egui-snarl = { version = "0.9", features = ["serde"] }
+
+# Undo/redo
+undo = "0.52"
+
+# Adaptive scan peak detection
+find_peaks = "0.1"
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+
+# Timestamps for code generation
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+
+# egui types used in graph commands (Pos2 for node positions)
+egui = "0.33"
+
+# Experiment plan types (native only — WASM stub provided)
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+experiment = { path = "../experiment" }
+
+# Cross-platform time (WASM uses web-time)
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+web-time = "1"
+
+[lints]
+workspace = true

@@ -16440,6 +16440,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "tracing-wasm",
+ "ui-graph",
  "undo",
  "url",
  "wasm-bindgen",
@@ -16447,6 +16448,22 @@ dependencies = [
  "web-sys",
  "web-time",
  "which 6.0.3",
+]
+
+[[package]]
+name = "ui-graph"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "egui",
+ "egui-snarl",
+ "experiment",
+ "find_peaks",
+ "serde",
+ "serde_json",
+ "tracing",
+ "undo",
+ "web-time",
 ]
 
 [[package]]

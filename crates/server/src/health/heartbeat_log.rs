@@ -90,7 +90,7 @@ impl Default for HeartbeatLogConfig {
 /// Collects system vitals every `config.interval` and appends a JSONL
 /// line to `config.path`. Exits when `cancel` is triggered.
 pub async fn run_heartbeat_log(
-    registry: Arc<DeviceRegistry>,
+    registry: DeviceRegistry,
     run_engine: Arc<RunEngine>,
     config: HeartbeatLogConfig,
     cancel: CancellationToken,
@@ -241,7 +241,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let log_path = dir.path().join("heartbeat.jsonl");
 
-        let registry = Arc::new(DeviceRegistry::new());
+        let registry = DeviceRegistry::new();
         let run_engine = Arc::new(RunEngine::new(registry.clone()));
 
         let config = HeartbeatLogConfig {
@@ -300,7 +300,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_heartbeat_exits_on_cancel() {
-        let registry = Arc::new(DeviceRegistry::new());
+        let registry = DeviceRegistry::new();
         let run_engine = Arc::new(RunEngine::new(registry.clone()));
         let config = HeartbeatLogConfig {
             interval: Duration::from_secs(60),

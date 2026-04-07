@@ -285,7 +285,7 @@ impl RunEngine {
         let (doc_tx, mut doc_rx) = mpsc::channel::<Document>(config.document_buffer_size);
 
         // Stage all modules
-        let staged = StagedModules::new(module_ids.clone(), Arc::clone(&self.registry)).await?;
+        let staged = StagedModules::new(module_ids.clone(), self.registry.clone()).await?;
 
         // Track results
         let mut num_events = 0u64;

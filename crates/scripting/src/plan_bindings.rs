@@ -52,7 +52,7 @@ pub struct RunEngineHandle {
 
 impl RunEngineHandle {
     /// Create a new RunEngineHandle wrapping a DeviceRegistry
-    pub fn new(registry: Arc<DeviceRegistry>) -> Self {
+    pub fn new(registry: DeviceRegistry) -> Self {
         Self {
             engine: Arc::new(RunEngine::new(registry)),
         }
@@ -374,7 +374,6 @@ mod tests {
     use crate::rhai_engine::RhaiEngine;
     use crate::traits::ScriptEngine;
     use hardware::registry::DeviceRegistry;
-    use std::sync::Arc;
 
     #[tokio::test]
     async fn test_plan_bindings_registered() {
@@ -396,7 +395,7 @@ mod tests {
         let mut engine = RhaiEngine::with_hardware().unwrap();
 
         // Create and inject run_engine
-        let registry = Arc::new(DeviceRegistry::new());
+        let registry = DeviceRegistry::new();
         let run_engine = RunEngineHandle::new(registry);
         engine
             .set_run_engine(run_engine)

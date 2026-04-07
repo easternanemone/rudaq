@@ -24,7 +24,7 @@
 //! use daq_server::DaqServer;
 //! use daq_hardware::DeviceRegistry;
 //!
-//! let registry = Arc::new(DeviceRegistry::new());
+//! let registry = DeviceRegistry::new();
 //! let server = DaqServer::new(registry)?;
 //! server.serve("0.0.0.0:50051").await?;
 //! ```

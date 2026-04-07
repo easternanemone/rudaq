@@ -185,7 +185,7 @@ pub struct ModuleContext {
     assignments: HashMap<String, String>,
 
     /// Device registry for accessing hardware
-    registry: Arc<DeviceRegistry>,
+    registry: DeviceRegistry,
 
     /// Channel for emitting events
     event_tx: mpsc::Sender<ModuleEvent>,
@@ -202,7 +202,7 @@ impl std::fmt::Debug for ModuleContext {
         f.debug_struct("ModuleContext")
             .field("module_id", &self.module_id)
             .field("assignments", &self.assignments)
-            .field("registry", &"<Arc<DeviceRegistry>>")
+            .field("registry", &"<DeviceRegistry>")
             .field("event_tx", &"<mpsc::Sender>")
             .field("data_tx", &"<mpsc::Sender>")
             .field("shutdown_rx", &"<broadcast::Receiver>")
@@ -215,7 +215,7 @@ impl ModuleContext {
     pub fn new(
         module_id: String,
         assignments: HashMap<String, String>,
-        registry: Arc<DeviceRegistry>,
+        registry: DeviceRegistry,
         event_tx: mpsc::Sender<ModuleEvent>,
         data_tx: mpsc::Sender<ModuleDataPoint>,
         shutdown_rx: broadcast::Receiver<()>,
@@ -330,7 +330,7 @@ impl Clone for ModuleContext {
         Self {
             module_id: self.module_id.clone(),
             assignments: self.assignments.clone(),
-            registry: Arc::clone(&self.registry),
+            registry: self.registry.clone(),
             event_tx: self.event_tx.clone(),
             data_tx: self.data_tx.clone(),
             shutdown_rx: self.shutdown_rx.resubscribe(),
@@ -466,19 +466,19 @@ impl ModuleInstance {
     }
 
     /// Stage the module (Bluesky pattern - prepare resources before start)
-    pub async fn stage(&mut self, registry: Arc<DeviceRegistry>) -> Result<()> {
+    pub async fn stage(&mut self, registry: DeviceRegistry) -> Result<()> {
         let ctx = self.create_context(registry);
         self.module.stage(&ctx).await
     }
 
     /// Unstage the module (Bluesky pattern - release resources after stop)
-    pub async fn unstage(&mut self, registry: Arc<DeviceRegistry>) -> Result<()> {
+    pub async fn unstage(&mut self, registry: DeviceRegistry) -> Result<()> {
         let ctx = self.create_context(registry);
         self.module.unstage(&ctx).await
     }
 
     /// Start the module
-    pub async fn start(&mut self, registry: Arc<DeviceRegistry>) -> Result<()> {
+    pub async fn start(&mut self, registry: DeviceRegistry) -> Result<()> {
         let ctx = self.create_context(registry);
         self.start_time_ns = Some(current_time_ns());
         self.module.start(ctx).await
@@ -512,7 +512,7 @@ impl ModuleInstance {
     }
 
     /// Create a `ModuleContext` for this instance.
-    fn create_context(&self, registry: Arc<DeviceRegistry>) -> ModuleContext {
+    fn create_context(&self, registry: DeviceRegistry) -> ModuleContext {
         ModuleContext::new(
             self.id.clone(),
             self.assignments.clone(),
@@ -534,7 +534,7 @@ pub type ModuleFactory = fn() -> Box<dyn Module>;
 /// Registry for module types and instances
 pub struct ModuleRegistry {
     /// Device registry for hardware access
-    device_registry: Arc<DeviceRegistry>,
+    device_registry: DeviceRegistry,
 
     /// Registered module types: type_id -> factory
     module_types: HashMap<String, ModuleFactory>,
@@ -549,7 +549,7 @@ pub struct ModuleRegistry {
 impl std::fmt::Debug for ModuleRegistry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ModuleRegistry")
-            .field("device_registry", &"<Arc<DeviceRegistry>>")
+            .field("device_registry", &"<DeviceRegistry>")
             .field(
                 "module_types",
                 &format!("{} registered types", self.module_types.len()),
@@ -568,7 +568,7 @@ impl std::fmt::Debug for ModuleRegistry {
 
 impl ModuleRegistry {
     /// Create a new module registry
-    pub fn new(device_registry: Arc<DeviceRegistry>) -> Self {
+    pub fn new(device_registry: DeviceRegistry) -> Self {
         let mut registry = Self {
             device_registry,
             module_types: HashMap::new(),
@@ -652,7 +652,7 @@ impl ModuleRegistry {
             .into());
         }
 
-        let registry = Arc::clone(&self.device_registry);
+        let registry = self.device_registry.clone();
 
         // Stop if running, then unstage to release resources
         if let Some(instance) = self.instances.get_mut(module_id) {
@@ -810,7 +810,7 @@ impl ModuleRegistry {
     /// If the module has not been staged yet (state is `Created` or
     /// `Configured`), it is auto-staged before starting.
     pub async fn start_module(&mut self, module_id: &str) -> Result<u64> {
-        let registry = Arc::clone(&self.device_registry);
+        let registry = self.device_registry.clone();
         let instance = self
             .instances
             .get_mut(module_id)
@@ -820,7 +820,7 @@ impl ModuleRegistry {
         let state = instance.state();
         if state == ModuleState::Created || state == ModuleState::Configured {
             info!(module_id, "Auto-staging module before start");
-            instance.stage(Arc::clone(&registry)).await?;
+            instance.stage(registry.clone()).await?;
         }
 
         instance.start(registry).await?;
@@ -851,7 +851,7 @@ impl ModuleRegistry {
     ///
     /// After stopping, the module is auto-unstaged to release resources.
     pub async fn stop_module(&mut self, module_id: &str) -> Result<(u64, u64)> {
-        let registry = Arc::clone(&self.device_registry);
+        let registry = self.device_registry.clone();
         let instance = self
             .instances
             .get_mut(module_id)
@@ -873,13 +873,13 @@ impl ModuleRegistry {
 
     /// Get the device registry
     #[must_use]
-    pub fn device_registry(&self) -> Arc<DeviceRegistry> {
-        Arc::clone(&self.device_registry)
+    pub fn device_registry(&self) -> DeviceRegistry {
+        self.device_registry.clone()
     }
 
     /// Stage a module (Bluesky pattern - prepare resources before start)
     pub async fn stage_module(&mut self, module_id: &str) -> Result<()> {
-        let registry = Arc::clone(&self.device_registry);
+        let registry = self.device_registry.clone();
         let instance = self
             .instances
             .get_mut(module_id)
@@ -890,7 +890,7 @@ impl ModuleRegistry {
 
     /// Unstage a module (Bluesky pattern - release resources after stop)
     pub async fn unstage_module(&mut self, module_id: &str) -> Result<()> {
-        let registry = Arc::clone(&self.device_registry);
+        let registry = self.device_registry.clone();
         let instance = self
             .instances
             .get_mut(module_id)
@@ -928,7 +928,7 @@ mod tests {
 
     #[test]
     fn test_module_registry_creation() {
-        let device_registry = Arc::new(DeviceRegistry::new());
+        let device_registry = DeviceRegistry::new();
         let registry = ModuleRegistry::new(device_registry);
 
         // Should have built-in types registered
@@ -939,7 +939,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_module() {
-        let device_registry = Arc::new(DeviceRegistry::new());
+        let device_registry = DeviceRegistry::new();
         let mut registry = ModuleRegistry::new(device_registry);
 
         let module_id = registry
@@ -954,7 +954,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_configure_module() {
-        let device_registry = Arc::new(DeviceRegistry::new());
+        let device_registry = DeviceRegistry::new();
         let mut registry = ModuleRegistry::new(device_registry);
 
         let module_id = registry
@@ -975,7 +975,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_delete_module() {
-        let device_registry = Arc::new(DeviceRegistry::new());
+        let device_registry = DeviceRegistry::new();
         let mut registry = ModuleRegistry::new(device_registry);
 
         let module_id = registry
@@ -987,7 +987,7 @@ mod tests {
     }
 
     /// Helper: build a `DeviceRegistry` with mock devices for lifecycle tests.
-    async fn mock_device_registry() -> Arc<DeviceRegistry> {
+    async fn mock_device_registry() -> DeviceRegistry {
         use driver_mock::{MockCameraFactory, MockPowerMeterFactory, MockStageFactory};
 
         let registry = DeviceRegistry::new();
@@ -1025,7 +1025,7 @@ mod tests {
             .await
             .expect("register mock_camera");
 
-        Arc::new(registry)
+        registry
     }
 
     #[tokio::test]

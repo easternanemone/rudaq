@@ -133,7 +133,7 @@ use streaming::*;
 /// Provides direct access to hardware devices through the DeviceRegistry.
 /// All hardware operations are delegated to the appropriate capability traits.
 pub struct HardwareServiceImpl {
-    registry: Arc<DeviceRegistry>,
+    registry: DeviceRegistry,
     /// Per-client stream limiter for DoS prevention (bd-64hu)
     stream_limiter: Arc<StreamLimiter>,
     /// Broadcast sender for parameter changes (enables real-time GUI synchronization)
@@ -206,7 +206,7 @@ impl HardwareServiceImpl {
     }
 
     /// Create a new HardwareService with the given device registry
-    pub fn new(registry: Arc<DeviceRegistry>) -> Self {
+    pub fn new(registry: DeviceRegistry) -> Self {
         // Create broadcast channel for parameter changes (capacity 256 in-flight messages)
         let (param_change_tx, _) = tokio::sync::broadcast::channel(256);
 
@@ -278,7 +278,7 @@ impl HardwareServiceImpl {
     /// Create a new HardwareService with an existing parameter change broadcast sender
     /// (useful when sharing the sender across multiple services)
     pub fn with_param_broadcast(
-        registry: Arc<DeviceRegistry>,
+        registry: DeviceRegistry,
         param_change_tx: tokio::sync::broadcast::Sender<ParameterChange>,
     ) -> Self {
         Self {
@@ -827,7 +827,7 @@ mod tests {
     #[tokio::test]
     async fn test_list_devices() {
         let registry = create_mock_registry().await.unwrap();
-        let service = HardwareServiceImpl::new(Arc::new(registry));
+        let service = HardwareServiceImpl::new(registry);
 
         let request = Request::new(ListDevicesRequest {
             capability_filter: None,
@@ -847,7 +847,7 @@ mod tests {
     #[tokio::test]
     async fn test_list_devices_with_filter() {
         let registry = create_mock_registry().await.unwrap();
-        let service = HardwareServiceImpl::new(Arc::new(registry));
+        let service = HardwareServiceImpl::new(registry);
 
         // Filter for movable devices
         let request = Request::new(ListDevicesRequest {
@@ -874,7 +874,7 @@ mod tests {
     #[tokio::test]
     async fn test_device_info_capabilities_list() {
         let registry = create_mock_registry().await.unwrap();
-        let service = HardwareServiceImpl::new(Arc::new(registry));
+        let service = HardwareServiceImpl::new(registry);
 
         let request = Request::new(ListDevicesRequest {
             capability_filter: None,
@@ -908,7 +908,7 @@ mod tests {
     #[tokio::test]
     async fn test_move_absolute() {
         let registry = create_mock_registry().await.unwrap();
-        let service = HardwareServiceImpl::new(Arc::new(registry));
+        let service = HardwareServiceImpl::new(registry);
 
         let request = Request::new(MoveRequest {
             device_id: "mock_stage".to_string(),
@@ -926,7 +926,7 @@ mod tests {
     #[tokio::test]
     async fn test_read_value() {
         let registry = create_mock_registry().await.unwrap();
-        let service = HardwareServiceImpl::new(Arc::new(registry));
+        let service = HardwareServiceImpl::new(registry);
 
         let request = Request::new(ReadValueRequest {
             device_id: "mock_power_meter".to_string(),
@@ -952,7 +952,7 @@ mod tests {
     #[tokio::test]
     async fn test_read_value_includes_units() {
         let registry = create_mock_registry().await.unwrap();
-        let service = HardwareServiceImpl::new(Arc::new(registry));
+        let service = HardwareServiceImpl::new(registry);
 
         let request = Request::new(ReadValueRequest {
             device_id: "mock_power_meter".to_string(),
@@ -972,7 +972,7 @@ mod tests {
     #[tokio::test]
     async fn test_read_value_includes_timestamp() {
         let registry = create_mock_registry().await.unwrap();
-        let service = HardwareServiceImpl::new(Arc::new(registry));
+        let service = HardwareServiceImpl::new(registry);
 
         #[allow(clippy::cast_possible_truncation)]
         // SAFETY: value is bounded and fits in target type
@@ -1005,7 +1005,7 @@ mod tests {
     #[tokio::test]
     async fn test_read_value_wrong_capability() {
         let registry = create_mock_registry().await.unwrap();
-        let service = HardwareServiceImpl::new(Arc::new(registry));
+        let service = HardwareServiceImpl::new(registry);
 
         // mock_stage is Movable, not Readable
         let request = Request::new(ReadValueRequest {
@@ -1020,7 +1020,7 @@ mod tests {
     #[tokio::test]
     async fn test_device_not_found() {
         let registry = create_mock_registry().await.unwrap();
-        let service = HardwareServiceImpl::new(Arc::new(registry));
+        let service = HardwareServiceImpl::new(registry);
 
         let request = Request::new(MoveRequest {
             device_id: "nonexistent".to_string(),
@@ -1037,7 +1037,7 @@ mod tests {
     #[tokio::test]
     async fn test_wrong_capability() {
         let registry = create_mock_registry().await.unwrap();
-        let service = HardwareServiceImpl::new(Arc::new(registry));
+        let service = HardwareServiceImpl::new(registry);
 
         // Try to move the power meter (not movable)
         let request = Request::new(MoveRequest {
@@ -1055,7 +1055,7 @@ mod tests {
     #[tokio::test]
     async fn test_move_with_wait_for_completion() {
         let registry = create_mock_registry().await.unwrap();
-        let service = HardwareServiceImpl::new(Arc::new(registry));
+        let service = HardwareServiceImpl::new(registry);
 
         let request = Request::new(MoveRequest {
             device_id: "mock_stage".to_string(),
@@ -1078,7 +1078,7 @@ mod tests {
     #[tokio::test]
     async fn test_stage_device_success() {
         let registry = create_mock_registry().await.unwrap();
-        let service = HardwareServiceImpl::new(Arc::new(registry));
+        let service = HardwareServiceImpl::new(registry);
 
         let request = Request::new(StageDeviceRequest {
             device_id: "mock_stage".to_string(),
@@ -1094,7 +1094,7 @@ mod tests {
     #[tokio::test]
     async fn test_stage_device_not_found() {
         let registry = create_mock_registry().await.unwrap();
-        let service = HardwareServiceImpl::new(Arc::new(registry));
+        let service = HardwareServiceImpl::new(registry);
 
         let request = Request::new(StageDeviceRequest {
             device_id: "nonexistent".to_string(),
@@ -1108,7 +1108,7 @@ mod tests {
     #[tokio::test]
     async fn test_unstage_device_success() {
         let registry = create_mock_registry().await.unwrap();
-        let service = HardwareServiceImpl::new(Arc::new(registry));
+        let service = HardwareServiceImpl::new(registry);
 
         let request = Request::new(UnstageDeviceRequest {
             device_id: "mock_power_meter".to_string(),
@@ -1123,7 +1123,7 @@ mod tests {
     #[tokio::test]
     async fn test_unstage_device_not_found() {
         let registry = create_mock_registry().await.unwrap();
-        let service = HardwareServiceImpl::new(Arc::new(registry));
+        let service = HardwareServiceImpl::new(registry);
 
         let request = Request::new(UnstageDeviceRequest {
             device_id: "nonexistent".to_string(),
@@ -1143,7 +1143,7 @@ mod tests {
         use tokio_stream::StreamExt;
 
         let registry = create_mock_registry().await.unwrap();
-        let service = HardwareServiceImpl::new(Arc::new(registry));
+        let service = HardwareServiceImpl::new(registry);
 
         let request = Request::new(DeviceStateSubscribeRequest {
             device_ids: vec!["mock_stage".to_string()],
@@ -1167,7 +1167,7 @@ mod tests {
     #[tokio::test]
     async fn test_subscribe_device_state_not_found() {
         let registry = create_mock_registry().await.unwrap();
-        let service = HardwareServiceImpl::new(Arc::new(registry));
+        let service = HardwareServiceImpl::new(registry);
 
         let request = Request::new(DeviceStateSubscribeRequest {
             device_ids: vec!["nonexistent".to_string()],
@@ -1186,7 +1186,7 @@ mod tests {
         use tokio_stream::StreamExt;
 
         let registry = create_mock_registry().await.unwrap();
-        let service = HardwareServiceImpl::new(Arc::new(registry));
+        let service = HardwareServiceImpl::new(registry);
         let param_sender = service.param_change_sender();
 
         // Start streaming (no filters)
@@ -1227,7 +1227,7 @@ mod tests {
         use tokio_stream::StreamExt;
 
         let registry = create_mock_registry().await.unwrap();
-        let service = HardwareServiceImpl::new(Arc::new(registry));
+        let service = HardwareServiceImpl::new(registry);
         let param_sender = service.param_change_sender();
 
         // Start streaming with device filter
@@ -1276,7 +1276,7 @@ mod tests {
     #[tokio::test]
     async fn test_list_parameters_v5() {
         let registry = create_mock_registry().await.unwrap();
-        let service = HardwareServiceImpl::new(Arc::new(registry));
+        let service = HardwareServiceImpl::new(registry);
 
         // List parameters for mock_stage
         let request = Request::new(ListParametersRequest {
@@ -1319,7 +1319,7 @@ mod tests {
             .unwrap_or_default();
         assert_eq!(cached_units, "mm", "registry snapshot should remain stale");
 
-        let service = HardwareServiceImpl::new(Arc::new(registry));
+        let service = HardwareServiceImpl::new(registry);
 
         // list_parameters should return live units
         let list_request = Request::new(ListParametersRequest {
@@ -1345,7 +1345,7 @@ mod tests {
     #[tokio::test]
     async fn test_set_parameter_out_of_bounds_returns_invalid_argument() {
         let registry = create_mock_registry().await.unwrap();
-        let service = HardwareServiceImpl::new(Arc::new(registry));
+        let service = HardwareServiceImpl::new(registry);
 
         let request = Request::new(SetParameterRequest {
             device_id: "mock_power_meter".to_string(),
@@ -1371,7 +1371,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_device_features_online_parameterized() {
         let registry = create_mock_registry().await.unwrap();
-        let service = HardwareServiceImpl::new(Arc::new(registry));
+        let service = HardwareServiceImpl::new(registry);
 
         // mock_power_meter implements Parameterized — should return live features.
         let request = Request::new(GetDeviceFeaturesRequest {
@@ -1398,7 +1398,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_device_features_device_not_found_no_offline() {
         let registry = create_mock_registry().await.unwrap();
-        let service = HardwareServiceImpl::new(Arc::new(registry));
+        let service = HardwareServiceImpl::new(registry);
 
         // Non-existent device with include_offline=false should return NOT_FOUND.
         let request = Request::new(GetDeviceFeaturesRequest {
@@ -1414,7 +1414,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_device_features_empty_device_id() {
         let registry = create_mock_registry().await.unwrap();
-        let service = HardwareServiceImpl::new(Arc::new(registry));
+        let service = HardwareServiceImpl::new(registry);
 
         let request = Request::new(GetDeviceFeaturesRequest {
             device_id: String::new(),
@@ -1429,7 +1429,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_device_features_device_not_found_include_offline_no_db() {
         let registry = create_mock_registry().await.unwrap();
-        let service = HardwareServiceImpl::new(Arc::new(registry));
+        let service = HardwareServiceImpl::new(registry);
 
         // Non-existent device with include_offline=true but no DB should return NOT_FOUND.
         let request = Request::new(GetDeviceFeaturesRequest {
@@ -1445,7 +1445,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_device_features_online_all_devices() {
         let registry = create_mock_registry().await.unwrap();
-        let service = HardwareServiceImpl::new(Arc::new(registry));
+        let service = HardwareServiceImpl::new(registry);
 
         // All mock devices should be parameterized and return live features.
         for device_id in &["mock_stage", "mock_power_meter", "mock_camera"] {

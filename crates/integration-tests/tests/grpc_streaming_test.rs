@@ -22,7 +22,7 @@ mod streaming_tests {
 
     /// Create a test DaqServer with a mock RunEngine (bd-si2c)
     fn create_test_server() -> DaqServer {
-        let registry = Arc::new(DeviceRegistry::new());
+        let registry = DeviceRegistry::new();
         let run_engine = Arc::new(RunEngine::new(registry));
         let token = CancellationToken::new();
         #[cfg(feature = "storage_hdf5")]

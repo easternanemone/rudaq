@@ -34,7 +34,7 @@ async fn daq_server_new_smoke() {
     // Should construct without panicking
     #[cfg(feature = "scripting")]
     {
-        let registry = Arc::new(DeviceRegistry::new());
+        let registry = DeviceRegistry::new();
         let run_engine = Arc::new(RunEngine::new(registry));
         let token = CancellationToken::new();
         let _server = DaqServer::new(Some(ring_buffer), run_engine, token)

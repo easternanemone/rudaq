@@ -383,7 +383,7 @@ fn get_static_module_type_info(type_id: &str) -> Option<ModuleTypeInfo> {
 /// - Event and data streaming
 pub struct ModuleServiceImpl {
     /// Device registry for hardware access
-    device_registry: Arc<DeviceRegistry>,
+    device_registry: DeviceRegistry,
 
     /// Stub module storage (used when modules feature is disabled)
     #[cfg(not(feature = "modules"))]
@@ -397,7 +397,7 @@ pub struct ModuleServiceImpl {
 impl ModuleServiceImpl {
     /// Create a new ModuleService (stub mode - without modules feature)
     #[cfg(not(feature = "modules"))]
-    pub fn new(registry: Arc<DeviceRegistry>) -> Self {
+    pub fn new(registry: DeviceRegistry) -> Self {
         Self {
             device_registry: registry,
             stub_modules: Arc::new(RwLock::new(HashMap::new())),
@@ -406,7 +406,7 @@ impl ModuleServiceImpl {
 
     /// Create a new ModuleService (full mode - with modules feature)
     #[cfg(feature = "modules")]
-    pub fn new(registry: Arc<DeviceRegistry>) -> Self {
+    pub fn new(registry: DeviceRegistry) -> Self {
         let module_registry = ModuleRegistry::new(registry.clone());
         Self {
             device_registry: registry,
@@ -1639,7 +1639,7 @@ mod tests {
     use std::collections::HashMap;
 
     fn create_test_service() -> ModuleServiceImpl {
-        let registry = Arc::new(DeviceRegistry::new());
+        let registry = DeviceRegistry::new();
         ModuleServiceImpl::new(registry)
     }
 

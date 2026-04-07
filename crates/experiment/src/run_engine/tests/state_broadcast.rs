@@ -25,7 +25,7 @@ async fn recv_state(rx: &mut broadcast::Receiver<EngineState>) -> EngineState {
 
 #[tokio::test]
 async fn subscribe_state_receives_running_then_idle() {
-    let registry = Arc::new(DeviceRegistry::new());
+    let registry = DeviceRegistry::new();
     let engine = Arc::new(RunEngine::new(registry));
 
     let mut state_rx = engine.subscribe_state();
@@ -47,7 +47,7 @@ async fn subscribe_state_receives_running_then_idle() {
 
 #[tokio::test]
 async fn subscribe_state_receives_aborting_then_idle() {
-    let registry = Arc::new(DeviceRegistry::new());
+    let registry = DeviceRegistry::new();
     let engine = Arc::new(RunEngine::new(registry));
 
     let mut state_rx = engine.subscribe_state();
@@ -76,7 +76,7 @@ async fn subscribe_state_receives_aborting_then_idle() {
 
 #[tokio::test]
 async fn subscribe_state_no_subscribers_does_not_panic() {
-    let registry = Arc::new(DeviceRegistry::new());
+    let registry = DeviceRegistry::new();
     let engine = Arc::new(RunEngine::new(registry));
 
     engine.queue(Box::new(Count::new(1))).await;

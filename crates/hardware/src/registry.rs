@@ -441,24 +441,26 @@ impl RegisteredDevice {
 // Device Registry
 // =============================================================================
 
-/// Central registry for hardware device management
+/// Central registry for hardware device management.
 ///
-/// The DeviceRegistry is the primary interface for:
+/// The `DeviceRegistry` is the primary interface for:
 /// - Registering devices from configuration
 /// - Discovering connected devices
 /// - Accessing devices by capability
 /// - Querying device information
 ///
+/// # Shared-Ownership Clone (M-SERVICES-CLONE)
+///
+/// `DeviceRegistry` wraps its internal state in an `Arc`, so cloning is cheap
+/// (just an `Arc::clone`) and all clones share the same underlying data.
+/// This means callers can pass `DeviceRegistry` by value instead of
+/// `Arc<DeviceRegistry>`.
+///
 /// # Thread Safety
 ///
-/// DeviceRegistry is internally thread-safe using DashMap for the devices collection.
-/// This eliminates the need for external RwLock wrapping and allows concurrent access
-/// to different devices without global lock contention. Individual device lookups
-/// only lock the specific entry being accessed.
-///
-/// Usage:
-/// - Pass as `Arc<DeviceRegistry>`
-/// - Call methods directly (no `.read().await` needed)
+/// Internally thread-safe using `DashMap` for the devices collection.
+/// This eliminates the need for external `RwLock` wrapping and allows concurrent
+/// access to different devices without global lock contention.
 ///
 /// # Plugin Architecture (DriverFactory)
 ///
@@ -473,7 +475,115 @@ impl RegisteredDevice {
 /// // Later, devices with driver_type matching the factory are auto-instantiated:
 /// registry.register_from_config(config).await?;
 /// ```
-pub struct DeviceRegistry {
+#[derive(Clone)]
+pub struct DeviceRegistry(Arc<DeviceRegistryInner>);
+
+impl DeviceRegistry {
+    /// Create a new empty device registry.
+    #[must_use]
+    pub fn new() -> Self {
+        Self(Arc::new(DeviceRegistryInner::new()))
+    }
+
+    /// Create a new device registry with a pre-configured `PluginFactory`.
+    #[cfg(feature = "serial")]
+    #[must_use]
+    pub fn with_plugin_factory(
+        plugin_factory: Arc<RwLock<crate::manifest_driver::registry::PluginFactory>>,
+    ) -> Self {
+        Self(Arc::new(DeviceRegistryInner::with_plugin_factory(
+            plugin_factory,
+        )))
+    }
+}
+
+impl Default for DeviceRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl std::ops::Deref for DeviceRegistry {
+    type Target = DeviceRegistryInner;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl CapabilityProvider for DeviceRegistry {
+    fn get_movable(&self, id: &str) -> Option<Arc<dyn Movable>> {
+        self.0.get_movable(id)
+    }
+
+    fn get_readable(&self, id: &str) -> Option<Arc<dyn Readable>> {
+        self.0.get_readable(id)
+    }
+
+    fn get_triggerable(&self, id: &str) -> Option<Arc<dyn Triggerable>> {
+        self.0.get_triggerable(id)
+    }
+
+    fn get_frame_producer(&self, id: &str) -> Option<Arc<dyn FrameProducer>> {
+        self.0.get_frame_producer(id)
+    }
+
+    fn get_exposure_control(&self, id: &str) -> Option<Arc<dyn ExposureControl>> {
+        self.0.get_exposure_control(id)
+    }
+
+    fn get_shutter_control(&self, id: &str) -> Option<Arc<dyn ShutterControl>> {
+        self.0.get_shutter_control(id)
+    }
+
+    fn get_wavelength_tunable(&self, id: &str) -> Option<Arc<dyn WavelengthTunable>> {
+        self.0.get_wavelength_tunable(id)
+    }
+
+    fn get_emission_control(&self, id: &str) -> Option<Arc<dyn EmissionControl>> {
+        self.0.get_emission_control(id)
+    }
+
+    fn get_settable(&self, id: &str) -> Option<Arc<dyn Settable>> {
+        self.0.get_settable(id)
+    }
+
+    fn get_counter_configurable(&self, id: &str) -> Option<Arc<dyn CounterConfigurable>> {
+        self.0.get_counter_configurable(id)
+    }
+
+    fn get_range_introspectable(&self, id: &str) -> Option<Arc<dyn RangeIntrospectable>> {
+        self.0.get_range_introspectable(id)
+    }
+
+    fn get_device_introspection(&self, id: &str) -> Option<Arc<dyn DeviceIntrospection>> {
+        self.0.get_device_introspection(id)
+    }
+
+    fn get_readable_with_metadata(&self, id: &str) -> Option<Arc<dyn ReadableWithMetadata>> {
+        self.0.get_readable_with_metadata(id)
+    }
+
+    fn get_spectrum_readable(&self, id: &str) -> Option<Arc<dyn SpectrumReadable>> {
+        self.0.get_spectrum_readable(id)
+    }
+}
+
+impl std::fmt::Debug for DeviceRegistry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DeviceRegistry")
+            .field("device_count", &self.0.len())
+            .field("factory_count", &self.0.list_factories().len())
+            .finish()
+    }
+}
+
+/// Inner storage for the device registry.
+///
+/// This type is not re-exported from the crate root. Callers interact with
+/// [`DeviceRegistry`], which wraps this in an `Arc` for cheap, shared-ownership
+/// `Clone`. Methods are accessible via `Deref`.
+pub struct DeviceRegistryInner {
     /// Registered devices by ID (thread-safe via DashMap)
     devices: DashMap<DeviceId, RegisteredDevice>,
 
@@ -534,7 +644,7 @@ pub struct FactoryInfo {
     pub available_commands: Vec<String>,
 }
 
-impl DeviceRegistry {
+impl DeviceRegistryInner {
     async fn run_on_register(
         &self,
         device_id: &str,
@@ -570,8 +680,8 @@ impl DeviceRegistry {
         }
         Ok(())
     }
-    /// Create a new empty device registry
-    pub fn new() -> Self {
+    /// Create a new empty device registry inner.
+    fn new() -> Self {
         let (health_tx, _) = broadcast::channel(64);
         Self {
             devices: DashMap::new(),
@@ -588,9 +698,9 @@ impl DeviceRegistry {
         }
     }
 
-    /// Create a new device registry with a pre-configured PluginFactory
+    /// Create a new device registry with a pre-configured PluginFactory.
     #[cfg(feature = "serial")]
-    pub fn with_plugin_factory(
+    fn with_plugin_factory(
         plugin_factory: Arc<RwLock<crate::manifest_driver::registry::PluginFactory>>,
     ) -> Self {
         let (health_tx, _) = broadcast::channel(64);
@@ -1929,7 +2039,7 @@ impl DeviceRegistry {
 // CapabilityProvider Implementation (bd-bog5)
 // =============================================================================
 
-impl CapabilityProvider for DeviceRegistry {
+impl CapabilityProvider for DeviceRegistryInner {
     fn get_movable(&self, id: &str) -> Option<Arc<dyn Movable>> {
         self.get_movable(id)
     }
@@ -1987,7 +2097,7 @@ impl CapabilityProvider for DeviceRegistry {
     }
 }
 
-impl Default for DeviceRegistry {
+impl Default for DeviceRegistryInner {
     fn default() -> Self {
         Self::new()
     }

@@ -230,7 +230,11 @@ pub fn register_libs_hardware(engine: &mut Engine) {
                     "set_mcp_gain: gain must be in range 0-4095",
                 ));
             }
-            #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+            #[expect(
+                clippy::cast_sign_loss,
+                clippy::cast_possible_truncation,
+                reason = "value validated non-negative before cast"
+            )]
             let gain_u32 = gain as u32; // safe: range-checked above (0..=4095)
             run_blocking("set_mcp_gain", async move {
                 driver.set_mcp_gain(gain_u32).await
@@ -289,8 +293,10 @@ pub fn register_libs_hardware(engine: &mut Engine) {
         "set_grating",
         |spec: &mut SpectrographHandle, grating: i64| -> Result<Dynamic, Box<EvalAltResult>> {
             let driver = spec.driver.clone();
-            #[allow(clippy::cast_possible_truncation)]
-            // SAFETY: Grating indices are small integers (<10 for any real spectrograph)
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "Grating indices are small integers (<10 for any real spectrograph)"
+            )]
             run_blocking("set_grating", async move {
                 driver.set_grating(grating as i32).await
             })?;
@@ -605,8 +611,10 @@ pub fn register_libs_hardware(engine: &mut Engine) {
             let camera = sc.camera.clone();
             let triggerable = sc.triggerable.clone();
             let spec = sc.spectrograph.clone();
-            #[allow(clippy::cast_possible_truncation)]
-            // SAFETY: grating index is a small integer
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "grating index is a small integer"
+            )]
             let grating_i32 = grating as i32;
             run_blocking("set_config", async move {
                 // 1. Stop camera acquisition during grating rotation

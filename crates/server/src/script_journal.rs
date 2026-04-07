@@ -209,8 +209,10 @@ impl ScriptJournal {
 
     /// Clean up completed/failed entries older than the given age.
     pub fn cleanup(&self, max_age: std::time::Duration) -> Result<usize> {
-        #[allow(clippy::cast_possible_truncation)]
-        // SAFETY: value is bounded and fits in target type
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "Unix epoch nanos will not exceed u64::MAX until year 2554"
+        )]
         let cutoff = timestamp_nanos().saturating_sub(max_age.as_nanos() as u64);
         let mut removed = 0;
 
@@ -285,8 +287,10 @@ impl ScriptJournal {
     }
 }
 
-#[allow(clippy::cast_possible_truncation)]
-// SAFETY: value is bounded and fits in target type
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "Unix epoch nanos will not exceed u64::MAX until year 2554"
+)]
 fn timestamp_nanos() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

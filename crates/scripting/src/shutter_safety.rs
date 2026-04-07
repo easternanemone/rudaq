@@ -112,9 +112,10 @@ pub struct ShutterRegistry {
     shutters: Mutex<HashMap<u64, Weak<dyn ShutterControl>>>,
     /// Flag indicating if signal handlers are installed
     handlers_installed: AtomicBool,
-    /// Optional reference to hardware registry for emergency motor stop and DAQ zeroing
-    /// This is set via install_panic_hook_with_hardware()
-    hardware_registry: Mutex<Option<Weak<hardware::registry::DeviceRegistry>>>,
+    /// Optional reference to hardware registry for emergency motor stop and DAQ zeroing.
+    /// This is set via `install_panic_hook_with_hardware()`.
+    /// `DeviceRegistry` uses internal `Arc` for shared ownership, so cloning is cheap.
+    hardware_registry: Mutex<Option<hardware::registry::DeviceRegistry>>,
     /// Flag ensuring emergency close runs only once
     emergency_closed: AtomicBool,
 }
@@ -296,9 +297,9 @@ impl ShutterRegistry {
     pub fn emergency_close_all_shutters_from_registry() {
         warn!("EMERGENCY: Closing all ShutterControl devices from registry");
 
-        let registry: Option<Arc<hardware::registry::DeviceRegistry>> = {
+        let registry: Option<hardware::registry::DeviceRegistry> = {
             match Self::global().hardware_registry.try_lock() {
-                Ok(guard) => guard.as_ref().and_then(|weak| weak.upgrade()),
+                Ok(guard) => guard.clone(),
                 Err(_) => {
                     error!(
                         "Failed to acquire hardware registry lock during emergency shutter close (deadlock risk)"
@@ -388,9 +389,9 @@ impl ShutterRegistry {
     pub fn emergency_disable_all_emission() {
         warn!("EMERGENCY: Disabling all EmissionControl devices");
 
-        let registry: Option<Arc<hardware::registry::DeviceRegistry>> = {
+        let registry: Option<hardware::registry::DeviceRegistry> = {
             match Self::global().hardware_registry.try_lock() {
-                Ok(guard) => guard.as_ref().and_then(|weak| weak.upgrade()),
+                Ok(guard) => guard.clone(),
                 Err(_) => {
                     error!(
                         "Failed to acquire hardware registry lock during emergency emission disable (deadlock risk)"
@@ -477,9 +478,9 @@ impl ShutterRegistry {
     pub fn emergency_stop_motors() {
         warn!("EMERGENCY: Stopping all motors");
 
-        let registry: Option<Arc<hardware::registry::DeviceRegistry>> = {
+        let registry: Option<hardware::registry::DeviceRegistry> = {
             match Self::global().hardware_registry.try_lock() {
-                Ok(guard) => guard.as_ref().and_then(|weak| weak.upgrade()),
+                Ok(guard) => guard.clone(),
                 Err(_) => {
                     error!(
                         "Failed to acquire hardware registry lock during emergency stop (deadlock risk)"
@@ -563,9 +564,9 @@ impl ShutterRegistry {
     pub fn emergency_zero_outputs() {
         warn!("EMERGENCY: Zeroing DAQ analog outputs");
 
-        let registry: Option<Arc<hardware::registry::DeviceRegistry>> = {
+        let registry: Option<hardware::registry::DeviceRegistry> = {
             match Self::global().hardware_registry.try_lock() {
-                Ok(guard) => guard.as_ref().and_then(|weak| weak.upgrade()),
+                Ok(guard) => guard.clone(),
                 Err(_) => {
                     error!(
                         "Failed to acquire hardware registry lock during emergency zero (deadlock risk)"
@@ -786,15 +787,15 @@ impl ShutterRegistry {
     /// use hardware::registry::DeviceRegistry;
     /// use std::sync::Arc;
     ///
-    /// let registry = Arc::new(DeviceRegistry::new());
+    /// let registry = DeviceRegistry::new();
     /// // ... register devices ...
     ///
     /// ShutterRegistry::install_panic_hook_with_hardware(&registry);
     /// ```
-    pub fn install_panic_hook_with_hardware(registry: &Arc<hardware::registry::DeviceRegistry>) {
-        // Store weak reference to hardware registry
+    pub fn install_panic_hook_with_hardware(registry: &hardware::registry::DeviceRegistry) {
+        // Store clone of the registry handle (cheap Arc clone internally)
         if let Ok(mut hw_guard) = Self::global().hardware_registry.lock() {
-            *hw_guard = Some(Arc::downgrade(registry));
+            *hw_guard = Some(registry.clone());
         } else {
             error!("Failed to store hardware registry reference for panic hook");
             return;
@@ -1160,7 +1161,7 @@ mod tests {
 
     /// Helper to create a DeviceRegistry with mock laser devices for testing
     /// emergency shutdown methods.
-    async fn create_registry_with_lasers(count: usize) -> Arc<hardware::registry::DeviceRegistry> {
+    async fn create_registry_with_lasers(count: usize) -> hardware::registry::DeviceRegistry {
         use driver_mock::MockLaserFactory;
         use hardware::registry::DeviceRegistry;
 
@@ -1179,7 +1180,7 @@ mod tests {
                 .expect("Failed to register mock laser");
         }
 
-        Arc::new(registry)
+        registry
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1190,7 +1191,7 @@ mod tests {
 
         // Store registry in ShutterRegistry so emergency methods can find it
         if let Ok(mut hw_guard) = ShutterRegistry::global().hardware_registry.lock() {
-            *hw_guard = Some(Arc::downgrade(&registry));
+            *hw_guard = Some(registry.clone());
         }
 
         // Open shutters on both lasers
@@ -1221,7 +1222,7 @@ mod tests {
 
         // Store registry in ShutterRegistry
         if let Ok(mut hw_guard) = ShutterRegistry::global().hardware_registry.lock() {
-            *hw_guard = Some(Arc::downgrade(&registry));
+            *hw_guard = Some(registry.clone());
         }
 
         // Enable emission on both lasers
@@ -1270,9 +1271,9 @@ mod tests {
     async fn test_emergency_methods_empty_registry_does_not_panic() {
         use hardware::registry::DeviceRegistry;
 
-        let registry = Arc::new(DeviceRegistry::new());
+        let registry = DeviceRegistry::new();
         if let Ok(mut hw_guard) = ShutterRegistry::global().hardware_registry.lock() {
-            *hw_guard = Some(Arc::downgrade(&registry));
+            *hw_guard = Some(registry.clone());
         }
 
         // No devices registered — should return early without panicking
@@ -1286,7 +1287,7 @@ mod tests {
     async fn test_emergency_shutter_close_idempotent() {
         let registry = create_registry_with_lasers(1).await;
         if let Ok(mut hw_guard) = ShutterRegistry::global().hardware_registry.lock() {
-            *hw_guard = Some(Arc::downgrade(&registry));
+            *hw_guard = Some(registry.clone());
         }
 
         // Open shutter
@@ -1306,7 +1307,7 @@ mod tests {
     async fn test_emergency_emission_disable_idempotent() {
         let registry = create_registry_with_lasers(1).await;
         if let Ok(mut hw_guard) = ShutterRegistry::global().hardware_registry.lock() {
-            *hw_guard = Some(Arc::downgrade(&registry));
+            *hw_guard = Some(registry.clone());
         }
 
         // Enable emission
@@ -1327,7 +1328,7 @@ mod tests {
         // Create registry with multiple lasers
         let registry = create_registry_with_lasers(3).await;
         if let Ok(mut hw_guard) = ShutterRegistry::global().hardware_registry.lock() {
-            *hw_guard = Some(Arc::downgrade(&registry));
+            *hw_guard = Some(registry.clone());
         }
 
         // Open all shutters
@@ -1552,11 +1553,11 @@ mod tests {
             .await
             .expect("register normal device");
 
-        let registry = Arc::new(registry);
+        let registry = registry;
 
         // Store registry in ShutterRegistry
         if let Ok(mut hw_guard) = ShutterRegistry::global().hardware_registry.lock() {
-            *hw_guard = Some(Arc::downgrade(&registry));
+            *hw_guard = Some(registry.clone());
         }
 
         let start = StdInstant::now();
@@ -1640,11 +1641,11 @@ mod tests {
                 .expect("query normal emission")
         );
 
-        let registry = Arc::new(registry);
+        let registry = registry;
 
         // Store registry in ShutterRegistry
         if let Ok(mut hw_guard) = ShutterRegistry::global().hardware_registry.lock() {
-            *hw_guard = Some(Arc::downgrade(&registry));
+            *hw_guard = Some(registry.clone());
         }
 
         let start = StdInstant::now();

@@ -49,6 +49,7 @@ use hardware::registry::DeviceRegistry;
 use protocol::ni_daq::ni_daq_service_server::NiDaqService;
 use protocol::ni_daq::*;
 use std::future::Future;
+#[cfg(feature = "comedi")]
 use std::sync::Arc;
 use tonic::{Request, Response, Status};
 use tracing::instrument;
@@ -80,7 +81,7 @@ use tracing::instrument;
 #[derive(Clone)]
 pub struct NiDaqServiceImpl {
     /// Device registry for looking up Comedi devices
-    registry: Arc<DeviceRegistry>,
+    registry: DeviceRegistry,
     /// Serializes streaming acquisition to prevent concurrent opens of
     /// `/dev/comedi0` which can deadlock the kernel driver.
     /// NOTE: Only used by `stream_analog_input` which still opens its own handle.
@@ -96,7 +97,7 @@ pub struct NiDaqServiceImpl {
 
 impl NiDaqServiceImpl {
     /// Create a new NI DAQ service instance.
-    pub fn new(registry: Arc<DeviceRegistry>) -> Self {
+    pub fn new(registry: DeviceRegistry) -> Self {
         Self {
             registry,
             #[cfg(feature = "comedi")]

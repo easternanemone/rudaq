@@ -225,10 +225,16 @@ impl MockDeviceHarness {
     /// Expects a write and sends a response in one operation
     ///
     /// Convenience method for common command/response patterns.
-    pub async fn expect_and_respond(&mut self, expected: &[u8], response: &[u8]) {
+    ///
+    /// # Errors
+    /// Returns error if the client port has been disconnected
+    pub async fn expect_and_respond(
+        &mut self,
+        expected: &[u8],
+        response: &[u8],
+    ) -> Result<(), &'static str> {
         self.expect_write(expected).await;
         self.send_response(response)
-            .expect("Failed to send response");
     }
 
     /// Drains any pending writes without asserting their content
@@ -322,8 +328,14 @@ mod tests {
             (r1, r2)
         });
 
-        harness.expect_and_respond(b"CMD1\n", b"ACK1\n").await;
-        harness.expect_and_respond(b"CMD2\n", b"ACK2\n").await;
+        harness
+            .expect_and_respond(b"CMD1\n", b"ACK1\n")
+            .await
+            .unwrap();
+        harness
+            .expect_and_respond(b"CMD2\n", b"ACK2\n")
+            .await
+            .unwrap();
 
         let (r1, r2) = app_task.await.unwrap();
         assert_eq!(r1, "ACK1\n");

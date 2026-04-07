@@ -61,7 +61,10 @@ pub mod storage_service;
 ///
 /// Note: These types are generated in the protocol crate and
 /// re-exported here for backwards compatibility.
-#[allow(missing_docs)]
+#[expect(
+    missing_docs,
+    reason = "protobuf-generated types re-exported without docs"
+)]
 pub mod proto {
     pub use protocol::daq::*;
 
@@ -85,7 +88,10 @@ pub use preset_service::{PresetServiceImpl, default_preset_storage_path};
 pub use run_engine_service::RunEngineServiceImpl;
 // LEGACY: ScanService kept for backwards compatibility. Remove at v1.0.
 // See docs/reference/deprecation-plan.md Section 1.2.
-#[allow(deprecated)]
+#[expect(
+    deprecated,
+    reason = "LEGACY: ScanService kept for backwards compatibility, remove at v1.0"
+)]
 pub use scan_service::ScanServiceImpl;
 #[cfg(feature = "server")]
 pub use server::{DaqServer, start_server, start_server_with_hardware};

@@ -112,7 +112,7 @@ impl<'a> tracing::field::Visit for FieldVisitor<'a> {
 }
 
 /// Setup a test server on a random local port and return the address
-async fn setup_server(registry: Arc<DeviceRegistry>) -> std::net::SocketAddr {
+async fn setup_server(registry: DeviceRegistry) -> std::net::SocketAddr {
     let hardware_service = HardwareServiceImpl::new(registry);
 
     let addr: std::net::SocketAddr = "127.0.0.1:0".parse().unwrap();
@@ -144,7 +144,7 @@ async fn test_request_id_propagates_to_spans() {
     let _guard = tracing::subscriber::set_default(subscriber);
 
     // Setup server with mock registry
-    let registry = Arc::new(DeviceRegistry::new());
+    let registry = DeviceRegistry::new();
     let addr = setup_server(registry).await;
 
     // Create client
@@ -246,7 +246,7 @@ async fn test_hardware_service_creates_spans() {
     let _guard = tracing::subscriber::set_default(subscriber);
 
     // Setup server
-    let registry = Arc::new(DeviceRegistry::new());
+    let registry = DeviceRegistry::new();
     let addr = setup_server(registry).await;
 
     // Make a call

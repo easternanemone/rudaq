@@ -23,7 +23,7 @@ use tonic::{Request, Response, Status};
 /// gRPC service for health monitoring
 pub struct HealthServiceImpl {
     monitor: Arc<SystemHealthMonitor>,
-    registry: Option<Arc<DeviceRegistry>>,
+    registry: Option<DeviceRegistry>,
     /// Whether SurrealDB initialized successfully (bd-9n9k.3).
     db_available: bool,
     /// Whether ConfigService is registered in the gRPC server (bd-9n9k.3).
@@ -48,7 +48,7 @@ impl HealthServiceImpl {
     }
 
     /// Attach a device registry for per-device health reporting (bd-qa36.4.3).
-    pub fn with_registry(mut self, registry: Arc<DeviceRegistry>) -> Self {
+    pub fn with_registry(mut self, registry: DeviceRegistry) -> Self {
         self.registry = Some(registry);
         self
     }

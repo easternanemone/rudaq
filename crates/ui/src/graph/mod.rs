@@ -1,29 +1,29 @@
 //! Node graph editor module for experiment design.
+//!
+//! Core logic (nodes, commands, codegen, validation, serialization) lives in
+//! the `ui-graph` crate. This module re-exports everything and adds the
+//! rendering layer (`viewer`) which depends on egui context.
 
-#[allow(dead_code)]
-pub mod adaptive;
-// codegen + translation depend on the experiment crate (native-only)
+// Re-export all public items from ui-graph
+pub use ui_graph::adaptive;
 #[cfg(not(target_arch = "wasm32"))]
-pub mod codegen;
-pub mod commands;
-pub mod execution_state;
-pub mod nodes;
-pub mod serialization;
+pub use ui_graph::codegen;
+pub use ui_graph::commands;
+pub use ui_graph::execution_state;
+pub use ui_graph::nodes;
+pub use ui_graph::serialization;
 #[cfg(not(target_arch = "wasm32"))]
-pub mod translation;
-pub mod validation;
+pub use ui_graph::translation;
+pub use ui_graph::validation;
+
+// Viewer stays local — it depends on egui rendering context
 pub mod viewer;
 
 #[cfg(not(target_arch = "wasm32"))]
-pub use codegen::graph_to_rhai_script;
-/// Placeholder on WASM — code generation requires the desktop application.
+pub use ui_graph::graph_to_rhai_script;
 #[cfg(target_arch = "wasm32")]
-pub fn graph_to_rhai_script(
-    _snarl: &egui_snarl::Snarl<nodes::ExperimentNode>,
-    _filename: Option<&str>,
-) -> String {
-    "// Code generation requires the desktop application\n".to_string()
-}
+pub use ui_graph::graph_to_rhai_script;
+
 #[allow(unused_imports)]
 pub use commands::{
     AddNodeData, ConnectNodesData, DisconnectNodesData, GraphEdit, GraphTarget, ModifyNodeData,
@@ -48,7 +48,6 @@ pub use validation::{
 };
 pub use viewer::ExperimentViewer;
 
-// Adaptive scan trigger evaluation
 #[allow(unused_imports)]
 pub use adaptive::{DetectedPeak, TriggerResult, detect_peaks, evaluate_triggers};
 

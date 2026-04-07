@@ -274,19 +274,29 @@ impl std::fmt::Display for StorageErrorKind {
     }
 }
 
-#[derive(Error, Debug, Clone)]
+#[derive(Error, Debug)]
 #[error("Storage {kind} error: {message}")]
 pub struct StorageError {
     pub kind: StorageErrorKind,
     pub message: String,
+    captured_bt: Box<std::backtrace::Backtrace>,
 }
 
 impl StorageError {
+    /// Create a new storage error, capturing a backtrace.
+    ///
+    /// Backtrace capture is near-zero cost when `RUST_BACKTRACE` is unset.
     pub fn new(kind: StorageErrorKind, message: impl Into<String>) -> Self {
         Self {
             kind,
             message: message.into(),
+            captured_bt: Box::new(std::backtrace::Backtrace::capture()),
         }
+    }
+
+    /// Returns the captured backtrace, if available.
+    pub fn backtrace(&self) -> &std::backtrace::Backtrace {
+        &self.captured_bt
     }
 }
 
@@ -333,15 +343,19 @@ impl std::fmt::Display for DriverErrorKind {
     }
 }
 
-#[derive(Error, Debug, Clone)]
+#[derive(Error, Debug)]
 #[error("Driver '{driver_type}' {kind} error: {message}")]
 pub struct DriverError {
     pub driver_type: String,
     pub kind: DriverErrorKind,
     pub message: String,
+    captured_bt: Box<std::backtrace::Backtrace>,
 }
 
 impl DriverError {
+    /// Create a new driver error, capturing a backtrace.
+    ///
+    /// Backtrace capture is near-zero cost when `RUST_BACKTRACE` is unset.
     pub fn new(
         driver_type: impl Into<String>,
         kind: DriverErrorKind,
@@ -351,7 +365,13 @@ impl DriverError {
             driver_type: driver_type.into(),
             kind,
             message: message.into(),
+            captured_bt: Box::new(std::backtrace::Backtrace::capture()),
         }
+    }
+
+    /// Returns the captured backtrace, if available.
+    pub fn backtrace(&self) -> &std::backtrace::Backtrace {
+        &self.captured_bt
     }
 }
 

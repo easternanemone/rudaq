@@ -15,7 +15,7 @@ use hardware::registry::DeviceRegistry;
 /// with the plan execution loop. Uses multi-thread runtime for real-time testing.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_watchdog_aborts_orphaned_running_plan() {
-    let registry = Arc::new(DeviceRegistry::new());
+    let registry = DeviceRegistry::new();
     let mut engine_raw = RunEngine::new(registry);
     // Timeout = 200ms, check interval = max(20ms, 1s) = 1s
     engine_raw.set_watchdog_timeout(Duration::from_millis(200));
@@ -43,7 +43,7 @@ async fn test_watchdog_aborts_orphaned_running_plan() {
 /// Test that the watchdog aborts a Paused engine with no activity (bd-c9z1)
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_watchdog_aborts_orphaned_paused_plan() {
-    let registry = Arc::new(DeviceRegistry::new());
+    let registry = DeviceRegistry::new();
     let mut engine_raw = RunEngine::new(registry);
     engine_raw.set_watchdog_timeout(Duration::from_millis(200));
     let engine = Arc::new(engine_raw);
@@ -68,7 +68,7 @@ async fn test_watchdog_aborts_orphaned_paused_plan() {
 /// Test that the watchdog does NOT abort a plan with ongoing activity (bd-c9z1)
 #[tokio::test(start_paused = true)]
 async fn test_watchdog_does_not_abort_active_plan() {
-    let registry = Arc::new(DeviceRegistry::new());
+    let registry = DeviceRegistry::new();
     let mut engine_raw = RunEngine::new(registry);
     // 2-second timeout
     engine_raw.set_watchdog_timeout(Duration::from_secs(2));
@@ -114,7 +114,7 @@ async fn test_watchdog_does_not_abort_active_plan() {
 /// Test that touch_activity resets the watchdog timer (bd-c9z1)
 #[tokio::test(start_paused = true)]
 async fn test_touch_activity_prevents_watchdog() {
-    let registry = Arc::new(DeviceRegistry::new());
+    let registry = DeviceRegistry::new();
     let mut engine_raw = RunEngine::new(registry);
     engine_raw.set_watchdog_timeout(Duration::from_secs(2));
     let engine = Arc::new(engine_raw);

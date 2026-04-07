@@ -231,7 +231,7 @@ impl DaqServer {
     /// ```ignore
     /// // Create shared RunEngine first
     /// let registry = DeviceRegistry::new();
-    /// let run_engine = Arc::new(RunEngine::new(Arc::new(registry)));
+    /// let run_engine = Arc::new(RunEngine::new(registry));
     ///
     /// // Without storage
     /// let server = DaqServer::new(None, run_engine.clone())?;
@@ -1570,7 +1570,7 @@ pub async fn start_server(addr: std::net::SocketAddr) -> Result<(), Box<dyn std:
     }
 
     // Create shared RunEngine FIRST (bd-si2c)
-    let registry = std::sync::Arc::new(hardware::registry::DeviceRegistry::new());
+    let registry = hardware::registry::DeviceRegistry::new();
     let run_engine_instance = std::sync::Arc::new(experiment::RunEngine::new(registry));
 
     // Create DaqServer with shared RunEngine when scripting enabled (bd-si2c)
@@ -1655,16 +1655,14 @@ use common::pipeline::{MeasurementSink, Tee};
 /// ```ignore
 /// use server::grpc::start_server_with_hardware;
 /// use hardware::registry::create_mock_registry;
-/// use std::sync::Arc;
-/// use tokio::sync::RwLock;
 ///
 /// let registry = create_mock_registry().await?;
 /// let addr = "127.0.0.1:50051".parse()?;
-/// start_server_with_hardware(addr, Arc::new(RwLock::new(registry))).await?;
+/// start_server_with_hardware(addr, registry).await?;
 /// ```
 pub async fn start_server_with_hardware(
     addr: std::net::SocketAddr,
-    registry: std::sync::Arc<hardware::registry::DeviceRegistry>,
+    registry: hardware::registry::DeviceRegistry,
     health_monitor: std::sync::Arc<common::health::SystemHealthMonitor>,
     shutdown_token: CancellationToken,
     #[cfg(feature = "db")] _db: Option<db::DaqDb>,
@@ -2541,7 +2539,7 @@ mod tests {
     /// Create a test DaqServer with a mock RunEngine (bd-si2c)
     #[cfg(feature = "scripting")]
     fn create_test_server() -> DaqServer {
-        let registry = std::sync::Arc::new(hardware::registry::DeviceRegistry::new());
+        let registry = hardware::registry::DeviceRegistry::new();
         let run_engine = std::sync::Arc::new(experiment::RunEngine::new(registry));
         let token = CancellationToken::new();
         #[cfg(feature = "storage_hdf5")]

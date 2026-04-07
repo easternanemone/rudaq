@@ -256,7 +256,10 @@ impl Clone for RunEngineServiceImpl {
     }
 }
 
-#[allow(clippy::result_large_err)] // Status is tonic's standard error type
+#[expect(
+    clippy::result_large_err,
+    reason = "Status is tonic's standard error type"
+)]
 fn proto_snapshot_to_domain(
     proto: ProtoCalibrationSnapshot,
 ) -> Result<experiment::CalibrationFreshness, Status> {
@@ -357,10 +360,16 @@ async fn build_engine_status(
         DomainEngineState::Paused => ProtoEngineState::EnginePaused,
         DomainEngineState::Aborting => ProtoEngineState::EngineAborting,
     };
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "Unix epoch nanos fit in u64; u32 field bounded by protocol"
+    )]
     let queue_len = engine.queue_len().await as u32;
     let run_start_ns = engine.current_run_start_ns().await.unwrap_or(0);
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "Unix epoch nanos fit in u64; u32 field bounded by protocol"
+    )]
     let elapsed_ns = if run_start_ns > 0 {
         let now_ns = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -487,8 +496,10 @@ impl RunEngineService for RunEngineServiceImpl {
         };
 
         let queue_len = self.engine.queue_len().await;
-        #[allow(clippy::cast_possible_truncation)]
-        // SAFETY: plan queue length is small, fits in u32
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "plan queue length is small, fits in u32"
+        )]
         let queue_pos = queue_len as u32;
 
         Ok(Response::new(QueuePlanResponse {
@@ -735,8 +746,11 @@ impl RunEngineService for RunEngineServiceImpl {
         }
     }
 
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    // SAFETY: value is validated/bounded before cast
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "value is validated/bounded before cast"
+    )]
     async fn load_plan(
         &self,
         request: Request<LoadPlanRequest>,
@@ -798,8 +812,11 @@ impl RunEngineService for RunEngineServiceImpl {
         }
     }
 
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    // SAFETY: value is validated/bounded before cast
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "value is validated/bounded before cast"
+    )]
     async fn list_saved_plans(
         &self,
         _request: Request<ListSavedPlansRequest>,
@@ -864,8 +881,11 @@ impl RunEngineService for RunEngineServiceImpl {
         }
     }
 
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    // SAFETY: value is validated/bounded before cast
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "value is validated/bounded before cast"
+    )]
     async fn list_runs(
         &self,
         request: Request<ListRunsRequest>,
@@ -1039,8 +1059,7 @@ impl RunEngineService for RunEngineServiceImpl {
                         let sent = docs_sent.fetch_add(1, Ordering::Relaxed) + 1;
                         if sent.is_multiple_of(100) {
                             let filtered = docs_filtered.load(Ordering::Relaxed);
-                            #[allow(clippy::cast_precision_loss)]
-                            // SAFETY: precision loss acceptable for metrics/display
+                            #[expect(clippy::cast_precision_loss, reason = "precision loss acceptable for metrics/display")]
                             let filter_rate = if received > 0 {
                                 (sent as f64 / received as f64) * 100.0
                             } else {

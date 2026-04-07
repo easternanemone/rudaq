@@ -8,7 +8,6 @@
 //! sole source of truth.  Full resync on every reconnect, plus periodic
 //! resync as a safety net for eventual consistency.
 
-use std::sync::Arc;
 use std::time::Duration;
 
 use db::DaqDb;
@@ -67,7 +66,7 @@ impl Default for WatchConfig {
 #[tracing::instrument(skip_all, name = "watch_reconciler")]
 pub async fn start_watch_reconciler(
     db: DaqDb,
-    registry: Arc<DeviceRegistry>,
+    registry: DeviceRegistry,
     config: WatchConfig,
     shutdown: CancellationToken,
 ) {
@@ -266,7 +265,7 @@ mod tests {
         };
 
         let db2 = db.clone();
-        let reg = Arc::new(registry);
+        let reg = registry;
         let reg2 = reg.clone();
         let shutdown2 = shutdown.clone();
         tokio::spawn(async move {
@@ -308,7 +307,7 @@ mod tests {
         };
 
         let db2 = db.clone();
-        let reg = Arc::new(registry);
+        let reg = registry;
         let reg2 = reg.clone();
         let shutdown2 = shutdown.clone();
         tokio::spawn(async move {
@@ -334,7 +333,7 @@ mod tests {
     #[tokio::test]
     async fn test_watch_reconciler_shutdown() {
         let db = DaqDb::init(DbConfig::in_memory()).await.unwrap();
-        let registry = Arc::new(test_registry());
+        let registry = test_registry();
         let shutdown = CancellationToken::new();
 
         let config = WatchConfig::default();

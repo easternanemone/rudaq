@@ -3,10 +3,9 @@
 use super::*;
 
 use std::collections::HashMap;
-use std::sync::Arc;
 
 pub(super) async fn fetch_device_state(
-    registry: &Arc<DeviceRegistry>,
+    registry: &DeviceRegistry,
     device_id: &str,
 ) -> Result<DeviceStateResponse, Status> {
     // No global lock needed with DashMap

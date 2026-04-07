@@ -60,7 +60,7 @@ async fn test_basic_parameter_integration() -> Result<()> {
         .await?;
 
     // Wrap in Arc<RwLock> for HardwareService
-    let registry = Arc::new(registry);
+    let registry = registry;
     let service = HardwareServiceImpl::new(registry.clone());
 
     // Get initial exposure value
@@ -122,7 +122,7 @@ async fn test_parameter_change_notifications() -> Result<()> {
         )
         .await?;
 
-    let registry = Arc::new(registry);
+    let registry = registry;
     let service = HardwareServiceImpl::new(registry.clone());
 
     // Subscribe to parameter changes (no filter)
@@ -180,7 +180,7 @@ async fn test_invalid_parameter_name() -> Result<()> {
         )
         .await?;
 
-    let registry = Arc::new(registry);
+    let registry = registry;
     let service = HardwareServiceImpl::new(registry);
 
     // Try to set non-existent parameter
@@ -214,7 +214,7 @@ async fn test_out_of_range_value() -> Result<()> {
         )
         .await?;
 
-    let registry = Arc::new(registry);
+    let registry = registry;
     let service = HardwareServiceImpl::new(registry);
 
     // Try to set exposure outside valid range (0.001 - 10.0 seconds)
@@ -248,7 +248,7 @@ async fn test_type_mismatch() -> Result<()> {
         )
         .await?;
 
-    let registry = Arc::new(registry);
+    let registry = registry;
     let service = HardwareServiceImpl::new(registry);
 
     // Try to set string value to f64 parameter
@@ -269,7 +269,7 @@ async fn test_type_mismatch() -> Result<()> {
 #[tokio::test]
 async fn test_device_not_found() -> Result<()> {
     let registry = DeviceRegistry::new();
-    let registry = Arc::new(registry);
+    let registry = registry;
     let service = HardwareServiceImpl::new(registry);
 
     let request = Request::new(SetParameterRequest {
@@ -307,7 +307,7 @@ async fn test_concurrent_parameter_access_no_deadlock() -> Result<()> {
         )
         .await?;
 
-    let registry = Arc::new(registry);
+    let registry = registry;
     let service = Arc::new(HardwareServiceImpl::new(registry.clone()));
 
     // Spawn background task: loops calling driver.get_exposure().await
@@ -402,7 +402,7 @@ async fn test_multiple_devices_parameter_isolation() -> Result<()> {
         )
         .await?;
 
-    let registry = Arc::new(registry);
+    let registry = registry;
     let service = HardwareServiceImpl::new(registry.clone());
 
     // Set different exposures for each camera
@@ -472,7 +472,7 @@ async fn test_filtered_parameter_notifications() -> Result<()> {
         )
         .await?;
 
-    let registry = Arc::new(registry);
+    let registry = registry;
     let service = HardwareServiceImpl::new(registry.clone());
 
     // Subscribe to parameter changes for camera1 only
@@ -535,7 +535,7 @@ async fn test_string_parameter_roundtrip_no_double_quoting() -> Result<()> {
         )
         .await?;
 
-    let registry = Arc::new(registry);
+    let registry = registry;
     let service = HardwareServiceImpl::new(registry.clone());
 
     // Verify user_label is listed with dtype "string"
@@ -622,7 +622,7 @@ async fn test_json_shaped_string_preserved() -> Result<()> {
         )
         .await?;
 
-    let registry = Arc::new(registry);
+    let registry = registry;
     let service = HardwareServiceImpl::new(registry.clone());
 
     // Set a value that looks like JSON to a string-typed parameter.
@@ -680,7 +680,7 @@ async fn test_string_parameter_dtype_coercion() -> Result<()> {
         )
         .await?;
 
-    let registry = Arc::new(registry);
+    let registry = registry;
     let service = HardwareServiceImpl::new(registry.clone());
 
     // Set a numeric-looking value to a string parameter.

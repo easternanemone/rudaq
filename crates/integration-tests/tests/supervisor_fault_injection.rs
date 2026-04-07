@@ -341,7 +341,7 @@ async fn test_factory_panic_caught_as_error() {
 /// TCP disconnect), the supervisor should detect it and attempt restart.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_supervisor_restarts_faulted_device() {
-    let registry = Arc::new(DeviceRegistry::new());
+    let registry = DeviceRegistry::new();
     let factory = RebuildTrackingFactory::new();
     let build_count = factory.build_count.clone();
     registry.register_factory(Box::new(factory));
@@ -431,7 +431,7 @@ async fn test_supervisor_restarts_faulted_device() {
 /// the supervisor should stop trying to restart it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_supervisor_respects_max_restart_attempts() {
-    let registry = Arc::new(DeviceRegistry::new());
+    let registry = DeviceRegistry::new();
 
     // Register with transient_fail factory: first build succeeds (max_failures=0)
     let once_factory = TransientFailFactory::new(0);
@@ -519,7 +519,7 @@ async fn test_supervisor_respects_max_restart_attempts() {
 /// underlying issue resolves.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_transient_failure_recovery() {
-    let registry = Arc::new(DeviceRegistry::new());
+    let registry = DeviceRegistry::new();
 
     // First build succeeds (max_failures=0)
     let factory = TransientFailFactory::new(0);
@@ -650,7 +650,7 @@ async fn test_health_event_broadcast_during_fault_cycle() {
 /// should attempt restart.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_buffer_overrun_fault_and_recovery() {
-    let registry = Arc::new(DeviceRegistry::new());
+    let registry = DeviceRegistry::new();
     registry.register_factory(Box::new(BufferOverrunFactory));
 
     registry
@@ -734,7 +734,7 @@ async fn test_buffer_overrun_fault_and_recovery() {
 /// attempts for a persistently faulted device.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_supervisor_exponential_backoff() {
-    let registry = Arc::new(DeviceRegistry::new());
+    let registry = DeviceRegistry::new();
 
     // First build succeeds
     let factory = TransientFailFactory::new(0);
@@ -830,7 +830,7 @@ async fn test_supervisor_exponential_backoff() {
 /// should only restart that device. Healthy devices remain untouched.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_fault_isolation_multiple_devices() {
-    let registry = Arc::new(DeviceRegistry::new());
+    let registry = DeviceRegistry::new();
 
     let factory = RebuildTrackingFactory::new();
     let build_count = factory.build_count.clone();
@@ -929,7 +929,7 @@ async fn test_fault_isolation_multiple_devices() {
 /// preserved so the supervisor can track cumulative restart history.
 #[tokio::test]
 async fn test_restart_preserves_attempt_counter() {
-    let registry = Arc::new(DeviceRegistry::new());
+    let registry = DeviceRegistry::new();
     let factory = RebuildTrackingFactory::new();
     registry.register_factory(Box::new(factory));
 
@@ -1137,7 +1137,7 @@ async fn test_success_resets_degraded_to_healthy() {
 /// the same device without getting stuck or leaking state.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_repeated_fault_recover_cycles() {
-    let registry = Arc::new(DeviceRegistry::new());
+    let registry = DeviceRegistry::new();
     let factory = RebuildTrackingFactory::new();
     let build_count = factory.build_count.clone();
     registry.register_factory(Box::new(factory));
