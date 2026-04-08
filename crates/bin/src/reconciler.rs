@@ -1065,7 +1065,6 @@ mod tests {
                 WatchConfig {
                     debounce: std::time::Duration::from_millis(50),
                     max_debounce_wait: std::time::Duration::from_secs(1),
-                    fallback_poll_interval: std::time::Duration::from_secs(60),
                     resync_interval: std::time::Duration::ZERO,
                 },
                 shutdown2,
@@ -1125,7 +1124,6 @@ mod tests {
                 WatchConfig {
                     debounce: std::time::Duration::from_millis(50),
                     max_debounce_wait: std::time::Duration::from_secs(1),
-                    fallback_poll_interval: std::time::Duration::from_secs(60),
                     resync_interval: std::time::Duration::ZERO,
                 },
                 shutdown2,
@@ -1184,7 +1182,6 @@ mod tests {
                 WatchConfig {
                     debounce: std::time::Duration::from_millis(50),
                     max_debounce_wait: std::time::Duration::from_secs(1),
-                    fallback_poll_interval: std::time::Duration::from_secs(60),
                     resync_interval: std::time::Duration::ZERO,
                 },
                 shutdown2,
@@ -1265,7 +1262,6 @@ mod tests {
                 WatchConfig {
                     debounce: std::time::Duration::from_millis(50),
                     max_debounce_wait: std::time::Duration::from_secs(1),
-                    fallback_poll_interval: std::time::Duration::from_secs(60),
                     resync_interval: std::time::Duration::ZERO,
                 },
                 shutdown2,
@@ -1376,7 +1372,7 @@ mod tests {
                 WatchConfig {
                     debounce: std::time::Duration::from_millis(50),
                     max_debounce_wait: std::time::Duration::from_secs(1),
-                    fallback_poll_interval: std::time::Duration::from_secs(60),
+
                     // Short resync so the lock-release is picked up quickly.
                     resync_interval: std::time::Duration::from_millis(500),
                 },
@@ -1462,7 +1458,6 @@ mod tests {
                 WatchConfig {
                     debounce: std::time::Duration::from_millis(100),
                     max_debounce_wait: std::time::Duration::from_secs(2),
-                    fallback_poll_interval: std::time::Duration::from_secs(60),
                     resync_interval: std::time::Duration::ZERO,
                 },
                 shutdown2,

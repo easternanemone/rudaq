@@ -572,11 +572,11 @@ fn snapshot_to_proto(snapshot: SystemStateSnapshot) -> ProtoSystemState {
 /// Set or clear the favorite flag for a parameter (bd-4wf7).
 #[expect(
     unused_variables,
-    reason = "svc and req only used with db-surreal feature"
+    reason = "svc and req only used with db feature"
 )]
 #[expect(
     clippy::unused_async,
-    reason = "conditionally async: .await used only with db-surreal feature"
+    reason = "conditionally async: .await used only with db feature"
 )]
 pub(super) async fn set_parameter_favorite(
     svc: &HardwareServiceImpl,
@@ -603,11 +603,11 @@ pub(super) async fn set_parameter_favorite(
 /// Get all favorited parameter names for a device (bd-4wf7).
 #[expect(
     unused_variables,
-    reason = "svc and req only used with db-surreal feature"
+    reason = "svc and req only used with db feature"
 )]
 #[expect(
     clippy::unused_async,
-    reason = "conditionally async: .await used only with db-surreal feature"
+    reason = "conditionally async: .await used only with db feature"
 )]
 pub(super) async fn get_parameter_favorites(
     svc: &HardwareServiceImpl,

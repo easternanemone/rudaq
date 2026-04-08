@@ -268,7 +268,7 @@ pub(super) fn subscribe_device_state(
     Ok(Response::new(ReceiverStream::new(rx)))
 }
 
-#[allow(clippy::unused_async)] // async required when db-surreal feature is enabled
+#[allow(clippy::unused_async)] // async required when db feature is enabled
 pub(super) async fn get_device_features(
     svc: &HardwareServiceImpl,
     request: Request<GetDeviceFeaturesRequest>,

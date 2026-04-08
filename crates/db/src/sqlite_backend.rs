@@ -286,8 +286,6 @@ CREATE TABLE IF NOT EXISTS instrument (
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
-CREATE INDEX IF NOT EXISTS idx_instrument_device_id ON instrument(device_id);
-
 -- Driver definitions
 CREATE TABLE IF NOT EXISTS driver (
     driver_type TEXT PRIMARY KEY,
@@ -371,6 +369,19 @@ CREATE INDEX IF NOT EXISTS idx_lifecycle_device ON device_lifecycle_event(device
 ";
 
 // ---------------------------------------------------------------------------
+// SQL constants
+// ---------------------------------------------------------------------------
+
+/// Upsert a single parameter state row, preserving `is_favorite` on conflict.
+const UPSERT_DEVICE_STATE_SQL: &str = "\
+    INSERT INTO device_runtime_state \
+    (device_id, param_name, param_value, is_favorite, updated_at) \
+    VALUES (?1, ?2, ?3, 0, datetime('now')) \
+    ON CONFLICT(device_id, param_name) DO UPDATE SET \
+      param_value = excluded.param_value, \
+      updated_at = excluded.updated_at";
+
+// ---------------------------------------------------------------------------
 // DbConfig
 // ---------------------------------------------------------------------------
 
@@ -396,13 +407,6 @@ impl DbConfig {
         }
     }
 
-    /// Alias for [`Self::file`] — accepts a `PathBuf` for compatibility with
-    /// callers that previously used `DbConfig::rocksdb(path)`.
-    pub fn rocksdb(path: impl AsRef<std::path::Path>) -> Self {
-        Self {
-            path: Some(path.as_ref().display().to_string()),
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1071,13 +1075,7 @@ impl SqliteDb {
         self.conn
             .call(move |conn| {
                 conn.execute(
-                    "INSERT OR REPLACE INTO device_runtime_state \
-                     (device_id, param_name, param_value, \
-                      is_favorite, updated_at) \
-                     VALUES (?1, ?2, ?3, \
-                      COALESCE((SELECT is_favorite FROM device_runtime_state \
-                                WHERE device_id = ?1 AND param_name = ?2), 0), \
-                      datetime('now'))",
+                    UPSERT_DEVICE_STATE_SQL,
                     rusqlite::params![device_id, param_name, value_json],
                 )?;
                 Ok(())
@@ -1109,37 +1107,28 @@ impl SqliteDb {
             })
             .collect::<Result<Vec<_>>>()?;
 
-        let device_ids: Vec<String> = states.iter().map(|(d, _, _)| d.clone()).collect();
-
         self.conn
             .call(move |conn| {
                 let tx = conn.transaction()?;
                 for (device_id, param_name, value_json) in &serialized {
                     tx.execute(
-                        "INSERT OR REPLACE INTO device_runtime_state \
-                         (device_id, param_name, param_value, \
-                          is_favorite, updated_at) \
-                         VALUES (?1, ?2, ?3, \
-                          COALESCE((SELECT is_favorite FROM device_runtime_state \
-                                    WHERE device_id = ?1 AND param_name = ?2), 0), \
-                          datetime('now'))",
+                        UPSERT_DEVICE_STATE_SQL,
                         rusqlite::params![device_id, param_name, value_json],
                     )?;
                 }
                 tx.commit()?;
-                Ok(())
+                Ok(serialized)
             })
-            .await?;
-
-        // Notify per unique device_id.
-        let mut seen = std::collections::HashSet::new();
-        for device_id in &device_ids {
-            if seen.insert(device_id.clone()) {
+            .await?
+            .iter()
+            .map(|(d, _, _)| d.as_str())
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .for_each(|device_id| {
                 let _ = self.change_tx.send(DbChangeEvent::DeviceStateUpdated {
-                    device_id: device_id.clone(),
+                    device_id: device_id.to_owned(),
                 });
-            }
-        }
+            });
         Ok(())
     }
 
@@ -1361,24 +1350,35 @@ impl SqliteDb {
     /// Returns diagnostic information about the database.
     pub async fn info(&self) -> Result<SqliteDbInfo> {
         let uptime = self.started_at.elapsed();
-        let healthy = self.health_check().await.is_ok();
 
-        let counts = self
+        // Single async hop: health check + all table counts in one query.
+        let (healthy, counts) = self
             .conn
             .call(|conn| {
-                let count = |table: &str| -> rusqlite::Result<u64> {
-                    let sql = format!("SELECT COUNT(*) FROM {table}");
-                    conn.query_row(&sql, [], |row| row.get(0))
-                };
-                Ok((
-                    count("driver")?,
-                    count("instrument")?,
-                    count("experiment_plan")?,
-                    count("run_record")?,
-                    count("device_feature")?,
-                    count("device_runtime_state")?,
-                    count("device_lifecycle_event")?,
-                ))
+                let healthy = conn.execute_batch("SELECT 1").is_ok();
+                let counts = conn.query_row(
+                    "SELECT \
+                       (SELECT COUNT(*) FROM driver), \
+                       (SELECT COUNT(*) FROM instrument), \
+                       (SELECT COUNT(*) FROM experiment_plan), \
+                       (SELECT COUNT(*) FROM run_record), \
+                       (SELECT COUNT(*) FROM device_feature), \
+                       (SELECT COUNT(*) FROM device_runtime_state), \
+                       (SELECT COUNT(*) FROM device_lifecycle_event)",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get::<_, u64>(0)?,
+                            row.get::<_, u64>(1)?,
+                            row.get::<_, u64>(2)?,
+                            row.get::<_, u64>(3)?,
+                            row.get::<_, u64>(4)?,
+                            row.get::<_, u64>(5)?,
+                            row.get::<_, u64>(6)?,
+                        ))
+                    },
+                )?;
+                Ok((healthy, counts))
             })
             .await?;
 
@@ -1420,8 +1420,9 @@ impl SqliteDb {
 /// Map a `rusqlite::Row` to a `DbInstrument`.
 fn row_to_instrument(row: &rusqlite::Row<'_>) -> rusqlite::Result<DbInstrument> {
     let config_str: String = row.get(3)?;
-    let config: serde_json::Value =
-        serde_json::from_str(&config_str).unwrap_or(serde_json::Value::Object(Default::default()));
+    let config: serde_json::Value = serde_json::from_str(&config_str).map_err(|e| {
+        rusqlite::Error::FromSqlConversionFailure(3, rusqlite::types::Type::Text, Box::new(e))
+    })?;
     Ok(DbInstrument {
         device_id: row.get(0)?,
         name: row.get(1)?,

@@ -369,7 +369,7 @@ mod rocksdb_tests {
     #[ignore = "only invoked as a subprocess"]
     async fn rocksdb_writer_helper() {
         let db_path = std::env::var("ROCKSDB_TEST_PATH").expect("ROCKSDB_TEST_PATH must be set");
-        let db = DaqDb::init(DbConfig::rocksdb(&db_path)).await.unwrap();
+        let db = DaqDb::init(DbConfig::file(db_path.display().to_string())).await.unwrap();
         assert!(db.health_check().await);
 
         let instruments = vec![DbInstrument {
@@ -419,7 +419,7 @@ mod rocksdb_tests {
         );
 
         // Second session: re-open and verify data persists
-        let db = DaqDb::init(DbConfig::rocksdb(&db_path)).await.unwrap();
+        let db = DaqDb::init(DbConfig::file(db_path.display().to_string())).await.unwrap();
         assert!(db.health_check().await);
 
         // Data should persist

@@ -270,7 +270,7 @@ pub struct DaemonInstance {
     /// Safety sentinel — RAII emergency shutter close on abnormal exit.
     /// Armed on start, disarmed only after successful shutdown.
     sentinel: SafetySentinel,
-    /// Embedded SurrealDB instance (control plane persistence).
+    /// Embedded SQLite instance (control plane persistence).
     /// Kept alive for connection lifetime; will be read by gRPC ConfigService (Phase 2).
     #[cfg(feature = "db")]
     #[allow(dead_code)] // Ownership anchor + used by ConfigService in Phase 2
@@ -278,7 +278,7 @@ pub struct DaemonInstance {
     /// Safety heartbeat task — toggles a Comedi DIO channel to drive hardware interlock.
     #[cfg(feature = "comedi_hardware")]
     heartbeat_task: Option<JoinHandle<()>>,
-    /// Background task running the watch reconciler (LIVE SELECT → reconcile loop).
+    /// Background task running the watch reconciler (broadcast → reconcile loop).
     #[cfg(feature = "db")]
     watch_reconciler_task: Option<JoinHandle<()>>,
     /// Records which shutdown phases have been executed, in order.
@@ -333,7 +333,7 @@ impl DaemonInstance {
             };
             let db_config = if let Some(ref path) = config.db_path {
                 println!("   Engine: file ({})", path.display());
-                db::DbConfig::rocksdb(path)
+                db::DbConfig::file(path.display().to_string())
             } else {
                 println!("   Engine: in-memory (no persistence)");
                 db::DbConfig::in_memory()
@@ -702,15 +702,15 @@ impl DaemonInstance {
             run_device_supervisor(sup_registry, SupervisorConfig::default(), sup_token).await;
         });
 
-        // --- Phase: Watch Reconciler (LIVE SELECT → debounce → reconcile) ---
-        // Continuously watches SurrealDB for config changes and reconciles the
+        // --- Phase: Watch Reconciler (broadcast → debounce → reconcile) ---
+        // Continuously watches SQLite for config changes and reconciles the
         // hardware registry.  Uses CancellationToken for graceful shutdown.
         #[cfg(feature = "db")]
         let watch_reconciler_task = if let Some(ref db) = db {
             let wr_db = db.clone();
             let wr_registry = registry.clone();
             let wr_token = shutdown_token.clone();
-            println!("👁️  Starting watch reconciler (LIVE SELECT → registry sync)...");
+            println!("👁️  Starting watch reconciler (broadcast → registry sync)...");
             Some(tokio::spawn(async move {
                 crate::watch_reconciler::start_watch_reconciler(
                     wr_db,
