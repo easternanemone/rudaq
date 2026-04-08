@@ -92,7 +92,7 @@ async fn collect_documents(
 #[tokio::test]
 async fn test_gridscan_two_stages() {
     let registry = create_multi_device_registry().await;
-    let engine = RunEngine::new(registry.clone());
+    let engine = RunEngine::new(registry);
 
     // Subscribe to documents before starting
     let rx = engine.subscribe();
@@ -180,7 +180,7 @@ async fn test_gridscan_two_stages() {
 #[tokio::test]
 async fn test_linescan_single_axis() {
     let registry = create_multi_device_registry().await;
-    let engine = RunEngine::new(registry.clone());
+    let engine = RunEngine::new(registry);
 
     let rx = engine.subscribe();
 
@@ -219,7 +219,7 @@ async fn test_linescan_single_axis() {
 #[tokio::test]
 async fn test_pause_resume_multi_device() {
     let registry = create_multi_device_registry().await;
-    let engine = Arc::new(RunEngine::new(registry.clone()));
+    let engine = Arc::new(RunEngine::new(registry));
 
     let rx = engine.subscribe();
 
@@ -313,7 +313,7 @@ async fn test_pause_resume_multi_device() {
 #[tokio::test]
 async fn test_abort_multi_device_scan() {
     let registry = create_multi_device_registry().await;
-    let engine = Arc::new(RunEngine::new(registry.clone()));
+    let engine = Arc::new(RunEngine::new(registry));
 
     let rx = engine.subscribe();
 
@@ -381,7 +381,7 @@ async fn test_abort_multi_device_scan() {
 #[tokio::test]
 async fn test_count_plan() {
     let registry = create_multi_device_registry().await;
-    let engine = RunEngine::new(registry.clone());
+    let engine = RunEngine::new(registry);
 
     let rx = engine.subscribe();
 
@@ -431,7 +431,7 @@ async fn test_count_plan() {
 // SAFETY: test/benchmark values are bounded
 async fn test_document_fields() {
     let registry = create_multi_device_registry().await;
-    let engine = RunEngine::new(registry.clone());
+    let engine = RunEngine::new(registry);
 
     let rx = engine.subscribe();
 
@@ -498,7 +498,7 @@ async fn test_document_fields() {
 #[tokio::test]
 async fn test_queue_multiple_plans() {
     let registry = create_multi_device_registry().await;
-    let engine = Arc::new(RunEngine::new(registry.clone()));
+    let engine = Arc::new(RunEngine::new(registry));
 
     // Queue multiple plans
     let plan1 = Count::new(2).with_detector("power_meter");
@@ -555,7 +555,7 @@ async fn test_queue_multiple_plans() {
 #[tokio::test]
 async fn test_engine_state_transitions() {
     let registry = create_multi_device_registry().await;
-    let engine = Arc::new(RunEngine::new(registry.clone()));
+    let engine = Arc::new(RunEngine::new(registry));
 
     // Initially idle
     assert_eq!(engine.state().await, EngineState::Idle);
