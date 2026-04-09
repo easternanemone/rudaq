@@ -6,14 +6,18 @@
 //!
 //! Each capability renders in 1-2 rows using standard egui widgets.
 
-use crate::time::{Duration, Instant};
-
+use crate::layout;
 use crate::runtime::Runtime;
+use crate::time::{Duration, Instant};
 use egui::Ui;
-use tokio::sync::mpsc;
 
 use crate::device_ext::DeviceInfoExt;
 use crate::widgets::Gauge;
+use crate::widgets::device_controls::{
+    DevicePanelState, LatestRequestTracker, action_button, filled_action_button, panel_hint_text,
+    panel_value_text, parse_f64_input, parse_positive_step_input, request_panel_repaint,
+    show_panel_header, show_panel_messages, show_panel_section,
+};
 use client::DaqClient;
 use protocol::daq::DeviceInfo;
 
@@ -30,19 +34,31 @@ fn is_power_unit(units: &str) -> bool {
 // ---------------------------------------------------------------------------
 
 enum GenericAction {
-    // Readable
-    ReadValue(Result<(f64, String), String>),
-    // Movable
+    // Readable refresh
+    ReadValue {
+        request_id: u64,
+        result: Result<(f64, String), String>,
+    },
+    // Movable user command
     Moved(Result<(), String>),
-    // Emission / Shutter — bool tag: true = user command, false = refresh
-    Emission(Result<bool, String>, bool),
-    Shutter(Result<bool, String>, bool),
-    // WavelengthTunable — bool tag: true = user command, false = refresh
-    Wavelength(Result<f64, String>, bool),
+    // Emission / Shutter / Wavelength user commands
+    EmissionCommand(Result<bool, String>),
+    ShutterCommand(Result<bool, String>),
+    WavelengthCommand(Result<f64, String>),
     // Settable (analog output)
     SetValue(Result<f64, String>),
     // Full state fetch (position, online, etc.)
-    DeviceState(Result<DeviceStateSnapshot, String>),
+    DeviceState {
+        request_id: u64,
+        result: Result<DeviceStateSnapshot, String>,
+    },
+    // Coalesced background refresh for capability state
+    AuxState {
+        request_id: u64,
+        emission: Option<Result<bool, String>>,
+        shutter: Option<Result<bool, String>>,
+        wavelength: Option<Result<f64, String>>,
+    },
 }
 
 #[derive(Debug, Clone, Default)]
@@ -137,13 +153,11 @@ impl Default for SettableState {
 
 /// A single panel that composes compact, capability-based widgets for any device.
 pub struct GenericDevicePanel {
-    action_tx: mpsc::Sender<GenericAction>,
-    action_rx: mpsc::Receiver<GenericAction>,
-    actions_in_flight: usize,
-    error: Option<String>,
-    status: Option<String>,
-    device_id: Option<String>,
-    initial_fetch_done: bool,
+    panel_state: DevicePanelState<GenericAction>,
+    read_request_tracker: LatestRequestTracker,
+    device_state_request_tracker: LatestRequestTracker,
+    aux_request_tracker: LatestRequestTracker,
+    refresh_after_command: bool,
 
     // Capability-specific state (Some = device has this capability)
     reading: Option<ReadingState>,
@@ -160,8 +174,6 @@ impl GenericDevicePanel {
 
     /// Create a panel from `DeviceInfo`, using `DeviceInfoExt` helpers and metadata.
     pub fn from_device_info(device: &DeviceInfo) -> Self {
-        let (action_tx, action_rx) = mpsc::channel(16);
-
         // Get wavelength range from metadata with fallback; sanitize to prevent
         // panics from invalid metadata (min > max or NaN).
         let (min_wl, max_wl) = device
@@ -188,13 +200,11 @@ impl GenericDevicePanel {
             .unwrap_or_default();
 
         Self {
-            action_tx,
-            action_rx,
-            actions_in_flight: 0,
-            error: None,
-            status: None,
-            device_id: None,
-            initial_fetch_done: false,
+            panel_state: DevicePanelState::new(),
+            read_request_tracker: LatestRequestTracker::default(),
+            device_state_request_tracker: LatestRequestTracker::default(),
+            aux_request_tracker: LatestRequestTracker::default(),
+            refresh_after_command: false,
             reading: if device.is_readable() {
                 Some(ReadingState::default())
             } else {
@@ -223,7 +233,7 @@ impl GenericDevicePanel {
                 Some(WavelengthState {
                     current_nm: None,
                     slider_value: default_wl,
-                    input: format!("{:.0}", default_wl),
+                    input: format!("{default_wl:.0}"),
                     dragging: false,
                     min_nm: min_wl,
                     max_nm: max_wl,
@@ -244,136 +254,201 @@ impl GenericDevicePanel {
     // -----------------------------------------------------------------------
 
     fn poll_results(&mut self) {
-        while let Ok(result) = self.action_rx.try_recv() {
-            // Only decrement for user-initiated commands (not background refreshes)
-            let is_user_command = matches!(
-                &result,
-                GenericAction::Moved(_)
-                    | GenericAction::SetValue(_)
-                    | GenericAction::Emission(_, true)
-                    | GenericAction::Shutter(_, true)
-                    | GenericAction::Wavelength(_, true)
-            );
-            if is_user_command {
-                self.actions_in_flight = self.actions_in_flight.saturating_sub(1);
-            }
-
+        while let Ok(result) = self.panel_state.action_rx.try_recv() {
             match result {
-                GenericAction::ReadValue(res) => {
+                GenericAction::ReadValue { request_id, result } => {
+                    self.panel_state.background_task_completed();
+                    if !self.read_request_tracker.is_current(request_id) {
+                        continue;
+                    }
                     if let Some(ref mut reading) = self.reading {
-                        match res {
+                        match result {
                             Ok((value, units)) => {
                                 reading.raw_value = Some(value);
                                 reading.raw_units = units;
-                                self.error = None;
+                                self.panel_state.error = None;
                             }
                             Err(e) => {
-                                tracing::warn!(device_id = ?self.device_id, "Read failed: {e}");
-                                self.error = Some(format!("Read failed: {}", e));
+                                tracing::warn!(device_id = ?self.panel_state.device_id, "Read failed: {e}");
+                                self.panel_state.set_error(format!("Read failed: {e}"));
                             }
                         }
                     }
                 }
-                GenericAction::Moved(res) => {
-                    if let Some(ref mut m) = self.motion {
-                        m.moving = false;
+                GenericAction::Moved(result) => {
+                    self.panel_state.action_completed();
+                    if let Some(ref mut motion) = self.motion {
+                        motion.moving = false;
                     }
-                    match res {
+                    match result {
                         Ok(()) => {
-                            self.status = Some("Move completed".to_string());
-                            self.error = None;
+                            self.refresh_after_command = true;
+                            self.panel_state.set_status("Move completed");
                         }
                         Err(e) => {
-                            tracing::warn!(device_id = ?self.device_id, "Move failed: {e}");
-                            self.error = Some(format!("Move failed: {}", e));
+                            tracing::warn!(device_id = ?self.panel_state.device_id, "Move failed: {e}");
+                            self.panel_state.set_error(format!("Move failed: {e}"));
                         }
                     }
                 }
-                GenericAction::Emission(res, _) => {
-                    if let Some(ref mut t) = self.emission {
-                        match res {
-                            Ok(v) => {
-                                t.value = Some(v);
-                                self.status = Some(if v {
-                                    "Emission ON".to_string()
+                GenericAction::EmissionCommand(result) => {
+                    self.panel_state.action_completed();
+                    if let Some(ref mut emission) = self.emission {
+                        match result {
+                            Ok(value) => {
+                                emission.value = Some(value);
+                                self.refresh_after_command = true;
+                                self.panel_state.set_status(if value {
+                                    "Emission enabled"
                                 } else {
-                                    "Emission OFF".to_string()
+                                    "Emission disabled"
                                 });
-                                self.error = None;
                             }
                             Err(e) => {
-                                tracing::warn!(device_id = ?self.device_id, "Emission failed: {e}");
-                                self.error = Some(format!("Emission: {}", e));
+                                tracing::warn!(device_id = ?self.panel_state.device_id, "Emission failed: {e}");
+                                self.panel_state.set_error(format!("Emission failed: {e}"));
                             }
                         }
                     }
                 }
-                GenericAction::Shutter(res, _) => {
-                    if let Some(ref mut t) = self.shutter {
-                        match res {
-                            Ok(v) => {
-                                t.value = Some(v);
-                                self.status = Some(if v {
-                                    "Shutter OPEN".to_string()
+                GenericAction::ShutterCommand(result) => {
+                    self.panel_state.action_completed();
+                    if let Some(ref mut shutter) = self.shutter {
+                        match result {
+                            Ok(value) => {
+                                shutter.value = Some(value);
+                                self.refresh_after_command = true;
+                                self.panel_state.set_status(if value {
+                                    "Shutter open"
                                 } else {
-                                    "Shutter CLOSED".to_string()
+                                    "Shutter closed"
                                 });
-                                self.error = None;
                             }
                             Err(e) => {
-                                tracing::warn!(device_id = ?self.device_id, "Shutter failed: {e}");
-                                self.error = Some(format!("Shutter: {}", e));
+                                tracing::warn!(device_id = ?self.panel_state.device_id, "Shutter failed: {e}");
+                                self.panel_state.set_error(format!("Shutter failed: {e}"));
                             }
                         }
                     }
                 }
-                GenericAction::Wavelength(res, _) => {
+                GenericAction::WavelengthCommand(result) => {
+                    self.panel_state.action_completed();
                     if let Some(ref mut wl) = self.wavelength {
-                        match res {
+                        match result {
                             Ok(nm) => {
                                 wl.current_nm = Some(nm);
                                 if !wl.dragging {
                                     wl.slider_value = nm;
-                                    wl.input = format!("{:.1}", nm);
+                                    wl.input = format!("{nm:.1}");
                                 }
-                                self.status = Some(format!("Wavelength: {:.1} nm", nm));
-                                self.error = None;
+                                self.refresh_after_command = true;
+                                self.panel_state
+                                    .set_status(format!("Wavelength set to {nm:.1} nm"));
                             }
                             Err(e) => {
-                                tracing::warn!(device_id = ?self.device_id, "Wavelength failed: {e}");
-                                self.error = Some(format!("Wavelength: {}", e));
+                                tracing::warn!(device_id = ?self.panel_state.device_id, "Wavelength failed: {e}");
+                                self.panel_state
+                                    .set_error(format!("Wavelength failed: {e}"));
                             }
                         }
                     }
                 }
-                GenericAction::SetValue(res) => {
-                    if let Some(ref mut s) = self.settable {
-                        match res {
-                            Ok(v) => {
-                                s.voltage = v;
-                                s.voltage_input = format!("{:.3}", v);
-                                self.status = Some(format!("Set to {:.3} V", v));
-                                self.error = None;
+                GenericAction::SetValue(result) => {
+                    self.panel_state.action_completed();
+                    if let Some(ref mut settable) = self.settable {
+                        match result {
+                            Ok(voltage) => {
+                                settable.voltage = voltage;
+                                settable.voltage_input = format!("{voltage:.3}");
+                                self.panel_state
+                                    .set_status(format!("Set to {voltage:.3} V"));
                             }
                             Err(e) => {
-                                tracing::warn!(device_id = ?self.device_id, "Write failed: {e}");
-                                self.error = Some(format!("Write failed: {}", e));
+                                tracing::warn!(device_id = ?self.panel_state.device_id, "Write failed: {e}");
+                                self.panel_state.set_error(format!("Write failed: {e}"));
                             }
                         }
                     }
                 }
-                GenericAction::DeviceState(Ok(snap)) => {
-                    if let Some(ref mut m) = self.motion
-                        && let Some(pos) = snap.position
+                GenericAction::DeviceState { request_id, result } => {
+                    self.panel_state.background_task_completed();
+                    if !self.device_state_request_tracker.is_current(request_id) {
+                        continue;
+                    }
+                    match result {
+                        Ok(snapshot) => {
+                            if let Some(ref mut motion) = self.motion
+                                && let Some(position) = snapshot.position
+                            {
+                                motion.position = Some(position);
+                                if !motion.moving {
+                                    motion.position_input = format!("{position:.2}");
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            tracing::debug!(device_id = ?self.panel_state.device_id, "State refresh failed: {e}");
+                        }
+                    }
+                }
+                GenericAction::AuxState {
+                    request_id,
+                    emission,
+                    shutter,
+                    wavelength,
+                } => {
+                    self.panel_state.background_task_completed();
+                    if !self.aux_request_tracker.is_current(request_id) {
+                        continue;
+                    }
+
+                    if let Some(ref mut emission_state) = self.emission
+                        && let Some(result) = emission
                     {
-                        m.position = Some(pos);
-                        if !m.moving {
-                            m.position_input = format!("{:.2}", pos);
+                        match result {
+                            Ok(value) => emission_state.value = Some(value),
+                            Err(e) => {
+                                tracing::debug!(
+                                  device_id = ?self.panel_state.device_id,
+                                  "Emission refresh failed: {e}"
+                                );
+                            }
                         }
                     }
-                }
-                GenericAction::DeviceState(Err(_)) => {
-                    // Silently ignore device state fetch errors
+
+                    if let Some(ref mut shutter_state) = self.shutter
+                        && let Some(result) = shutter
+                    {
+                        match result {
+                            Ok(value) => shutter_state.value = Some(value),
+                            Err(e) => {
+                                tracing::debug!(
+                                  device_id = ?self.panel_state.device_id,
+                                  "Shutter refresh failed: {e}"
+                                );
+                            }
+                        }
+                    }
+
+                    if let Some(ref mut wavelength_state) = self.wavelength
+                        && let Some(result) = wavelength
+                    {
+                        match result {
+                            Ok(value) => {
+                                wavelength_state.current_nm = Some(value);
+                                if !wavelength_state.dragging {
+                                    wavelength_state.slider_value = value;
+                                    wavelength_state.input = format!("{value:.1}");
+                                }
+                            }
+                            Err(e) => {
+                                tracing::debug!(
+                                  device_id = ?self.panel_state.device_id,
+                                  "Wavelength refresh failed: {e}"
+                                );
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -385,42 +460,124 @@ impl GenericDevicePanel {
 
     fn read_power(&mut self, client: Option<&mut DaqClient>, runtime: &Runtime, device_id: &str) {
         let Some(client) = client else { return };
-        // No actions_in_flight increment — this is a background refresh
-        let mut c = client.clone();
-        let tx = self.action_tx.clone();
-        let id = device_id.to_string();
+
+        self.panel_state.background_task_started();
+        let request_id = self.read_request_tracker.issue();
+        let mut client = client.clone();
+        let tx = self.panel_state.action_tx.clone();
+        let device_id = device_id.to_string();
+
         runtime.spawn(async move {
-            let result = c
-                .read_value(&id)
+            let result = client
+                .read_value(&device_id)
                 .await
-                .map(|r| (r.value, r.units))
+                .map(|response| (response.value, response.units))
                 .map_err(|e| e.to_string());
-            let _ = tx.send(GenericAction::ReadValue(result)).await;
+            let _ = tx
+                .send(GenericAction::ReadValue { request_id, result })
+                .await;
         });
+
         if let Some(ref mut reading) = self.reading {
             reading.last_refresh = Some(Instant::now());
         }
     }
 
-    fn fetch_state(&mut self, client: Option<&mut DaqClient>, runtime: &Runtime, device_id: &str) {
+    fn fetch_device_state(
+        &mut self,
+        client: Option<&mut DaqClient>,
+        runtime: &Runtime,
+        device_id: &str,
+    ) {
         let Some(client) = client else { return };
-        // No actions_in_flight increment — this is a background refresh
-        let mut c = client.clone();
-        let tx = self.action_tx.clone();
-        let id = device_id.to_string();
+
+        self.panel_state.background_task_started();
+        let request_id = self.device_state_request_tracker.issue();
+        let mut client = client.clone();
+        let tx = self.panel_state.action_tx.clone();
+        let device_id = device_id.to_string();
+
         runtime.spawn(async move {
-            let result = c
-                .get_device_state(&id)
+            let result = client
+                .get_device_state(&device_id)
                 .await
                 .map(|proto| DeviceStateSnapshot {
                     position: proto.position,
                 })
                 .map_err(|e| e.to_string());
-            let _ = tx.send(GenericAction::DeviceState(result)).await;
+            let _ = tx
+                .send(GenericAction::DeviceState { request_id, result })
+                .await;
         });
-        if let Some(ref mut m) = self.motion {
-            m.last_position_refresh = Some(Instant::now());
+
+        if let Some(ref mut motion) = self.motion {
+            motion.last_position_refresh = Some(Instant::now());
         }
+    }
+
+    fn fetch_aux_state(
+        &mut self,
+        client: Option<&mut DaqClient>,
+        runtime: &Runtime,
+        device_id: &str,
+    ) {
+        if self.emission.is_none() && self.shutter.is_none() && self.wavelength.is_none() {
+            return;
+        }
+
+        let Some(client) = client else { return };
+
+        let has_emission = self.emission.is_some();
+        let has_shutter = self.shutter.is_some();
+        let has_wavelength = self.wavelength.is_some();
+
+        self.panel_state.background_task_started();
+        let request_id = self.aux_request_tracker.issue();
+        let mut client = client.clone();
+        let tx = self.panel_state.action_tx.clone();
+        let device_id = device_id.to_string();
+
+        runtime.spawn(async move {
+            let emission = if has_emission {
+                Some(
+                    client
+                        .get_emission(&device_id)
+                        .await
+                        .map_err(|e| e.to_string()),
+                )
+            } else {
+                None
+            };
+            let shutter = if has_shutter {
+                Some(
+                    client
+                        .get_shutter(&device_id)
+                        .await
+                        .map_err(|e| e.to_string()),
+                )
+            } else {
+                None
+            };
+            let wavelength = if has_wavelength {
+                Some(
+                    client
+                        .get_wavelength(&device_id)
+                        .await
+                        .map_err(|e| e.to_string()),
+                )
+            } else {
+                None
+            };
+
+            let _ = tx
+                .send(GenericAction::AuxState {
+                    request_id,
+                    emission,
+                    shutter,
+                    wavelength,
+                })
+                .await;
+        });
     }
 
     fn fetch_full_state(
@@ -429,36 +586,8 @@ impl GenericDevicePanel {
         runtime: &Runtime,
         device_id: &str,
     ) {
-        // Fetch device state (position, online)
-        self.fetch_state(client.as_deref_mut(), runtime, device_id);
-
-        // Fetch emission/shutter/wavelength if applicable
-        if self.emission.is_some() || self.shutter.is_some() || self.wavelength.is_some() {
-            let Some(client) = client else { return };
-            let has_emission = self.emission.is_some();
-            let has_shutter = self.shutter.is_some();
-            let has_wavelength = self.wavelength.is_some();
-            // No actions_in_flight increment — these are background refresh queries
-            let mut c = client.clone();
-            let tx = self.action_tx.clone();
-            let id = device_id.to_string();
-
-            runtime.spawn(async move {
-                // Sequential queries for serial devices (is_command = false)
-                if has_emission {
-                    let result = c.get_emission(&id).await.map_err(|e| e.to_string());
-                    let _ = tx.send(GenericAction::Emission(result, false)).await;
-                }
-                if has_shutter {
-                    let result = c.get_shutter(&id).await.map_err(|e| e.to_string());
-                    let _ = tx.send(GenericAction::Shutter(result, false)).await;
-                }
-                if has_wavelength {
-                    let result = c.get_wavelength(&id).await.map_err(|e| e.to_string());
-                    let _ = tx.send(GenericAction::Wavelength(result, false)).await;
-                }
-            });
-        }
+        self.fetch_device_state(client.as_deref_mut(), runtime, device_id);
+        self.fetch_aux_state(client, runtime, device_id);
     }
 
     fn move_absolute(
@@ -468,21 +597,27 @@ impl GenericDevicePanel {
         device_id: &str,
         position: f64,
     ) {
-        let Some(client) = client else { return };
-        if let Some(ref mut m) = self.motion {
-            if !can_send_command(m.last_command_time, Self::COMMAND_DEBOUNCE) {
+        let Some(client) = client else {
+            self.panel_state.set_error("Not connected");
+            return;
+        };
+
+        if let Some(ref mut motion) = self.motion {
+            if !can_send_command(motion.last_command_time, Self::COMMAND_DEBOUNCE) {
                 return;
             }
-            m.moving = true;
-            m.last_command_time = Some(Instant::now());
+            motion.moving = true;
+            motion.last_command_time = Some(Instant::now());
         }
-        self.actions_in_flight += 1;
-        let mut c = client.clone();
-        let tx = self.action_tx.clone();
-        let id = device_id.to_string();
+
+        self.panel_state.action_started();
+        let mut client = client.clone();
+        let tx = self.panel_state.action_tx.clone();
+        let device_id = device_id.to_string();
+
         runtime.spawn(async move {
-            let result = c
-                .move_absolute(&id, position)
+            let result = client
+                .move_absolute(&device_id, position)
                 .await
                 .map(|_| ())
                 .map_err(|e| e.to_string());
@@ -497,21 +632,27 @@ impl GenericDevicePanel {
         device_id: &str,
         delta: f64,
     ) {
-        let Some(client) = client else { return };
-        if let Some(ref mut m) = self.motion {
-            if !can_send_command(m.last_command_time, Self::COMMAND_DEBOUNCE) {
+        let Some(client) = client else {
+            self.panel_state.set_error("Not connected");
+            return;
+        };
+
+        if let Some(ref mut motion) = self.motion {
+            if !can_send_command(motion.last_command_time, Self::COMMAND_DEBOUNCE) {
                 return;
             }
-            m.moving = true;
-            m.last_command_time = Some(Instant::now());
+            motion.moving = true;
+            motion.last_command_time = Some(Instant::now());
         }
-        self.actions_in_flight += 1;
-        let mut c = client.clone();
-        let tx = self.action_tx.clone();
-        let id = device_id.to_string();
+
+        self.panel_state.action_started();
+        let mut client = client.clone();
+        let tx = self.panel_state.action_tx.clone();
+        let device_id = device_id.to_string();
+
         runtime.spawn(async move {
-            let result = c
-                .move_relative(&id, delta)
+            let result = client
+                .move_relative(&device_id, delta)
                 .await
                 .map(|_| ())
                 .map_err(|e| e.to_string());
@@ -526,17 +667,22 @@ impl GenericDevicePanel {
         device_id: &str,
         enabled: bool,
     ) {
-        let Some(client) = client else { return };
-        self.actions_in_flight += 1;
-        let mut c = client.clone();
-        let tx = self.action_tx.clone();
-        let id = device_id.to_string();
+        let Some(client) = client else {
+            self.panel_state.set_error("Not connected");
+            return;
+        };
+
+        self.panel_state.action_started();
+        let mut client = client.clone();
+        let tx = self.panel_state.action_tx.clone();
+        let device_id = device_id.to_string();
+
         runtime.spawn(async move {
-            let result = c
-                .set_emission(&id, enabled)
+            let result = client
+                .set_emission(&device_id, enabled)
                 .await
                 .map_err(|e| e.to_string());
-            let _ = tx.send(GenericAction::Emission(result, true)).await;
+            let _ = tx.send(GenericAction::EmissionCommand(result)).await;
         });
     }
 
@@ -547,14 +693,22 @@ impl GenericDevicePanel {
         device_id: &str,
         open: bool,
     ) {
-        let Some(client) = client else { return };
-        self.actions_in_flight += 1;
-        let mut c = client.clone();
-        let tx = self.action_tx.clone();
-        let id = device_id.to_string();
+        let Some(client) = client else {
+            self.panel_state.set_error("Not connected");
+            return;
+        };
+
+        self.panel_state.action_started();
+        let mut client = client.clone();
+        let tx = self.panel_state.action_tx.clone();
+        let device_id = device_id.to_string();
+
         runtime.spawn(async move {
-            let result = c.set_shutter(&id, open).await.map_err(|e| e.to_string());
-            let _ = tx.send(GenericAction::Shutter(result, true)).await;
+            let result = client
+                .set_shutter(&device_id, open)
+                .await
+                .map_err(|e| e.to_string());
+            let _ = tx.send(GenericAction::ShutterCommand(result)).await;
         });
     }
 
@@ -565,14 +719,22 @@ impl GenericDevicePanel {
         device_id: &str,
         nm: f64,
     ) {
-        let Some(client) = client else { return };
-        self.actions_in_flight += 1;
-        let mut c = client.clone();
-        let tx = self.action_tx.clone();
-        let id = device_id.to_string();
+        let Some(client) = client else {
+            self.panel_state.set_error("Not connected");
+            return;
+        };
+
+        self.panel_state.action_started();
+        let mut client = client.clone();
+        let tx = self.panel_state.action_tx.clone();
+        let device_id = device_id.to_string();
+
         runtime.spawn(async move {
-            let result = c.set_wavelength(&id, nm).await.map_err(|e| e.to_string());
-            let _ = tx.send(GenericAction::Wavelength(result, true)).await;
+            let result = client
+                .set_wavelength(&device_id, nm)
+                .await
+                .map_err(|e| e.to_string());
+            let _ = tx.send(GenericAction::WavelengthCommand(result)).await;
         });
     }
 
@@ -583,24 +745,50 @@ impl GenericDevicePanel {
         device_id: &str,
         voltage: f64,
     ) {
-        let Some(client) = client else { return };
-        let voltage = if let Some(ref s) = self.settable {
-            voltage.clamp(s.min_voltage, s.max_voltage)
+        let Some(client) = client else {
+            self.panel_state.set_error("Not connected");
+            return;
+        };
+
+        let voltage = if let Some(ref settable) = self.settable {
+            voltage.clamp(settable.min_voltage, settable.max_voltage)
         } else {
             voltage
         };
-        self.actions_in_flight += 1;
-        let mut c = client.clone();
-        let tx = self.action_tx.clone();
-        let id = device_id.to_string();
+
+        self.panel_state.action_started();
+        let mut client = client.clone();
+        let tx = self.panel_state.action_tx.clone();
+        let device_id = device_id.to_string();
+
         runtime.spawn(async move {
-            let result = c
-                .set_parameter(&id, "voltage", &voltage.to_string())
+            let result = client
+                .set_parameter(&device_id, "voltage", &voltage.to_string())
                 .await
                 .map(|_| voltage)
                 .map_err(|e| e.to_string());
             let _ = tx.send(GenericAction::SetValue(result)).await;
         });
+    }
+
+    fn validate_motion_input(input: &str, field_name: &str) -> Result<f64, String> {
+        let value = parse_f64_input(input, field_name)?;
+        if !value.is_finite() {
+            return Err(format!("Invalid {field_name}: must be finite"));
+        }
+        Ok(value)
+    }
+
+    fn queue_refresh_if_needed(
+        &mut self,
+        client: Option<&mut DaqClient>,
+        runtime: &Runtime,
+        device_id: &str,
+    ) {
+        if self.refresh_after_command && !self.panel_state.is_refreshing() {
+            self.refresh_after_command = false;
+            self.fetch_full_state(client, runtime, device_id);
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -615,343 +803,369 @@ impl GenericDevicePanel {
         mut client: Option<&mut DaqClient>,
         runtime: &Runtime,
     ) {
-        // Keep all control rows constrained to the panel width.
         ui.set_max_width(ui.available_width());
 
         self.poll_results();
 
         let device_id = device.id.clone();
-        self.device_id = Some(device_id.clone());
+        self.panel_state.device_id = Some(device_id.clone());
 
-        // Initial fetch
-        if !self.initial_fetch_done && client.is_some() {
-            self.initial_fetch_done = true;
+        if !self.panel_state.initial_fetch_done && client.is_some() {
+            self.panel_state.initial_fetch_done = true;
             self.fetch_full_state(client.as_deref_mut(), runtime, &device_id);
             if self.reading.is_some() {
                 self.read_power(client.as_deref_mut(), runtime, &device_id);
             }
         }
 
-        // Auto-refresh for readable devices
+        self.queue_refresh_if_needed(client.as_deref_mut(), runtime, &device_id);
+
+        let is_busy = self.panel_state.is_busy();
+        let is_refreshing = self.panel_state.is_refreshing();
+
         if let Some(ref reading) = self.reading {
-            let should = reading.auto_refresh
-                && self.actions_in_flight == 0
+            let should_refresh = reading.auto_refresh
+                && !is_busy
+                && !is_refreshing
                 && reading
                     .last_refresh
-                    .map(|t| t.elapsed() >= Self::REFRESH_INTERVAL)
+                    .map(|instant| instant.elapsed() >= Self::REFRESH_INTERVAL)
                     .unwrap_or(true);
-            if should && client.is_some() {
+            if should_refresh && client.is_some() {
                 self.read_power(client.as_deref_mut(), runtime, &device_id);
             }
         }
 
-        // Auto-refresh for motion devices (position polling, independent timer)
-        if self.motion.is_some() && self.actions_in_flight == 0 {
+        if self.motion.is_some() && !is_busy && !is_refreshing {
             let should_refresh_position = self
                 .motion
                 .as_ref()
-                .and_then(|m| m.last_position_refresh)
-                .map(|t| t.elapsed() >= Self::REFRESH_INTERVAL)
+                .and_then(|motion| motion.last_position_refresh)
+                .map(|instant| instant.elapsed() >= Self::REFRESH_INTERVAL)
                 .unwrap_or(true);
             if should_refresh_position && client.is_some() {
-                self.fetch_state(client.as_deref_mut(), runtime, &device_id);
+                self.fetch_device_state(client.as_deref_mut(), runtime, &device_id);
             }
         }
 
-        // Error/status
-        if let Some(ref err) = self.error {
-            ui.colored_label(egui::Color32::RED, err);
-        }
-        if let Some(ref status) = self.status {
-            ui.colored_label(egui::Color32::GREEN, status);
-        }
+        show_panel_header(ui, &device.name, None, is_busy, is_refreshing);
+        show_panel_messages(ui, &self.panel_state.error, &self.panel_state.status);
+        ui.add_space(8.0);
 
-        let is_busy = self.actions_in_flight > 0;
-
-        // --- Reading row ---
         if let Some(ref reading) = self.reading {
-            render_reading_row(ui, reading);
+            show_panel_section(ui, "Readout", |ui| {
+                render_reading_row(ui, reading);
+            });
+            ui.add_space(8.0);
         }
 
-        // --- Emission + Shutter row (compact, same line) ---
         if self.emission.is_some() || self.shutter.is_some() {
-            ui.horizontal_wrapped(|ui| {
-                if let Some(ref emission) = self.emission {
-                    let is_on = emission.value.unwrap_or(false);
-                    ui.label("Emission:");
-                    let text = if is_on { "ON" } else { "OFF" };
-                    let color = if is_on {
-                        egui::Color32::GREEN
-                    } else {
-                        egui::Color32::GRAY
-                    };
-                    let btn = egui::Button::new(egui::RichText::new(text).color(color))
-                        .min_size(egui::vec2(40.0, 18.0));
-                    if ui.add(btn).clicked() {
-                        self.set_emission_rpc(client.as_deref_mut(), runtime, &device_id, !is_on);
+            show_panel_section(ui, "Outputs", |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    if let Some(ref emission) = self.emission {
+                        let is_on = emission.value.unwrap_or(false);
+                        ui.label("Emission:");
+                        let text = if is_on { "Enabled" } else { "Disabled" };
+                        let fill = if is_on {
+                            layout::colors::SUCCESS
+                        } else {
+                            layout::colors::MUTED
+                        };
+                        let button =
+                            filled_action_button(text, fill).min_size(egui::vec2(72.0, 22.0));
+                        if ui.add_enabled(!is_busy, button).clicked() {
+                            self.set_emission_rpc(
+                                client.as_deref_mut(),
+                                runtime,
+                                &device_id,
+                                !is_on,
+                            );
+                        }
                     }
-                }
-                if let Some(ref shutter) = self.shutter {
-                    if self.emission.is_some() {
-                        ui.separator();
+
+                    if let Some(ref shutter) = self.shutter {
+                        if self.emission.is_some() {
+                            ui.separator();
+                        }
+                        let is_open = shutter.value.unwrap_or(false);
+                        let (text, fill) = if is_open {
+                            ("Open", layout::colors::ERROR)
+                        } else {
+                            ("Closed", layout::colors::SUCCESS)
+                        };
+                        let button = filled_action_button(format!("Shutter {text}"), fill)
+                            .min_size(egui::vec2(112.0, 22.0));
+                        if ui.add_enabled(!is_busy, button).clicked() {
+                            self.set_shutter_rpc(
+                                client.as_deref_mut(),
+                                runtime,
+                                &device_id,
+                                !is_open,
+                            );
+                        }
                     }
-                    let is_open = shutter.value.unwrap_or(false);
-                    let (text, text_color, fill) = if is_open {
-                        (
-                            "SHUTTER OPEN",
-                            egui::Color32::WHITE,
-                            crate::layout::colors::ERROR,
-                        )
-                    } else {
-                        (
-                            "Shutter Closed",
-                            egui::Color32::WHITE,
-                            crate::layout::colors::SUCCESS,
-                        )
-                    };
-                    let btn =
-                        egui::Button::new(egui::RichText::new(text).color(text_color).strong())
-                            .fill(fill)
-                            .min_size(egui::vec2(100.0, 18.0));
-                    if ui.add(btn).clicked() {
-                        self.set_shutter_rpc(client.as_deref_mut(), runtime, &device_id, !is_open);
-                    }
-                }
+                });
             });
+            ui.add_space(8.0);
         }
 
-        // --- Wavelength row ---
         if self.wavelength.is_some() {
-            let mut wl = self.wavelength.take().unwrap();
-            let wl_min = wl.min_nm;
-            let wl_max = wl.max_nm;
-            ui.horizontal_wrapped(|ui| {
-                ui.label("Wavelength:");
-                let slider_resp = ui.add(
-                    egui::Slider::new(&mut wl.slider_value, wl_min..=wl_max)
-                        .show_value(false)
-                        .clamping(egui::SliderClamping::Always),
-                );
+            show_panel_section(ui, "Wavelength", |ui| {
+                let mut wl = self.wavelength.take().expect("wavelength state exists");
+                let min_nm = wl.min_nm;
+                let max_nm = wl.max_nm;
 
-                let response = ui.add(
-                    egui::TextEdit::singleline(&mut wl.input)
-                        .desired_width(45.0)
-                        .hint_text("nm"),
-                );
-                ui.label("nm");
-
-                if slider_resp.drag_started() {
-                    wl.dragging = true;
-                }
-                if slider_resp.drag_stopped() {
-                    wl.dragging = false;
-                    wl.input = format!("{:.1}", wl.slider_value);
-                    self.set_wavelength_rpc(
-                        client.as_deref_mut(),
-                        runtime,
-                        &device_id,
-                        wl.slider_value,
+                ui.horizontal_wrapped(|ui| {
+                    ui.label("Wavelength:");
+                    let slider_response = ui.add_enabled(
+                        !is_busy,
+                        egui::Slider::new(&mut wl.slider_value, min_nm..=max_nm)
+                            .show_value(false)
+                            .clamping(egui::SliderClamping::Always),
                     );
-                }
-                if wl.dragging {
-                    wl.input = format!("{:.1}", wl.slider_value);
-                }
 
-                if ui.button("Set").clicked()
-                    && let Ok(nm) = wl.input.parse::<f64>()
-                {
-                    if (wl_min..=wl_max).contains(&nm) {
-                        self.set_wavelength_rpc(client.as_deref_mut(), runtime, &device_id, nm);
-                    } else {
-                        self.error = Some(format!("Wavelength must be {wl_min}-{wl_max} nm"));
+                    let input_response = ui.add_enabled(
+                        !is_busy,
+                        egui::TextEdit::singleline(&mut wl.input)
+                            .desired_width(56.0)
+                            .hint_text("nm"),
+                    );
+                    ui.label("nm");
+
+                    if slider_response.drag_started() {
+                        wl.dragging = true;
                     }
-                }
+                    if slider_response.drag_stopped() {
+                        wl.dragging = false;
+                        wl.input = format!("{:.1}", wl.slider_value);
+                        self.set_wavelength_rpc(
+                            client.as_deref_mut(),
+                            runtime,
+                            &device_id,
+                            wl.slider_value,
+                        );
+                    }
+                    if wl.dragging {
+                        wl.input = format!("{:.1}", wl.slider_value);
+                    }
 
-                if response.lost_focus()
-                    && ui.input(|i| i.key_pressed(egui::Key::Enter))
-                    && let Ok(nm) = wl.input.parse::<f64>()
-                    && (wl_min..=wl_max).contains(&nm)
-                {
-                    self.set_wavelength_rpc(client.as_deref_mut(), runtime, &device_id, nm);
-                }
-            });
-            self.wavelength = Some(wl);
-        }
-
-        // --- Motion row (single compact row) ---
-        if self.motion.is_some() {
-            let mut motion = self.motion.take().unwrap();
-            let motion_busy = motion.moving || is_busy;
-            let pos_units = motion.position_units.as_str();
-
-            ui.horizontal_wrapped(|ui| {
-                // Position display
-                if let Some(pos) = motion.position {
-                    let text = if pos_units.is_empty() {
-                        format!("{pos:.2}")
-                    } else {
-                        format!("{pos:.2} {pos_units}")
+                    let mut submit = |panel: &mut Self, value: &str| match parse_f64_input(
+                        value,
+                        "wavelength",
+                    ) {
+                        Ok(nm) if (min_nm..=max_nm).contains(&nm) => {
+                            panel.set_wavelength_rpc(
+                                client.as_deref_mut(),
+                                runtime,
+                                &device_id,
+                                nm,
+                            );
+                        }
+                        Ok(_) => panel
+                            .panel_state
+                            .set_error(format!("Wavelength must be {min_nm:.1}..{max_nm:.1} nm")),
+                        Err(e) => panel.panel_state.set_error(e),
                     };
-                    ui.label(egui::RichText::new(text).monospace());
-                } else {
-                    ui.label(egui::RichText::new("---").monospace());
-                }
 
-                let step: f64 = motion.jog_step.parse().unwrap_or(1.0);
-
-                // Jog buttons — hover text provides units context for AccessKit
-                let units = if pos_units.is_empty() {
-                    "units"
-                } else {
-                    pos_units
-                };
-                if ui
-                    .add_enabled(
-                        !motion_busy,
-                        egui::Button::new(format!("{:.0}", -step * 10.0)),
-                    )
-                    .on_hover_text(format!("Jog {:.0} {units}", -step * 10.0))
-                    .clicked()
-                {
-                    self.move_relative(client.as_deref_mut(), runtime, &device_id, -step * 10.0);
-                }
-                if ui
-                    .add_enabled(!motion_busy, egui::Button::new(format!("{:.0}", -step)))
-                    .on_hover_text(format!("Jog {:.0} {units}", -step))
-                    .clicked()
-                {
-                    self.move_relative(client.as_deref_mut(), runtime, &device_id, -step);
-                }
-                if ui
-                    .add_enabled(!motion_busy, egui::Button::new(format!("+{:.0}", step)))
-                    .on_hover_text(format!("Jog +{:.0} {units}", step))
-                    .clicked()
-                {
-                    self.move_relative(client.as_deref_mut(), runtime, &device_id, step);
-                }
-                if ui
-                    .add_enabled(
-                        !motion_busy,
-                        egui::Button::new(format!("+{:.0}", step * 10.0)),
-                    )
-                    .on_hover_text(format!("Jog +{:.0} {units}", step * 10.0))
-                    .clicked()
-                {
-                    self.move_relative(client.as_deref_mut(), runtime, &device_id, step * 10.0);
-                }
-
-                ui.separator();
-
-                // Go-to input
-                ui.label("Go to:");
-                let response = ui.add(
-                    egui::TextEdit::singleline(&mut motion.position_input)
-                        .desired_width(50.0)
-                        .hint_text("position"),
-                );
-                if ui
-                    .add_enabled(!motion_busy, egui::Button::new("Go"))
-                    .clicked()
-                {
-                    if let Ok(pos) = motion.position_input.parse::<f64>() {
-                        self.move_absolute(client.as_deref_mut(), runtime, &device_id, pos);
-                    } else {
-                        self.error = Some("Invalid position".to_string());
+                    if ui.add_enabled(!is_busy, egui::Button::new("Set")).clicked() {
+                        submit(self, &wl.input);
                     }
-                }
-                if response.lost_focus()
-                    && ui.input(|i| i.key_pressed(egui::Key::Enter))
-                    && !motion_busy
-                    && let Ok(pos) = motion.position_input.parse::<f64>()
-                {
-                    self.move_absolute(client.as_deref_mut(), runtime, &device_id, pos);
-                }
 
-                if ui
-                    .add_enabled(!motion_busy, egui::Button::new("Home"))
-                    .on_hover_text("Move to 0.0")
-                    .clicked()
-                {
-                    self.move_absolute(client.as_deref_mut(), runtime, &device_id, 0.0);
-                }
+                    if input_response.lost_focus()
+                        && ui.input(|input| input.key_pressed(egui::Key::Enter))
+                        && !is_busy
+                    {
+                        submit(self, &wl.input);
+                    }
+                });
 
-                ui.separator();
-
-                // Step size
-                ui.label("Step:");
-                ui.add(egui::TextEdit::singleline(&mut motion.jog_step).desired_width(30.0));
+                self.wavelength = Some(wl);
             });
-
-            self.motion = Some(motion);
+            ui.add_space(8.0);
         }
 
-        // --- Settable row (analog output, single compact row) ---
-        if self.settable.is_some() {
-            let mut settable = self.settable.take().unwrap();
+        if self.motion.is_some() {
+            show_panel_section(ui, "Motion", |ui| {
+                let mut motion = self.motion.take().expect("motion state exists");
+                let motion_busy = motion.moving || is_busy;
+                let position_units = motion.position_units.as_str();
 
-            ui.horizontal_wrapped(|ui| {
-                ui.label(egui::RichText::new(format!("{:.3}V", settable.voltage)).monospace());
+                ui.horizontal_wrapped(|ui| {
+                    if let Some(position) = motion.position {
+                        let text = if position_units.is_empty() {
+                            format!("{position:.2}")
+                        } else {
+                            format!("{position:.2} {position_units}")
+                        };
+                        ui.label(panel_value_text(text));
+                    } else {
+                        ui.label(panel_value_text("---"));
+                    }
 
-                let mut voltage = settable.voltage;
-                let slider =
-                    egui::Slider::new(&mut voltage, settable.min_voltage..=settable.max_voltage)
-                        .suffix("V")
-                        .clamping(egui::SliderClamping::Always);
+                    let step = match parse_positive_step_input(&motion.jog_step, "step size") {
+                        Ok(step) => Some(step),
+                        Err(error) => {
+                            if !motion.jog_step.trim().is_empty() {
+                                ui.colored_label(layout::colors::WARNING, panel_hint_text(error));
+                            }
+                            None
+                        }
+                    };
 
-                if ui.add_enabled(!is_busy, slider).changed() {
-                    settable.voltage = voltage;
-                    settable.voltage_input = format!("{:.3}", voltage);
-                    self.write_voltage_rpc(client.as_deref_mut(), runtime, &device_id, voltage);
-                }
+                    let units = if position_units.is_empty() {
+                        "units"
+                    } else {
+                        position_units
+                    };
 
-                ui.separator();
+                    for multiplier in [-10.0_f64, -1.0_f64, 1.0_f64, 10.0_f64] {
+                        let label = if multiplier.is_sign_negative() {
+                            format!("{:.0}", step.unwrap_or(1.0) * multiplier)
+                        } else {
+                            format!("+{:.0}", step.unwrap_or(1.0) * multiplier)
+                        };
+                        let enabled = !motion_busy && step.is_some();
+                        if ui
+                            .add_enabled(enabled, action_button(label))
+                            .on_hover_text(format!(
+                                "Jog {:+.2} {units}",
+                                step.unwrap_or(1.0) * multiplier
+                            ))
+                            .clicked()
+                            && let Some(step) = step
+                        {
+                            self.move_relative(
+                                client.as_deref_mut(),
+                                runtime,
+                                &device_id,
+                                step * multiplier,
+                            );
+                        }
+                    }
 
-                if ui.add_enabled(!is_busy, egui::Button::new("0V")).clicked() {
-                    self.write_voltage_rpc(client.as_deref_mut(), runtime, &device_id, 0.0);
-                }
-                if ui
-                    .add_enabled(
-                        !is_busy,
-                        egui::Button::new(format!("{:.0}V", settable.min_voltage)),
-                    )
-                    .clicked()
-                {
-                    self.write_voltage_rpc(
-                        client.as_deref_mut(),
-                        runtime,
-                        &device_id,
-                        settable.min_voltage,
+                    ui.separator();
+
+                    ui.label("Go to:");
+                    let response = ui.add_enabled(
+                        !motion_busy,
+                        egui::TextEdit::singleline(&mut motion.position_input)
+                            .desired_width(58.0)
+                            .hint_text("position"),
                     );
-                }
-                if ui
-                    .add_enabled(
-                        !is_busy,
-                        egui::Button::new(format!("{:.0}V", settable.max_voltage)),
-                    )
-                    .clicked()
-                {
-                    self.write_voltage_rpc(client, runtime, &device_id, settable.max_voltage);
-                }
+
+                    let mut submit_absolute =
+                        |panel: &mut Self, value: &str| match Self::validate_motion_input(
+                            value, "position",
+                        ) {
+                            Ok(position) => panel.move_absolute(
+                                client.as_deref_mut(),
+                                runtime,
+                                &device_id,
+                                position,
+                            ),
+                            Err(e) => panel.panel_state.set_error(e),
+                        };
+
+                    if ui.add_enabled(!motion_busy, action_button("Go")).clicked() {
+                        submit_absolute(self, &motion.position_input);
+                    }
+                    if response.lost_focus()
+                        && ui.input(|input| input.key_pressed(egui::Key::Enter))
+                        && !motion_busy
+                    {
+                        submit_absolute(self, &motion.position_input);
+                    }
+
+                    if ui
+                        .add_enabled(!motion_busy, action_button("Home"))
+                        .on_hover_text("Move to 0.0")
+                        .clicked()
+                    {
+                        self.move_absolute(client.as_deref_mut(), runtime, &device_id, 0.0);
+                    }
+
+                    ui.separator();
+                    ui.label("Step:");
+                    ui.add_enabled(
+                        !motion_busy,
+                        egui::TextEdit::singleline(&mut motion.jog_step).desired_width(42.0),
+                    );
+                });
+
+                self.motion = Some(motion);
             });
-
-            self.settable = Some(settable);
+            ui.add_space(8.0);
         }
 
-        // Spinner when busy
-        if is_busy {
-            ui.spinner();
+        if self.settable.is_some() {
+            show_panel_section(ui, "Analog Output", |ui| {
+                let mut settable = self.settable.take().expect("settable state exists");
+
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(panel_value_text(format!("{:.3} V", settable.voltage)));
+
+                    let mut voltage = settable.voltage;
+                    let slider = egui::Slider::new(
+                        &mut voltage,
+                        settable.min_voltage..=settable.max_voltage,
+                    )
+                    .suffix("V")
+                    .clamping(egui::SliderClamping::Always);
+
+                    if ui.add_enabled(!is_busy, slider).changed() {
+                        settable.voltage = voltage;
+                        settable.voltage_input = format!("{voltage:.3}");
+                        self.write_voltage_rpc(client.as_deref_mut(), runtime, &device_id, voltage);
+                    }
+
+                    ui.separator();
+
+                    if ui.add_enabled(!is_busy, action_button("0 V")).clicked() {
+                        self.write_voltage_rpc(client.as_deref_mut(), runtime, &device_id, 0.0);
+                    }
+                    if ui
+                        .add_enabled(
+                            !is_busy,
+                            action_button(format!("{:.0} V", settable.min_voltage)),
+                        )
+                        .clicked()
+                    {
+                        self.write_voltage_rpc(
+                            client.as_deref_mut(),
+                            runtime,
+                            &device_id,
+                            settable.min_voltage,
+                        );
+                    }
+                    if ui
+                        .add_enabled(
+                            !is_busy,
+                            action_button(format!("{:.0} V", settable.max_voltage)),
+                        )
+                        .clicked()
+                    {
+                        self.write_voltage_rpc(
+                            client.as_deref_mut(),
+                            runtime,
+                            &device_id,
+                            settable.max_voltage,
+                        );
+                    }
+                });
+
+                self.settable = Some(settable);
+            });
         }
 
-        // Request repaint for auto-refresh
-        if (self
-            .reading
-            .as_ref()
-            .map(|r| r.auto_refresh)
-            .unwrap_or(false))
-            || is_busy
-        {
-            ui.ctx().request_repaint_after(Duration::from_millis(100));
-        }
+        request_panel_repaint(
+            ui,
+            self.reading
+                .as_ref()
+                .map(|r| r.auto_refresh)
+                .unwrap_or(false)
+                || is_busy
+                || is_refreshing,
+        );
     }
 }
 
@@ -982,7 +1196,7 @@ fn render_reading_row(ui: &mut Ui, reading: &ReadingState) {
                     .unit(unit)
                     .size(28.0),
             );
-            ui.label(egui::RichText::new(format!("{value:.4} {unit}")).monospace());
+            ui.label(panel_value_text(format!("{value:.4} {unit}")));
         } else {
             let display_unit = if units.is_empty() { "" } else { units.as_str() };
             #[allow(clippy::cast_possible_truncation)]
@@ -1000,7 +1214,7 @@ fn render_reading_row(ui: &mut Ui, reading: &ReadingState) {
                     .unit(display_unit)
                     .size(28.0),
             );
-            ui.label(egui::RichText::new(format!("{raw:.4} {display_unit}")).monospace());
+            ui.label(panel_value_text(format!("{raw:.4} {display_unit}")));
         }
     });
 }
@@ -1017,7 +1231,8 @@ fn normalize_power_to_mw(value: f64, units: &str) -> f64 {
 }
 
 fn can_send_command(last: Option<Instant>, debounce: Duration) -> bool {
-    last.map(|t| t.elapsed() >= debounce).unwrap_or(true)
+    last.map(|instant| instant.elapsed() >= debounce)
+        .unwrap_or(true)
 }
 
 #[cfg(test)]
@@ -1133,14 +1348,13 @@ mod tests {
     #[test]
     fn test_normalize_power_edge_cases() {
         assert_eq!(normalize_power_to_mw(0.0, "W"), 0.0);
-        assert_eq!(normalize_power_to_mw(1000000.0, "W"), 1000000000.0);
+        assert_eq!(normalize_power_to_mw(1_000_000.0, "W"), 1_000_000_000.0);
         assert_eq!(normalize_power_to_mw(-5.0, "mW"), -5.0);
     }
 
     #[test]
     fn test_normalize_power_case_insensitive() {
         assert_eq!(normalize_power_to_mw(1.0, "w"), 1000.0);
-        // "MW" and "UW" are not recognized as power units; passthrough unchanged
         assert_eq!(normalize_power_to_mw(5.0, "MW"), 5.0);
         assert_eq!(normalize_power_to_mw(1000.0, "UW"), 1000.0);
     }
