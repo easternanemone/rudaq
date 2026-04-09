@@ -11,7 +11,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use crate::runtime::Runtime;
 use egui::Ui;
 
-use crate::widgets::device_controls::{DeviceControlWidget, DevicePanelState};
+use crate::widgets::device_controls::{
+    DeviceControlWidget, DevicePanelState, LatestRequestTracker, action_button, device_info_rows,
+    panel_value_text, request_panel_repaint, scoped_widget_id, show_device_info_section,
+    show_panel_columns_with_state, show_panel_header, show_panel_messages, show_panel_section,
+};
 use client::DaqClient;
 use protocol::daq::DeviceInfo;
 
@@ -38,12 +42,11 @@ pub struct RotatorControlPanel {
     panel_instance_id: u64,
     /// Common panel state (channels, errors, device_id, etc.)
     panel_state: DevicePanelState<ActionResult>,
+    fetch_request_tracker: LatestRequestTracker,
+    refresh_after_command: bool,
     state: RotatorState,
     position_input: String,
-    /// Status refresh request in flight - does NOT disable controls
-    refresh_in_flight: bool,
-    /// Last command time for debouncing rapid clicks
-    last_command_time: Option<crate::time::Instant>,
+    position_input_editing: bool,
 }
 
 impl Default for RotatorControlPanel {
@@ -53,10 +56,11 @@ impl Default for RotatorControlPanel {
         Self {
             panel_instance_id,
             panel_state: DevicePanelState::new(),
+            fetch_request_tracker: LatestRequestTracker::default(),
+            refresh_after_command: false,
             state: RotatorState::default(),
             position_input: "0.0".to_string(),
-            refresh_in_flight: false,
-            last_command_time: None,
+            position_input_editing: false,
         }
     }
 }
@@ -79,51 +83,47 @@ impl RotatorControlPanel {
         while let Ok(result) = self.panel_state.action_rx.try_recv() {
             match result {
                 ActionResult::FetchState(result) => {
-                    // Status refresh complete - does not affect user action count
-                    self.refresh_in_flight = false;
+                    self.panel_state.background_task_completed();
                     match result {
                         Ok(state) => {
-                            // Only update position from the server poll.
-                            // The `moving` flag is set by Move/Home commands and cleared
-                            // by their completion handlers — don't let a position poll
-                            // reset it to false while a move is still in progress.
                             self.state.position_deg = state.position_deg;
-                            if let Some(pos) = self.state.position_deg {
-                                self.position_input = format!("{:.2}", pos);
+                            if let Some(pos) = self.state.position_deg
+                                && !self.position_input_editing
+                                && !self.state.moving
+                            {
+                                self.position_input = format!("{pos:.2}");
                             }
                             self.panel_state.error = None;
                         }
                         Err(e) => {
                             self.panel_state
-                                .set_error(format!("Failed to fetch state: {}", e));
+                                .set_error(format!("Failed to fetch state: {e}"));
                         }
                     }
                 }
                 ActionResult::Move(result) => {
-                    // User action complete
                     self.panel_state.action_completed();
+                    self.state.moving = false;
                     match result {
                         Ok(()) => {
+                            self.refresh_after_command = true;
                             self.panel_state.set_status("Move completed");
-                            self.state.moving = false;
                         }
                         Err(e) => {
-                            self.panel_state.set_error(format!("Move failed: {}", e));
-                            self.state.moving = false;
+                            self.panel_state.set_error(format!("Move failed: {e}"));
                         }
                     }
                 }
                 ActionResult::Home(result) => {
-                    // User action complete
                     self.panel_state.action_completed();
+                    self.state.moving = false;
                     match result {
                         Ok(()) => {
-                            self.panel_state.set_status("Home completed");
-                            self.state.moving = false;
+                            self.refresh_after_command = true;
+                            self.panel_state.set_status("Homed successfully");
                         }
                         Err(e) => {
-                            self.panel_state.set_error(format!("Home failed: {}", e));
-                            self.state.moving = false;
+                            self.panel_state.set_error(format!("Home failed: {e}"));
                         }
                     }
                 }
@@ -136,8 +136,8 @@ impl RotatorControlPanel {
             return;
         };
 
-        // Track refresh separately - doesn't disable controls
-        self.refresh_in_flight = true;
+        self.panel_state.mark_refreshed();
+        self.panel_state.background_task_started();
         let mut client = client.clone();
         let tx = self.panel_state.action_tx.clone();
         let device_id = device_id.to_string();
@@ -147,13 +147,23 @@ impl RotatorControlPanel {
             let state_result = result
                 .map(|proto| RotatorState {
                     position_deg: proto.position,
-                    moving: false, // moving is managed client-side by move/home handlers
+                    moving: false,
                 })
                 .map_err(|e| e.to_string());
             let _ = tx.send(ActionResult::FetchState(state_result)).await;
         });
+    }
 
-        self.panel_state.mark_refreshed();
+    fn queue_refresh_if_needed(
+        &mut self,
+        client: Option<&mut DaqClient>,
+        runtime: &Runtime,
+        device_id: &str,
+    ) {
+        if self.refresh_after_command && !self.panel_state.is_refreshing() {
+            self.refresh_after_command = false;
+            self.fetch_state(client, runtime, device_id);
+        }
     }
 
     #[allow(clippy::cast_possible_truncation)]
@@ -169,24 +179,8 @@ impl RotatorControlPanel {
             return;
         };
 
-        // Debounce rapid clicks
-        if !self.can_send_command() {
-            tracing::debug!(
-                panel_instance_id = self.panel_instance_id,
-                device_id,
-                position,
-                elapsed_ms = self
-                    .last_command_time
-                    .map(|t| t.elapsed().as_millis() as u64)
-                    .unwrap_or(0),
-                "Move absolute command debounced - too soon after last command"
-            );
-            return;
-        }
-
         self.state.moving = true;
         self.panel_state.action_started();
-        self.last_command_time = Some(crate::time::Instant::now());
         tracing::info!(
             panel_instance_id = self.panel_instance_id,
             device_id,
@@ -209,6 +203,7 @@ impl RotatorControlPanel {
     }
 
     #[allow(clippy::cast_possible_truncation)]
+    #[allow(clippy::cast_possible_truncation)]
     fn move_relative(
         &mut self,
         client: Option<&mut DaqClient>,
@@ -221,30 +216,14 @@ impl RotatorControlPanel {
             return;
         };
 
-        // Debounce rapid clicks
-        if !self.can_send_command() {
-            tracing::debug!(
-                panel_instance_id = self.panel_instance_id,
-                device_id,
-                delta,
-                elapsed_ms = self
-                    .last_command_time
-                    .map(|t| t.elapsed().as_millis() as u64)
-                    .unwrap_or(0),
-                "Jog command debounced - too soon after last command"
-            );
-            return;
-        }
-
         self.state.moving = true;
         self.panel_state.action_started();
-        self.last_command_time = Some(crate::time::Instant::now());
         tracing::info!(
             panel_instance_id = self.panel_instance_id,
             device_id,
             delta,
             actions_in_flight = self.panel_state.actions_in_flight,
-            "Jog command sent"
+            "Move relative command sent"
         );
         let mut client = client.clone();
         let tx = self.panel_state.action_tx.clone();
@@ -267,23 +246,8 @@ impl RotatorControlPanel {
             return;
         };
 
-        // Debounce rapid clicks
-        if !self.can_send_command() {
-            tracing::debug!(
-                panel_instance_id = self.panel_instance_id,
-                device_id,
-                elapsed_ms = self
-                    .last_command_time
-                    .map(|t| t.elapsed().as_millis() as u64)
-                    .unwrap_or(0),
-                "Home command debounced - too soon after last command"
-            );
-            return;
-        }
-
         self.state.moving = true;
         self.panel_state.action_started();
-        self.last_command_time = Some(crate::time::Instant::now());
         tracing::info!(
             panel_instance_id = self.panel_instance_id,
             device_id,
@@ -319,161 +283,143 @@ impl DeviceControlWidget for RotatorControlPanel {
         let device_id = device.id.clone();
         self.panel_state.device_id = Some(device_id.clone());
 
-        // Initial fetch
         if !self.panel_state.initial_fetch_done && client.is_some() {
             self.panel_state.initial_fetch_done = true;
             self.fetch_state(client.as_deref_mut(), runtime, &device_id);
         }
 
-        // Auto-refresh logic - only refresh if no refresh already in flight
-        let should_refresh =
-            self.panel_state.should_refresh(Self::REFRESH_INTERVAL) && !self.refresh_in_flight;
+        self.queue_refresh_if_needed(client.as_deref_mut(), runtime, &device_id);
 
-        if should_refresh && client.is_some() {
+        if self.panel_state.should_refresh(Self::REFRESH_INTERVAL) && client.is_some() {
             self.fetch_state(client.as_deref_mut(), runtime, &device_id);
         }
 
-        // Header
-        ui.horizontal(|ui| {
-            ui.heading("🔄 Rotator");
-            if self.state.moving || self.panel_state.is_busy() {
-                ui.spinner();
-                ui.label("Moving...");
-            } else if self.refresh_in_flight {
-                ui.spinner();
-            }
-        });
-
-        if let Some(ref err) = self.panel_state.error {
-            ui.colored_label(egui::Color32::RED, err);
-        }
-        if let Some(ref status) = self.panel_state.status {
-            ui.colored_label(egui::Color32::GREEN, status);
-        }
-
-        ui.separator();
-
-        // Current position display (large)
-        ui.vertical_centered(|ui| {
-            if let Some(pos) = self.state.position_deg {
-                ui.label(
-                    egui::RichText::new(format!("{:.2}°", pos))
-                        .monospace()
-                        .size(32.0),
-                );
-            } else {
-                ui.label(egui::RichText::new("---°").monospace().size(32.0));
-            }
-        });
-
-        ui.add_space(8.0);
-
-        // Jog buttons row - only disable during user actions (move/home), NOT during status refresh
         let is_busy = self.state.moving || self.panel_state.is_busy();
+        let is_refreshing = self.panel_state.is_refreshing();
+        let badge = None;
 
-        ui.horizontal(|ui| {
-            ui.label("Jog:");
-
-            if ui
-                .add_enabled(!is_busy, egui::Button::new("-90°"))
-                .clicked()
-            {
-                self.move_relative(client.as_deref_mut(), runtime, &device_id, -90.0);
-            }
-            if ui
-                .add_enabled(!is_busy, egui::Button::new("-10°"))
-                .clicked()
-            {
-                self.move_relative(client.as_deref_mut(), runtime, &device_id, -10.0);
-            }
-            if ui.add_enabled(!is_busy, egui::Button::new("-1°")).clicked() {
-                self.move_relative(client.as_deref_mut(), runtime, &device_id, -1.0);
-            }
-            if ui.add_enabled(!is_busy, egui::Button::new("+1°")).clicked() {
-                self.move_relative(client.as_deref_mut(), runtime, &device_id, 1.0);
-            }
-            if ui
-                .add_enabled(!is_busy, egui::Button::new("+10°"))
-                .clicked()
-            {
-                self.move_relative(client.as_deref_mut(), runtime, &device_id, 10.0);
-            }
-            if ui
-                .add_enabled(!is_busy, egui::Button::new("+90°"))
-                .clicked()
-            {
-                self.move_relative(client.as_deref_mut(), runtime, &device_id, 90.0);
-            }
-        });
-
-        ui.add_space(4.0);
-
-        // Direct position input
-        ui.horizontal(|ui| {
-            ui.label("Move to:");
-            let response = ui.add(
-                egui::TextEdit::singleline(&mut self.position_input)
-                    .desired_width(60.0)
-                    .hint_text("deg"),
-            );
-            ui.label("°");
-
-            if ui.add_enabled(!is_busy, egui::Button::new("Go")).clicked() {
-                if let Ok(pos) = self.position_input.parse::<f64>() {
-                    self.move_absolute(client.as_deref_mut(), runtime, &device_id, pos);
-                } else {
-                    self.panel_state.error = Some("Invalid position value".to_string());
-                }
-            }
-
-            if response.lost_focus()
-                && ui.input(|i| i.key_pressed(egui::Key::Enter))
-                && !is_busy
-                && let Ok(pos) = self.position_input.parse::<f64>()
-            {
-                self.move_absolute(client.as_deref_mut(), runtime, &device_id, pos);
-            }
-        });
-
-        ui.add_space(8.0);
-        ui.separator();
-
-        // Quick position buttons
-        ui.horizontal(|ui| {
-            ui.label("Quick positions:");
-            for angle in [0.0, 45.0, 90.0, 180.0, 270.0] {
-                if ui
-                    .add_enabled(!is_busy, egui::Button::new(format!("{}°", angle)))
-                    .clicked()
-                {
-                    self.move_absolute(client.as_deref_mut(), runtime, &device_id, angle);
-                }
-            }
-        });
-
+        show_panel_header(ui, "Rotator", badge, is_busy, is_refreshing);
+        show_panel_messages(ui, &self.panel_state.error, &self.panel_state.status);
         ui.add_space(8.0);
 
-        // Action buttons
-        ui.horizontal(|ui| {
-            if ui
-                .add_enabled(!is_busy, egui::Button::new("🏠 Home"))
-                .clicked()
-            {
-                self.home(client.as_deref_mut(), runtime, &device_id);
-            }
+        show_panel_columns_with_state(
+            ui,
+            self,
+            |ui, panel| {
+                show_panel_section(ui, "Motion", |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label("Position:");
+                        if let Some(pos) = panel.state.position_deg {
+                            ui.label(panel_value_text(format!("{pos:.2}°")));
+                        } else {
+                            ui.label(panel_value_text("---°"));
+                        }
+                    });
 
-            ui.checkbox(&mut self.panel_state.auto_refresh, "Auto-refresh");
+                    ui.add_space(8.0);
+                    ui.label(egui::RichText::new("Absolute Move").strong());
+                    ui.horizontal(|ui| {
+                        ui.label("Target:");
+                        let response = ui.add_enabled(
+                            !is_busy,
+                            egui::TextEdit::singleline(&mut panel.position_input)
+                                .desired_width(60.0),
+                        );
+                        ui.label("°");
+                        panel.position_input_editing = response.has_focus();
 
-            if ui.button("🔄 Refresh").clicked() {
-                self.fetch_state(client, runtime, &device_id);
-            }
-        });
+                        let mut submit_absolute = |panel: &mut Self, value: f64| {
+                            panel.move_absolute(client.as_deref_mut(), runtime, &device_id, value);
+                        };
 
-        // Request repaint for auto-refresh or while busy
-        if self.panel_state.auto_refresh || self.panel_state.is_busy() || self.refresh_in_flight {
-            ui.ctx()
-                .request_repaint_after(std::time::Duration::from_millis(100));
-        }
+                        if ui.add_enabled(!is_busy, action_button("Go")).clicked() {
+                            if let Ok(pos) = panel.position_input.parse::<f64>() {
+                                submit_absolute(panel, pos);
+                            } else {
+                                panel.panel_state.set_error("Invalid position value");
+                            }
+                        }
+
+                        if response.lost_focus()
+                            && ui.input(|i| i.key_pressed(egui::Key::Enter))
+                            && !is_busy
+                        {
+                            if let Ok(pos) = panel.position_input.parse::<f64>() {
+                                submit_absolute(panel, pos);
+                            } else {
+                                panel.panel_state.set_error("Invalid position value");
+                            }
+                        }
+                    });
+
+                    ui.add_space(8.0);
+                    ui.label(egui::RichText::new("Quick Positions").strong());
+                    ui.horizontal_wrapped(|ui| {
+                        for angle in [0.0, 45.0, 90.0, 180.0, 270.0] {
+                            if ui
+                                .add_enabled(!is_busy, action_button(format!("{angle}°")))
+                                .clicked()
+                            {
+                                panel.move_absolute(
+                                    client.as_deref_mut(),
+                                    runtime,
+                                    &device_id,
+                                    angle,
+                                );
+                            }
+                        }
+                    });
+
+                    ui.add_space(8.0);
+                    ui.label(egui::RichText::new("Jog Controls").strong());
+                    ui.horizontal_wrapped(|ui| {
+                        for (label, delta) in [
+                            ("-90°", -90.0),
+                            ("-10°", -10.0),
+                            ("-1°", -1.0),
+                            ("+1°", 1.0),
+                            ("+10°", 10.0),
+                            ("+90°", 90.0),
+                        ] {
+                            if ui.add_enabled(!is_busy, action_button(label)).clicked() {
+                                panel.move_relative(
+                                    client.as_deref_mut(),
+                                    runtime,
+                                    &device_id,
+                                    delta,
+                                );
+                            }
+                        }
+                    });
+                });
+            },
+            |ui, panel| {
+                show_panel_section(ui, "Actions", |ui| {
+                    ui.horizontal_wrapped(|ui| {
+                        if ui.add_enabled(!is_busy, action_button("Home")).clicked() {
+                            panel.home(client.as_deref_mut(), runtime, &device_id);
+                        }
+
+                        if ui
+                            .add_enabled(!is_refreshing, action_button("Refresh"))
+                            .clicked()
+                        {
+                            panel.fetch_state(client.as_deref_mut(), runtime, &device_id);
+                        }
+                    });
+
+                    ui.add_space(8.0);
+                    let rows = device_info_rows(device, []);
+                    show_device_info_section(
+                        ui,
+                        scoped_widget_id(&device_id, "rotator_info"),
+                        &rows,
+                    );
+                });
+            },
+        );
+
+        request_panel_repaint(ui, is_busy || is_refreshing);
     }
 
     fn device_type(&self) -> &'static str {

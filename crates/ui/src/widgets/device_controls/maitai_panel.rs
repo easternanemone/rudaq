@@ -62,6 +62,8 @@ enum ActionResult {
 
 /// MaiTai Ti:Sapphire laser control panel
 pub struct MaiTaiControlPanel {
+    /// Common panel state
+    panel_state: DevicePanelState<ActionResult>,
     /// Cached laser state
     state: LaserState,
     /// Wavelength slider value (for live dragging)
@@ -70,39 +72,16 @@ pub struct MaiTaiControlPanel {
     wavelength_input: String,
     /// Whether wavelength slider is being dragged
     wavelength_dragging: bool,
-    /// Async action channel
-    action_tx: mpsc::Sender<ActionResult>,
-    action_rx: mpsc::Receiver<ActionResult>,
-    /// Actions in flight counter
-    actions_in_flight: usize,
-    /// Error message to display
-    error: Option<String>,
-    /// Status message to display
-    status: Option<String>,
-    /// Device ID for tracking (set on first render)
-    device_id: Option<String>,
-    /// Initial state fetch done
-    initial_fetch_done: bool,
-    /// Last time we polled for state updates
-    last_poll_time: Instant,
 }
 
 impl Default for MaiTaiControlPanel {
     fn default() -> Self {
-        let (action_tx, action_rx) = mpsc::channel(16);
         Self {
+            panel_state: DevicePanelState::new(),
             state: LaserState::default(),
             wavelength_slider: 800.0,
             wavelength_input: "800".to_string(),
             wavelength_dragging: false,
-            action_tx,
-            action_rx,
-            actions_in_flight: 0,
-            error: None,
-            status: None,
-            device_id: None,
-            initial_fetch_done: false,
-            last_poll_time: Instant::now(),
         }
     }
 }
@@ -193,8 +172,10 @@ impl MaiTaiControlPanel {
 
     /// Poll for async results
     fn poll_results(&mut self) {
-        while let Ok(result) = self.action_rx.try_recv() {
-            self.actions_in_flight = self.actions_in_flight.saturating_sub(1);
+        while let Ok(result) = self.panel_state.action_rx.try_recv() {
+            self.panel_state.actions_in_flight =
+                self.panel_state.actions_in_flight.saturating_sub(1);
+            self.state.loading = false;
 
             match result {
                 ActionResult::FetchState {
@@ -206,56 +187,46 @@ impl MaiTaiControlPanel {
                 } => {
                     self.state.emission_enabled = emission;
                     self.state.shutter_open = shutter;
-                    if let Some(wl) = wavelength {
-                        self.state.wavelength_nm = Some(wl);
-                        if !self.wavelength_dragging {
-                            self.wavelength_slider = wl;
-                            self.wavelength_input = format!("{:.1}", wl);
-                        }
-                    }
+                    self.state.wavelength_nm = wavelength;
                     self.state.power_mw = power;
                     self.state.diagnostics = diagnostics;
-                    self.state.loading = false;
+
+                    if !self.wavelength_dragging {
+                        if let Some(w) = wavelength {
+                            self.wavelength_slider = w;
+                            self.wavelength_input = format!("{:.1}", w);
+                        }
+                    }
+
+                    self.panel_state.clear_error();
                 }
-                ActionResult::SetEmission(result) => match result {
-                    Ok(enabled) => {
-                        self.state.emission_enabled = Some(enabled);
-                        self.status = Some(if enabled {
-                            "Emission ON".to_string()
-                        } else {
-                            "Emission OFF".to_string()
-                        });
-                        self.error = None;
+                ActionResult::SetEmission(res) => match res {
+                    Ok(val) => {
+                        self.state.emission_enabled = Some(val);
+                        self.panel_state.set_status("Emission toggled");
+                        self.panel_state.clear_error();
                     }
-                    Err(e) => {
-                        self.error = Some(format!("Failed to set emission: {}", e));
-                    }
+                    Err(e) => self.panel_state.set_error(e),
                 },
-                ActionResult::SetShutter(result) => match result {
-                    Ok(open) => {
-                        self.state.shutter_open = Some(open);
-                        self.status = Some(if open {
-                            "Shutter OPEN".to_string()
-                        } else {
-                            "Shutter CLOSED".to_string()
-                        });
-                        self.error = None;
+                ActionResult::SetShutter(res) => match res {
+                    Ok(val) => {
+                        self.state.shutter_open = Some(val);
+                        self.panel_state.set_status("Shutter toggled");
+                        self.panel_state.clear_error();
                     }
-                    Err(e) => {
-                        self.error = Some(format!("Failed to set shutter: {}", e));
-                    }
+                    Err(e) => self.panel_state.set_error(e),
                 },
-                ActionResult::SetWavelength(result) => match result {
-                    Ok(wl) => {
-                        self.state.wavelength_nm = Some(wl);
-                        self.wavelength_slider = wl;
-                        self.wavelength_input = format!("{:.1}", wl);
-                        self.status = Some(format!("Wavelength set to {:.1} nm", wl));
-                        self.error = None;
+                ActionResult::SetWavelength(res) => match res {
+                    Ok(val) => {
+                        self.state.wavelength_nm = Some(val);
+                        if !self.wavelength_dragging {
+                            self.wavelength_slider = val;
+                            self.wavelength_input = format!("{:.1}", val);
+                        }
+                        self.panel_state.set_status("Wavelength set");
+                        self.panel_state.clear_error();
                     }
-                    Err(e) => {
-                        self.error = Some(format!("Failed to set wavelength: {}", e));
-                    }
+                    Err(e) => self.panel_state.set_error(e),
                 },
             }
         }
@@ -267,11 +238,11 @@ impl MaiTaiControlPanel {
             return;
         };
 
+        self.panel_state.record_background_task_start();
         self.state.loading = true;
-        self.actions_in_flight += 1;
 
         let client = client.clone();
-        let tx = self.action_tx.clone();
+        let tx = self.panel_state.action_tx.clone();
         let device_id = device_id.to_string();
 
         runtime.spawn(async move {
@@ -461,6 +432,17 @@ impl MaiTaiControlPanel {
 }
 
 impl DeviceControlWidget for MaiTaiControlPanel {
+    fn queue_refresh_if_needed(
+        &mut self,
+        client: Option<&mut DaqClient>,
+        runtime: &Runtime,
+        device_id: &str,
+    ) {
+        if self.panel_state.consume_refresh_after_command() {
+            self.fetch_state(client, runtime, device_id);
+        }
+    }
+
     fn ui(
         &mut self,
         ui: &mut Ui,
@@ -496,18 +478,13 @@ impl DeviceControlWidget for MaiTaiControlPanel {
         // Header with device name
         ui.horizontal(|ui| {
             ui.heading("🔴 MaiTai Ti:Sapphire Laser");
-            if self.state.loading || self.actions_in_flight > 0 {
+            if is_refreshing {
                 ui.spinner();
             }
         });
 
         // Error/status messages
-        if let Some(ref err) = self.error {
-            ui.colored_label(egui::Color32::RED, err);
-        }
-        if let Some(ref status) = self.status {
-            ui.colored_label(egui::Color32::GREEN, status);
-        }
+        self.panel_state.render_status_and_errors(ui);
 
         ui.separator();
 

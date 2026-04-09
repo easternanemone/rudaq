@@ -407,6 +407,17 @@ impl PowerMeterControlPanel {
 }
 
 impl DeviceControlWidget for PowerMeterControlPanel {
+    fn queue_refresh_if_needed(
+        &mut self,
+        client: Option<&mut DaqClient>,
+        runtime: &Runtime,
+        device_id: &str,
+    ) {
+        if self.panel_state.consume_refresh_after_command() {
+            self.fetch_state(client, runtime, device_id);
+        }
+    }
+
     fn ui(
         &mut self,
         ui: &mut Ui,
