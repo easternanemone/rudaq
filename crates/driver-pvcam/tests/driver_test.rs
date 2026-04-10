@@ -327,22 +327,24 @@ mod mock_driver {
 mod hardware_driver {
     use super::*;
     use serde_json::json;
-    use std::sync::Mutex;
+    use std::sync::{Mutex, OnceLock};
     use tracing_subscriber::EnvFilter;
 
-    lazy_static::lazy_static! {
-        static ref CAMERA_LOCK: Mutex<()> = Mutex::new(());
-        static ref LOG_INIT: () = {
+    static CAMERA_LOCK: Mutex<()> = Mutex::new(());
+    static LOG_INIT: OnceLock<()> = OnceLock::new();
+
+    fn init_log() {
+        LOG_INIT.get_or_init(|| {
             let _ = tracing_subscriber::fmt()
                 .with_test_writer()
                 .with_env_filter(EnvFilter::new("debug,pvcam_sys=trace"))
                 .try_init();
-        };
+        });
     }
 
     #[tokio::test]
     async fn hardware_create_driver() {
-        let _ = *LOG_INIT;
+        init_log();
         let _lock = CAMERA_LOCK.lock().unwrap();
 
         let driver = PvcamDriver::new_async("pvcamUSB_0".to_string()).await;
@@ -445,7 +447,7 @@ mod hardware_driver {
     #[allow(deprecated)] // subscribe_frames() still works but register_primary_output() is preferred
     async fn hardware_stream_200_frames() {
         let _lock = CAMERA_LOCK.lock().unwrap();
-        let _ = *LOG_INIT;
+        init_log();
 
         const TARGET_FRAMES: usize = 200;
 
