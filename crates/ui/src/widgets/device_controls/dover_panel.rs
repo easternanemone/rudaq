@@ -5,6 +5,8 @@
 //! - TOP configuration (start, end, increment, pulse width, bidirectional)
 //! - TOP enable/disable
 
+use std::cell::Cell;
+
 use crate::runtime::Runtime;
 use egui::Ui;
 
@@ -17,6 +19,7 @@ use client::DaqClient;
 use protocol::daq::DeviceInfo;
 
 /// TOP (Trigger-On-Position) configuration parameters.
+#[derive(Clone, Copy)]
 struct TopConfig {
     start: f64,
     end: f64,
@@ -43,6 +46,18 @@ enum ActionResult {
     SetParameter(Result<String, String>),
     EnableTop(Result<(), String>),
     DisableTop(Result<(), String>),
+}
+
+#[derive(Clone, Copy)]
+enum DoverUiAction {
+    MoveAbsolute(f64),
+    MoveRelative(f64),
+    Home,
+    Stop,
+    Refresh,
+    SetVelocity(f64),
+    EnableTop(TopConfig),
+    DisableTop,
 }
 
 /// Dover SmartStage control panel with TOP support.
@@ -80,72 +95,93 @@ impl Default for DoverStagePanel {
 impl DoverStagePanel {
     fn poll_results(&mut self) {
         while let Ok(result) = self.panel_state.action_rx.try_recv() {
-            self.panel_state.action_completed();
-
             match result {
-                ActionResult::FetchState(result) => match result {
-                    Ok(state) => {
-                        if let Some(pos) = state.position {
-                            self.position_input = format!("{pos:.4}");
+                ActionResult::FetchState(result) => {
+                    self.panel_state.background_task_completed();
+                    match result {
+                        Ok(state) => {
+                            if let Some(pos) = state.position {
+                                self.position_input = format!("{pos:.4}");
+                            }
+                            if let Some(vel) = state.velocity {
+                                self.velocity_input = format!("{vel:.2}");
+                            }
+                            self.state = state;
+                            self.panel_state.error = None;
                         }
-                        if let Some(vel) = state.velocity {
-                            self.velocity_input = format!("{vel:.2}");
+                        Err(e) => {
+                            self.panel_state
+                                .set_error(format!("Failed to fetch state: {e}"));
                         }
-                        self.state = state;
-                        self.panel_state.error = None;
                     }
-                    Err(e) => {
-                        self.panel_state
-                            .set_error(format!("Failed to fetch state: {e}"));
+                }
+                ActionResult::Move(result) => {
+                    self.panel_state.action_completed();
+                    match result {
+                        Ok(()) => {
+                            self.state.moving = false;
+                            self.panel_state.request_refresh_after_command();
+                            self.panel_state.set_status("Move completed");
+                        }
+                        Err(e) => {
+                            self.panel_state.set_error(format!("Move failed: {e}"));
+                            self.state.moving = false;
+                        }
                     }
-                },
-                ActionResult::Move(result) => match result {
-                    Ok(()) => {
-                        self.panel_state.set_status("Move completed");
-                        self.state.moving = false;
+                }
+                ActionResult::Stop(result) => {
+                    self.panel_state.action_completed();
+                    match result {
+                        Ok(()) => {
+                            self.state.moving = false;
+                            self.panel_state.request_refresh_after_command();
+                            self.panel_state.set_status("Stopped");
+                        }
+                        Err(e) => {
+                            self.panel_state.set_error(format!("Stop failed: {e}"));
+                        }
                     }
-                    Err(e) => {
-                        self.panel_state.set_error(format!("Move failed: {e}"));
-                        self.state.moving = false;
+                }
+                ActionResult::SetParameter(result) => {
+                    self.panel_state.action_completed();
+                    match result {
+                        Ok(msg) => {
+                            self.panel_state.request_refresh_after_command();
+                            self.panel_state.set_status(msg);
+                        }
+                        Err(e) => {
+                            self.panel_state.set_error(format!("Set failed: {e}"));
+                        }
                     }
-                },
-                ActionResult::Stop(result) => match result {
-                    Ok(()) => {
-                        self.panel_state.set_status("Stopped");
-                        self.state.moving = false;
+                }
+                ActionResult::EnableTop(result) => {
+                    self.panel_state.action_completed();
+                    match result {
+                        Ok(()) => {
+                            self.state.top_enabled = true;
+                            self.panel_state.request_refresh_after_command();
+                            self.panel_state.set_status("TOP enabled");
+                        }
+                        Err(e) => {
+                            self.panel_state
+                                .set_error(format!("Enable TOP failed: {e}"));
+                        }
                     }
-                    Err(e) => {
-                        self.panel_state.set_error(format!("Stop failed: {e}"));
+                }
+                ActionResult::DisableTop(result) => {
+                    self.panel_state.action_completed();
+                    match result {
+                        Ok(()) => {
+                            self.state.top_enabled = false;
+                            self.panel_state.request_refresh_after_command();
+                            self.panel_state.set_status("TOP disabled");
+                        }
+                        Err(e) => {
+                            self.panel_state
+                                .set_error(format!("Disable TOP failed: {e}"));
+                        }
                     }
-                },
-                ActionResult::SetParameter(result) => match result {
-                    Ok(msg) => {
-                        self.panel_state.set_status(msg);
-                    }
-                    Err(e) => {
-                        self.panel_state.set_error(format!("Set failed: {e}"));
-                    }
-                },
-                ActionResult::EnableTop(result) => match result {
-                    Ok(()) => {
-                        self.state.top_enabled = true;
-                        self.panel_state.set_status("TOP enabled");
-                    }
-                    Err(e) => {
-                        self.panel_state
-                            .set_error(format!("Enable TOP failed: {e}"));
-                    }
-                },
-                ActionResult::DisableTop(result) => match result {
-                    Ok(()) => {
-                        self.state.top_enabled = false;
-                        self.panel_state.set_status("TOP disabled");
-                    }
-                    Err(e) => {
-                        self.panel_state
-                            .set_error(format!("Disable TOP failed: {e}"));
-                    }
-                },
+                }
             }
         }
     }
@@ -155,7 +191,8 @@ impl DoverStagePanel {
             return;
         };
 
-        self.panel_state.action_started();
+        self.panel_state.mark_refreshed();
+        self.panel_state.background_task_started();
         let mut client = client.clone();
         let tx = self.panel_state.action_tx.clone();
         let device_id = device_id.to_string();
@@ -372,31 +409,34 @@ impl DeviceControlWidget for DoverStagePanel {
 
         if !self.panel_state.initial_fetch_done && client.is_some() {
             self.panel_state.initial_fetch_done = true;
-            self.fetch_state(client.as_deref_mut(), runtime, &device_id);
+            self.fetch_state(client.as_mut().map(|c| &mut **c), runtime, &device_id);
         }
 
-        self.queue_refresh_if_needed(client.as_deref_mut(), runtime, &device_id);
+        self.queue_refresh_if_needed(client.as_mut().map(|c| &mut **c), runtime, &device_id);
 
         if self
             .panel_state
             .should_refresh(std::time::Duration::from_millis(500))
             && client.is_some()
         {
-            self.fetch_state(client.as_deref_mut(), runtime, &device_id);
+            self.fetch_state(client.as_mut().map(|c| &mut **c), runtime, &device_id);
         }
-
-        self.queue_refresh_if_needed(client, runtime, device_id);
 
         let is_busy = self.state.moving || self.panel_state.is_busy();
         let is_refreshing = self.panel_state.is_refreshing();
-        let badge: Option<(egui::RichText, egui::Color32)> = if self.state.top_enabled {
-            Some((egui::RichText::new("TOP"), egui::Color32::LIGHT_GREEN))
+        let badge = if self.state.top_enabled {
+            Some(("TOP", egui::Color32::LIGHT_GREEN))
         } else {
             None
         };
+        let pending_action = Cell::new(None);
 
         show_panel_header(ui, "Dover Stage", badge, is_busy, is_refreshing);
-        show_panel_messages(ui, &self.panel_state.error, &self.panel_state.status);
+        show_panel_messages(
+            ui,
+            self.panel_state.error.as_deref(),
+            self.panel_state.status.as_deref(),
+        );
         ui.add_space(8.0);
 
         show_panel_columns_with_state(
@@ -430,28 +470,23 @@ impl DeviceControlWidget for DoverStagePanel {
                         );
                         ui.label("mm");
 
-                        let mut submit_absolute = |panel: &mut Self, value: &str| {
-                            if let Ok(pos) = value.parse::<f64>() {
-                                panel.move_absolute(
-                                    client.as_deref_mut(),
-                                    runtime,
-                                    &device_id,
-                                    pos,
-                                );
+                        if ui.add_enabled(!is_busy, action_button("Go")).clicked() {
+                            if let Ok(pos) = panel.position_input.parse::<f64>() {
+                                pending_action.set(Some(DoverUiAction::MoveAbsolute(pos)));
                             } else {
                                 panel.panel_state.set_error("Invalid position value");
                             }
-                        };
-
-                        if ui.add_enabled(!is_busy, action_button("Go")).clicked() {
-                            submit_absolute(panel, &panel.position_input);
                         }
 
                         if response.lost_focus()
                             && ui.input(|i| i.key_pressed(egui::Key::Enter))
                             && !is_busy
                         {
-                            submit_absolute(panel, &panel.position_input);
+                            if let Ok(pos) = panel.position_input.parse::<f64>() {
+                                pending_action.set(Some(DoverUiAction::MoveAbsolute(pos)));
+                            } else {
+                                panel.panel_state.set_error("Invalid position value");
+                            }
                         }
                     });
 
@@ -468,26 +503,16 @@ impl DeviceControlWidget for DoverStagePanel {
                         let step: f64 = panel.jog_step.parse().unwrap_or(0.1);
 
                         if ui.add_enabled(!is_busy, action_button("<<")).clicked() {
-                            panel.move_relative(
-                                client.as_deref_mut(),
-                                runtime,
-                                &device_id,
-                                -step * 10.0,
-                            );
+                            pending_action.set(Some(DoverUiAction::MoveRelative(-step * 10.0)));
                         }
                         if ui.add_enabled(!is_busy, action_button("<")).clicked() {
-                            panel.move_relative(client.as_deref_mut(), runtime, &device_id, -step);
+                            pending_action.set(Some(DoverUiAction::MoveRelative(-step)));
                         }
                         if ui.add_enabled(!is_busy, action_button(">")).clicked() {
-                            panel.move_relative(client.as_deref_mut(), runtime, &device_id, step);
+                            pending_action.set(Some(DoverUiAction::MoveRelative(step)));
                         }
                         if ui.add_enabled(!is_busy, action_button(">>")).clicked() {
-                            panel.move_relative(
-                                client.as_deref_mut(),
-                                runtime,
-                                &device_id,
-                                step * 10.0,
-                            );
+                            pending_action.set(Some(DoverUiAction::MoveRelative(step * 10.0)));
                         }
                     });
                 });
@@ -501,23 +526,23 @@ impl DeviceControlWidget for DoverStagePanel {
                                 .desired_width(60.0),
                         );
 
-                        let mut submit_velocity = |panel: &mut Self, value: &str| {
-                            if let Ok(vel) = value.parse::<f64>() {
-                                panel.set_velocity(client.as_deref_mut(), runtime, &device_id, vel);
+                        if ui.add_enabled(!is_busy, action_button("Set")).clicked() {
+                            if let Ok(vel) = panel.velocity_input.parse::<f64>() {
+                                pending_action.set(Some(DoverUiAction::SetVelocity(vel)));
                             } else {
                                 panel.panel_state.set_error("Invalid velocity value");
                             }
-                        };
-
-                        if ui.add_enabled(!is_busy, action_button("Set")).clicked() {
-                            submit_velocity(panel, &panel.velocity_input);
                         }
 
                         if response.lost_focus()
                             && ui.input(|i| i.key_pressed(egui::Key::Enter))
                             && !is_busy
                         {
-                            submit_velocity(panel, &panel.velocity_input);
+                            if let Ok(vel) = panel.velocity_input.parse::<f64>() {
+                                pending_action.set(Some(DoverUiAction::SetVelocity(vel)));
+                            } else {
+                                panel.panel_state.set_error("Invalid velocity value");
+                            }
                         }
                     });
 
@@ -530,7 +555,7 @@ impl DeviceControlWidget for DoverStagePanel {
                 show_panel_section(ui, "Actions", |ui| {
                     ui.horizontal_wrapped(|ui| {
                         if ui.add_enabled(!is_busy, action_button("Home")).clicked() {
-                            panel.move_absolute(client.as_deref_mut(), runtime, &device_id, 0.0);
+                            pending_action.set(Some(DoverUiAction::Home));
                         }
 
                         if ui
@@ -540,14 +565,14 @@ impl DeviceControlWidget for DoverStagePanel {
                             )
                             .clicked()
                         {
-                            panel.stop(client.as_deref_mut(), runtime, &device_id);
+                            pending_action.set(Some(DoverUiAction::Stop));
                         }
 
                         if ui
                             .add_enabled(!is_refreshing, action_button("Refresh"))
                             .clicked()
                         {
-                            panel.fetch_state(client.as_deref_mut(), runtime, &device_id);
+                            pending_action.set(Some(DoverUiAction::Refresh));
                         }
                     });
                 });
@@ -611,7 +636,7 @@ impl DeviceControlWidget for DoverStagePanel {
                                 )
                                 .clicked()
                             {
-                                panel.disable_top(client.as_deref_mut(), runtime, &device_id);
+                                pending_action.set(Some(DoverUiAction::DisableTop));
                             }
                         } else if ui
                             .add_enabled(
@@ -621,21 +646,16 @@ impl DeviceControlWidget for DoverStagePanel {
                             )
                             .clicked()
                         {
-                            panel.enable_top(
-                                client.as_deref_mut(),
-                                runtime,
-                                &device_id,
-                                TopConfig {
-                                    start: panel.top_start.parse::<f64>().unwrap_or(0.0),
-                                    end: panel.top_end.parse::<f64>().unwrap_or(20.0),
-                                    increment: panel.top_increment.parse::<f64>().unwrap_or(0.1),
-                                    pulse_width_ns: panel
-                                        .top_pulse_width_ns
-                                        .parse::<u32>()
-                                        .unwrap_or(1000),
-                                    bidirectional: panel.top_bidirectional,
-                                },
-                            );
+                            pending_action.set(Some(DoverUiAction::EnableTop(TopConfig {
+                                start: panel.top_start.parse::<f64>().unwrap_or(0.0),
+                                end: panel.top_end.parse::<f64>().unwrap_or(20.0),
+                                increment: panel.top_increment.parse::<f64>().unwrap_or(0.1),
+                                pulse_width_ns: panel
+                                    .top_pulse_width_ns
+                                    .parse::<u32>()
+                                    .unwrap_or(1000),
+                                bidirectional: panel.top_bidirectional,
+                            })));
                         }
                     });
                 });
@@ -646,6 +666,50 @@ impl DeviceControlWidget for DoverStagePanel {
                 });
             },
         );
+
+        if let Some(action) = pending_action.get() {
+            match action {
+                DoverUiAction::MoveAbsolute(position) => {
+                    self.move_absolute(
+                        client.as_mut().map(|c| &mut **c),
+                        runtime,
+                        &device_id,
+                        position,
+                    );
+                }
+                DoverUiAction::MoveRelative(delta) => {
+                    self.move_relative(
+                        client.as_mut().map(|c| &mut **c),
+                        runtime,
+                        &device_id,
+                        delta,
+                    );
+                }
+                DoverUiAction::Home => {
+                    self.move_absolute(client.as_mut().map(|c| &mut **c), runtime, &device_id, 0.0);
+                }
+                DoverUiAction::Stop => {
+                    self.stop(client.as_mut().map(|c| &mut **c), runtime, &device_id);
+                }
+                DoverUiAction::Refresh => {
+                    self.fetch_state(client.as_mut().map(|c| &mut **c), runtime, &device_id);
+                }
+                DoverUiAction::SetVelocity(velocity) => {
+                    self.set_velocity(
+                        client.as_mut().map(|c| &mut **c),
+                        runtime,
+                        &device_id,
+                        velocity,
+                    );
+                }
+                DoverUiAction::EnableTop(top) => {
+                    self.enable_top(client.as_mut().map(|c| &mut **c), runtime, &device_id, top);
+                }
+                DoverUiAction::DisableTop => {
+                    self.disable_top(client.as_mut().map(|c| &mut **c), runtime, &device_id);
+                }
+            }
+        }
 
         request_panel_repaint(ui, is_busy || is_refreshing);
     }

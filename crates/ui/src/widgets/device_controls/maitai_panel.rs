@@ -7,13 +7,12 @@
 //! - Power display gauge
 
 use crate::runtime::Runtime;
-use crate::time::{Duration, Instant};
+use crate::time::Duration;
 use egui::Ui;
-use tokio::sync::mpsc;
 use tracing;
 
 use crate::widgets::Gauge;
-use crate::widgets::device_controls::DeviceControlWidget;
+use crate::widgets::device_controls::{DeviceControlWidget, DevicePanelState};
 use client::DaqClient;
 use protocol::daq::DeviceInfo;
 
@@ -173,10 +172,6 @@ impl MaiTaiControlPanel {
     /// Poll for async results
     fn poll_results(&mut self) {
         while let Ok(result) = self.panel_state.action_rx.try_recv() {
-            self.panel_state.actions_in_flight =
-                self.panel_state.actions_in_flight.saturating_sub(1);
-            self.state.loading = false;
-
             match result {
                 ActionResult::FetchState {
                     emission,
@@ -185,49 +180,78 @@ impl MaiTaiControlPanel {
                     power,
                     diagnostics,
                 } => {
+                    self.panel_state.background_task_completed();
+                    self.state.loading = false;
                     self.state.emission_enabled = emission;
                     self.state.shutter_open = shutter;
                     self.state.wavelength_nm = wavelength;
                     self.state.power_mw = power;
                     self.state.diagnostics = diagnostics;
 
-                    if !self.wavelength_dragging {
-                        if let Some(w) = wavelength {
-                            self.wavelength_slider = w;
-                            self.wavelength_input = format!("{:.1}", w);
-                        }
+                    if !self.wavelength_dragging
+                        && let Some(wavelength) = wavelength
+                    {
+                        self.wavelength_slider = wavelength;
+                        self.wavelength_input = format!("{wavelength:.1}");
                     }
 
                     self.panel_state.clear_error();
                 }
-                ActionResult::SetEmission(res) => match res {
-                    Ok(val) => {
-                        self.state.emission_enabled = Some(val);
-                        self.panel_state.set_status("Emission toggled");
-                        self.panel_state.clear_error();
-                    }
-                    Err(e) => self.panel_state.set_error(e),
-                },
-                ActionResult::SetShutter(res) => match res {
-                    Ok(val) => {
-                        self.state.shutter_open = Some(val);
-                        self.panel_state.set_status("Shutter toggled");
-                        self.panel_state.clear_error();
-                    }
-                    Err(e) => self.panel_state.set_error(e),
-                },
-                ActionResult::SetWavelength(res) => match res {
-                    Ok(val) => {
-                        self.state.wavelength_nm = Some(val);
-                        if !self.wavelength_dragging {
-                            self.wavelength_slider = val;
-                            self.wavelength_input = format!("{:.1}", val);
+                ActionResult::SetEmission(result) => {
+                    self.panel_state.action_completed();
+                    match result {
+                        Ok(enabled) => {
+                            self.state.emission_enabled = Some(enabled);
+                            self.panel_state.request_refresh_after_command();
+                            self.panel_state.set_status(if enabled {
+                                "Emission ON"
+                            } else {
+                                "Emission OFF"
+                            });
                         }
-                        self.panel_state.set_status("Wavelength set");
-                        self.panel_state.clear_error();
+                        Err(error) => {
+                            self.panel_state
+                                .set_error(format!("Failed to set emission: {error}"));
+                        }
                     }
-                    Err(e) => self.panel_state.set_error(e),
-                },
+                }
+                ActionResult::SetShutter(result) => {
+                    self.panel_state.action_completed();
+                    match result {
+                        Ok(open) => {
+                            self.state.shutter_open = Some(open);
+                            self.panel_state.request_refresh_after_command();
+                            self.panel_state.set_status(if open {
+                                "Shutter OPEN"
+                            } else {
+                                "Shutter CLOSED"
+                            });
+                        }
+                        Err(error) => {
+                            self.panel_state
+                                .set_error(format!("Failed to set shutter: {error}"));
+                        }
+                    }
+                }
+                ActionResult::SetWavelength(result) => {
+                    self.panel_state.action_completed();
+                    match result {
+                        Ok(wavelength) => {
+                            self.state.wavelength_nm = Some(wavelength);
+                            if !self.wavelength_dragging {
+                                self.wavelength_slider = wavelength;
+                                self.wavelength_input = format!("{wavelength:.1}");
+                            }
+                            self.panel_state.request_refresh_after_command();
+                            self.panel_state
+                                .set_status(format!("Wavelength set to {wavelength:.1} nm"));
+                        }
+                        Err(error) => {
+                            self.panel_state
+                                .set_error(format!("Failed to set wavelength: {error}"));
+                        }
+                    }
+                }
             }
         }
     }
@@ -357,14 +381,14 @@ impl MaiTaiControlPanel {
         );
         let Some(client) = client else {
             tracing::warn!("[GUI] set_emission: NO CLIENT - cannot send RPC!");
-            self.error = Some("Not connected".to_string());
+            self.panel_state.set_error("Not connected");
             return;
         };
         tracing::info!("[GUI] set_emission: spawning async task to call RPC");
 
-        self.actions_in_flight += 1;
+        self.panel_state.action_started();
         let mut client = client.clone();
-        let tx = self.action_tx.clone();
+        let tx = self.panel_state.action_tx.clone();
         let device_id = device_id.to_string();
 
         runtime.spawn(async move {
@@ -385,13 +409,13 @@ impl MaiTaiControlPanel {
         open: bool,
     ) {
         let Some(client) = client else {
-            self.error = Some("Not connected".to_string());
+            self.panel_state.set_error("Not connected");
             return;
         };
 
-        self.actions_in_flight += 1;
+        self.panel_state.action_started();
         let mut client = client.clone();
-        let tx = self.action_tx.clone();
+        let tx = self.panel_state.action_tx.clone();
         let device_id = device_id.to_string();
 
         runtime.spawn(async move {
@@ -412,13 +436,13 @@ impl MaiTaiControlPanel {
         wavelength_nm: f64,
     ) {
         let Some(client) = client else {
-            self.error = Some("Not connected".to_string());
+            self.panel_state.set_error("Not connected");
             return;
         };
 
-        self.actions_in_flight += 1;
+        self.panel_state.action_started();
         let mut client = client.clone();
-        let tx = self.action_tx.clone();
+        let tx = self.panel_state.action_tx.clone();
         let device_id = device_id.to_string();
 
         runtime.spawn(async move {
@@ -455,30 +479,30 @@ impl DeviceControlWidget for MaiTaiControlPanel {
 
         // Track device ID
         let device_id = device.id.clone();
-        self.device_id = Some(device_id.clone());
+        self.panel_state.device_id = Some(device_id.clone());
 
         // Initial state fetch
-        if !self.initial_fetch_done && client.is_some() {
-            self.initial_fetch_done = true;
-            self.fetch_state(client.as_deref_mut(), runtime, &device_id);
+        if !self.panel_state.initial_fetch_done && client.is_some() {
+            self.panel_state.initial_fetch_done = true;
+            self.fetch_state(client.as_mut().map(|c| &mut **c), runtime, &device_id);
         }
 
-        // Periodic state polling (every POLL_INTERVAL)
-        if client.is_some()
-            && self.actions_in_flight == 0
-            && self.last_poll_time.elapsed() >= POLL_INTERVAL
-        {
-            self.last_poll_time = Instant::now();
-            self.fetch_state(client.as_deref_mut(), runtime, &device_id);
+        self.queue_refresh_if_needed(client.as_mut().map(|c| &mut **c), runtime, &device_id);
+
+        if self.panel_state.should_refresh(POLL_INTERVAL) && client.is_some() {
+            self.fetch_state(client.as_mut().map(|c| &mut **c), runtime, &device_id);
         }
+
+        let is_busy = self.panel_state.is_busy();
+        let is_refreshing = self.panel_state.is_refreshing();
 
         // Request continuous repaint for polling
         ui.ctx().request_repaint_after(POLL_INTERVAL);
 
         // Header with device name
         ui.horizontal(|ui| {
-            ui.heading("🔴 MaiTai Ti:Sapphire Laser");
-            if is_refreshing {
+            ui.heading("MaiTai Ti:Sapphire Laser");
+            if self.state.loading || is_busy || is_refreshing {
                 ui.spinner();
             }
         });
@@ -518,7 +542,12 @@ impl DeviceControlWidget for MaiTaiControlPanel {
                     if ui.add(button).clicked() {
                         let new_state = !is_on;
                         tracing::info!("[GUI] Emission button clicked! Setting to {}", new_state);
-                        self.set_emission(client.as_deref_mut(), runtime, &device_id, new_state);
+                        self.set_emission(
+                            client.as_mut().map(|c| &mut **c),
+                            runtime,
+                            &device_id,
+                            new_state,
+                        );
                     }
                 });
 
@@ -536,7 +565,12 @@ impl DeviceControlWidget for MaiTaiControlPanel {
                     if ui.add(button).clicked() {
                         let new_state = !is_open;
                         tracing::info!("[GUI] Shutter button clicked! Setting to {}", new_state);
-                        self.set_shutter(client.as_deref_mut(), runtime, &device_id, new_state);
+                        self.set_shutter(
+                            client.as_mut().map(|c| &mut **c),
+                            runtime,
+                            &device_id,
+                            new_state,
+                        );
                     }
 
                     // Safety indicator - warn if shutter open but emission off
@@ -571,12 +605,18 @@ impl DeviceControlWidget for MaiTaiControlPanel {
             if ui.button("Set").clicked() {
                 if let Ok(wl) = self.wavelength_input.parse::<f64>() {
                     if (690.0..=1040.0).contains(&wl) {
-                        self.set_wavelength(client.as_deref_mut(), runtime, &device_id, wl);
+                        self.set_wavelength(
+                            client.as_mut().map(|c| &mut **c),
+                            runtime,
+                            &device_id,
+                            wl,
+                        );
                     } else {
-                        self.error = Some("Wavelength must be between 690-1040 nm".to_string());
+                        self.panel_state
+                            .set_error("Wavelength must be between 690-1040 nm");
                     }
                 } else {
-                    self.error = Some("Invalid wavelength value".to_string());
+                    self.panel_state.set_error("Invalid wavelength value");
                 }
             }
 
@@ -586,7 +626,7 @@ impl DeviceControlWidget for MaiTaiControlPanel {
                 && let Ok(wl) = self.wavelength_input.parse::<f64>()
                 && (690.0..=1040.0).contains(&wl)
             {
-                self.set_wavelength(client.as_deref_mut(), runtime, &device_id, wl);
+                self.set_wavelength(client.as_mut().map(|c| &mut **c), runtime, &device_id, wl);
             }
         });
 
@@ -612,7 +652,7 @@ impl DeviceControlWidget for MaiTaiControlPanel {
                 self.wavelength_dragging = false;
                 self.wavelength_input = format!("{:.1}", self.wavelength_slider);
                 self.set_wavelength(
-                    client.as_deref_mut(),
+                    client.as_mut().map(|c| &mut **c),
                     runtime,
                     &device_id,
                     self.wavelength_slider,
@@ -740,8 +780,8 @@ impl DeviceControlWidget for MaiTaiControlPanel {
 
         // Advanced section (collapsible)
         ui.collapsing("▶ Advanced Parameters", |ui| {
-            if ui.button("🔄 Refresh State").clicked() {
-                self.fetch_state(client, runtime, &device_id);
+            if ui.button("Refresh State").clicked() {
+                self.fetch_state(client.as_mut().map(|c| &mut **c), runtime, &device_id);
             }
 
             egui::Grid::new("maitai_params")
@@ -797,7 +837,7 @@ impl DeviceControlWidget for MaiTaiControlPanel {
         });
 
         // Request repaint if actions in flight
-        if self.actions_in_flight > 0 {
+        if self.panel_state.is_busy() || self.panel_state.is_refreshing() {
             ui.ctx().request_repaint();
         }
     }

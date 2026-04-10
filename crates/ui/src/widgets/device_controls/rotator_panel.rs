@@ -6,14 +6,16 @@
 //! - Home button
 //! - Direct position input
 
+use std::cell::Cell;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::runtime::Runtime;
+use crate::time::Instant;
 use egui::Ui;
 
 use crate::widgets::device_controls::{
-    DeviceControlWidget, DevicePanelState, LatestRequestTracker, action_button, device_info_rows,
-    panel_value_text, request_panel_repaint, scoped_widget_id, show_device_info_section,
+    DeviceControlWidget, DevicePanelState, action_button, device_info_rows, panel_value_text,
+    request_panel_repaint, scoped_widget_id, show_device_info_section,
     show_panel_columns_with_state, show_panel_header, show_panel_messages, show_panel_section,
 };
 use client::DaqClient;
@@ -36,14 +38,22 @@ enum ActionResult {
     Home(Result<(), String>),
 }
 
+#[derive(Clone, Copy)]
+enum RotatorUiAction {
+    MoveAbsolute(f64),
+    MoveRelative(f64),
+    Home,
+    Refresh,
+}
+
 /// ELL14 Rotator control panel
 pub struct RotatorControlPanel {
     /// Unique instance ID for diagnostic logging (identifies duplicate panels)
     panel_instance_id: u64,
     /// Common panel state (channels, errors, device_id, etc.)
     panel_state: DevicePanelState<ActionResult>,
-    fetch_request_tracker: LatestRequestTracker,
     refresh_after_command: bool,
+    last_command_time: Option<Instant>,
     state: RotatorState,
     position_input: String,
     position_input_editing: bool,
@@ -56,8 +66,8 @@ impl Default for RotatorControlPanel {
         Self {
             panel_instance_id,
             panel_state: DevicePanelState::new(),
-            fetch_request_tracker: LatestRequestTracker::default(),
             refresh_after_command: false,
+            last_command_time: None,
             state: RotatorState::default(),
             position_input: "0.0".to_string(),
             position_input_editing: false,
@@ -179,7 +189,14 @@ impl RotatorControlPanel {
             return;
         };
 
+        if !self.can_send_command() {
+            self.panel_state
+                .set_status("Please wait before sending another move command");
+            return;
+        }
+
         self.state.moving = true;
+        self.last_command_time = Some(Instant::now());
         self.panel_state.action_started();
         tracing::info!(
             panel_instance_id = self.panel_instance_id,
@@ -216,7 +233,14 @@ impl RotatorControlPanel {
             return;
         };
 
+        if !self.can_send_command() {
+            self.panel_state
+                .set_status("Please wait before sending another move command");
+            return;
+        }
+
         self.state.moving = true;
+        self.last_command_time = Some(Instant::now());
         self.panel_state.action_started();
         tracing::info!(
             panel_instance_id = self.panel_instance_id,
@@ -246,7 +270,14 @@ impl RotatorControlPanel {
             return;
         };
 
+        if !self.can_send_command() {
+            self.panel_state
+                .set_status("Please wait before sending another move command");
+            return;
+        }
+
         self.state.moving = true;
+        self.last_command_time = Some(Instant::now());
         self.panel_state.action_started();
         tracing::info!(
             panel_instance_id = self.panel_instance_id,
@@ -285,21 +316,26 @@ impl DeviceControlWidget for RotatorControlPanel {
 
         if !self.panel_state.initial_fetch_done && client.is_some() {
             self.panel_state.initial_fetch_done = true;
-            self.fetch_state(client.as_deref_mut(), runtime, &device_id);
+            self.fetch_state(client.as_mut().map(|c| &mut **c), runtime, &device_id);
         }
 
-        self.queue_refresh_if_needed(client.as_deref_mut(), runtime, &device_id);
+        self.queue_refresh_if_needed(client.as_mut().map(|c| &mut **c), runtime, &device_id);
 
         if self.panel_state.should_refresh(Self::REFRESH_INTERVAL) && client.is_some() {
-            self.fetch_state(client.as_deref_mut(), runtime, &device_id);
+            self.fetch_state(client.as_mut().map(|c| &mut **c), runtime, &device_id);
         }
 
         let is_busy = self.state.moving || self.panel_state.is_busy();
         let is_refreshing = self.panel_state.is_refreshing();
         let badge = None;
+        let pending_action = Cell::new(None);
 
         show_panel_header(ui, "Rotator", badge, is_busy, is_refreshing);
-        show_panel_messages(ui, &self.panel_state.error, &self.panel_state.status);
+        show_panel_messages(
+            ui,
+            self.panel_state.error.as_deref(),
+            self.panel_state.status.as_deref(),
+        );
         ui.add_space(8.0);
 
         show_panel_columns_with_state(
@@ -328,13 +364,9 @@ impl DeviceControlWidget for RotatorControlPanel {
                         ui.label("°");
                         panel.position_input_editing = response.has_focus();
 
-                        let mut submit_absolute = |panel: &mut Self, value: f64| {
-                            panel.move_absolute(client.as_deref_mut(), runtime, &device_id, value);
-                        };
-
                         if ui.add_enabled(!is_busy, action_button("Go")).clicked() {
                             if let Ok(pos) = panel.position_input.parse::<f64>() {
-                                submit_absolute(panel, pos);
+                                pending_action.set(Some(RotatorUiAction::MoveAbsolute(pos)));
                             } else {
                                 panel.panel_state.set_error("Invalid position value");
                             }
@@ -345,7 +377,7 @@ impl DeviceControlWidget for RotatorControlPanel {
                             && !is_busy
                         {
                             if let Ok(pos) = panel.position_input.parse::<f64>() {
-                                submit_absolute(panel, pos);
+                                pending_action.set(Some(RotatorUiAction::MoveAbsolute(pos)));
                             } else {
                                 panel.panel_state.set_error("Invalid position value");
                             }
@@ -360,12 +392,7 @@ impl DeviceControlWidget for RotatorControlPanel {
                                 .add_enabled(!is_busy, action_button(format!("{angle}°")))
                                 .clicked()
                             {
-                                panel.move_absolute(
-                                    client.as_deref_mut(),
-                                    runtime,
-                                    &device_id,
-                                    angle,
-                                );
+                                pending_action.set(Some(RotatorUiAction::MoveAbsolute(angle)));
                             }
                         }
                     });
@@ -382,29 +409,24 @@ impl DeviceControlWidget for RotatorControlPanel {
                             ("+90°", 90.0),
                         ] {
                             if ui.add_enabled(!is_busy, action_button(label)).clicked() {
-                                panel.move_relative(
-                                    client.as_deref_mut(),
-                                    runtime,
-                                    &device_id,
-                                    delta,
-                                );
+                                pending_action.set(Some(RotatorUiAction::MoveRelative(delta)));
                             }
                         }
                     });
                 });
             },
-            |ui, panel| {
+            |ui, _panel| {
                 show_panel_section(ui, "Actions", |ui| {
                     ui.horizontal_wrapped(|ui| {
                         if ui.add_enabled(!is_busy, action_button("Home")).clicked() {
-                            panel.home(client.as_deref_mut(), runtime, &device_id);
+                            pending_action.set(Some(RotatorUiAction::Home));
                         }
 
                         if ui
                             .add_enabled(!is_refreshing, action_button("Refresh"))
                             .clicked()
                         {
-                            panel.fetch_state(client.as_deref_mut(), runtime, &device_id);
+                            pending_action.set(Some(RotatorUiAction::Refresh));
                         }
                     });
 
@@ -418,6 +440,33 @@ impl DeviceControlWidget for RotatorControlPanel {
                 });
             },
         );
+
+        if let Some(action) = pending_action.get() {
+            match action {
+                RotatorUiAction::MoveAbsolute(position) => {
+                    self.move_absolute(
+                        client.as_mut().map(|c| &mut **c),
+                        runtime,
+                        &device_id,
+                        position,
+                    );
+                }
+                RotatorUiAction::MoveRelative(delta) => {
+                    self.move_relative(
+                        client.as_mut().map(|c| &mut **c),
+                        runtime,
+                        &device_id,
+                        delta,
+                    );
+                }
+                RotatorUiAction::Home => {
+                    self.home(client.as_mut().map(|c| &mut **c), runtime, &device_id);
+                }
+                RotatorUiAction::Refresh => {
+                    self.fetch_state(client.as_mut().map(|c| &mut **c), runtime, &device_id);
+                }
+            }
+        }
 
         request_panel_repaint(ui, is_busy || is_refreshing);
     }
@@ -446,8 +495,8 @@ mod tests {
 
         // No refresh should be in flight initially
         assert!(
-            !panel.refresh_in_flight,
-            "refresh_in_flight should be false on creation"
+            !panel.panel_state.is_refreshing(),
+            "panel should not start in a refreshing state"
         );
 
         // Auto-refresh should be enabled by default
@@ -695,35 +744,31 @@ mod tests {
         }
     }
 
-    /// Test that refresh_in_flight is tracked separately from actions_in_flight.
+    /// Test that refresh tracking is separate from actions_in_flight.
     /// This is critical because status refreshes should NOT disable user controls.
     #[test]
-    fn test_refresh_in_flight_separate_from_actions() {
+    fn test_refresh_tracking_separate_from_actions() {
         let mut panel = RotatorControlPanel::default();
 
-        // Initially both false/zero
-        assert!(!panel.refresh_in_flight);
+        assert!(!panel.panel_state.is_refreshing());
         assert_eq!(panel.panel_state.actions_in_flight, 0);
 
-        // Setting refresh_in_flight should not affect actions_in_flight
-        panel.refresh_in_flight = true;
-        assert!(panel.refresh_in_flight);
+        panel.panel_state.background_task_started();
+        assert!(panel.panel_state.is_refreshing());
         assert_eq!(
             panel.panel_state.actions_in_flight, 0,
             "refresh should not affect actions count"
         );
 
-        // Setting actions_in_flight should not affect refresh_in_flight
         panel.panel_state.actions_in_flight = 1;
         assert!(
-            panel.refresh_in_flight,
-            "actions should not affect refresh flag"
+            panel.panel_state.is_refreshing(),
+            "actions should not affect refresh state"
         );
         assert_eq!(panel.panel_state.actions_in_flight, 1);
 
-        // Clear refresh but keep action
-        panel.refresh_in_flight = false;
-        assert!(!panel.refresh_in_flight);
+        panel.panel_state.background_task_completed();
+        assert!(!panel.panel_state.is_refreshing());
         assert_eq!(
             panel.panel_state.actions_in_flight, 1,
             "clearing refresh should not affect actions"

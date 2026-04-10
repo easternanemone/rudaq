@@ -47,6 +47,16 @@ pub trait DeviceControlWidget {
         runtime: &Runtime,
     );
 
+    /// Queue a follow-up refresh after a command completes.
+    #[allow(unused_variables)]
+    fn queue_refresh_if_needed(
+        &mut self,
+        client: Option<&mut DaqClient>,
+        runtime: &Runtime,
+        device_id: &str,
+    ) {
+    }
+
     /// Return the device type this widget handles
     #[allow(unused)]
     fn device_type(&self) -> &'static str;
@@ -284,7 +294,7 @@ pub(crate) fn request_panel_repaint(ui: &Ui, active: bool) {
     }
 }
 
-pub(crate) fn show_panel_messages(ui: &mut Ui, error: &Option<String>, status: &Option<String>) {
+pub(crate) fn show_panel_messages(ui: &mut Ui, error: Option<&str>, status: Option<&str>) {
     if let Some(err) = error {
         ui.colored_label(layout::colors::ERROR, err);
     }
@@ -396,6 +406,8 @@ pub struct DevicePanelState<R> {
     pub actions_in_flight: usize,
     /// Number of background refresh operations in flight
     pub background_tasks_in_flight: usize,
+    /// Whether a follow-up refresh should be triggered after the current command completes
+    pub refresh_after_command: bool,
     /// Error message to display in UI (red text)
     pub error: Option<String>,
     /// Status message to display in UI (green text)
@@ -422,6 +434,7 @@ impl<R> DevicePanelState<R> {
             action_rx,
             actions_in_flight: 0,
             background_tasks_in_flight: 0,
+            refresh_after_command: false,
             error: None,
             status: None,
             device_id: None,
@@ -458,6 +471,12 @@ impl<R> DevicePanelState<R> {
     /// Call this after initiating a refresh action to reset the interval timer.
     pub fn mark_refreshed(&mut self) {
         self.last_refresh = Some(crate::time::Instant::now());
+    }
+
+    /// Record that a background refresh has started.
+    pub fn record_background_task_start(&mut self) {
+        self.mark_refreshed();
+        self.background_task_started();
     }
 
     /// Decrement the in-flight action counter (saturating at 0).
@@ -507,6 +526,26 @@ impl<R> DevicePanelState<R> {
         self.status = Some(msg.into());
         self.error = None;
     }
+
+    /// Clear the current error message.
+    pub fn clear_error(&mut self) {
+        self.error = None;
+    }
+
+    /// Request a follow-up refresh after the active command completes.
+    pub fn request_refresh_after_command(&mut self) {
+        self.refresh_after_command = true;
+    }
+
+    /// Consume the follow-up refresh request flag.
+    pub fn consume_refresh_after_command(&mut self) -> bool {
+        std::mem::take(&mut self.refresh_after_command)
+    }
+
+    /// Render the current status and error messages.
+    pub fn render_status_and_errors(&self, ui: &mut Ui) {
+        show_panel_messages(ui, self.error.as_deref(), self.status.as_deref());
+    }
 }
 
 impl<R> Default for DevicePanelState<R> {
@@ -531,6 +570,7 @@ mod tests {
         let state: DevicePanelState<TestAction> = DevicePanelState::new();
         assert_eq!(state.actions_in_flight, 0);
         assert_eq!(state.background_tasks_in_flight, 0);
+        assert!(!state.refresh_after_command);
         assert_eq!(state.error, None);
         assert_eq!(state.status, None);
         assert_eq!(state.device_id, None);

@@ -288,13 +288,13 @@ impl DeviceControlWidget for StageControlPanel {
 
         if !self.panel_state.initial_fetch_done && client.is_some() {
             self.panel_state.initial_fetch_done = true;
-            self.fetch_state(client.as_deref_mut(), runtime, &device_id);
+            self.fetch_state(client.as_mut().map(|c| &mut **c), runtime, &device_id);
         }
 
-        self.queue_refresh_if_needed(client.as_deref_mut(), runtime, &device_id);
+        self.queue_refresh_if_needed(client.as_mut().map(|c| &mut **c), runtime, &device_id);
 
         if self.panel_state.should_refresh(Self::REFRESH_INTERVAL) && client.is_some() {
-            self.fetch_state(client.as_deref_mut(), runtime, &device_id);
+            self.fetch_state(client.as_mut().map(|c| &mut **c), runtime, &device_id);
         }
 
         let is_busy = self.state.moving || self.panel_state.is_busy();
@@ -307,7 +307,11 @@ impl DeviceControlWidget for StageControlPanel {
         let pending_action = Cell::new(None);
 
         show_panel_header(ui, "Stage", badge, is_busy, is_refreshing);
-        show_panel_messages(ui, &self.panel_state.error, &self.panel_state.status);
+        show_panel_messages(
+            ui,
+            self.panel_state.error.as_deref(),
+            self.panel_state.status.as_deref(),
+        );
         ui.add_space(8.0);
 
         show_panel_columns_with_state(
@@ -423,19 +427,28 @@ impl DeviceControlWidget for StageControlPanel {
         if let Some(action) = pending_action.get() {
             match action {
                 StageUiAction::SubmitAbsolute => {
-                    self.try_submit_absolute(client.as_deref_mut(), runtime, &device_id);
+                    self.try_submit_absolute(
+                        client.as_mut().map(|c| &mut **c),
+                        runtime,
+                        &device_id,
+                    );
                 }
                 StageUiAction::MoveRelative(delta) => {
-                    self.move_relative(client.as_deref_mut(), runtime, &device_id, delta);
+                    self.move_relative(
+                        client.as_mut().map(|c| &mut **c),
+                        runtime,
+                        &device_id,
+                        delta,
+                    );
                 }
                 StageUiAction::Home => {
-                    self.home(client.as_deref_mut(), runtime, &device_id);
+                    self.home(client.as_mut().map(|c| &mut **c), runtime, &device_id);
                 }
                 StageUiAction::Stop => {
-                    self.stop(client.as_deref_mut(), runtime, &device_id);
+                    self.stop(client.as_mut().map(|c| &mut **c), runtime, &device_id);
                 }
                 StageUiAction::Refresh => {
-                    self.fetch_state(client.as_deref_mut(), runtime, &device_id);
+                    self.fetch_state(client.as_mut().map(|c| &mut **c), runtime, &device_id);
                 }
             }
         }

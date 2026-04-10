@@ -411,7 +411,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::nodes::{
+    use crate::nodes::{
         AcquireConfig, LoopConfig, LoopTermination, MoveConfig, MoveMode, NestedScanConfig,
         ScanDimension,
     };
@@ -787,7 +787,7 @@ mod tests {
 
     #[test]
     fn test_adaptive_scan_validation_empty_actuator() {
-        use crate::graph::nodes::{
+        use crate::nodes::{
             AdaptiveAction, AdaptiveScanConfig, ScanDimension, TriggerCondition, TriggerLogic,
         };
 
@@ -815,9 +815,7 @@ mod tests {
 
     #[test]
     fn test_adaptive_scan_validation_no_triggers() {
-        use crate::graph::nodes::{
-            AdaptiveAction, AdaptiveScanConfig, ScanDimension, TriggerLogic,
-        };
+        use crate::nodes::{AdaptiveAction, AdaptiveScanConfig, ScanDimension, TriggerLogic};
 
         let config = AdaptiveScanConfig {
             scan: ScanDimension {
@@ -843,7 +841,7 @@ mod tests {
 
     #[test]
     fn test_adaptive_scan_validation_trigger_no_device() {
-        use crate::graph::nodes::{
+        use crate::nodes::{
             AdaptiveAction, AdaptiveScanConfig, ScanDimension, ThresholdOp, TriggerCondition,
             TriggerLogic,
         };
@@ -878,7 +876,7 @@ mod tests {
 
     #[test]
     fn test_adaptive_scan_validation_peak_prominence() {
-        use crate::graph::nodes::{
+        use crate::nodes::{
             AdaptiveAction, AdaptiveScanConfig, ScanDimension, TriggerCondition, TriggerLogic,
         };
 
@@ -910,7 +908,7 @@ mod tests {
 
     #[test]
     fn test_adaptive_scan_validation_valid() {
-        use crate::graph::nodes::{
+        use crate::nodes::{
             AdaptiveAction, AdaptiveScanConfig, ScanDimension, ThresholdOp, TriggerCondition,
             TriggerLogic,
         };
@@ -950,9 +948,7 @@ mod tests {
 
     #[test]
     fn test_adaptive_scan_in_graph_validation() {
-        use crate::graph::nodes::{
-            AdaptiveAction, AdaptiveScanConfig, ScanDimension, TriggerLogic,
-        };
+        use crate::nodes::{AdaptiveAction, AdaptiveScanConfig, ScanDimension, TriggerLogic};
 
         let mut snarl = egui_snarl::Snarl::new();
 

@@ -126,9 +126,9 @@ async fn test_serial_multiple_queries() {
     });
 
     // Simulate device responding to multiple queries
-    harness.expect_and_respond(b"QUERY1\r", b"RESP1\r\n").await;
-    harness.expect_and_respond(b"QUERY2\r", b"RESP2\r\n").await;
-    harness.expect_and_respond(b"QUERY3\r", b"RESP3\r\n").await;
+    let _ = harness.expect_and_respond(b"QUERY1\r", b"RESP1\r\n").await;
+    let _ = harness.expect_and_respond(b"QUERY2\r", b"RESP2\r\n").await;
+    let _ = harness.expect_and_respond(b"QUERY3\r", b"RESP3\r\n").await;
 
     let results = app_task.await.unwrap();
     assert_eq!(results, vec!["RESP1", "RESP2", "RESP3"]);

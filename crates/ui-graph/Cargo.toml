@@ -41,3 +41,6 @@ web-time = "1"
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
