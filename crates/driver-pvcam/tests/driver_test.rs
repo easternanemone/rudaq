@@ -468,7 +468,10 @@ mod hardware_driver {
         if let Some(param) = driver.parameters().get("acquisition.clear_mode") {
             match param.set_json(json!("PreExposure")) {
                 Ok(()) => println!("[OK] Clear mode set to PreExposure"),
-                Err(e) => println!("[WARN] Could not set clear_mode to PreExposure ({}); using current value", e),
+                Err(e) => println!(
+                    "[WARN] Could not set clear_mode to PreExposure ({}); using current value",
+                    e
+                ),
             }
         }
 
@@ -476,7 +479,10 @@ mod hardware_driver {
         if let Some(param) = driver.parameters().get("acquisition.trigger_mode") {
             match param.set_json(json!("Timed")) {
                 Ok(()) => println!("[OK] Trigger mode set to Timed"),
-                Err(e) => println!("[WARN] Could not set trigger_mode to Timed ({}); using current value", e),
+                Err(e) => println!(
+                    "[WARN] Could not set trigger_mode to Timed ({}); using current value",
+                    e
+                ),
             }
         }
 

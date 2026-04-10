@@ -118,14 +118,19 @@ async fn verify_parameter_persistence() {
         match param.set_json(alternate.clone()) {
             Ok(()) => {
                 let val = param.get_json().unwrap();
-                assert_eq!(val, alternate, "Trigger mode not updated after successful set");
+                assert_eq!(
+                    val, alternate,
+                    "Trigger mode not updated after successful set"
+                );
             }
             Err(e) => {
                 // Some hardware configurations deny trigger mode changes after open
                 // (e.g. PL_ERR_ACCESS_DENIED). Verify read still works.
                 let val = param.get_json().unwrap();
-                assert!(choices.contains(&val.as_str().unwrap_or("").to_string()),
-                    "Trigger mode value must be in choices even when set is denied: {e}");
+                assert!(
+                    choices.contains(&val.as_str().unwrap_or("").to_string()),
+                    "Trigger mode value must be in choices even when set is denied: {e}"
+                );
             }
         }
     }

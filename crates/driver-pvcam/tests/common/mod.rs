@@ -309,10 +309,7 @@ impl FrameValidator {
         if actual_written != expected_bytes {
             return Err(format!(
                 "Data size mismatch: expected {} bytes ({} pixels × {} bytes/pixel), got {} bytes",
-                expected_bytes,
-                self.expected_pixel_count,
-                self.bytes_per_pixel,
-                actual_written
+                expected_bytes, self.expected_pixel_count, self.bytes_per_pixel, actual_written
             ));
         }
 

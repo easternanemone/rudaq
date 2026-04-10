@@ -68,7 +68,9 @@ async fn test_t9_rocksdb_persistence_across_restart() {
     );
 
     // Second boot: re-open and verify data persists
-    let db = DaqDb::init(DbConfig::file(db_path.display().to_string())).await.unwrap();
+    let db = DaqDb::init(DbConfig::file(db_path.display().to_string()))
+        .await
+        .unwrap();
 
     let instruments = db.get_all_instruments().await.unwrap();
     assert_eq!(

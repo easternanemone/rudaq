@@ -179,8 +179,13 @@ async fn test_frame_timing_semantics() {
             // repeatedly once the buffer is exhausted (no error, just repeated
             // frame_nr). Stop on the first duplicate to avoid spurious failures.
             if last_frame_nr == Some(fi.FrameNr) {
-                println!("  [{}] Duplicate FrameNr={} — buffer exhausted, stopping", i, fi.FrameNr);
-                unsafe { pl_exp_unlock_oldest_frame(hcam); }
+                println!(
+                    "  [{}] Duplicate FrameNr={} — buffer exhausted, stopping",
+                    i, fi.FrameNr
+                );
+                unsafe {
+                    pl_exp_unlock_oldest_frame(hcam);
+                }
                 break;
             }
 

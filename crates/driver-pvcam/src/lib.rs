@@ -94,9 +94,7 @@ impl WeakConn {
         Self(Arc::downgrade(conn))
     }
 
-    async fn lock_owned(
-        &self,
-    ) -> Result<tokio::sync::OwnedMutexGuard<PvcamConnection>, DaqError> {
+    async fn lock_owned(&self) -> Result<tokio::sync::OwnedMutexGuard<PvcamConnection>, DaqError> {
         let arc = self
             .0
             .upgrade()
