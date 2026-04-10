@@ -101,18 +101,23 @@ async fn verify_parameter_persistence() {
     let val = params.get("thermal.fan_speed").unwrap().get_json().unwrap();
     assert_eq!(val, json!("Medium"), "Fan speed not updated");
 
-    // 3. Exposure Mode
-    params
-        .get("acquisition.trigger_mode")
-        .unwrap()
-        .set_json(json!("EdgeTrigger"))
-        .unwrap();
-    let val = params
-        .get("acquisition.trigger_mode")
-        .unwrap()
-        .get_json()
-        .unwrap();
-    assert_eq!(val, json!("EdgeTrigger"), "Trigger mode not updated");
+    // 3. Trigger Mode — pick a non-default choice from whatever the driver exposes.
+    // In mock mode choices are camelCase ("EdgeTrigger"); in pvcam_sdk mode they
+    // are SDK strings ("Edge Trigger"). The test verifies set+get round-trips, not
+    // a specific string value.
+    {
+        let param = params.get("acquisition.trigger_mode").unwrap();
+        let current = param.get_json().unwrap();
+        let choices = param.metadata().enum_values;
+        let alternate = choices
+            .iter()
+            .find(|c| json!(c.as_str()) != current)
+            .map(|c| json!(c.as_str()))
+            .unwrap_or_else(|| current.clone());
+        param.set_json(alternate.clone()).unwrap();
+        let val = param.get_json().unwrap();
+        assert_eq!(val, alternate, "Trigger mode not updated");
+    }
 
     // 4. Clear Mode
     params

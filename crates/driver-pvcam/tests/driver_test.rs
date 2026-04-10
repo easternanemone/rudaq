@@ -466,14 +466,18 @@ mod hardware_driver {
 
         // Ensure clear mode is PreExposure
         if let Some(param) = driver.parameters().get("acquisition.clear_mode") {
-            param.set_json(json!("PreExposure")).unwrap();
-            println!("[OK] Clear mode set to PreExposure");
+            match param.set_json(json!("PreExposure")) {
+                Ok(()) => println!("[OK] Clear mode set to PreExposure"),
+                Err(e) => println!("[WARN] Could not set clear_mode to PreExposure ({}); using current value", e),
+            }
         }
 
         // Ensure trigger mode is Timed
         if let Some(param) = driver.parameters().get("acquisition.trigger_mode") {
-            param.set_json(json!("Timed")).unwrap();
-            println!("[OK] Trigger mode set to Timed");
+            match param.set_json(json!("Timed")) {
+                Ok(()) => println!("[OK] Trigger mode set to Timed"),
+                Err(e) => println!("[WARN] Could not set trigger_mode to Timed ({}); using current value", e),
+            }
         }
 
         // Register output BEFORE starting stream (primary_tx is captured at stream start)
