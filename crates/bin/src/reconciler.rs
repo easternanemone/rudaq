@@ -405,13 +405,12 @@ pub async fn reconcile_once(
 
     // 3a. Remove: in registry but not desired.
     for device in &current_devices {
-        let id_str = device.id.to_string();
-        if !desired.contains_key(&id_str) {
+        if !desired.contains_key(&*device.id) {
             match registry.unregister(&device.id).await {
                 Ok(true) => {
                     info!(device_id = %device.id, "reconciler: removed device");
                     cleanup_device_features(db, &device.id).await;
-                    report.removed.push(id_str);
+                    report.removed.push(device.id.to_string());
                 }
                 Ok(false) => {
                     // Already gone (concurrent removal)
