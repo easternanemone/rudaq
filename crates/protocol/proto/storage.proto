@@ -329,8 +329,7 @@ message StreamRecordingProgressRequest {
 
 message RecordingProgress {
   string scan_id = 1;
-  // NOTE: ScanState is defined in experiment.proto (same package)
-  ScanState state = 2;
+  RecordingState state = 2;
   uint64 timestamp_ns = 3;
 
   // Incremental progress

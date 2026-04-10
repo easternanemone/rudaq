@@ -364,7 +364,7 @@ async fn matrix_db_manifest_features_persisted() {
         .manifest_features
         .iter()
         .map(|mf| db::config_store::DbDeviceFeature {
-            device_id: device.id.clone(),
+            device_id: device.id.to_string(),
             feature_name: mf.name.clone(),
             feature_type: mf.feature_type.clone(),
             readable: mf.readable,
@@ -712,7 +712,7 @@ async fn matrix_db_on_hybrid_driver_metadata_parity() {
         .devices
         .iter()
         .map(|device| DbInstrument {
-            device_id: device.id.clone(),
+            device_id: device.id.to_string(),
             name: device.name.clone(),
             driver_type: device.driver.driver_type.clone(),
             config: toml_to_json(&device.driver.config),

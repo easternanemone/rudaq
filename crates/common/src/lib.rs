@@ -52,6 +52,7 @@ pub mod validation;
 
 pub mod error_recovery;
 pub mod experiment;
+pub mod ffi_timeout;
 pub mod health;
 pub mod limits;
 pub mod log_scrubbing;

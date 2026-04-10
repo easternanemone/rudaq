@@ -114,10 +114,13 @@ pub struct DeviceHealthEvent {
 // Device Identification
 // =============================================================================
 
-/// Unique identifier for a registered device
+/// Re-export the canonical `DeviceId` from `common-traits`.
 ///
-/// Format: lowercase alphanumeric with underscores (e.g., "power_meter", "rotator_2")
-pub type DeviceId = String;
+/// `DeviceId` is an `Arc<str>`-backed newtype with cheap cloning (ref-count
+/// bump, not heap copy). Implements `Deref<Target = str>` so `&DeviceId`
+/// auto-coerces to `&str` — all existing APIs accepting `&str` work
+/// transparently with `&DeviceId`.
+pub use common::device_id::DeviceId;
 
 // =============================================================================
 // Device Configuration
@@ -992,9 +995,9 @@ impl DeviceRegistryInner {
             raw_config,
         );
 
-        self.devices.insert(device_id.to_string(), registered);
+        self.devices.insert(DeviceId::from(device_id), registered);
         self.device_health
-            .insert(device_id.to_string(), DeviceHealthState::new());
+            .insert(DeviceId::from(device_id), DeviceHealthState::new());
         tracing::info!(device_id = %device_id, "Device registered successfully");
         Ok(())
     }
@@ -1012,7 +1015,7 @@ impl DeviceRegistryInner {
         raw_config: toml::Value,
     ) -> RegisteredDevice {
         let config = DeviceConfig {
-            id: device_id,
+            id: DeviceId::from(device_id.as_str()),
             name: device_name,
             driver: DriverConfig::new(driver_type.clone(), raw_config),
             enabled: true,
@@ -1190,7 +1193,7 @@ impl DeviceRegistryInner {
     pub async fn shutdown_all(&self) -> Result<(), DaqError> {
         use futures::stream::{self, StreamExt};
 
-        let device_ids: Vec<String> = self
+        let device_ids: Vec<DeviceId> = self
             .devices
             .iter()
             .map(|entry| entry.key().clone())
@@ -1243,7 +1246,7 @@ impl DeviceRegistryInner {
             "Device registration failed"
         );
         self.registration_failures
-            .insert(failure.device_id.clone(), failure);
+            .insert(DeviceId::from(failure.device_id.as_str()), failure);
     }
 
     /// List all registration failures
@@ -1538,13 +1541,13 @@ impl DeviceRegistryInner {
                     consecutive_failures: state.consecutive_failures,
                     restart_attempts: state.restart_attempts,
                 });
-                self.device_health.insert(device_id.to_string(), state);
+                self.device_health.insert(DeviceId::from(device_id), state);
 
                 // Re-insert a stub device entry so the supervisor can retry.
                 // Without this, the config is lost and the device becomes
                 // permanently unreachable (devices map empty, health shows Faulted).
                 self.devices.insert(
-                    device_id.to_string(),
+                    DeviceId::from(device_id),
                     RegisteredDevice {
                         config: device_config,
                         driver_type: old_driver_type,
@@ -1823,7 +1826,7 @@ impl DeviceRegistryInner {
     /// and `Idle` when done. The reconciler checks this before calling
     /// `reconfigure()` to avoid changing hardware config mid-measurement.
     pub fn set_measurement_lock(&self, id: &str, lock: common::capabilities::MeasurementLock) {
-        self.measurement_locks.insert(id.to_string(), lock);
+        self.measurement_locks.insert(DeviceId::from(id), lock);
     }
 
     /// Check whether a device is idle (safe to reconfigure).
@@ -2026,7 +2029,7 @@ impl DeviceRegistryInner {
                 }
 
                 if !device_params.is_empty() {
-                    snapshot.insert(device_id.clone(), device_params);
+                    snapshot.insert(device_id.to_string(), device_params);
                 }
             }
         }
@@ -2273,7 +2276,7 @@ pub async fn populate_registry_from_config(
         if let Err(e) = result {
             failure_count += 1;
             registry.record_registration_failure(RegistrationFailure {
-                device_id: device_config.id.clone(),
+                device_id: device_config.id.to_string(),
                 device_name: device_config.name.clone(),
                 driver_type: driver_type.clone(),
                 error: e.to_string(),
@@ -2612,11 +2615,11 @@ initial_position = 0.0
 
         let movables = registry.devices_with_capability(Capability::Movable);
         assert_eq!(movables.len(), 1);
-        assert!(movables.contains(&"mock_stage".to_string()));
+        assert!(movables.iter().any(|id| id == "mock_stage"));
 
         let readables = registry.devices_with_capability(Capability::Readable);
         assert_eq!(readables.len(), 1);
-        assert!(readables.contains(&"mock_power_meter".to_string()));
+        assert!(readables.iter().any(|id| id == "mock_power_meter"));
     }
 
     #[tokio::test]

@@ -62,11 +62,11 @@ async fn setup_watch_env() -> (
 
                     let current_devices = reg2.list_devices();
                     let current_ids: HashSet<String> =
-                        current_devices.iter().map(|d| d.id.clone()).collect();
+                        current_devices.iter().map(|d| d.id.to_string()).collect();
 
                     // Remove: in registry but not desired
                     for device in &current_devices {
-                        if !desired.contains_key(&device.id) {
+                        if !desired.contains_key(device.id.as_str()) {
                             let _ = reg2.unregister(&device.id).await;
                         }
                     }

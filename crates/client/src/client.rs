@@ -80,8 +80,6 @@ use protocol::daq::{
     ClearCalibrationSnapshotRequest,
     ClearCalibrationSnapshotResponse,
     CreateModuleRequest,
-    // Scan types
-    CreateScanRequest,
     // Request/Response types
     DaemonInfoRequest,
     DeviceCommandRequest,
@@ -105,20 +103,16 @@ use protocol::daq::{
     ListModulesRequest,
     // Parameter types (bd-cdh5.1)
     ListParametersRequest,
-    ListScansRequest,
     ListScriptsRequest,
     MoveRequest,
     ObservableValue,
     PauseEngineRequest,
     PauseEngineResponse,
-    PauseScanRequest,
     QueuePlanRequest,
     QueuePlanResponse,
     ReadValueRequest,
     ResumeEngineRequest,
     ResumeEngineResponse,
-    ResumeScanRequest,
-    ScanConfig,
     SetCalibrationSnapshotRequest,
     SetCalibrationSnapshotResponse,
     SetEmissionRequest,
@@ -134,14 +128,12 @@ use protocol::daq::{
     // Script execution types (Phase 6: bd-uu9t)
     StartRequest as ScriptStartRequest,
     StartResponse as ScriptStartResponse,
-    StartScanRequest,
     // Camera streaming with quality control
     StartStreamRequest,
     StopModuleRequest,
     StopRecordingRequest,
     StopRequest as ScriptStopRequest,
     StopResponse as ScriptStopResponse,
-    StopScanRequest,
     StopStreamRequest,
     StreamDocumentsRequest,
     StreamEngineStatusRequest,
@@ -155,7 +147,6 @@ use protocol::daq::{
     hardware_service_client::HardwareServiceClient,
     module_service_client::ModuleServiceClient,
     run_engine_service_client::RunEngineServiceClient,
-    scan_service_client::ScanServiceClient,
     storage_service_client::StorageServiceClient,
 };
 use protocol::ni_daq::ni_daq_service_client::NiDaqServiceClient;
@@ -171,7 +162,6 @@ pub struct DaqClient {
     hardware: HardwareServiceClient<Transport>,
     /// Dedicated client for streaming RPCs (no request timeout on native)
     hardware_streaming: HardwareServiceClient<Transport>,
-    scan: ScanServiceClient<Transport>,
     storage: StorageServiceClient<Transport>,
     module: ModuleServiceClient<Transport>,
     run_engine: RunEngineServiceClient<Transport>,
@@ -264,7 +254,6 @@ impl DaqClient {
             // Dedicated streaming client without request timeout
             hardware_streaming: HardwareServiceClient::new(streaming_channel.clone())
                 .max_decoding_message_size(MAX_MESSAGE_SIZE),
-            scan: ScanServiceClient::new(channel.clone()),
             storage: StorageServiceClient::new(channel.clone()),
             module: ModuleServiceClient::new(channel.clone()),
             run_engine: RunEngineServiceClient::new(channel.clone()),
@@ -302,7 +291,6 @@ impl DaqClient {
                 .max_decoding_message_size(MAX_MESSAGE_SIZE),
             hardware_streaming: HardwareServiceClient::new(client.clone())
                 .max_decoding_message_size(MAX_MESSAGE_SIZE),
-            scan: ScanServiceClient::new(client.clone()),
             storage: StorageServiceClient::new(client.clone()),
             module: ModuleServiceClient::new(client.clone()),
             run_engine: RunEngineServiceClient::new(client.clone()),
@@ -540,81 +528,6 @@ impl DaqClient {
     // =========================================================================
     // Scan Service
     // =========================================================================
-
-    /// List all scans
-    pub async fn list_scans(&mut self) -> Result<Vec<protocol::daq::ScanStatus>> {
-        let response = self
-            .scan
-            .list_scans(ListScansRequest { state_filter: None })
-            .await?;
-        Ok(response.into_inner().scans)
-    }
-
-    /// Create a new scan
-    pub async fn create_scan(
-        &mut self,
-        config: ScanConfig,
-    ) -> Result<protocol::daq::CreateScanResponse> {
-        let response = self
-            .scan
-            .create_scan(CreateScanRequest {
-                config: Some(config),
-            })
-            .await?;
-        Ok(response.into_inner())
-    }
-
-    /// Start a scan
-    pub async fn start_scan(&mut self, scan_id: &str) -> Result<protocol::daq::StartScanResponse> {
-        let response = self
-            .scan
-            .start_scan(StartScanRequest {
-                scan_id: scan_id.to_string(),
-            })
-            .await?;
-        Ok(response.into_inner())
-    }
-
-    /// Pause a scan
-    pub async fn pause_scan(&mut self, scan_id: &str) -> Result<protocol::daq::PauseScanResponse> {
-        let response = self
-            .scan
-            .pause_scan(PauseScanRequest {
-                scan_id: scan_id.to_string(),
-            })
-            .await?;
-        Ok(response.into_inner())
-    }
-
-    /// Resume a scan
-    pub async fn resume_scan(
-        &mut self,
-        scan_id: &str,
-    ) -> Result<protocol::daq::ResumeScanResponse> {
-        let response = self
-            .scan
-            .resume_scan(ResumeScanRequest {
-                scan_id: scan_id.to_string(),
-            })
-            .await?;
-        Ok(response.into_inner())
-    }
-
-    /// Stop a scan
-    pub async fn stop_scan(
-        &mut self,
-        scan_id: &str,
-        emergency: bool,
-    ) -> Result<protocol::daq::StopScanResponse> {
-        let response = self
-            .scan
-            .stop_scan(StopScanRequest {
-                scan_id: scan_id.to_string(),
-                emergency_stop: emergency,
-            })
-            .await?;
-        Ok(response.into_inner())
-    }
 
     // =========================================================================
     // Storage Service

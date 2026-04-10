@@ -60,7 +60,7 @@ fn devices_to_db(config: &HardwareConfig) -> Vec<DbInstrument> {
         .devices
         .iter()
         .map(|d| DbInstrument {
-            device_id: d.id.clone(),
+            device_id: d.id.to_string(),
             name: d.name.clone(),
             driver_type: d.driver.driver_type.clone(),
             config: toml_to_json(&d.driver.config),

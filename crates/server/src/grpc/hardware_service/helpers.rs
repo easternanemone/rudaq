@@ -300,7 +300,7 @@ pub(super) fn device_info_to_proto_with_health(
 
     #[allow(deprecated)]
     DeviceInfo {
-        id: info.id.clone(),
+        id: info.id.to_string(),
         name: info.name.clone(),
         driver_type: info.driver_type.clone(),
         category: category as i32,

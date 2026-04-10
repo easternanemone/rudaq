@@ -20,7 +20,7 @@ pub fn devices_to_db(config: &HardwareConfig) -> Vec<DbInstrument> {
         .devices
         .iter()
         .map(|d| DbInstrument {
-            device_id: d.id.clone(),
+            device_id: d.id.to_string(),
             name: d.name.clone(),
             driver_type: d.driver.driver_type.clone(),
             config: toml_to_json(&d.driver.config),
@@ -82,7 +82,7 @@ pub fn db_to_hardware_config(instruments: &[DbInstrument]) -> HardwareConfig {
     let devices = instruments
         .iter()
         .map(|inst| DeviceConfig {
-            id: inst.device_id.clone(),
+            id: inst.device_id.as_str().into(),
             name: inst.name.clone(),
             driver: DriverConfig::new(inst.driver_type.clone(), json_to_toml(&inst.config)),
             enabled: inst.enabled,

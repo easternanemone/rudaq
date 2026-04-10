@@ -217,7 +217,7 @@ mod db_smoke {
             .devices
             .iter()
             .map(|d| DbInstrument {
-                device_id: d.id.clone(),
+                device_id: d.id.to_string(),
                 name: d.name.clone(),
                 driver_type: d.driver.driver_type.clone(),
                 config: toml_to_json(&d.driver.config),
@@ -253,7 +253,7 @@ mod db_smoke {
             .await
             .expect("in-memory DB should initialize");
         let info = db.info().await;
-        assert!(info.healthy, "DB should report healthy after init");
+        assert!(info.unwrap().healthy, "DB should report healthy after init");
     }
 }
 
@@ -324,7 +324,7 @@ mod db_rocksdb_smoke {
         assert!(stored_instruments[0].enabled);
 
         // Verify schema version and counts via info
-        let info = db.info().await;
+        let info = db.info().await.unwrap();
         assert!(info.driver_count >= 1, "should report ≥1 driver");
         assert!(info.instrument_count >= 1, "should report ≥1 instrument");
     }

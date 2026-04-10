@@ -433,17 +433,12 @@ impl HDF5Writer {
                 .create_group(&batch_name)
                 .map_err(map_hdf5_err)?;
 
-            // Decode measurement frames first, then fall back to legacy protobuf ScanProgress.
+            // Decode measurement frames from ring buffer snapshot.
             // Returns bytes successfully processed to handle partial messages.
             #[cfg(feature = "networking")]
             let bytes_processed = {
-                if let Some(bytes_processed) =
-                    Self::write_measurements_to_hdf5_blocking(&batch_group, &snapshot)?
-                {
-                    bytes_processed
-                } else {
-                    Self::write_protobuf_to_hdf5_blocking(&batch_group, &snapshot)?
-                }
+                Self::write_measurements_to_hdf5_blocking(&batch_group, &snapshot)?
+                    .unwrap_or(snapshot.len())
             };
 
             #[cfg(not(feature = "networking"))]
@@ -496,13 +491,6 @@ impl HDF5Writer {
     ///
     /// Returns the number of bytes successfully processed so partial messages
     /// are preserved in the ring buffer for the next flush.
-    ///
-    /// Converts ScanProgress messages to structured HDF5 datasets:
-    /// - /scan_id (string attribute)
-    /// - /timestamps (u64 array)
-    /// - /point_indices (u32 array)
-    /// - /axis_positions/<device_id> (f64 arrays)
-    /// - /data/<device_id> (f64 arrays)
     ///
     /// NOTE: This is a blocking synchronous method called from within spawn_blocking
     #[cfg(all(feature = "storage_hdf5", feature = "networking"))]
@@ -627,145 +615,6 @@ impl HDF5Writer {
         Ok(())
     }
 
-    #[cfg(all(feature = "storage_hdf5", feature = "networking"))]
-    fn write_protobuf_to_hdf5_blocking(group: &hdf5::Group, data: &[u8]) -> Result<usize> {
-        use prost::Message;
-        use protocol::daq::ScanProgress;
-        use std::collections::HashMap;
-
-        // Decode length-prefixed messages from buffer
-        let mut offset = 0;
-        let mut last_complete_offset = 0; // Track last fully processed message
-        let mut timestamps: Vec<u64> = Vec::new();
-        let mut point_indices: Vec<u32> = Vec::new();
-        let mut axis_positions: HashMap<String, Vec<f64>> = HashMap::new();
-        let mut data_values: HashMap<String, Vec<f64>> = HashMap::new();
-        let mut scan_id: Option<String> = None;
-
-        while offset + 4 <= data.len() {
-            // Read message length (4 bytes, little-endian)
-            let len_bytes = [
-                data[offset],
-                data[offset + 1],
-                data[offset + 2],
-                data[offset + 3],
-            ];
-            let msg_len = u32::from_le_bytes(len_bytes) as usize;
-
-            if offset + 4 + msg_len > data.len() {
-                // Incomplete message - stop here, don't consume partial data
-                break;
-            }
-
-            // Move past length prefix
-            offset += 4;
-
-            // Decode ScanProgress message
-            match ScanProgress::decode(&data[offset..offset + msg_len]) {
-                Ok(progress) => {
-                    // Store scan ID from first message
-                    if scan_id.is_none() && !progress.scan_id.is_empty() {
-                        scan_id = Some(progress.scan_id.clone());
-                    }
-
-                    timestamps.push(progress.timestamp_ns);
-                    point_indices.push(progress.point_index);
-
-                    // Store axis positions
-                    for (device_id, position) in &progress.axis_positions {
-                        axis_positions
-                            .entry(device_id.clone())
-                            .or_default()
-                            .push(*position);
-                    }
-
-                    // Store data points
-                    for data_point in &progress.data_points {
-                        data_values
-                            .entry(data_point.device_id.clone())
-                            .or_default()
-                            .push(data_point.value);
-                    }
-                }
-                Err(e) => {
-                    eprintln!("Failed to decode ScanProgress: {}", e);
-                    // Still advance past this message even if decode fails
-                }
-            }
-
-            offset += msg_len;
-            last_complete_offset = offset; // Mark this as successfully processed
-        }
-
-        // Write scan_id as attribute
-        if let Some(ref id) = scan_id {
-            // HDF5 string attributes require special handling
-            group
-                .new_attr::<hdf5::types::VarLenUnicode>()
-                .create("scan_id")
-                .map_err(map_hdf5_err)?
-                .write_scalar(&id.parse::<hdf5::types::VarLenUnicode>().map_err(|e| {
-                    DaqError::Storage(StorageError::new(
-                        StorageErrorKind::Hdf5,
-                        format!("VarLenUnicode parse: {}", e),
-                    ))
-                })?)
-                .map_err(map_hdf5_err)?;
-        }
-
-        // Write timestamps
-        if !timestamps.is_empty() {
-            group
-                .new_dataset::<u64>()
-                .shape(timestamps.len())
-                .create("timestamps")
-                .map_err(map_hdf5_err)?
-                .write(&timestamps)
-                .map_err(map_hdf5_err)?;
-        }
-
-        // Write point indices
-        if !point_indices.is_empty() {
-            group
-                .new_dataset::<u32>()
-                .shape(point_indices.len())
-                .create("point_indices")
-                .map_err(map_hdf5_err)?
-                .write(&point_indices)
-                .map_err(map_hdf5_err)?;
-        }
-
-        // Write axis positions as subgroup
-        if !axis_positions.is_empty() {
-            let axes_group = group.create_group("axis_positions").map_err(map_hdf5_err)?;
-            for (device_id, positions) in &axis_positions {
-                axes_group
-                    .new_dataset::<f64>()
-                    .shape(positions.len())
-                    .create(device_id.as_str())
-                    .map_err(map_hdf5_err)?
-                    .write(positions)
-                    .map_err(map_hdf5_err)?;
-            }
-        }
-
-        // Write data values as subgroup
-        if !data_values.is_empty() {
-            let data_group = group.create_group("data").map_err(map_hdf5_err)?;
-            for (device_id, values) in &data_values {
-                data_group
-                    .new_dataset::<f64>()
-                    .shape(values.len())
-                    .create(device_id.as_str())
-                    .map_err(map_hdf5_err)?
-                    .write(values)
-                    .map_err(map_hdf5_err)?;
-            }
-        }
-
-        Ok(last_complete_offset)
-    }
-
     /// Fallback implementation when HDF5 feature is disabled
     /// Writes scan data as CSV for basic persistence
     #[cfg(not(feature = "storage_hdf5"))]
@@ -796,7 +645,7 @@ impl HDF5Writer {
             use std::io::Write;
 
             // Write raw bytes to a binary file as fallback
-            // This preserves the Protobuf-encoded ScanProgress data
+            // This preserves the raw binary data
             let mut file = OpenOptions::new()
                 .create(true)
                 .append(true)
@@ -1243,18 +1092,6 @@ mod tests {
         frame
     }
 
-    #[cfg(all(feature = "networking", feature = "storage_hdf5"))]
-    fn encode_scan_progress_snapshot(progress: &protocol::daq::ScanProgress) -> Vec<u8> {
-        let payload = progress.encode_to_vec();
-        let mut frame = Vec::with_capacity(4 + payload.len());
-        #[allow(clippy::cast_possible_truncation)]
-        // Test frames are length-prefixed with a u32, matching the production ring-buffer format.
-        let len = payload.len() as u32;
-        frame.extend_from_slice(&len.to_le_bytes());
-        frame.extend_from_slice(&payload);
-        frame
-    }
-
     #[tokio::test]
     async fn test_hdf5_writer_create() {
         let ring_temp = NamedTempFile::new().unwrap();
@@ -1391,49 +1228,6 @@ mod tests {
         assert_eq!(raw_data, encoded);
         assert!(faults_json.as_str().contains("\"source\":\"camera-a\""));
         assert!(faults_json.as_str().contains("\"missing_frames\":3"));
-    }
-
-    #[cfg(all(feature = "storage_hdf5", feature = "networking"))]
-    #[tokio::test]
-    async fn test_hdf5_writer_falls_back_to_legacy_scan_progress() {
-        let ring_temp = NamedTempFile::new().unwrap();
-        let temp_dir = TempDir::new().unwrap();
-        let hdf5_path = temp_dir.path().join("legacy_scan_progress.h5");
-
-        let ring = Arc::new(RingBuffer::create(ring_temp.path(), 1).unwrap());
-        let writer = HDF5Writer::new(&hdf5_path, ring.clone()).unwrap();
-
-        let progress = protocol::daq::ScanProgress {
-            scan_id: "scan-1".to_string(),
-            point_index: 4,
-            total_points: 8,
-            timestamp_ns: 1234,
-            axis_positions: std::collections::HashMap::from([("stage".to_string(), 1.25)]),
-            data_points: vec![protocol::daq::ScanDataPoint {
-                device_id: "detector".to_string(),
-                value: 9.5,
-                timestamp_ns: 1234,
-                trigger_index: 0,
-            }],
-            ..Default::default()
-        };
-
-        ring.write(&encode_scan_progress_snapshot(&progress))
-            .unwrap();
-        writer.flush_to_disk().await.unwrap();
-
-        let file = hdf5::File::open(&hdf5_path).unwrap();
-        let batch = file
-            .group("measurements")
-            .unwrap()
-            .group("batch_000000")
-            .unwrap();
-        let timestamps: Vec<u64> = batch.dataset("timestamps").unwrap().read_raw().unwrap();
-        let point_indices: Vec<u32> = batch.dataset("point_indices").unwrap().read_raw().unwrap();
-
-        assert_eq!(timestamps, vec![1234]);
-        assert_eq!(point_indices, vec![4]);
-        assert!(batch.dataset("raw_data").is_err());
     }
 
     #[cfg(all(feature = "storage_hdf5", feature = "storage_arrow"))]

@@ -491,7 +491,7 @@ impl DaemonInstance {
             let device_count = registry.len();
             println!("   Registered {device_count} device(s)");
             for info in registry.list_devices() {
-                registry.set_config_source(&info.id, "toml");
+                registry.set_config_source(info.id.as_str(), "toml");
                 tracing::info!(device_id = %info.id, config_source = "toml", "device config source tagged");
                 println!(
                     "     - {}: {} ({:?})",
@@ -737,7 +737,6 @@ impl DaemonInstance {
             println!("     - Script upload & execution");
             println!("     - Remote hardware control (HardwareService)");
             println!("     - Module system (ModuleService)");
-            println!("     - Coordinated scans (ScanService)");
             println!("     - Preset save/load (PresetService)");
             println!("     - System Health Monitoring (HealthService)");
             // DB state summary in startup banner (bd-9n9k.3)
@@ -950,12 +949,12 @@ async fn restore_parameter_state(db: &db::DaqDb, registry: &DeviceRegistry) -> R
     let mut restored = 0;
     for device_info in registry.list_devices() {
         let device_id = &device_info.id;
-        let states = db.get_device_state(device_id).await?;
+        let states = db.get_device_state(device_id.as_str()).await?;
         if states.is_empty() {
             continue;
         }
 
-        let Some(parameterized) = registry.get_parameterized(device_id) else {
+        let Some(parameterized) = registry.get_parameterized(device_id.as_str()) else {
             continue;
         };
         let param_set = parameterized.parameters();
@@ -1131,7 +1130,7 @@ mod tests {
 
         fn dev(id: &str, driver_type: &str) -> DeviceConfig {
             DeviceConfig {
-                id: id.to_string(),
+                id: id.into(),
                 name: id.to_string(),
                 driver: DriverConfig {
                     driver_type: driver_type.to_string(),
@@ -1169,7 +1168,7 @@ mod tests {
 
         fn dev(id: &str, driver_type: &str) -> DeviceConfig {
             DeviceConfig {
-                id: id.to_string(),
+                id: id.into(),
                 name: id.to_string(),
                 driver: DriverConfig {
                     driver_type: driver_type.to_string(),
@@ -1197,7 +1196,7 @@ mod tests {
 
         fn dev(id: &str, driver_type: &str) -> DeviceConfig {
             DeviceConfig {
-                id: id.to_string(),
+                id: id.into(),
                 name: id.to_string(),
                 driver: DriverConfig {
                     driver_type: driver_type.to_string(),

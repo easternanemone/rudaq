@@ -401,22 +401,23 @@ pub async fn reconcile_once(
 
     // 2. Read current state from registry.
     let current_devices = registry.list_devices();
-    let current_ids: HashSet<String> = current_devices.iter().map(|d| d.id.clone()).collect();
+    let current_ids: HashSet<String> = current_devices.iter().map(|d| d.id.to_string()).collect();
 
     // 3a. Remove: in registry but not desired.
     for device in &current_devices {
-        if !desired.contains_key(&device.id) {
+        let id_str = device.id.to_string();
+        if !desired.contains_key(&id_str) {
             match registry.unregister(&device.id).await {
                 Ok(true) => {
-                    info!(device_id = device.id, "reconciler: removed device");
+                    info!(device_id = %device.id, "reconciler: removed device");
                     cleanup_device_features(db, &device.id).await;
-                    report.removed.push(device.id.clone());
+                    report.removed.push(id_str);
                 }
                 Ok(false) => {
                     // Already gone (concurrent removal)
                 }
                 Err(e) => {
-                    warn!(device_id = device.id, error = %e, "reconciler: failed to remove");
+                    warn!(device_id = %device.id, error = %e, "reconciler: failed to remove");
                     report.errors.push(format!("remove '{}': {e}", device.id));
                 }
             }
@@ -839,7 +840,7 @@ mod tests {
         // 3. Verify in registry
         let devices = registry.list_devices();
         assert_eq!(devices.len(), 2);
-        let ids: HashSet<String> = devices.into_iter().map(|d| d.id).collect();
+        let ids: HashSet<String> = devices.into_iter().map(|d| d.id.to_string()).collect();
         assert!(ids.contains("pm_1"));
         assert!(ids.contains("pm_2"));
 

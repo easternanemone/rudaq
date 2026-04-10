@@ -37,7 +37,7 @@ async fn test_t10_db_init_failure_nonfatal() {
 #[tokio::test]
 async fn test_t11_watch_reconciler_clean_shutdown() {
     let db = DaqDb::init(DbConfig::in_memory()).await.unwrap();
-    let registry = Arc::new(create_full_registry().await);
+    let registry = create_full_registry().await;
     let shutdown = CancellationToken::new();
 
     // Start a simple reconciler loop

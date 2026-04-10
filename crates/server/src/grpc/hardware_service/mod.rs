@@ -230,7 +230,7 @@ impl HardwareServiceImpl {
                     // Found a Parameterized device - monitor all its parameters
                     for param_name in param_set.names() {
                         let tx = tx_clone.clone();
-                        let dev_id = device_id.clone();
+                        let dev_id = device_id.to_string();
                         let p_name = param_name.to_string();
 
                         // Monitor Parameter<T> types only for StreamParameterChanges

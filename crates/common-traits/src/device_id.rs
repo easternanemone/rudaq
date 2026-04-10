@@ -1,4 +1,5 @@
 use std::fmt;
+use std::ops::Deref;
 use std::sync::Arc;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -51,6 +52,14 @@ impl From<String> for DeviceId {
 impl From<DeviceId> for String {
     fn from(id: DeviceId) -> Self {
         id.0.to_string()
+    }
+}
+
+impl Deref for DeviceId {
+    type Target = str;
+
+    fn deref(&self) -> &str {
+        &self.0
     }
 }
 

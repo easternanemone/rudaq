@@ -184,7 +184,7 @@ pub(super) fn subscribe_device_state(
         svc.registry
             .list_devices()
             .iter()
-            .map(|d| d.id.clone())
+            .map(|d| d.id.to_string())
             .collect()
     } else {
         // Validate all requested device IDs exist

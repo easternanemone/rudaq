@@ -91,7 +91,7 @@ async fn collect_documents(
 /// Test: GridScan with X and Y stages executes correctly
 #[tokio::test]
 async fn test_gridscan_two_stages() {
-    let registry = Arc::new(create_multi_device_registry().await);
+    let registry = create_multi_device_registry().await;
     let engine = RunEngine::new(registry.clone());
 
     // Subscribe to documents before starting
@@ -179,7 +179,7 @@ async fn test_gridscan_two_stages() {
 /// Test: LineScan with single stage and detector
 #[tokio::test]
 async fn test_linescan_single_axis() {
-    let registry = Arc::new(create_multi_device_registry().await);
+    let registry = create_multi_device_registry().await;
     let engine = RunEngine::new(registry.clone());
 
     let rx = engine.subscribe();
@@ -218,7 +218,7 @@ async fn test_linescan_single_axis() {
 /// Test: Pause and resume during multi-device scan
 #[tokio::test]
 async fn test_pause_resume_multi_device() {
-    let registry = Arc::new(create_multi_device_registry().await);
+    let registry = create_multi_device_registry().await;
     let engine = Arc::new(RunEngine::new(registry.clone()));
 
     let rx = engine.subscribe();
@@ -312,7 +312,7 @@ async fn test_pause_resume_multi_device() {
 /// Test: Abort during multi-device operation
 #[tokio::test]
 async fn test_abort_multi_device_scan() {
-    let registry = Arc::new(create_multi_device_registry().await);
+    let registry = create_multi_device_registry().await;
     let engine = Arc::new(RunEngine::new(registry.clone()));
 
     let rx = engine.subscribe();
@@ -380,7 +380,7 @@ async fn test_abort_multi_device_scan() {
 /// Test: Simple Count plan executes correctly
 #[tokio::test]
 async fn test_count_plan() {
-    let registry = Arc::new(create_multi_device_registry().await);
+    let registry = create_multi_device_registry().await;
     let engine = RunEngine::new(registry.clone());
 
     let rx = engine.subscribe();
@@ -430,7 +430,7 @@ async fn test_count_plan() {
 #[allow(clippy::cast_possible_truncation)]
 // SAFETY: test/benchmark values are bounded
 async fn test_document_fields() {
-    let registry = Arc::new(create_multi_device_registry().await);
+    let registry = create_multi_device_registry().await;
     let engine = RunEngine::new(registry.clone());
 
     let rx = engine.subscribe();
@@ -497,7 +497,7 @@ async fn test_document_fields() {
 /// Test: Multiple plans can be queued
 #[tokio::test]
 async fn test_queue_multiple_plans() {
-    let registry = Arc::new(create_multi_device_registry().await);
+    let registry = create_multi_device_registry().await;
     let engine = Arc::new(RunEngine::new(registry.clone()));
 
     // Queue multiple plans
@@ -554,7 +554,7 @@ async fn test_queue_multiple_plans() {
 /// Test: Engine state is correct during execution
 #[tokio::test]
 async fn test_engine_state_transitions() {
-    let registry = Arc::new(create_multi_device_registry().await);
+    let registry = create_multi_device_registry().await;
     let engine = Arc::new(RunEngine::new(registry.clone()));
 
     // Initially idle

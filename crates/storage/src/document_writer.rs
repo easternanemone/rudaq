@@ -10,7 +10,6 @@
 //! - **Event**: Appends data to the datasets
 //! - **Stop**: Finalizes the file/group
 //!
-//! This replaces the legacy `ScanProgress` pipeline.
 
 use anyhow::Result;
 #[cfg(feature = "storage_hdf5")]

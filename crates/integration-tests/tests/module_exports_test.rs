@@ -199,14 +199,6 @@ fn verify_hardware_service_export() {
 
 #[cfg(feature = "server")]
 #[test]
-fn verify_scan_service_export() {
-    // Verify ScanServiceImpl is exported
-    fn _check_type_exists<T>() {}
-    _check_type_exists::<server::grpc::ScanServiceImpl>();
-}
-
-#[cfg(feature = "server")]
-#[test]
 fn verify_storage_service_export() {
     // Verify StorageServiceImpl is exported
     fn _check_type_exists<T>() {}
@@ -256,10 +248,6 @@ fn verify_proto_types_export() {
     _check_type_exists::<server::grpc::DeviceInfo>();
     _check_type_exists::<server::grpc::MoveRequest>();
     _check_type_exists::<server::grpc::ReadValueRequest>();
-
-    // Scan service types
-    _check_type_exists::<server::grpc::ScanConfig>();
-    _check_type_exists::<server::grpc::ScanStatus>();
 
     // Preset service types
     _check_type_exists::<server::grpc::Preset>();

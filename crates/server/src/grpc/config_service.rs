@@ -256,7 +256,7 @@ impl ConfigService for ConfigServiceImpl {
             .devices
             .iter()
             .map(|d| DbInstrument {
-                device_id: d.id.clone(),
+                device_id: d.id.to_string(),
                 name: d.name.clone(),
                 driver_type: d.driver.driver_type.clone(),
                 config: db::config_store::toml_to_json(&d.driver.config),
@@ -307,7 +307,7 @@ impl ConfigService for ConfigServiceImpl {
         let devices: Vec<hardware::registry::DeviceConfig> = instruments
             .iter()
             .map(|inst| hardware::registry::DeviceConfig {
-                id: inst.device_id.clone(),
+                id: inst.device_id.as_str().into(),
                 name: inst.name.clone(),
                 driver: hardware::registry::DriverConfig::new(
                     inst.driver_type.clone(),

@@ -100,7 +100,7 @@ async fn create_test_registry() -> DeviceRegistry {
 /// Test: ListDevices returns all registered devices
 #[tokio::test]
 async fn test_list_devices() {
-    let registry = Arc::new(create_test_registry().await);
+    let registry = create_test_registry().await;
     let service = HardwareServiceImpl::new(registry);
 
     let request = Request::new(ListDevicesRequest {
@@ -125,7 +125,7 @@ async fn test_list_devices() {
 /// Test: ListDevices with capability filter for movable devices
 #[tokio::test]
 async fn test_list_devices_filter_movable() {
-    let registry = Arc::new(create_test_registry().await);
+    let registry = create_test_registry().await;
     let service = HardwareServiceImpl::new(registry);
 
     let request = Request::new(ListDevicesRequest {
@@ -145,7 +145,7 @@ async fn test_list_devices_filter_movable() {
 /// Test: ListDevices with capability filter for readable devices
 #[tokio::test]
 async fn test_list_devices_filter_readable() {
-    let registry = Arc::new(create_test_registry().await);
+    let registry = create_test_registry().await;
     let service = HardwareServiceImpl::new(registry);
 
     let request = Request::new(ListDevicesRequest {
@@ -172,7 +172,7 @@ async fn test_list_devices_filter_readable() {
 /// Test: Move a stage device
 #[tokio::test]
 async fn test_move_stage() {
-    let registry = Arc::new(create_test_registry().await);
+    let registry = create_test_registry().await;
     let service = HardwareServiceImpl::new(registry);
 
     // Move the stage to position 42.5
@@ -195,7 +195,7 @@ async fn test_move_stage() {
 /// Test: Read from power meter
 #[tokio::test]
 async fn test_read_power_meter() {
-    let registry = Arc::new(create_test_registry().await);
+    let registry = create_test_registry().await;
     let service = HardwareServiceImpl::new(registry);
 
     let request = Request::new(ReadValueRequest {
@@ -222,7 +222,7 @@ async fn test_read_power_meter() {
 /// Test: Move to non-existent device returns NOT_FOUND error
 #[tokio::test]
 async fn test_move_nonexistent_device() {
-    let registry = Arc::new(create_test_registry().await);
+    let registry = create_test_registry().await;
     let service = HardwareServiceImpl::new(registry);
 
     let request = Request::new(MoveRequest {
@@ -248,7 +248,7 @@ async fn test_move_nonexistent_device() {
 /// Test: Read from non-existent device returns NOT_FOUND error
 #[tokio::test]
 async fn test_read_nonexistent_device() {
-    let registry = Arc::new(create_test_registry().await);
+    let registry = create_test_registry().await;
     let service = HardwareServiceImpl::new(registry);
 
     let request = Request::new(ReadValueRequest {
@@ -271,7 +271,7 @@ async fn test_read_nonexistent_device() {
 /// Test: Move on non-movable device returns appropriate error
 #[tokio::test]
 async fn test_move_non_movable_device() {
-    let registry = Arc::new(create_test_registry().await);
+    let registry = create_test_registry().await;
     let service = HardwareServiceImpl::new(registry);
 
     // Try to move the power meter (which is not movable)
@@ -306,7 +306,7 @@ async fn test_move_non_movable_device() {
 /// Test: Multiple concurrent list_devices calls
 #[tokio::test]
 async fn test_concurrent_list_devices() {
-    let registry = Arc::new(create_test_registry().await);
+    let registry = create_test_registry().await;
     let service = Arc::new(HardwareServiceImpl::new(registry));
 
     // Spawn 10 concurrent requests
@@ -338,7 +338,7 @@ async fn test_concurrent_list_devices() {
 /// Test: Concurrent move operations on same device
 #[tokio::test]
 async fn test_concurrent_moves() {
-    let registry = Arc::new(create_test_registry().await);
+    let registry = create_test_registry().await;
     let service = Arc::new(HardwareServiceImpl::new(registry));
 
     // Spawn 5 concurrent move requests to the same stage

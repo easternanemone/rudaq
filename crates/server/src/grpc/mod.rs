@@ -18,7 +18,6 @@ pub mod preset_service;
 #[cfg(feature = "server")]
 pub mod request_tracing;
 pub mod run_engine_service;
-pub mod scan_service;
 /// gRPC server for remote DAQ control (Phase 3)
 ///
 /// This module provides a gRPC server that exposes the DAQ system for remote control.
@@ -55,7 +54,6 @@ pub mod storage_service;
 /// Generated Protocol Buffer definitions from `proto/daq.proto`:
 /// - `ControlService` trait for script management
 /// - `HardwareService` trait for direct device control (bd-4x6q)
-/// - `ScanService` trait for coordinated scans (bd-4le6)
 /// - Server and client implementations for all services
 /// - Request/Response message types for all RPC methods
 ///
@@ -86,13 +84,6 @@ pub use ni_daq_service::NiDaqServiceImpl;
 pub use plugin_service::PluginServiceImpl;
 pub use preset_service::{PresetServiceImpl, default_preset_storage_path};
 pub use run_engine_service::RunEngineServiceImpl;
-// LEGACY: ScanService kept for backwards compatibility. Remove at v1.0.
-// See docs/reference/deprecation-plan.md Section 1.2.
-#[expect(
-    deprecated,
-    reason = "LEGACY: ScanService kept for backwards compatibility, remove at v1.0"
-)]
-pub use scan_service::ScanServiceImpl;
 #[cfg(feature = "server")]
 pub use server::{DaqServer, start_server, start_server_with_hardware};
 pub use storage_service::StorageServiceImpl;
@@ -169,16 +160,6 @@ pub use proto::{
     StopStreamResponse,
     StreamValuesRequest,
     ValueUpdate,
-};
-
-// Re-export ScanService types (bd-4le6)
-pub use proto::scan_service_client::ScanServiceClient;
-pub use proto::scan_service_server::{ScanService, ScanServiceServer};
-pub use proto::{
-    AxisConfig, CreateScanRequest, CreateScanResponse, GetScanStatusRequest, ListScansRequest,
-    ListScansResponse, PauseScanRequest, PauseScanResponse, ResumeScanRequest, ResumeScanResponse,
-    ScanConfig, ScanProgress, ScanState, ScanStatus, ScanType, StartScanRequest, StartScanResponse,
-    StopScanRequest, StopScanResponse, StreamScanProgressRequest,
 };
 
 // Re-export PresetService types (bd-akcm)

@@ -48,7 +48,7 @@ async fn create_test_registry() -> DeviceRegistry {
 /// Test: Execute a script that yields a simple Count plan
 #[tokio::test]
 async fn test_e2e_script_count_plan() {
-    let registry = Arc::new(create_test_registry().await);
+    let registry = create_test_registry().await;
     let run_engine = Arc::new(RunEngine::new(registry));
     let runner = ScriptPlanRunner::new(run_engine.clone());
 
@@ -82,7 +82,7 @@ async fn test_e2e_script_count_plan() {
 /// Test: Execute a script that yields a LineScan plan
 #[tokio::test]
 async fn test_e2e_script_linescan_plan() {
-    let registry = Arc::new(create_test_registry().await);
+    let registry = create_test_registry().await;
     let run_engine = Arc::new(RunEngine::new(registry));
     let runner = ScriptPlanRunner::new(run_engine.clone());
 
@@ -107,7 +107,7 @@ async fn test_e2e_script_linescan_plan() {
 /// Test: Execute multiple plans in sequence
 #[tokio::test]
 async fn test_e2e_script_multiple_plans() {
-    let registry = Arc::new(create_test_registry().await);
+    let registry = create_test_registry().await;
     let run_engine = Arc::new(RunEngine::new(registry));
     let runner = ScriptPlanRunner::new(run_engine.clone());
 

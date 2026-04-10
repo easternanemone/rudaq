@@ -1682,11 +1682,7 @@ pub async fn start_server_with_hardware(
     use tonic::codec::CompressionEncoding;
     // use crate::grpc::proto::plugin_service_server::PluginServiceServer; // Unused
     use crate::grpc::proto::preset_service_server::PresetServiceServer;
-    use crate::grpc::proto::scan_service_server::ScanServiceServer;
     use crate::grpc::proto::storage_service_server::StorageServiceServer;
-    // LEGACY: ScanService import, remove at v1.0. See deprecation-plan.md 1.2.
-    #[allow(deprecated)]
-    use crate::grpc::scan_service::ScanServiceImpl;
     use crate::grpc::storage_service::StorageServiceImpl;
 
     let config = ServerConfig::load()?;
@@ -2074,7 +2070,7 @@ pub async fn start_server_with_hardware(
                             && let Ok(value) = readable.read().await
                         {
                             let _ = state_update_tx.try_send(NodeStateUpdate {
-                                device_id: device_info.id.clone(),
+                                device_id: device_info.id.to_string(),
                                 timestamp_ns: now_ns(),
                                 value: NodeValue::Analog(value),
                                 metadata: std::collections::HashMap::new(),
@@ -2102,15 +2098,6 @@ pub async fn start_server_with_hardware(
         // No lock needed for registry anymore
         let factory = registry.plugin_factory();
         PluginServiceImpl::new(factory, registry.clone())
-    };
-
-    // LEGACY: ScanService wiring, deprecated in favor of RunEngineService.
-    // Remove at v1.0. See docs/reference/deprecation-plan.md Section 1.2.
-    #[allow(deprecated)]
-    let scan_server = if let Some(rb) = ring_buffer.clone() {
-        ScanServiceImpl::new(registry.clone()).with_ring_buffer(rb)
-    } else {
-        ScanServiceImpl::new(registry.clone())
     };
 
     let preset_server = PresetServiceImpl::new(registry.clone(), default_preset_storage_path());
@@ -2170,7 +2157,6 @@ pub async fn start_server_with_hardware(
     standard_health_service.set_serving_status("daq.ControlService", ServingStatus::Serving);
     standard_health_service.set_serving_status("daq.HardwareService", ServingStatus::Serving);
     standard_health_service.set_serving_status("daq.ModuleService", ServingStatus::Serving);
-    standard_health_service.set_serving_status("daq.ScanService", ServingStatus::Serving);
     standard_health_service.set_serving_status("daq.PresetService", ServingStatus::Serving);
     standard_health_service.set_serving_status("daq.StorageService", ServingStatus::Serving);
     standard_health_service.set_serving_status("daq.RunEngineService", ServingStatus::Serving);
@@ -2192,7 +2178,6 @@ pub async fn start_server_with_hardware(
     println!("  - ModuleService: experiment modules (bd-c0ai)");
     #[cfg(feature = "serial")]
     println!("  - PluginService: YAML-defined instrument plugins (bd-0451)");
-    println!("  - ScanService: coordinated multi-axis scans");
     println!("  - PresetService: configuration save/load (bd-akcm)");
     println!("  - StorageService: HDF5 data storage (bd-p6im)");
 
@@ -2251,7 +2236,6 @@ pub async fn start_server_with_hardware(
         )))
         .add_service(tonic_web::enable(ModuleServiceServer::new(module_server)))
         .add_service(tonic_web::enable(PluginServiceServer::new(plugin_server)))
-        .add_service(tonic_web::enable(ScanServiceServer::new(scan_server)))
         .add_service(tonic_web::enable(PresetServiceServer::new(preset_server)))
         .add_service(tonic_web::enable(StorageServiceServer::new(storage_server)));
 
@@ -2308,7 +2292,6 @@ pub async fn start_server_with_hardware(
         ))
         .add_service(tonic_web::enable(NiDaqServiceServer::new(ni_daq_server)))
         .add_service(tonic_web::enable(ModuleServiceServer::new(module_server)))
-        .add_service(tonic_web::enable(ScanServiceServer::new(scan_server)))
         .add_service(tonic_web::enable(PresetServiceServer::new(preset_server)))
         .add_service(tonic_web::enable(StorageServiceServer::new(storage_server)));
 
