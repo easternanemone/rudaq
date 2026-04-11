@@ -279,7 +279,7 @@ mod db_rocksdb_smoke {
         let tmpdir = tempfile::tempdir().expect("tempdir");
         let db_path = tmpdir.path().join("test.db");
 
-        let db = DaqDb::init(DbConfig::rocksdb(&db_path))
+        let db = DaqDb::init(DbConfig::file(db_path.display().to_string()))
             .await
             .expect("RocksDB init");
 
