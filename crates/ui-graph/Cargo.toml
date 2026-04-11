@@ -2,6 +2,7 @@
 name = "ui-graph"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
 description = "Node graph editor for experiment design (extracted from ui crate per M-SMALLER-CRATES)"
 
 [lib]
@@ -41,3 +42,6 @@ web-time = "1"
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

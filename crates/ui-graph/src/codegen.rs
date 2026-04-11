@@ -937,14 +937,14 @@ mod tests {
     #[test]
     fn test_nested_scan_to_rhai() {
         let config = NestedScanConfig {
-            outer: crate::graph::nodes::ScanDimension {
+            outer: crate::nodes::ScanDimension {
                 actuator: "stage_x".to_string(),
                 start: 0.0,
                 stop: 100.0,
                 points: 10,
                 dimension_name: "x_pos".to_string(),
             },
-            inner: crate::graph::nodes::ScanDimension {
+            inner: crate::nodes::ScanDimension {
                 actuator: "stage_y".to_string(),
                 start: 0.0,
                 stop: 50.0,
@@ -1020,14 +1020,14 @@ mod tests {
     #[test]
     fn test_nested_scan_to_rhai_empty_actuator_warning() {
         let config = NestedScanConfig {
-            outer: crate::graph::nodes::ScanDimension {
+            outer: crate::nodes::ScanDimension {
                 actuator: String::new(),
                 start: 0.0,
                 stop: 100.0,
                 points: 10,
                 dimension_name: "x".to_string(),
             },
-            inner: crate::graph::nodes::ScanDimension {
+            inner: crate::nodes::ScanDimension {
                 actuator: String::new(),
                 start: 0.0,
                 stop: 50.0,

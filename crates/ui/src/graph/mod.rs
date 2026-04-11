@@ -7,7 +7,7 @@
 // Re-export all public items from ui-graph
 pub use ui_graph::adaptive;
 #[cfg(not(target_arch = "wasm32"))]
-pub use ui_graph::codegen;
+//
 pub use ui_graph::commands;
 pub use ui_graph::execution_state;
 pub use ui_graph::nodes;

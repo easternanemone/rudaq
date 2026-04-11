@@ -184,8 +184,7 @@ async fn test_andor_set_get_enum_parameter() {
         .expect("GetParameter should succeed");
 
     let raw = resp.into_inner().value;
-    let parsed: serde_json::Value = serde_json::from_str(&raw).unwrap();
-    assert_eq!(parsed.as_str().unwrap(), "External");
+    assert_eq!(raw, "External");
 }
 
 #[tokio::test]

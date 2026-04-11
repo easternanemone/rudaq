@@ -820,7 +820,7 @@ pub fn detect_cycles(snarl: &Snarl<ExperimentNode>) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::nodes::{
+    use crate::nodes::{
         AcquireConfig, LoopConfig, LoopTermination, NestedScanConfig, ScanDimension, ThresholdOp,
     };
 
@@ -1101,7 +1101,7 @@ mod tests {
 
     #[test]
     fn test_adaptive_scan_translation() {
-        use crate::graph::nodes::{
+        use crate::nodes::{
             AdaptiveAction, AdaptiveScanConfig, ScanDimension, ThresholdOp, TriggerCondition,
             TriggerLogic,
         };
@@ -1186,7 +1186,7 @@ mod tests {
 
     #[test]
     fn test_adaptive_scan_without_approval() {
-        use crate::graph::nodes::{
+        use crate::nodes::{
             AdaptiveAction, AdaptiveScanConfig, ScanDimension, TriggerCondition, TriggerLogic,
         };
 
@@ -1223,7 +1223,7 @@ mod tests {
 
     #[test]
     fn test_condition_loop_emits_repeat_while() {
-        use crate::graph::nodes::AcquireConfig;
+        use crate::nodes::AcquireConfig;
 
         let mut snarl = Snarl::new();
 
@@ -1342,7 +1342,7 @@ mod tests {
 
     #[test]
     fn test_threshold_wait_emits_wait_settled() {
-        use crate::graph::nodes::WaitCondition;
+        use crate::nodes::WaitCondition;
 
         let mut snarl = Snarl::new();
 
@@ -1392,7 +1392,7 @@ mod tests {
 
     #[test]
     fn test_stability_wait_emits_wait_settled() {
-        use crate::graph::nodes::WaitCondition;
+        use crate::nodes::WaitCondition;
 
         let mut snarl = Snarl::new();
 
@@ -1442,7 +1442,7 @@ mod tests {
 
     #[test]
     fn test_move_wait_settled_emits_wait_settled() {
-        use crate::graph::nodes::MoveConfig;
+        use crate::nodes::MoveConfig;
 
         let mut snarl = Snarl::new();
 
@@ -1670,9 +1670,7 @@ mod tests {
 
     #[test]
     fn test_adaptive_scan_has_scan_indices() {
-        use crate::graph::nodes::{
-            AdaptiveAction, AdaptiveScanConfig, TriggerCondition, TriggerLogic,
-        };
+        use crate::nodes::{AdaptiveAction, AdaptiveScanConfig, TriggerCondition, TriggerLogic};
 
         let mut snarl = Snarl::new();
 
