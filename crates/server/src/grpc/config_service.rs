@@ -1,8 +1,8 @@
 //! gRPC ConfigService implementation (bd-itsc).
 //!
-//! Provides CRUD access to the SurrealDB control plane database.
+//! Provides CRUD access to the SQLite control plane database.
 //! Changes made via this service are automatically detected by the watch
-//! reconciler (LIVE SELECT) and reconciled to the hardware registry.
+//! reconciler (broadcast channel) and reconciled to the hardware registry.
 
 use db::DaqDb;
 use db::config_store::{DbDriver, DbInstrument};
@@ -393,11 +393,7 @@ impl ConfigService for ConfigServiceImpl {
                                 change_type: "upsert".to_string(),
                                 device_id: inst.device_id.clone(),
                                 instrument: Some(db_instrument_to_proto(inst)),
-                                timestamp_ns: std::time::SystemTime::now()
-                                    .duration_since(std::time::UNIX_EPOCH)
-                                    .unwrap_or_default()
-                                    .as_nanos()
-                                    as u64,
+                                timestamp_ns: common::time::now_ns(),
                             };
                             if tx.send(Ok(event)).await.is_err() {
                                 return; // Client disconnected

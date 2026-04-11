@@ -327,22 +327,24 @@ mod mock_driver {
 mod hardware_driver {
     use super::*;
     use serde_json::json;
-    use std::sync::Mutex;
+    use std::sync::{Mutex, OnceLock};
     use tracing_subscriber::EnvFilter;
 
-    lazy_static::lazy_static! {
-        static ref CAMERA_LOCK: Mutex<()> = Mutex::new(());
-        static ref LOG_INIT: () = {
+    static CAMERA_LOCK: Mutex<()> = Mutex::new(());
+    static LOG_INIT: OnceLock<()> = OnceLock::new();
+
+    fn init_log() {
+        LOG_INIT.get_or_init(|| {
             let _ = tracing_subscriber::fmt()
                 .with_test_writer()
                 .with_env_filter(EnvFilter::new("debug,pvcam_sys=trace"))
                 .try_init();
-        };
+        });
     }
 
     #[tokio::test]
     async fn hardware_create_driver() {
-        let _ = *LOG_INIT;
+        init_log();
         let _lock = CAMERA_LOCK.lock().unwrap();
 
         let driver = PvcamDriver::new_async("pvcamUSB_0".to_string()).await;
@@ -445,7 +447,7 @@ mod hardware_driver {
     #[allow(deprecated)] // subscribe_frames() still works but register_primary_output() is preferred
     async fn hardware_stream_200_frames() {
         let _lock = CAMERA_LOCK.lock().unwrap();
-        let _ = *LOG_INIT;
+        init_log();
 
         const TARGET_FRAMES: usize = 200;
 
@@ -464,14 +466,24 @@ mod hardware_driver {
 
         // Ensure clear mode is PreExposure
         if let Some(param) = driver.parameters().get("acquisition.clear_mode") {
-            param.set_json(json!("PreExposure")).unwrap();
-            println!("[OK] Clear mode set to PreExposure");
+            match param.set_json(json!("PreExposure")) {
+                Ok(()) => println!("[OK] Clear mode set to PreExposure"),
+                Err(e) => println!(
+                    "[WARN] Could not set clear_mode to PreExposure ({}); using current value",
+                    e
+                ),
+            }
         }
 
         // Ensure trigger mode is Timed
         if let Some(param) = driver.parameters().get("acquisition.trigger_mode") {
-            param.set_json(json!("Timed")).unwrap();
-            println!("[OK] Trigger mode set to Timed");
+            match param.set_json(json!("Timed")) {
+                Ok(()) => println!("[OK] Trigger mode set to Timed"),
+                Err(e) => println!(
+                    "[WARN] Could not set trigger_mode to Timed ({}); using current value",
+                    e
+                ),
+            }
         }
 
         // Register output BEFORE starting stream (primary_tx is captured at stream start)

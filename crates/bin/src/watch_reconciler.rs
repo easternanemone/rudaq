@@ -36,9 +36,6 @@ pub struct WatchConfig {
     /// Maximum time a pending reconcile can be deferred by sustained rapid
     /// notifications. Prevents starvation under continuous change load.
     pub max_debounce_wait: Duration,
-    /// Polling interval (retained for interface compatibility with callers).
-    #[expect(dead_code, reason = "broadcast channel doesn't need polling fallback")]
-    pub fallback_poll_interval: Duration,
     /// Periodic full resync interval (safety net for missed events).
     /// Set to `Duration::ZERO` to disable periodic resync.
     pub resync_interval: Duration,
@@ -49,7 +46,6 @@ impl Default for WatchConfig {
         Self {
             debounce: DEFAULT_DEBOUNCE,
             max_debounce_wait: DEFAULT_MAX_DEBOUNCE_WAIT,
-            fallback_poll_interval: Duration::from_secs(30),
             resync_interval: DEFAULT_RESYNC_INTERVAL,
         }
     }
@@ -59,8 +55,8 @@ impl Default for WatchConfig {
 ///
 /// On each `DbChangeEvent::InstrumentsUpdated`, debounces and triggers
 /// `reconcile_once()`. The broadcast channel is reliable within the process
-/// (no network disconnects), so the retry/backoff logic from the SurrealDB
-/// LIVE SELECT version is simplified to just lagged-receiver recovery.
+/// (no network disconnects), so the retry/backoff logic from the previous
+/// SurrealDB implementation is simplified to just lagged-receiver recovery.
 ///
 /// Runs until the `shutdown` token is cancelled.
 #[tracing::instrument(skip_all, name = "watch_reconciler")]
@@ -260,7 +256,6 @@ mod tests {
         let config = WatchConfig {
             debounce: Duration::from_millis(50),
             max_debounce_wait: Duration::from_secs(1),
-            fallback_poll_interval: Duration::from_secs(60),
             resync_interval: Duration::ZERO,
         };
 
@@ -302,7 +297,6 @@ mod tests {
         let config = WatchConfig {
             debounce: Duration::from_millis(100),
             max_debounce_wait: Duration::from_secs(1),
-            fallback_poll_interval: Duration::from_secs(60),
             resync_interval: Duration::ZERO,
         };
 

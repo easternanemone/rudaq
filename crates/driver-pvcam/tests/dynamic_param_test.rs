@@ -295,9 +295,7 @@ mod hardware_dynamic_params {
     use std::env;
     use std::sync::Mutex;
 
-    lazy_static::lazy_static! {
-        static ref CAMERA_LOCK: Mutex<()> = Mutex::new(());
-    }
+    static CAMERA_LOCK: Mutex<()> = Mutex::new(());
 
     fn smoke_test_enabled() -> bool {
         env::var("PVCAM_SMOKE_TEST")

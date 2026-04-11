@@ -299,13 +299,17 @@ impl FrameValidator {
         }
 
         let expected_bytes = self.expected_bytes();
-        if frame.pixels.len() != expected_bytes {
+        // Use actual_len (bytes written by the driver) rather than pixels.len() (pool
+        // buffer capacity). When PVCAM embedded metadata is enabled, the SDK returns
+        // frame_bytes > pixel_only_bytes, so the pre-allocated pool buffer is larger
+        // than the pixel data. The driver copies min(frame_bytes, expected_frame_bytes)
+        // bytes and stores the count in actual_len. pixels.len() is the buffer
+        // capacity and will include the metadata overhead — actual_len is the truth.
+        let actual_written = frame.actual_len;
+        if actual_written != expected_bytes {
             return Err(format!(
                 "Data size mismatch: expected {} bytes ({} pixels × {} bytes/pixel), got {} bytes",
-                expected_bytes,
-                self.expected_pixel_count,
-                self.bytes_per_pixel,
-                frame.pixels.len()
+                expected_bytes, self.expected_pixel_count, self.bytes_per_pixel, actual_written
             ));
         }
 

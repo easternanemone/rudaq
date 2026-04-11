@@ -24,7 +24,7 @@ use super::helpers::*;
 #[ignore = "only invoked as a subprocess by test_t9_rocksdb_persistence_across_restart"]
 async fn rocksdb_t9_writer_helper() {
     let db_path = std::env::var("ROCKSDB_TEST_PATH").expect("ROCKSDB_TEST_PATH must be set");
-    let config = DbConfig::rocksdb(&db_path);
+    let config = DbConfig::file(db_path);
     let db = DaqDb::init(config).await.unwrap();
 
     let hw_config = load_mock_maitai_config();
@@ -68,7 +68,9 @@ async fn test_t9_rocksdb_persistence_across_restart() {
     );
 
     // Second boot: re-open and verify data persists
-    let db = DaqDb::init(DbConfig::rocksdb(&db_path)).await.unwrap();
+    let db = DaqDb::init(DbConfig::file(db_path.display().to_string()))
+        .await
+        .unwrap();
 
     let instruments = db.get_all_instruments().await.unwrap();
     assert_eq!(

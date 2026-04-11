@@ -75,7 +75,7 @@ enum RuntimeMode {
     Native,
     /// Universal TOML profile (`config/maitai_universal.toml`).
     Universal,
-    /// Universal profile with SurrealDB control-plane (default).
+    /// Universal profile with SQLite control-plane (default).
     HybridDb,
 }
 
@@ -93,7 +93,7 @@ enum Commands {
 
     /// Start daemon for remote control.
     ///
-    /// Default runtime mode is hybrid-db (universal TOML + SurrealDB).
+    /// Default runtime mode is hybrid-db (universal TOML + SQLite control-plane).
     /// Override with --runtime-mode, DAQ_RUNTIME_MODE / RUSTDAQ_RUNTIME_MODE env var,
     /// or --hardware-config / --lab-hardware flags.
     ///
@@ -112,7 +112,7 @@ enum Commands {
         /// - mock: no hardware config (for demos/testing)
         /// - native: config/maitai_universal.toml
         /// - universal: config/maitai_universal.toml
-        /// - hybrid-db: config/maitai_universal.toml (+ SurrealDB control-plane)
+        /// - hybrid-db: config/maitai_universal.toml (+ SQLite control-plane)
         ///
         /// Also settable via DAQ_RUNTIME_MODE or RUSTDAQ_RUNTIME_MODE env var.
         #[arg(
@@ -134,8 +134,8 @@ enum Commands {
         #[arg(long, conflicts_with = "hardware_config")]
         lab_hardware: bool,
 
-        /// Database path for SurrealDB RocksDB engine (daemon mode).
-        /// Omit to use in-memory engine (db-surreal-mem builds).
+        /// Database path for SQLite file-backed engine (daemon mode).
+        /// Omit to use in-memory engine.
         #[cfg(feature = "db")]
         #[arg(long)]
         db_path: Option<PathBuf>,
@@ -151,7 +151,7 @@ enum Commands {
     #[command(subcommand)]
     Client(ClientCommands),
 
-    /// Database configuration management (SurrealDB)
+    /// Database configuration management
     #[cfg(feature = "db")]
     #[command(subcommand)]
     Config(ConfigCommands),
@@ -968,7 +968,7 @@ async fn handle_client_command(cmd: ClientCommands) -> Result<()> {
 }
 
 // ---------------------------------------------------------------------------
-// Config subcommands (db-surreal feature)
+// Config subcommands (db feature)
 // ---------------------------------------------------------------------------
 
 #[cfg(feature = "db")]
@@ -984,7 +984,7 @@ async fn handle_config_command(cmd: ConfigCommands) -> Result<()> {
 #[cfg(feature = "db")]
 async fn open_db(db_path: Option<PathBuf>) -> Result<db::DaqDb> {
     let db_config = match db_path {
-        Some(ref path) => db::DbConfig::rocksdb(path),
+        Some(ref path) => db::DbConfig::file(path.display().to_string()),
         None => db::DbConfig::in_memory(),
     };
     db::DaqDb::init(db_config)

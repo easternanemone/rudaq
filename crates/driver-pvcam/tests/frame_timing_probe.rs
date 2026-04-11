@@ -167,6 +167,7 @@ async fn test_frame_timing_semantics() {
 
     println!("=== Phase 2: Retrieve frames via FIFO ===\n");
     println!("--- Testing pl_exp_get_oldest_frame_ex ---");
+    let mut last_frame_nr: Option<i32> = None;
     for i in 0..5 {
         let mut address: *mut c_void = std::ptr::null_mut();
         let mut fi: FRAME_INFO = unsafe { std::mem::zeroed() };
@@ -174,6 +175,20 @@ async fn test_frame_timing_semantics() {
         let result = unsafe { pl_exp_get_oldest_frame_ex(hcam, &mut address, &mut fi) };
 
         if result != 0 && !address.is_null() {
+            // With CIRC_NO_OVERWRITE, the SDK returns the last captured frame
+            // repeatedly once the buffer is exhausted (no error, just repeated
+            // frame_nr). Stop on the first duplicate to avoid spurious failures.
+            if last_frame_nr == Some(fi.FrameNr) {
+                println!(
+                    "  [{}] Duplicate FrameNr={} — buffer exhausted, stopping",
+                    i, fi.FrameNr
+                );
+                unsafe {
+                    pl_exp_unlock_oldest_frame(hcam);
+                }
+                break;
+            }
+
             let meta = FrameMetadata {
                 frame_nr: fi.FrameNr,
                 timestamp: fi.TimeStamp as u64,
@@ -186,6 +201,7 @@ async fn test_frame_timing_semantics() {
                 "  [{}] FrameNr={}, TimeStamp={}, TimeStampBOF={}, ReadoutTime={}",
                 i, meta.frame_nr, meta.timestamp, meta.timestamp_bof, meta.readout_time
             );
+            last_frame_nr = Some(fi.FrameNr);
             oldest_frames.push(meta);
 
             // Unlock so we can get next frame

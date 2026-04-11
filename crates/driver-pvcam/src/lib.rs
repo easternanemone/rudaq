@@ -74,6 +74,36 @@ use crate::components::taps::ObserverAdapter;
 use pvcam_sys::*;
 
 // =============================================================================
+// WeakConn: Weak reference wrapper for hardware write callbacks
+//
+// Hardware write callbacks capture a Weak<Mutex<PvcamConnection>> instead of a
+// strong Arc<>. This prevents the connection from being kept alive by parameter
+// callbacks after the driver is dropped (e.g. when a drift-polling task holds
+// clones of parameters that carry those callbacks).
+//
+// WeakConn implements Clone so the `let conn = conn.clone()` pattern inside
+// each FnMut closure continues to work — each call site moves a fresh clone
+// into the async block without creating a new strong reference.
+// =============================================================================
+
+#[derive(Clone)]
+struct WeakConn(std::sync::Weak<tokio::sync::Mutex<PvcamConnection>>);
+
+impl WeakConn {
+    fn new(conn: &Arc<tokio::sync::Mutex<PvcamConnection>>) -> Self {
+        Self(Arc::downgrade(conn))
+    }
+
+    async fn lock_owned(&self) -> Result<tokio::sync::OwnedMutexGuard<PvcamConnection>, DaqError> {
+        let arc = self
+            .0
+            .upgrade()
+            .ok_or_else(|| DaqError::Instrument("PVCAM driver disconnected".to_string()))?;
+        Ok(arc.lock_owned().await)
+    }
+}
+
+// =============================================================================
 // PVCAM Factory (DriverFactory implementation)
 // =============================================================================
 
@@ -1048,11 +1078,11 @@ impl PvcamDriver {
                 .with_choices_introspectable(ExposureResolution::all_choices())
                 .with_group("Acquisition");
                 param.connect_to_hardware_write({
-                    let conn = connection.clone();
+                    let conn = WeakConn::new(&connection);
                     move |val| {
                         let conn = conn.clone();
                         Box::pin(async move {
-                            let conn_guard = conn.lock_owned().await;
+                            let conn_guard = conn.lock_owned().await?;
                             let res = ExposureResolution::from_str(&val);
                             ffi_timeout::ffi_with_timeout_daq(
                                 "set_exposure_resolution",
@@ -1109,11 +1139,11 @@ impl PvcamDriver {
                 .with_dtype("bool")
                 .with_group("Post-Processing");
                 enabled.connect_to_hardware_write({
-                    let conn = connection.clone();
+                    let conn = WeakConn::new(&connection);
                     move |val| {
                         let conn = conn.clone();
                         Box::pin(async move {
-                            let conn_guard = conn.lock_owned().await;
+                            let conn_guard = conn.lock_owned().await?;
                             ffi_timeout::ffi_with_timeout_daq(
                                 "set_centroids_enabled",
                                 ffi_timeout::CONFIG_TIMEOUT,
@@ -1150,7 +1180,7 @@ impl PvcamDriver {
                     .with_group("Post-Processing");
 
                 {
-                    let conn = connection.clone();
+                    let conn = WeakConn::new(&connection);
                     let radius_param = radius.clone();
                     let max_count_param = max_count.clone();
                     let threshold_param = threshold.clone();
@@ -1160,7 +1190,7 @@ impl PvcamDriver {
                         let max_count = max_count_param.get();
                         let threshold = threshold_param.get();
                         Box::pin(async move {
-                            let conn_guard = conn.lock_owned().await;
+                            let conn_guard = conn.lock_owned().await?;
                             let config = CentroidsConfig {
                                 mode: CentroidsMode::from_str(&val),
                                 radius,
@@ -1181,7 +1211,7 @@ impl PvcamDriver {
                 }
 
                 {
-                    let conn = connection.clone();
+                    let conn = WeakConn::new(&connection);
                     let mode_param = mode.clone();
                     let max_count_param = max_count.clone();
                     let threshold_param = threshold.clone();
@@ -1191,7 +1221,7 @@ impl PvcamDriver {
                         let max_count = max_count_param.get();
                         let threshold = threshold_param.get();
                         Box::pin(async move {
-                            let conn_guard = conn.lock_owned().await;
+                            let conn_guard = conn.lock_owned().await?;
                             let config = CentroidsConfig {
                                 mode,
                                 radius: val,
@@ -1212,7 +1242,7 @@ impl PvcamDriver {
                 }
 
                 {
-                    let conn = connection.clone();
+                    let conn = WeakConn::new(&connection);
                     let mode_param = mode.clone();
                     let radius_param = radius.clone();
                     let threshold_param = threshold.clone();
@@ -1222,7 +1252,7 @@ impl PvcamDriver {
                         let radius = radius_param.get();
                         let threshold = threshold_param.get();
                         Box::pin(async move {
-                            let conn_guard = conn.lock_owned().await;
+                            let conn_guard = conn.lock_owned().await?;
                             let config = CentroidsConfig {
                                 mode,
                                 radius,
@@ -1243,11 +1273,11 @@ impl PvcamDriver {
                 }
 
                 threshold.connect_to_hardware_write({
-                    let conn = connection.clone();
+                    let conn = WeakConn::new(&connection);
                     move |val| {
                         let conn = conn.clone();
                         Box::pin(async move {
-                            let conn_guard = conn.lock_owned().await;
+                            let conn_guard = conn.lock_owned().await?;
                             ffi_timeout::ffi_with_timeout_daq(
                                 "set_centroids_threshold",
                                 ffi_timeout::CONFIG_TIMEOUT,
@@ -1296,11 +1326,11 @@ impl PvcamDriver {
                 )
                 .with_group("Trigger");
                 param.connect_to_hardware_write({
-                    let conn = connection.clone();
+                    let conn = WeakConn::new(&connection);
                     move |val| {
                         let conn = conn.clone();
                         Box::pin(async move {
-                            let conn_guard = conn.lock_owned().await;
+                            let conn_guard = conn.lock_owned().await?;
                             let direction = ScanDirection::from_str(&val).ok_or_else(|| {
                                 DaqError::Instrument(format!("Invalid scan direction '{val}'"))
                             })?;
@@ -1439,11 +1469,11 @@ impl PvcamDriver {
                             let feature_index = feature.index;
                             let param_index = pp_param.index;
                             param.connect_to_hardware_write({
-                                let conn = connection.clone();
+                                let conn = WeakConn::new(&connection);
                                 move |val| {
                                     let conn = conn.clone();
                                     Box::pin(async move {
-                                        let conn_guard = conn.lock_owned().await;
+                                        let conn_guard = conn.lock_owned().await?;
                                         ffi_timeout::ffi_with_timeout_daq(
                                             "set_pp_param(bool)",
                                             ffi_timeout::CONFIG_TIMEOUT,
@@ -1470,11 +1500,11 @@ impl PvcamDriver {
                             let feature_index = feature.index;
                             let param_index = pp_param.index;
                             param.connect_to_hardware_write({
-                                let conn = connection.clone();
+                                let conn = WeakConn::new(&connection);
                                 move |val| {
                                     let conn = conn.clone();
                                     Box::pin(async move {
-                                        let conn_guard = conn.lock_owned().await;
+                                        let conn_guard = conn.lock_owned().await?;
                                         ffi_timeout::ffi_with_timeout_daq(
                                             "set_pp_param(u32)",
                                             ffi_timeout::CONFIG_TIMEOUT,
@@ -1821,7 +1851,7 @@ impl PvcamDriver {
     /// synchronous FFI calls from blocking tokio worker threads. Uses `lock_owned()`
     /// to get `OwnedMutexGuard` which is `Send + 'static` for the blocking task.
     fn connect_params(&self) {
-        let conn = self.connection.clone();
+        let conn = WeakConn::new(&self.connection);
 
         // Exposure Time (bd-aruo.1)
         self.exposure_ms.connect_to_hardware_write({
@@ -1830,7 +1860,7 @@ impl PvcamDriver {
                 let conn = conn.clone();
                 Box::pin(async move {
                     tracing::debug!(param = "exposure_ms", ?val, "PVCAM hw_write called");
-                    let conn_guard = conn.lock_owned().await;
+                    let conn_guard = conn.lock_owned().await?;
                     let result = ffi_timeout::ffi_with_timeout_daq(
                         "set_exposure_time_ms",
                         ffi_timeout::CONFIG_TIMEOUT,
@@ -1861,7 +1891,7 @@ impl PvcamDriver {
                         ?val,
                         "PVCAM hw_write called"
                     );
-                    let conn_guard = conn.lock_owned().await;
+                    let conn_guard = conn.lock_owned().await?;
                     let result = ffi_timeout::ffi_with_timeout_daq(
                         "set_temperature_setpoint",
                         ffi_timeout::CONFIG_TIMEOUT,
@@ -1887,7 +1917,7 @@ impl PvcamDriver {
             move |val| {
                 let conn = conn.clone();
                 Box::pin(async move {
-                    let conn_guard = conn.lock_owned().await;
+                    let conn_guard = conn.lock_owned().await?;
                     let speed = FanSpeed::from_str(&val);
                     ffi_timeout::ffi_with_timeout_daq(
                         "set_fan_speed",
@@ -1909,7 +1939,7 @@ impl PvcamDriver {
                 let conn = conn.clone();
                 Box::pin(async move {
                     tracing::debug!(param = "trigger_mode", %val, "PVCAM hw_write called");
-                    let conn_guard = conn.lock_owned().await;
+                    let conn_guard = conn.lock_owned().await?;
                     let requested_name = val.clone();
                     let result = ffi_timeout::ffi_with_timeout_daq(
                         "set_trigger_mode",
@@ -1974,7 +2004,7 @@ impl PvcamDriver {
                 let conn = conn.clone();
                 Box::pin(async move {
                     let mode = ClearMode::from_str(&val);
-                    let conn_guard = conn.lock_owned().await;
+                    let conn_guard = conn.lock_owned().await?;
                     ffi_timeout::ffi_with_timeout_daq(
                         "set_clear_mode",
                         ffi_timeout::CONFIG_TIMEOUT,
@@ -1995,7 +2025,7 @@ impl PvcamDriver {
                 let conn = conn.clone();
                 Box::pin(async move {
                     let mode = ExposeOutMode::from_str(&val);
-                    let conn_guard = conn.lock_owned().await;
+                    let conn_guard = conn.lock_owned().await?;
                     ffi_timeout::ffi_with_timeout_daq(
                         "set_expose_out_mode",
                         ffi_timeout::CONFIG_TIMEOUT,
@@ -2016,7 +2046,7 @@ impl PvcamDriver {
                 let conn = conn.clone();
                 Box::pin(async move {
                     let mode = EdgeTrigger::from_str(&val);
-                    let conn_guard = conn.lock_owned().await;
+                    let conn_guard = conn.lock_owned().await?;
                     ffi_timeout::ffi_with_timeout_daq(
                         "set_edge_trigger",
                         ffi_timeout::CONFIG_TIMEOUT,
@@ -2036,7 +2066,7 @@ impl PvcamDriver {
             move |val| {
                 let conn = conn.clone();
                 Box::pin(async move {
-                    let conn_guard = conn.lock_owned().await;
+                    let conn_guard = conn.lock_owned().await?;
                     ffi_timeout::ffi_with_timeout_daq(
                         "set_pre_trigger_delay_us",
                         ffi_timeout::CONFIG_TIMEOUT,
@@ -2056,7 +2086,7 @@ impl PvcamDriver {
             move |val| {
                 let conn = conn.clone();
                 Box::pin(async move {
-                    let conn_guard = conn.lock_owned().await;
+                    let conn_guard = conn.lock_owned().await?;
                     ffi_timeout::ffi_with_timeout_daq(
                         "set_post_trigger_delay_us",
                         ffi_timeout::CONFIG_TIMEOUT,
@@ -2077,7 +2107,7 @@ impl PvcamDriver {
                 let conn = conn.clone();
                 Box::pin(async move {
                     let mode = ShutterMode::from_str(&val);
-                    let conn_guard = conn.lock_owned().await;
+                    let conn_guard = conn.lock_owned().await?;
                     ffi_timeout::ffi_with_timeout_daq(
                         "set_shutter_mode",
                         ffi_timeout::CONFIG_TIMEOUT,
@@ -2097,7 +2127,7 @@ impl PvcamDriver {
             move |val| {
                 let conn = conn.clone();
                 Box::pin(async move {
-                    let conn_guard = conn.lock_owned().await;
+                    let conn_guard = conn.lock_owned().await?;
                     ffi_timeout::ffi_with_timeout_daq(
                         "set_shutter_open_delay_us",
                         ffi_timeout::CONFIG_TIMEOUT,
@@ -2117,7 +2147,7 @@ impl PvcamDriver {
             move |val| {
                 let conn = conn.clone();
                 Box::pin(async move {
-                    let conn_guard = conn.lock_owned().await;
+                    let conn_guard = conn.lock_owned().await?;
                     ffi_timeout::ffi_with_timeout_daq(
                         "set_shutter_close_delay_us",
                         ffi_timeout::CONFIG_TIMEOUT,
@@ -2170,7 +2200,7 @@ impl PvcamDriver {
                             "Cannot change binning while streaming".into(),
                         ));
                     }
-                    let conn_guard = conn.lock_owned().await;
+                    let conn_guard = conn.lock_owned().await?;
                     ffi_timeout::ffi_with_timeout_daq(
                         "set_binning",
                         ffi_timeout::CONFIG_TIMEOUT,
@@ -2202,7 +2232,7 @@ impl PvcamDriver {
                             "Cannot change readout port while streaming".into(),
                         ));
                     }
-                    let conn_guard = conn.lock_owned().await;
+                    let conn_guard = conn.lock_owned().await?;
                     ffi_timeout::ffi_with_timeout_daq(
                         "set_readout_port",
                         ffi_timeout::CONFIG_TIMEOUT,
@@ -2243,7 +2273,7 @@ impl PvcamDriver {
                             "Cannot change speed mode while streaming".into(),
                         ));
                     }
-                    let conn_guard = conn.lock_owned().await;
+                    let conn_guard = conn.lock_owned().await?;
                     ffi_timeout::ffi_with_timeout_daq(
                         "set_speed_mode",
                         ffi_timeout::CONFIG_TIMEOUT,
@@ -2284,7 +2314,7 @@ impl PvcamDriver {
                             "Cannot change gain mode while streaming".into(),
                         ));
                     }
-                    let conn_guard = conn.lock_owned().await;
+                    let conn_guard = conn.lock_owned().await?;
                     ffi_timeout::ffi_with_timeout_daq(
                         "set_gain_mode",
                         ffi_timeout::CONFIG_TIMEOUT,
@@ -2310,7 +2340,7 @@ impl PvcamDriver {
             move |val| {
                 let conn = conn.clone();
                 Box::pin(async move {
-                    let conn_guard = conn.lock_owned().await;
+                    let conn_guard = conn.lock_owned().await?;
                     ffi_timeout::ffi_with_timeout_daq(
                         "set_smart_stream_enabled",
                         ffi_timeout::CONFIG_TIMEOUT,
@@ -2331,7 +2361,7 @@ impl PvcamDriver {
                 let conn = conn.clone();
                 Box::pin(async move {
                     let mode = SmartStreamMode::from_str(&val);
-                    let conn_guard = conn.lock_owned().await;
+                    let conn_guard = conn.lock_owned().await?;
                     ffi_timeout::ffi_with_timeout_daq(
                         "set_smart_stream_mode",
                         ffi_timeout::CONFIG_TIMEOUT,
@@ -2359,7 +2389,7 @@ impl PvcamDriver {
                     if exposures.is_empty() {
                         return Ok(());
                     }
-                    let conn_guard = conn.lock_owned().await;
+                    let conn_guard = conn.lock_owned().await?;
                     ffi_timeout::ffi_with_timeout_daq(
                         "upload_smart_stream",
                         ffi_timeout::CONFIG_TIMEOUT,
@@ -2388,7 +2418,7 @@ impl PvcamDriver {
                     #[cfg(feature = "pvcam_sdk")]
                     _acquisition.set_metadata_decoding(val);
 
-                    let conn_guard = conn.lock_owned().await;
+                    let conn_guard = conn.lock_owned().await?;
                     ffi_timeout::ffi_with_timeout_daq(
                         "set_metadata_enabled",
                         ffi_timeout::CONFIG_TIMEOUT,
@@ -2408,7 +2438,7 @@ impl PvcamDriver {
             move |val| {
                 let conn = conn.clone();
                 Box::pin(async move {
-                    let conn_guard = conn.lock_owned().await;
+                    let conn_guard = conn.lock_owned().await?;
                     ffi_timeout::ffi_with_timeout_daq(
                         "set_adc_offset",
                         ffi_timeout::CONFIG_TIMEOUT,
@@ -2429,7 +2459,7 @@ impl PvcamDriver {
                 let conn = conn.clone();
                 Box::pin(async move {
                     let rotate = FrameRotate::from_str(&val);
-                    let conn_guard = conn.lock_owned().await;
+                    let conn_guard = conn.lock_owned().await?;
                     ffi_timeout::ffi_with_timeout_daq(
                         "set_host_frame_rotate",
                         ffi_timeout::CONFIG_TIMEOUT,
@@ -2450,7 +2480,7 @@ impl PvcamDriver {
                 let conn = conn.clone();
                 Box::pin(async move {
                     let flip = FrameFlip::from_str(&val);
-                    let conn_guard = conn.lock_owned().await;
+                    let conn_guard = conn.lock_owned().await?;
                     ffi_timeout::ffi_with_timeout_daq(
                         "set_host_frame_flip",
                         ffi_timeout::CONFIG_TIMEOUT,
@@ -2470,7 +2500,7 @@ impl PvcamDriver {
             move |val| {
                 let conn = conn.clone();
                 Box::pin(async move {
-                    let conn_guard = conn.lock_owned().await;
+                    let conn_guard = conn.lock_owned().await?;
                     ffi_timeout::ffi_with_timeout_daq(
                         "set_host_frame_summing_enabled",
                         ffi_timeout::CONFIG_TIMEOUT,
@@ -2490,7 +2520,7 @@ impl PvcamDriver {
             move |val| {
                 let conn = conn.clone();
                 Box::pin(async move {
-                    let conn_guard = conn.lock_owned().await;
+                    let conn_guard = conn.lock_owned().await?;
                     ffi_timeout::ffi_with_timeout_daq(
                         "set_host_frame_summing_count",
                         ffi_timeout::CONFIG_TIMEOUT,
@@ -2510,7 +2540,7 @@ impl PvcamDriver {
             move |val| {
                 let conn = conn.clone();
                 Box::pin(async move {
-                    let conn_guard = conn.lock_owned().await;
+                    let conn_guard = conn.lock_owned().await?;
                     ffi_timeout::ffi_with_timeout_daq(
                         "set_io_address",
                         ffi_timeout::CONFIG_TIMEOUT,
@@ -2531,7 +2561,7 @@ impl PvcamDriver {
                 let conn = conn.clone();
                 let addr = io_address.get();
                 Box::pin(async move {
-                    let conn_guard = conn.lock_owned().await;
+                    let conn_guard = conn.lock_owned().await?;
                     ffi_timeout::ffi_with_timeout_daq(
                         "set_io_direction",
                         ffi_timeout::CONFIG_TIMEOUT,
@@ -2552,7 +2582,7 @@ impl PvcamDriver {
                 let conn = conn.clone();
                 let addr = io_address.get();
                 Box::pin(async move {
-                    let conn_guard = conn.lock_owned().await;
+                    let conn_guard = conn.lock_owned().await?;
                     ffi_timeout::ffi_with_timeout_daq(
                         "set_io_state",
                         ffi_timeout::CONFIG_TIMEOUT,
@@ -2573,7 +2603,7 @@ impl PvcamDriver {
                 let conn = conn.clone();
                 Box::pin(async move {
                     let mode = pmode_from_name(&val);
-                    let conn_guard = conn.lock_owned().await;
+                    let conn_guard = conn.lock_owned().await?;
                     ffi_timeout::ffi_with_timeout_daq(
                         "set_pmode",
                         ffi_timeout::CONFIG_TIMEOUT,
@@ -2598,7 +2628,7 @@ impl PvcamDriver {
                         "Reset" => 2.0, // Distinct from Stop; maps to PVCAM reset pulse
                         _ => 0.0,       // Stop (default)
                     };
-                    let conn_guard = conn.lock_owned().await;
+                    let conn_guard = conn.lock_owned().await?;
                     ffi_timeout::ffi_with_timeout_daq(
                         "io_control",
                         ffi_timeout::CONFIG_TIMEOUT,
@@ -2619,7 +2649,7 @@ impl PvcamDriver {
             move |val| {
                 let conn = conn.clone();
                 Box::pin(async move {
-                    let conn_guard = conn.lock_owned().await;
+                    let conn_guard = conn.lock_owned().await?;
                     let mode = LogicOutput::from_str(&val);
                     ffi_timeout::ffi_with_timeout_daq(
                         "set_logic_output",
@@ -2640,7 +2670,7 @@ impl PvcamDriver {
             move |val| {
                 let conn = conn.clone();
                 Box::pin(async move {
-                    let conn_guard = conn.lock_owned().await;
+                    let conn_guard = conn.lock_owned().await?;
                     ffi_timeout::ffi_with_timeout_daq(
                         "set_logic_output_invert",
                         ffi_timeout::CONFIG_TIMEOUT,
@@ -2661,7 +2691,7 @@ impl PvcamDriver {
                 move |val| {
                     let conn = conn.clone();
                     Box::pin(async move {
-                        let conn_guard = conn.lock_owned().await;
+                        let conn_guard = conn.lock_owned().await?;
                         ffi_timeout::ffi_with_timeout_daq(
                             "set_prime_enhance",
                             ffi_timeout::CONFIG_TIMEOUT,
@@ -2683,7 +2713,7 @@ impl PvcamDriver {
                 move |val| {
                     let conn = conn.clone();
                     Box::pin(async move {
-                        let conn_guard = conn.lock_owned().await;
+                        let conn_guard = conn.lock_owned().await?;
                         ffi_timeout::ffi_with_timeout_daq(
                             "set_prime_locate",
                             ffi_timeout::CONFIG_TIMEOUT,
