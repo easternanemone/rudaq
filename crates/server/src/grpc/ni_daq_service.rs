@@ -192,7 +192,7 @@ impl NiDaqServiceImpl {
                 }
                 let dev_path = self.registry.get_driver_config_str(&info.id, "device")?;
                 if dev_path == parent_path {
-                    Some(info.id)
+                    Some(info.id.to_string())
                 } else {
                     None
                 }
