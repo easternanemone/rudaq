@@ -219,6 +219,9 @@ pub struct DaqApp {
     /// Cheat sheet visibility state
     show_cheat_sheet: bool,
 
+    /// Quick Command Palette state (Ctrl+K / Cmd+K)
+    command_palette: crate::widgets::command_palette::CommandPaletteState,
+
     /// Whether this session recovered from a crash (bd-izdj.30)
     #[cfg(not(target_arch = "wasm32"))]
     recovered_from_crash: bool,
@@ -563,6 +566,7 @@ impl DaqApp {
             shortcut_manager,
             cheat_sheet_panel: CheatSheetPanel::new(),
             show_cheat_sheet: false,
+            command_palette: crate::widgets::command_palette::CommandPaletteState::default(),
             recovered_from_crash,
         };
 
@@ -742,6 +746,7 @@ impl DaqApp {
             shortcut_manager,
             cheat_sheet_panel: CheatSheetPanel::new(),
             show_cheat_sheet: false,
+            command_palette: crate::widgets::command_palette::CommandPaletteState::default(),
             wasm_connection: {
                 // bd-5k2m: URL param takes highest priority, then stored, then default.
                 // detect_daemon_url() checks ?daemon= param first, then page origin.

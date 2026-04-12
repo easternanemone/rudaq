@@ -64,10 +64,13 @@ impl eframe::App for DaqApp {
         // Check global keyboard shortcuts
         self.check_global_shortcuts(ctx);
 
-        // Handle additional keyboard shortcuts (Ctrl+, opens settings)
+        // Handle additional keyboard shortcuts (Ctrl+, opens settings; Ctrl+K opens command palette)
         ctx.input(|i| {
             if i.modifiers.command && i.key_pressed(egui::Key::Comma) {
                 self.settings_window.open();
+            }
+            if i.modifiers.command && i.key_pressed(egui::Key::K) {
+                self.command_palette.toggle();
             }
         });
 
@@ -295,6 +298,15 @@ impl eframe::App for DaqApp {
         #[cfg(target_arch = "wasm32")]
         if let Some(ref mut ghost) = self.ghost_dom {
             ghost.sync(&self.automation_state.borrow());
+        }
+
+        // Render command palette overlay (Ctrl+K)
+        if let Some(action) = self.command_palette.show(ctx) {
+            match action {
+                crate::widgets::command_palette::PaletteAction::FocusPanel(panel) => {
+                    self.ui_actions.push(UiAction::FocusTab(panel));
+                }
+            }
         }
 
         // Render cheat sheet panel if visible

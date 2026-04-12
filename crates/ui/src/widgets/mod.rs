@@ -6,6 +6,7 @@
 pub mod adaptive_alert;
 pub mod auto_scale_plot;
 pub mod colorbar;
+pub mod command_palette;
 pub mod device_controls;
 pub mod device_selector;
 pub mod gauge;
