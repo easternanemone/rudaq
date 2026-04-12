@@ -182,6 +182,19 @@ impl DaqApp {
         for (panel_id, _new_kind) in migrations {
             self.invalidate_panel_widget(panel_id);
         }
+
+        // Auto-close panels for devices no longer on the daemon.
+        let stale_panels: Vec<(usize, String)> = self
+            .device_panel_info
+            .iter()
+            .filter(|(_, info)| info.availability == DeviceAvailability::Missing)
+            .map(|(id, info)| (*id, info.device_info.id.clone()))
+            .collect();
+        for (panel_id, device_id) in stale_panels {
+            tracing::info!(panel_id, device_id, "Auto-closing panel for missing device");
+            self.ui_actions
+                .push(UiAction::CloseDevicePanel { id: panel_id });
+        }
     }
 
     pub(super) fn invalidate_panel_widget(&mut self, panel_id: usize) {

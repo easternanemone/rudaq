@@ -611,7 +611,8 @@ impl ExperimentViewer {
                         };
                     }
                     // Remove button (disable if only one trigger)
-                    if trigger_count > 1 && ui.button("x").clicked() {
+                    if trigger_count > 1 && ui.button("x").on_hover_text("Remove trigger").clicked()
+                    {
                         remove_idx = Some(idx);
                     }
                 });

@@ -316,13 +316,13 @@ impl DeviceControlWidget for RotatorControlPanel {
 
         if !self.panel_state.initial_fetch_done && client.is_some() {
             self.panel_state.initial_fetch_done = true;
-            self.fetch_state(client.as_mut().map(|c| &mut **c), runtime, &device_id);
+            self.fetch_state(client.as_deref_mut(), runtime, &device_id);
         }
 
-        self.queue_refresh_if_needed(client.as_mut().map(|c| &mut **c), runtime, &device_id);
+        self.queue_refresh_if_needed(client.as_deref_mut(), runtime, &device_id);
 
         if self.panel_state.should_refresh(Self::REFRESH_INTERVAL) && client.is_some() {
-            self.fetch_state(client.as_mut().map(|c| &mut **c), runtime, &device_id);
+            self.fetch_state(client.as_deref_mut(), runtime, &device_id);
         }
 
         let is_busy = self.state.moving || self.panel_state.is_busy();
@@ -444,26 +444,16 @@ impl DeviceControlWidget for RotatorControlPanel {
         if let Some(action) = pending_action.get() {
             match action {
                 RotatorUiAction::MoveAbsolute(position) => {
-                    self.move_absolute(
-                        client.as_mut().map(|c| &mut **c),
-                        runtime,
-                        &device_id,
-                        position,
-                    );
+                    self.move_absolute(client.as_deref_mut(), runtime, &device_id, position);
                 }
                 RotatorUiAction::MoveRelative(delta) => {
-                    self.move_relative(
-                        client.as_mut().map(|c| &mut **c),
-                        runtime,
-                        &device_id,
-                        delta,
-                    );
+                    self.move_relative(client.as_deref_mut(), runtime, &device_id, delta);
                 }
                 RotatorUiAction::Home => {
-                    self.home(client.as_mut().map(|c| &mut **c), runtime, &device_id);
+                    self.home(client.as_deref_mut(), runtime, &device_id);
                 }
                 RotatorUiAction::Refresh => {
-                    self.fetch_state(client.as_mut().map(|c| &mut **c), runtime, &device_id);
+                    self.fetch_state(client, runtime, &device_id);
                 }
             }
         }

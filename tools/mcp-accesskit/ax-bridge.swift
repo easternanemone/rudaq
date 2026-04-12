@@ -49,6 +49,39 @@ func getSize(_ element: AXUIElement) -> (w: Double, h: Double)? {
     return (Double(size.width), Double(size.height))
 }
 
+/// Resolve the display value for an element, with checkbox numeric fallback.
+func resolveValue(_ element: AXUIElement, role: String) -> String {
+    let value = getStringAttr(element, kAXValueAttribute)
+    if value.isEmpty && role == "AXCheckBox" {
+        if let numVal = getAttr(element, kAXValueAttribute) as? Int {
+            return numVal == 1 ? "1" : "0"
+        }
+    }
+    return value
+}
+
+/// Find the main application window (largest AXStandardWindow by area).
+func findMainWindow(_ windows: [AXUIElement]) -> AXUIElement? {
+    var mainWin: AXUIElement? = nil
+    var maxArea: Double = 0
+    for window in windows {
+        let subrole = getStringAttr(window, kAXSubroleAttribute)
+        if let sz = getSize(window) {
+            let area = sz.w * sz.h
+            if (subrole == "AXStandardWindow" || mainWin == nil) && area > maxArea {
+                maxArea = area
+                mainWin = window
+            }
+        }
+    }
+    return mainWin
+}
+
+/// Normalize whitespace for accessibility title matching (collapses zero-width/non-breaking spaces).
+func normalizeWhitespace(_ s: String) -> String {
+    s.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression).trimmingCharacters(in: .whitespaces)
+}
+
 // MARK: - Tree Building
 
 struct AXNode: Codable {
@@ -68,7 +101,7 @@ func buildNode(_ element: AXUIElement, depth: Int, maxDepth: Int) -> AXNode {
     let role = getStringAttr(element, kAXRoleAttribute)
     let subrole = getStringAttr(element, kAXSubroleAttribute)
     let title = getStringAttr(element, kAXTitleAttribute)
-    let value = getStringAttr(element, kAXValueAttribute)
+    let value = resolveValue(element, role: role)
     let desc = getStringAttr(element, kAXDescriptionAttribute)
     let actions = getActions(element)
     let enabled = (getAttr(element, kAXEnabledAttribute) as? Bool) ?? true
@@ -123,19 +156,26 @@ func findElements(
     title: String?,
     value: String?,
     path: [Int] = [],
-    results: inout [FoundElement]
+    results: inout [FoundElement],
+    normalizedTitle: String? = nil  // Pre-normalized search title (avoids per-node regex)
 ) {
     let elRole = getStringAttr(element, kAXRoleAttribute)
     let elTitle = getStringAttr(element, kAXTitleAttribute)
-    let elValue = getStringAttr(element, kAXValueAttribute)
+    let elValue = resolveValue(element, role: elRole)
     let elDesc = getStringAttr(element, kAXDescriptionAttribute)
 
     // Skip menu bar subtree
     if elRole == "AXMenuBar" { return }
 
+    // Pre-normalize search title on first call (reused for all recursive calls)
+    let normSearch = normalizedTitle ?? title.map { normalizeWhitespace($0) }
+
     var matches = true
     if let role = role, !role.isEmpty { matches = matches && elRole == role }
-    if let title = title, !title.isEmpty { matches = matches && elTitle.localizedCaseInsensitiveContains(title) }
+    if let normSearch = normSearch, !normSearch.isEmpty {
+        let normTitle = normalizeWhitespace(elTitle)
+        matches = matches && normTitle.localizedCaseInsensitiveContains(normSearch)
+    }
     if let value = value, !value.isEmpty { matches = matches && elValue.localizedCaseInsensitiveContains(value) }
 
     if matches && (role != nil || title != nil || value != nil) {
@@ -158,7 +198,7 @@ func findElements(
 
     if let children = getAttr(element, kAXChildrenAttribute) as? [AXUIElement] {
         for (i, child) in children.enumerated() {
-            findElements(child, role: role, title: title, value: value, path: path + [i], results: &results)
+            findElements(child, role: role, title: title, value: value, path: path + [i], results: &results, normalizedTitle: normSearch)
         }
     }
 }
@@ -183,9 +223,11 @@ func findAndPerformAction(
     var results: [FoundElement] = []
     findElements(element, role: nil, title: title, value: nil, results: &results)
 
-    // Prefer buttons, then any clickable element
+    // Prefer buttons, then popups/checkboxes, then any clickable element
     let buttons = results.filter { $0.role == "AXButton" }
-    let target = buttons.first ?? results.first
+    let popups = results.filter { $0.role == "AXPopUpButton" }
+    let checkboxes = results.filter { $0.role == "AXCheckBox" }
+    let target = buttons.first ?? popups.first ?? checkboxes.first ?? results.first
 
     guard let target = target else { return (false, nil) }
 
@@ -482,11 +524,11 @@ case "screenshot":
     var outputPath = "/tmp/ax-screenshot.png"
     if let idx = args.firstIndex(of: "--output"), idx + 1 < args.count { outputPath = args[idx + 1] }
 
-    // Get window ID for the process
+    // Get the main application window (largest standard window, not the menu bar)
     let app = AXUIElementCreateApplication(pid)
     guard let windows = getAttr(app, kAXWindowsAttribute) as? [AXUIElement],
-          let win = windows.first else {
-        let result: [String: Any] = ["success": false, "error": "No window found for PID \(pid)"]
+          let win = findMainWindow(windows) else {
+        let result: [String: Any] = ["success": false, "error": "No standard window found for PID \(pid)"]
         if let data = try? JSONSerialization.data(withJSONObject: result, options: .prettyPrinted),
            let str = String(data: data, encoding: .utf8) { print(str) }
         break
@@ -552,10 +594,10 @@ case "app-status":
     if running {
         let app = AXUIElementCreateApplication(pid)
 
-        // Check if window exists
+        // Check if window exists — find the main standard window for title
         if let windows = getAttr(app, kAXWindowsAttribute) as? [AXUIElement] {
             status["window_count"] = windows.count
-            if let win = windows.first {
+            if let win = findMainWindow(windows) {
                 status["window_title"] = getStringAttr(win, kAXTitleAttribute)
             }
         }

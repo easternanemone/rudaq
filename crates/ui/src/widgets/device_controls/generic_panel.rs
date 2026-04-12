@@ -586,7 +586,7 @@ impl GenericDevicePanel {
         runtime: &Runtime,
         device_id: &str,
     ) {
-        self.fetch_device_state(client.as_mut().map(|c| &mut **c), runtime, device_id);
+        self.fetch_device_state(client.as_deref_mut(), runtime, device_id);
         self.fetch_aux_state(client, runtime, device_id);
     }
 
@@ -812,13 +812,13 @@ impl GenericDevicePanel {
 
         if !self.panel_state.initial_fetch_done && client.is_some() {
             self.panel_state.initial_fetch_done = true;
-            self.fetch_full_state(client.as_mut().map(|c| &mut **c), runtime, &device_id);
+            self.fetch_full_state(client.as_deref_mut(), runtime, &device_id);
             if self.reading.is_some() {
-                self.read_power(client.as_mut().map(|c| &mut **c), runtime, &device_id);
+                self.read_power(client.as_deref_mut(), runtime, &device_id);
             }
         }
 
-        self.queue_refresh_if_needed(client.as_mut().map(|c| &mut **c), runtime, &device_id);
+        self.queue_refresh_if_needed(client.as_deref_mut(), runtime, &device_id);
 
         let is_busy = self.panel_state.is_busy();
         let is_refreshing = self.panel_state.is_refreshing();
@@ -832,7 +832,7 @@ impl GenericDevicePanel {
                     .map(|instant| instant.elapsed() >= Self::REFRESH_INTERVAL)
                     .unwrap_or(true);
             if should_refresh && client.is_some() {
-                self.read_power(client.as_mut().map(|c| &mut **c), runtime, &device_id);
+                self.read_power(client.as_deref_mut(), runtime, &device_id);
             }
         }
 
@@ -844,7 +844,7 @@ impl GenericDevicePanel {
                 .map(|instant| instant.elapsed() >= Self::REFRESH_INTERVAL)
                 .unwrap_or(true);
             if should_refresh_position && client.is_some() {
-                self.fetch_device_state(client.as_mut().map(|c| &mut **c), runtime, &device_id);
+                self.fetch_device_state(client.as_deref_mut(), runtime, &device_id);
             }
         }
 
@@ -879,7 +879,7 @@ impl GenericDevicePanel {
                             filled_action_button(text, fill).min_size(egui::vec2(72.0, 22.0));
                         if ui.add_enabled(!is_busy, button).clicked() {
                             self.set_emission_rpc(
-                                client.as_mut().map(|c| &mut **c),
+                                client.as_deref_mut(),
                                 runtime,
                                 &device_id,
                                 !is_on,
@@ -901,7 +901,7 @@ impl GenericDevicePanel {
                             .min_size(egui::vec2(112.0, 22.0));
                         if ui.add_enabled(!is_busy, button).clicked() {
                             self.set_shutter_rpc(
-                                client.as_mut().map(|c| &mut **c),
+                                client.as_deref_mut(),
                                 runtime,
                                 &device_id,
                                 !is_open,
@@ -943,7 +943,7 @@ impl GenericDevicePanel {
                         wl.dragging = false;
                         wl.input = format!("{:.1}", wl.slider_value);
                         self.set_wavelength_rpc(
-                            client.as_mut().map(|c| &mut **c),
+                            client.as_deref_mut(),
                             runtime,
                             &device_id,
                             wl.slider_value,
@@ -959,7 +959,7 @@ impl GenericDevicePanel {
                     ) {
                         Ok(nm) if (min_nm..=max_nm).contains(&nm) => {
                             panel.set_wavelength_rpc(
-                                client.as_mut().map(|c| &mut **c),
+                                client.as_deref_mut(),
                                 runtime,
                                 &device_id,
                                 nm,
@@ -1039,7 +1039,7 @@ impl GenericDevicePanel {
                             && let Some(step) = step
                         {
                             self.move_relative(
-                                client.as_mut().map(|c| &mut **c),
+                                client.as_deref_mut(),
                                 runtime,
                                 &device_id,
                                 step * multiplier,
@@ -1062,7 +1062,7 @@ impl GenericDevicePanel {
                             value, "position",
                         ) {
                             Ok(position) => panel.move_absolute(
-                                client.as_mut().map(|c| &mut **c),
+                                client.as_deref_mut(),
                                 runtime,
                                 &device_id,
                                 position,
@@ -1085,12 +1085,7 @@ impl GenericDevicePanel {
                         .on_hover_text("Move to 0.0")
                         .clicked()
                     {
-                        self.move_absolute(
-                            client.as_mut().map(|c| &mut **c),
-                            runtime,
-                            &device_id,
-                            0.0,
-                        );
+                        self.move_absolute(client.as_deref_mut(), runtime, &device_id, 0.0);
                     }
 
                     ui.separator();
@@ -1124,23 +1119,13 @@ impl GenericDevicePanel {
                     if ui.add_enabled(!is_busy, slider).changed() {
                         settable.voltage = voltage;
                         settable.voltage_input = format!("{voltage:.3}");
-                        self.write_voltage_rpc(
-                            client.as_mut().map(|c| &mut **c),
-                            runtime,
-                            &device_id,
-                            voltage,
-                        );
+                        self.write_voltage_rpc(client.as_deref_mut(), runtime, &device_id, voltage);
                     }
 
                     ui.separator();
 
                     if ui.add_enabled(!is_busy, action_button("0 V")).clicked() {
-                        self.write_voltage_rpc(
-                            client.as_mut().map(|c| &mut **c),
-                            runtime,
-                            &device_id,
-                            0.0,
-                        );
+                        self.write_voltage_rpc(client.as_deref_mut(), runtime, &device_id, 0.0);
                     }
                     if ui
                         .add_enabled(
@@ -1150,7 +1135,7 @@ impl GenericDevicePanel {
                         .clicked()
                     {
                         self.write_voltage_rpc(
-                            client.as_mut().map(|c| &mut **c),
+                            client.as_deref_mut(),
                             runtime,
                             &device_id,
                             settable.min_voltage,
@@ -1163,12 +1148,7 @@ impl GenericDevicePanel {
                         )
                         .clicked()
                     {
-                        self.write_voltage_rpc(
-                            client.as_mut().map(|c| &mut **c),
-                            runtime,
-                            &device_id,
-                            settable.max_voltage,
-                        );
+                        self.write_voltage_rpc(client, runtime, &device_id, settable.max_voltage);
                     }
                 });
 

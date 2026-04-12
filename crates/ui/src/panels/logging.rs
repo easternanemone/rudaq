@@ -888,7 +888,9 @@ impl LoggingPanel {
                     .hint_text("Filter..."),
             );
 
-            if !self.search_filter.is_empty() && ui.small_button("✕").clicked() {
+            if !self.search_filter.is_empty()
+                && ui.small_button("✕").on_hover_text("Clear search").clicked()
+            {
                 self.search_filter.clear();
             }
         });

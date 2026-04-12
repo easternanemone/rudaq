@@ -201,7 +201,8 @@ impl Toasts {
                                 ui.with_layout(
                                     egui::Layout::right_to_left(egui::Align::Center),
                                     |ui| {
-                                        if ui.small_button("×").clicked() {
+                                        if ui.small_button("×").on_hover_text("Dismiss").clicked()
+                                        {
                                             to_remove.push(i);
                                         }
                                     },

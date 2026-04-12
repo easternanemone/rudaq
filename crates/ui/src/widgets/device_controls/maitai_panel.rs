@@ -484,13 +484,13 @@ impl DeviceControlWidget for MaiTaiControlPanel {
         // Initial state fetch
         if !self.panel_state.initial_fetch_done && client.is_some() {
             self.panel_state.initial_fetch_done = true;
-            self.fetch_state(client.as_mut().map(|c| &mut **c), runtime, &device_id);
+            self.fetch_state(client.as_deref_mut(), runtime, &device_id);
         }
 
-        self.queue_refresh_if_needed(client.as_mut().map(|c| &mut **c), runtime, &device_id);
+        self.queue_refresh_if_needed(client.as_deref_mut(), runtime, &device_id);
 
         if self.panel_state.should_refresh(POLL_INTERVAL) && client.is_some() {
-            self.fetch_state(client.as_mut().map(|c| &mut **c), runtime, &device_id);
+            self.fetch_state(client.as_deref_mut(), runtime, &device_id);
         }
 
         let is_busy = self.panel_state.is_busy();
@@ -542,12 +542,7 @@ impl DeviceControlWidget for MaiTaiControlPanel {
                     if ui.add(button).clicked() {
                         let new_state = !is_on;
                         tracing::info!("[GUI] Emission button clicked! Setting to {}", new_state);
-                        self.set_emission(
-                            client.as_mut().map(|c| &mut **c),
-                            runtime,
-                            &device_id,
-                            new_state,
-                        );
+                        self.set_emission(client.as_deref_mut(), runtime, &device_id, new_state);
                     }
                 });
 
@@ -565,12 +560,7 @@ impl DeviceControlWidget for MaiTaiControlPanel {
                     if ui.add(button).clicked() {
                         let new_state = !is_open;
                         tracing::info!("[GUI] Shutter button clicked! Setting to {}", new_state);
-                        self.set_shutter(
-                            client.as_mut().map(|c| &mut **c),
-                            runtime,
-                            &device_id,
-                            new_state,
-                        );
+                        self.set_shutter(client.as_deref_mut(), runtime, &device_id, new_state);
                     }
 
                     // Safety indicator - warn if shutter open but emission off
@@ -605,12 +595,7 @@ impl DeviceControlWidget for MaiTaiControlPanel {
             if ui.button("Set").clicked() {
                 if let Ok(wl) = self.wavelength_input.parse::<f64>() {
                     if (690.0..=1040.0).contains(&wl) {
-                        self.set_wavelength(
-                            client.as_mut().map(|c| &mut **c),
-                            runtime,
-                            &device_id,
-                            wl,
-                        );
+                        self.set_wavelength(client.as_deref_mut(), runtime, &device_id, wl);
                     } else {
                         self.panel_state
                             .set_error("Wavelength must be between 690-1040 nm");
@@ -626,7 +611,7 @@ impl DeviceControlWidget for MaiTaiControlPanel {
                 && let Ok(wl) = self.wavelength_input.parse::<f64>()
                 && (690.0..=1040.0).contains(&wl)
             {
-                self.set_wavelength(client.as_mut().map(|c| &mut **c), runtime, &device_id, wl);
+                self.set_wavelength(client.as_deref_mut(), runtime, &device_id, wl);
             }
         });
 
@@ -652,7 +637,7 @@ impl DeviceControlWidget for MaiTaiControlPanel {
                 self.wavelength_dragging = false;
                 self.wavelength_input = format!("{:.1}", self.wavelength_slider);
                 self.set_wavelength(
-                    client.as_mut().map(|c| &mut **c),
+                    client.as_deref_mut(),
                     runtime,
                     &device_id,
                     self.wavelength_slider,
@@ -781,7 +766,7 @@ impl DeviceControlWidget for MaiTaiControlPanel {
         // Advanced section (collapsible)
         ui.collapsing("▶ Advanced Parameters", |ui| {
             if ui.button("Refresh State").clicked() {
-                self.fetch_state(client.as_mut().map(|c| &mut **c), runtime, &device_id);
+                self.fetch_state(client, runtime, &device_id);
             }
 
             egui::Grid::new("maitai_params")

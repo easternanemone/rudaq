@@ -229,6 +229,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
       - name: Setup Rust with WASM target
         uses: dtolnay/rust-toolchain@master
         with:

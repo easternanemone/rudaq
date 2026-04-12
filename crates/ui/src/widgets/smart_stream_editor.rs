@@ -54,7 +54,7 @@ impl SmartStreamEditor {
                         {
                             changed = true;
                         }
-                        if ui.button("❌").clicked() {
+                        if ui.button("❌").on_hover_text("Remove stream").clicked() {
                             to_remove = Some(i);
                         }
                     });

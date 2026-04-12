@@ -484,6 +484,14 @@ impl ScanBuilderPanel {
 
         self.pending_action = None;
 
+        // Auto-refresh devices on first connection (no manual click needed)
+        if client.is_some()
+            && self.last_device_refresh.is_none()
+            && self.execution_state == ExecutionState::Idle
+        {
+            self.pending_action = Some(PendingAction::RefreshDevices);
+        }
+
         ui.heading("Scan Builder");
 
         // Show offline notice if not connected

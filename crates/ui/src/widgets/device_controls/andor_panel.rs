@@ -229,7 +229,7 @@ impl AndorCameraState {
 enum ActionResult {
     FetchState {
         request_id: u64,
-        result: Result<AndorCameraState, String>,
+        result: Box<Result<AndorCameraState, String>>,
     },
     SetParameter(Result<String, String>),
     Arm(Result<(), String>),
@@ -305,7 +305,7 @@ impl AndorCameraPanel {
                         continue;
                     }
 
-                    match result {
+                    match *result {
                         Ok(state) => {
                             if let Some(exp) = state.exposure_s
                                 && !self.exposure_editing
@@ -481,7 +481,7 @@ impl AndorCameraPanel {
             let _ = tx
                 .send(ActionResult::FetchState {
                     request_id,
-                    result: Ok(seed_state),
+                    result: Box::new(Ok(seed_state)),
                 })
                 .await;
         });
@@ -691,10 +691,10 @@ impl DeviceControlWidget for AndorCameraPanel {
         if !self.panel_state.initial_fetch_done && client.is_some() {
             self.panel_state.initial_fetch_done = true;
             self.last_schema_refresh = Some(Instant::now());
-            self.fetch_state(client.as_mut().map(|c| &mut **c), runtime, &device_id, true);
+            self.fetch_state(client.as_deref_mut(), runtime, &device_id, true);
         }
 
-        self.queue_refresh_if_needed(client.as_mut().map(|c| &mut **c), runtime, &device_id);
+        self.queue_refresh_if_needed(client.as_deref_mut(), runtime, &device_id);
 
         if self.panel_state.should_refresh(Self::REFRESH_INTERVAL) {
             let refresh_schema = !self.state.schema_refreshed
@@ -705,12 +705,7 @@ impl DeviceControlWidget for AndorCameraPanel {
             if refresh_schema {
                 self.last_schema_refresh = Some(Instant::now());
             }
-            self.fetch_state(
-                client.as_mut().map(|c| &mut **c),
-                runtime,
-                &device_id,
-                refresh_schema,
-            );
+            self.fetch_state(client.as_deref_mut(), runtime, &device_id, refresh_schema);
         }
 
         let is_busy = self.panel_state.is_busy();
@@ -994,13 +989,13 @@ impl DeviceControlWidget for AndorCameraPanel {
         if let Some(action) = pending_action.get() {
             match action {
                 AndorUiAction::SetExposure => {
-                    self.try_set_exposure(client.as_mut().map(|c| &mut **c), runtime, &device_id);
+                    self.try_set_exposure(client.as_deref_mut(), runtime, &device_id);
                 }
                 AndorUiAction::SetTriggerMode(index) => {
                     if let Some(mode) = trigger_modes.get(index).cloned() {
                         if let Some(parameter) = self.state.trigger_mode_param_name.clone() {
                             self.set_parameter(
-                                client.as_mut().map(|c| &mut **c),
+                                client.as_deref_mut(),
                                 runtime,
                                 &device_id,
                                 &parameter,
@@ -1013,23 +1008,23 @@ impl DeviceControlWidget for AndorCameraPanel {
                     }
                 }
                 AndorUiAction::SetDdgDelay => {
-                    self.try_set_ddg_delay(client.as_mut().map(|c| &mut **c), runtime, &device_id);
+                    self.try_set_ddg_delay(client.as_deref_mut(), runtime, &device_id);
                 }
                 AndorUiAction::SetDdgWidth => {
-                    self.try_set_ddg_width(client.as_mut().map(|c| &mut **c), runtime, &device_id);
+                    self.try_set_ddg_width(client.as_deref_mut(), runtime, &device_id);
                 }
                 AndorUiAction::SetMcpGain => {
-                    self.try_set_mcp_gain(client.as_mut().map(|c| &mut **c), runtime, &device_id);
+                    self.try_set_mcp_gain(client.as_deref_mut(), runtime, &device_id);
                 }
                 AndorUiAction::Arm => {
-                    self.arm(client.as_mut().map(|c| &mut **c), runtime, &device_id);
+                    self.arm(client.as_deref_mut(), runtime, &device_id);
                 }
                 AndorUiAction::Disarm => {
-                    self.disarm(client.as_mut().map(|c| &mut **c), runtime, &device_id);
+                    self.disarm(client.as_deref_mut(), runtime, &device_id);
                 }
                 AndorUiAction::Refresh => {
                     self.last_schema_refresh = Some(Instant::now());
-                    self.fetch_state(client.as_mut().map(|c| &mut **c), runtime, &device_id, true);
+                    self.fetch_state(client, runtime, &device_id, true);
                 }
             }
         }

@@ -24,6 +24,7 @@ pub use ui_graph::graph_to_rhai_script;
 #[cfg(target_arch = "wasm32")]
 pub use ui_graph::graph_to_rhai_script;
 
+#[cfg(not(target_arch = "wasm32"))]
 #[allow(unused_imports)]
 pub use commands::{
     AddNodeData, ConnectNodesData, DisconnectNodesData, GraphEdit, GraphTarget, ModifyNodeData,

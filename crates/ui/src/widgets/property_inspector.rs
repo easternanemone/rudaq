@@ -677,7 +677,7 @@ impl PropertyInspector {
                         }
                     }
 
-                    if ui.button("X").clicked() {
+                    if ui.button("X").on_hover_text("Remove trigger").clicked() {
                         trigger_to_remove = Some(i);
                     }
                 });

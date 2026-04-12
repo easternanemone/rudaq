@@ -559,17 +559,14 @@ pub(super) const WASM_DEFAULT_SERVER_URL: &str = "http://localhost:8080";
 pub(super) fn detect_daemon_url() -> String {
     // 1. Check ?daemon= URL parameter
     if let Some(window) = web_sys::window() {
-        if let Ok(search) = window.location().search() {
-            if !search.is_empty() {
-                if let Ok(params) = web_sys::UrlSearchParams::new_with_str(&search) {
-                    if let Some(daemon) = params.get("daemon") {
-                        if !daemon.is_empty() {
-                            tracing::info!("Using daemon URL from ?daemon= parameter: {}", daemon);
-                            return daemon;
-                        }
-                    }
-                }
-            }
+        if let Ok(search) = window.location().search()
+            && !search.is_empty()
+            && let Ok(params) = web_sys::UrlSearchParams::new_with_str(&search)
+            && let Some(daemon) = params.get("daemon")
+            && !daemon.is_empty()
+        {
+            tracing::info!("Using daemon URL from ?daemon= parameter: {}", daemon);
+            return daemon;
         }
 
         // 2. Use page origin (works when served via --web-ui-path on daemon port)

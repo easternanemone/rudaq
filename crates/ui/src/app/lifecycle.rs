@@ -17,21 +17,21 @@ impl eframe::App for DaqApp {
         // --- WASM connection polling ---
         #[cfg(target_arch = "wasm32")]
         {
-            if let Some(ref mut rx) = self.wasm_connection.connect_rx {
-                if let Ok(result) = rx.try_recv() {
-                    self.wasm_connection.connecting = false;
-                    match result {
-                        Ok(client) => {
-                            self.wasm_connection.status = "Connected".to_string();
-                            self.client = Some(client);
-                            self.was_connected = true;
-                        }
-                        Err(e) => {
-                            self.wasm_connection.status = format!("Error: {}", e);
-                        }
+            if let Some(ref mut rx) = self.wasm_connection.connect_rx
+                && let Ok(result) = rx.try_recv()
+            {
+                self.wasm_connection.connecting = false;
+                match result {
+                    Ok(client) => {
+                        self.wasm_connection.status = "Connected".to_string();
+                        self.client = Some(client);
+                        self.was_connected = true;
                     }
-                    self.wasm_connection.connect_rx = None;
+                    Err(e) => {
+                        self.wasm_connection.status = format!("Error: {}", e);
+                    }
                 }
+                self.wasm_connection.connect_rx = None;
             }
         }
 

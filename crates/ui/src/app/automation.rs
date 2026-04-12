@@ -38,11 +38,11 @@ impl DaqApp {
                     }
                 }
                 AutomationCommand::StartStream => {
-                    if let Some(device_id) = self.image_viewer_panel.device_id.clone() {
-                        if let Some(client) = self.client.as_mut() {
-                            self.image_viewer_panel
-                                .start_stream(&device_id, client, &self.runtime);
-                        }
+                    if let Some(device_id) = self.image_viewer_panel.device_id.clone()
+                        && let Some(client) = self.client.as_mut()
+                    {
+                        self.image_viewer_panel
+                            .start_stream(&device_id, client, &self.runtime);
                     }
                 }
                 AutomationCommand::StopStream => {

@@ -160,6 +160,10 @@ impl DaqApp {
                     }
                     ui.separator();
 
+                    if ui.button("Instruments").clicked() {
+                        self.ui_actions.push(UiAction::FocusTab(Panel::Instruments));
+                        ui.close();
+                    }
                     if ui.button("Getting Started").clicked() {
                         self.ui_actions
                             .push(UiAction::FocusTab(Panel::GettingStarted));

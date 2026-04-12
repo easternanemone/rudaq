@@ -409,17 +409,17 @@ impl DeviceControlWidget for DoverStagePanel {
 
         if !self.panel_state.initial_fetch_done && client.is_some() {
             self.panel_state.initial_fetch_done = true;
-            self.fetch_state(client.as_mut().map(|c| &mut **c), runtime, &device_id);
+            self.fetch_state(client.as_deref_mut(), runtime, &device_id);
         }
 
-        self.queue_refresh_if_needed(client.as_mut().map(|c| &mut **c), runtime, &device_id);
+        self.queue_refresh_if_needed(client.as_deref_mut(), runtime, &device_id);
 
         if self
             .panel_state
             .should_refresh(std::time::Duration::from_millis(500))
             && client.is_some()
         {
-            self.fetch_state(client.as_mut().map(|c| &mut **c), runtime, &device_id);
+            self.fetch_state(client.as_deref_mut(), runtime, &device_id);
         }
 
         let is_busy = self.state.moving || self.panel_state.is_busy();
@@ -502,16 +502,32 @@ impl DeviceControlWidget for DoverStagePanel {
 
                         let step: f64 = panel.jog_step.parse().unwrap_or(0.1);
 
-                        if ui.add_enabled(!is_busy, action_button("<<")).clicked() {
+                        if ui
+                            .add_enabled(!is_busy, action_button("<<"))
+                            .on_hover_text("Jog backward 10x")
+                            .clicked()
+                        {
                             pending_action.set(Some(DoverUiAction::MoveRelative(-step * 10.0)));
                         }
-                        if ui.add_enabled(!is_busy, action_button("<")).clicked() {
+                        if ui
+                            .add_enabled(!is_busy, action_button("<"))
+                            .on_hover_text("Jog backward")
+                            .clicked()
+                        {
                             pending_action.set(Some(DoverUiAction::MoveRelative(-step)));
                         }
-                        if ui.add_enabled(!is_busy, action_button(">")).clicked() {
+                        if ui
+                            .add_enabled(!is_busy, action_button(">"))
+                            .on_hover_text("Jog forward")
+                            .clicked()
+                        {
                             pending_action.set(Some(DoverUiAction::MoveRelative(step)));
                         }
-                        if ui.add_enabled(!is_busy, action_button(">>")).clicked() {
+                        if ui
+                            .add_enabled(!is_busy, action_button(">>"))
+                            .on_hover_text("Jog forward 10x")
+                            .clicked()
+                        {
                             pending_action.set(Some(DoverUiAction::MoveRelative(step * 10.0)));
                         }
                     });
@@ -670,43 +686,28 @@ impl DeviceControlWidget for DoverStagePanel {
         if let Some(action) = pending_action.get() {
             match action {
                 DoverUiAction::MoveAbsolute(position) => {
-                    self.move_absolute(
-                        client.as_mut().map(|c| &mut **c),
-                        runtime,
-                        &device_id,
-                        position,
-                    );
+                    self.move_absolute(client.as_deref_mut(), runtime, &device_id, position);
                 }
                 DoverUiAction::MoveRelative(delta) => {
-                    self.move_relative(
-                        client.as_mut().map(|c| &mut **c),
-                        runtime,
-                        &device_id,
-                        delta,
-                    );
+                    self.move_relative(client.as_deref_mut(), runtime, &device_id, delta);
                 }
                 DoverUiAction::Home => {
-                    self.move_absolute(client.as_mut().map(|c| &mut **c), runtime, &device_id, 0.0);
+                    self.move_absolute(client.as_deref_mut(), runtime, &device_id, 0.0);
                 }
                 DoverUiAction::Stop => {
-                    self.stop(client.as_mut().map(|c| &mut **c), runtime, &device_id);
+                    self.stop(client.as_deref_mut(), runtime, &device_id);
                 }
                 DoverUiAction::Refresh => {
-                    self.fetch_state(client.as_mut().map(|c| &mut **c), runtime, &device_id);
+                    self.fetch_state(client.as_deref_mut(), runtime, &device_id);
                 }
                 DoverUiAction::SetVelocity(velocity) => {
-                    self.set_velocity(
-                        client.as_mut().map(|c| &mut **c),
-                        runtime,
-                        &device_id,
-                        velocity,
-                    );
+                    self.set_velocity(client.as_deref_mut(), runtime, &device_id, velocity);
                 }
                 DoverUiAction::EnableTop(top) => {
-                    self.enable_top(client.as_mut().map(|c| &mut **c), runtime, &device_id, top);
+                    self.enable_top(client.as_deref_mut(), runtime, &device_id, top);
                 }
                 DoverUiAction::DisableTop => {
-                    self.disable_top(client.as_mut().map(|c| &mut **c), runtime, &device_id);
+                    self.disable_top(client, runtime, &device_id);
                 }
             }
         }

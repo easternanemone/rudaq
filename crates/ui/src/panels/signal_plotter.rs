@@ -555,7 +555,9 @@ impl SignalPlotterPanel {
                 ui.label("Scroll:");
 
                 // Scroll left (earlier)
-                if ui.button("◀").clicked() && self.frozen_time_offset < max_scroll {
+                if ui.button("◀").on_hover_text("Scroll earlier").clicked()
+                    && self.frozen_time_offset < max_scroll
+                {
                     self.frozen_time_offset =
                         (self.frozen_time_offset + self.time_window / 4.0).min(max_scroll);
                 }
@@ -574,7 +576,9 @@ impl SignalPlotterPanel {
                 }
 
                 // Scroll right (later)
-                if ui.button("▶").clicked() && self.frozen_time_offset > 0.0 {
+                if ui.button("▶").on_hover_text("Scroll later").clicked()
+                    && self.frozen_time_offset > 0.0
+                {
                     self.frozen_time_offset =
                         (self.frozen_time_offset - self.time_window / 4.0).max(0.0);
                 }
@@ -624,7 +628,7 @@ impl SignalPlotterPanel {
                 // Auto-clear after 5 seconds
                 if ui.ctx().input(|i| i.time) > 0.0 {
                     // Clear on next frame (simple timeout)
-                    if ui.button("✕").clicked() {
+                    if ui.button("✕").on_hover_text("Dismiss").clicked() {
                         self.export_status = None;
                     }
                 }
