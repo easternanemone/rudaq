@@ -53,7 +53,7 @@ cargo test --doc                         # Doctests (nextest doesn't support the
 cargo fmt --all                          # Format
 cargo fmt --all -- --check               # Format check (CI/pre-push parity)
 cargo clippy --all-targets               # Lint
-cargo clippy --workspace --all-targets --exclude ui --exclude comedi-sys --exclude driver-comedi -- -D warnings  # Clippy gate (CI/pre-push parity)
+cargo clippy --workspace --all-targets --exclude ui --exclude comedi-sys --exclude driver-comedi -- -D warnings  # Clippy gate (CI parity, includes ui-graph + integration-tests)
 cargo hack check -p common --feature-powerset --no-dev-deps  # Feature-flag powerset check (single crate)
 bash scripts/ci/feature-check.sh                # Feature powerset check (all key crates)
 bash scripts/ci/feature-check.sh common --quick # Single crate, each-feature mode (fast)
@@ -118,7 +118,7 @@ Echelle Spectroscopy (in common crate)
 Services & Storage
   server           ← gRPC services: Hardware, Scan, RunEngine, Storage, Plugin, etc.
   client           ← gRPC client library
-  db               ← SurrealDB control-plane (kv-mem for tests, kv-rocksdb for prod)
+  db               ← SQLite-first control-plane (default); legacy SurrealDB engines optional
   storage          ← RingBuffer (mmap, seqlock), HDF5, Arrow IPC, Parquet, Tiff, Zarr writers, DocumentSink trait, ZarrSink (feature "storage_zarr")
 
 Applications
@@ -234,19 +234,24 @@ registry.register_from_config(DeviceConfig { id, name, driver: DriverConfig { ty
 
 **Structural search**: `sg` (ast-grep) for AST-aware code patterns. E.g., `sg -p '$EXPR.unwrap()' --lang rust`.
 
-**Quality gates**: `bd close` triggers hook checks (`validate-epic-close` + `quality-gate-on-close`: fmt check + ast-grep error scan). `git push` triggers `.claude/hooks/pre-push-checks.sh` (fmt + clippy + tests, excluding `ui` and `integration-tests`, nextest `--profile ci` when available). `bd preflight --check` for PR readiness.
+**Quality gates**: `bd close` triggers hook checks (`validate-epic-close` + `quality-gate-on-close`: fmt check + ast-grep error scan). `git push` triggers `.claude/hooks/pre-push-checks.sh` (fmt + clippy + tests, excluding `ui`, nextest `--profile ci` when available). `bd preflight --check` for PR readiness.
 
 **Hook dispatch**: `.claude/hooks/pretool-dispatch.sh` routes `bd close` and `git push` to the relevant checks, and blocks `git worktree remove` unless the command starts with an explicit `cd` to a safe directory.
 
 **LSP**: `rust-analyzer` enabled via `.claude/settings.json`.
 
-## Hardware-in-the-Loop via WASM GUI
+## Hardware-in-the-Loop
 
-Claude Code can directly interact with real DAQ hardware through the WASM GUI in Chrome (via claude-in-chrome MCP). Deploy daemons, then navigate Chrome to the WASM GUI to verify device panels.
+Claude Code can interact with real DAQ hardware through two paths:
+
+1. **Native GUI + AccessKit** (preferred): Launch `target/debug/rust-daq-gui`, interact via `mcp-accesskit` MCP server tools (`ax_read_tree`, `ax_click`, `ax_set_value`, `ax_screenshot`, etc.). Semantic widget access — find buttons by label, read values, toggle checkboxes. Configure in `.mcp.json`.
+2. **WASM GUI + Chrome**: Deploy WASM GUI, interact via `claude-in-chrome` MCP. Pixel-coordinate based.
+
+Deploy daemons, then connect the GUI to verify device panels.
 
 | Machine | SSH | Daemon URL | Devices |
 |---------|-----|-----------|---------|
-| **maitai** | `maitai@100.117.5.12` | `http://100.117.5.12:50051` | 12 (PVCAM, Comedi, ELL14 x3, MaiTai, ESP300, Newport PM) |
+| **maitai** | `maitai@maitai-eos` | `http://100.117.5.12:50051` | 15 (PVCAM, Comedi DIO/AO/counters, ELL14 x3, MaiTai, ESP300 x3, Newport PM, photodiode) |
 | **leabs-dev** | `ssh leabs-dev` | `http://100.109.21.118:50051` | 3 (Andor iStar, IPG YLPP-200, Thorlabs PM400) |
 
 WASM GUI: `http://100.117.5.12:8080` (maitai) or `http://100.109.21.118:8080` (leabs-dev, requires `--wasm-gui` deploy flag). Known reconnect bug (bd-0zu5): must reload page to change daemon URL.
@@ -329,6 +334,7 @@ pub fn set_page_title(title: &str) {
 | `scripts/ops/fast-check.sh` | Fast local smoke loop (cargo check + nextest + doctests), not a replacement for pre-push gates |
 | `scripts/ops/setup-beads-dolt-remote.sh` | Configure beads Dolt `origin` remote when sync/push fails |
 | `scripts/ops/post-crash-forensics.sh` | Post-crash system forensics (dmesg, coredumps, journal, network) |
+| `scripts/ops/runner-health-check.sh` | CI runner diagnostics and auto-remediation (`--fix` flag) |
 | **ci/** | |
 | `scripts/ci/pre-push-gate.sh` | Pre-push quality gate (fmt, optional mdBook build, clippy, tests) |
 | `scripts/ci/feature-check.sh` | cargo-hack feature powerset check on key crates (local CI parity) |
