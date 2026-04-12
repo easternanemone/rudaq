@@ -25,6 +25,15 @@
           }
         ],
         "matcher": "Edit|Write"
+      },
+      {
+        "hooks": [
+          {
+            "command": "bash ~/.claude/hooks/worktree-auto-push.sh \"$PWD\"",
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash"
       }
     ],
     "PreToolUse": [
