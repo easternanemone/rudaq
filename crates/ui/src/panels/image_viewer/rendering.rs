@@ -47,6 +47,23 @@ impl ImageViewerPanel {
             ui.ctx().request_repaint();
         }
 
+        // bd-x10y: Blink comparator timer — toggle between live and reference frame
+        if self.blink_mode && self.blink_reference_frame.is_some() {
+            let elapsed = self.last_blink_toggle.elapsed();
+            if elapsed >= self.blink_interval {
+                self.blink_showing_reference = !self.blink_showing_reference;
+                self.last_blink_toggle = Instant::now();
+                // Submit the appropriate frame for RGBA conversion on toggle
+                self.submit_blink_frame();
+            }
+            // Schedule repaint for next toggle
+            let remaining = self.blink_interval.saturating_sub(elapsed);
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_millis(
+                    remaining.as_millis().try_into().unwrap_or(u64::MAX),
+                ));
+        }
+
         // bd-12qt + bd-7rk0: Auto-reconnect logic with exponential backoff
         // Pattern inspired by Rerun's well-tested gRPC implementation:
         // - Initial delay: 100ms
@@ -286,6 +303,12 @@ impl ImageViewerPanel {
                         ui.selectable_value(&mut self.colormap, Colormap::Inferno, "Inferno");
                         ui.selectable_value(&mut self.colormap, Colormap::Plasma, "Plasma");
                         ui.selectable_value(&mut self.colormap, Colormap::Magma, "Magma");
+                        ui.separator();
+                        ui.selectable_value(&mut self.colormap, Colormap::Cividis, "Cividis");
+                        ui.selectable_value(&mut self.colormap, Colormap::Turbo, "Turbo");
+                        ui.separator();
+                        ui.selectable_value(&mut self.colormap, Colormap::Coolwarm, "Coolwarm");
+                        ui.selectable_value(&mut self.colormap, Colormap::RdBu, "RdBu");
                     });
 
                 egui::ComboBox::from_id_salt("scale_mode")
@@ -540,6 +563,86 @@ impl ImageViewerPanel {
                     self.crosshair_enabled = !self.crosshair_enabled;
                     if !self.crosshair_enabled {
                         self.crosshair_locked_pos = None;
+                    }
+                }
+
+                ui.separator();
+
+                // === Blink Comparator (bd-x10y) ===
+                {
+                    let has_frame = self.last_frame_data.is_some();
+                    let has_reference = self.blink_reference_frame.is_some();
+
+                    if ui
+                        .add_enabled(has_frame, egui::Button::new("Capture Ref"))
+                        .on_hover_text("Snapshot current frame as blink reference")
+                        .clicked()
+                        && let Some(data) = &self.last_frame_data
+                    {
+                        self.blink_reference_frame = Some(Arc::clone(data));
+                        self.blink_reference_dimensions = Some((self.width, self.height));
+                    }
+
+                    if ui
+                        .add_enabled(
+                            has_reference,
+                            egui::Button::new(if self.blink_mode {
+                                "Blink [ON]"
+                            } else {
+                                "Blink"
+                            }),
+                        )
+                        .on_hover_text("Toggle blink comparison with reference frame")
+                        .clicked()
+                    {
+                        self.blink_mode = !self.blink_mode;
+                        if self.blink_mode {
+                            self.last_blink_toggle = Instant::now();
+                            self.blink_showing_reference = false;
+                        }
+                    }
+
+                    if self.blink_mode {
+                        let mut interval_ms = self.blink_interval.as_millis() as u32;
+                        ui.add(
+                            egui::DragValue::new(&mut interval_ms)
+                                .speed(10)
+                                .range(100..=2000)
+                                .suffix("ms"),
+                        );
+                        self.blink_interval = Duration::from_millis(u64::from(interval_ms));
+
+                        // Dimension mismatch warning
+                        if let Some((ref_w, ref_h)) = self.blink_reference_dimensions
+                            && (ref_w != self.width || ref_h != self.height)
+                        {
+                            ui.colored_label(
+                                egui::Color32::YELLOW,
+                                format!(
+                                    "\u{26a0} Ref {}x{} != Live {}x{}",
+                                    ref_w, ref_h, self.width, self.height
+                                ),
+                            );
+                        }
+
+                        // Indicate which frame is currently shown
+                        if self.blink_showing_reference {
+                            ui.colored_label(egui::Color32::LIGHT_BLUE, "REF");
+                        } else {
+                            ui.colored_label(egui::Color32::LIGHT_GREEN, "LIVE");
+                        }
+                    }
+
+                    if has_reference
+                        && ui
+                            .button("Clear Ref")
+                            .on_hover_text("Discard reference frame")
+                            .clicked()
+                    {
+                        self.blink_reference_frame = None;
+                        self.blink_reference_dimensions = None;
+                        self.blink_mode = false;
+                        self.blink_showing_reference = false;
                     }
                 }
 

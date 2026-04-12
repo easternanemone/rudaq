@@ -994,8 +994,52 @@ impl ImageViewerPanel {
 
         // bd-xifj: Submit frame for background RGBA conversion to prevent UI freezes
         // The converted RGBA will be applied to texture when polled in drain_updates
-        let _submitted = self.submit_for_rgba_conversion(&frame);
-        // Note: If submission fails (queue full), frame is dropped which is acceptable
-        // under high load - we'll display the next successful frame
+        // bd-x10y: When blink mode is showing reference, skip live RGBA submission
+        // (the reference frame will be submitted by submit_blink_reference_frame)
+        if !(self.blink_mode && self.blink_showing_reference) {
+            let _submitted = self.submit_for_rgba_conversion(&frame);
+            // Note: If submission fails (queue full), frame is dropped which is acceptable
+            // under high load - we'll display the next successful frame
+        }
+    }
+
+    /// bd-x10y: Submit the captured reference frame for RGBA conversion.
+    ///
+    /// Called when the blink timer toggles to show the reference frame, or when
+    /// toggling back to live (re-submits the latest live frame).
+    pub(super) fn submit_blink_frame(&mut self) {
+        if self.blink_showing_reference {
+            // Show reference frame
+            if let (Some(ref_data), Some((ref_w, ref_h))) =
+                (&self.blink_reference_frame, self.blink_reference_dimensions)
+            {
+                let fake_frame = FrameUpdate {
+                    device_id: self.device_id.clone().unwrap_or_default(),
+                    width: ref_w,
+                    height: ref_h,
+                    bit_depth: self.bit_depth,
+                    data: Arc::clone(ref_data),
+                    frame_number: self.frame_count,
+                    timestamp_ns: 0,
+                    metrics: None,
+                };
+                let _submitted = self.submit_for_rgba_conversion(&fake_frame);
+            }
+        } else {
+            // Show live frame — re-submit last known frame data
+            if let Some(live_data) = &self.last_frame_data {
+                let fake_frame = FrameUpdate {
+                    device_id: self.device_id.clone().unwrap_or_default(),
+                    width: self.width,
+                    height: self.height,
+                    bit_depth: self.bit_depth,
+                    data: Arc::clone(live_data),
+                    frame_number: self.frame_count,
+                    timestamp_ns: 0,
+                    metrics: None,
+                };
+                let _submitted = self.submit_for_rgba_conversion(&fake_frame);
+            }
+        }
     }
 }

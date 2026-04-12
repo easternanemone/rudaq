@@ -356,6 +356,20 @@ pub struct ImageViewerPanel {
     // -- Spectrum View Mode (bd-alxb) --
     /// Current view mode: 2D echellogram, 1D spectrum, or split view.
     pub(crate) spectrum_view_mode: SpectrumViewMode,
+
+    // -- Blink Comparator (bd-x10y) --
+    /// Captured reference frame data for blink comparison
+    pub(super) blink_reference_frame: Option<Arc<Vec<u8>>>,
+    /// Dimensions (width, height) of the captured reference frame
+    pub(super) blink_reference_dimensions: Option<(u32, u32)>,
+    /// Whether blink comparison mode is active
+    pub(super) blink_mode: bool,
+    /// Which frame is currently shown in blink mode (true = reference, false = live)
+    pub(super) blink_showing_reference: bool,
+    /// Blink toggle interval
+    pub(super) blink_interval: Duration,
+    /// Last time the blink display was toggled
+    pub(super) last_blink_toggle: Instant,
 }
 
 impl Default for ImageViewerPanel {
@@ -511,6 +525,14 @@ impl Default for ImageViewerPanel {
 
             // Spectrum view mode (bd-alxb)
             spectrum_view_mode: SpectrumViewMode::default(),
+
+            // Blink comparator (bd-x10y)
+            blink_reference_frame: None,
+            blink_reference_dimensions: None,
+            blink_mode: false,
+            blink_showing_reference: false,
+            blink_interval: Duration::from_millis(500),
+            last_blink_toggle: Instant::now(),
         }
     }
 }
