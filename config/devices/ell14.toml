@@ -189,6 +189,18 @@ template = "{{ address }}us"
 description = "Save parameters to EEPROM"
 expects_response = true
 
+[commands.isolate_device]
+template = "{{ address }}is{{ minutes | hex(2) }}"
+description = "Isolate device from group commands for N minutes (00-FF hex)"
+parameters = { minutes = "uint32" }
+response = "status"
+
+[commands.clean_mechanics]
+template = "{{ address }}cm"
+description = "Perform full-range movement cycle to clean the mechanics"
+expects_response = true
+timeout_ms = 30000  # Full-range movement can take a while
+
 # ==============================================================================
 # Response Definitions
 # ==============================================================================
