@@ -101,6 +101,7 @@ enum Commands {
     ///   DAQ_PORT         — gRPC listen port (default: 50051)
     ///   DAQ_CONFIG_PATH  — hardware configuration file (maps to --hardware-config)
     ///   DAQ_RUNTIME_MODE — runtime mode (also accepts RUSTDAQ_RUNTIME_MODE)
+    ///   DAQ_DATA_PATH    — storage output directory (maps to --data-path)
     Daemon {
         /// gRPC port (also settable via DAQ_PORT env var)
         #[arg(long)]
@@ -144,6 +145,12 @@ enum Commands {
         /// If provided, the daemon will serve the UI on the gRPC port.
         #[arg(long)]
         web_ui_path: Option<PathBuf>,
+
+        /// Storage output directory for persistent recordings (HDF5, Arrow, etc.).
+        /// Also settable via DAQ_DATA_PATH env var.
+        /// Overrides the output_directory from config/config.v4.toml.
+        #[arg(long)]
+        data_path: Option<PathBuf>,
     },
 
     /// Remote control commands (connect to daemon)
@@ -422,6 +429,7 @@ async fn main() -> Result<()> {
             #[cfg(feature = "db")]
             db_path,
             web_ui_path,
+            data_path,
         } => {
             // Resolve port: CLI flag > DAQ_PORT env var > default (50051)
             let (port, port_source) = resolve_port(cli_port);
@@ -432,6 +440,9 @@ async fn main() -> Result<()> {
             // Resolve runtime mode: CLI flag > DAQ_RUNTIME_MODE env > RUSTDAQ_RUNTIME_MODE env > None
             let (runtime_mode, mode_source) = resolve_runtime_mode(runtime_mode);
 
+            // Resolve data_path: CLI flag > DAQ_DATA_PATH env var > None (use config default)
+            let (data_path, data_path_source) = resolve_data_path(data_path);
+
             // Log resolved values (use println for always-visible startup info)
             println!("Port: {port} ({port_source})");
             if let Some(ref cfg) = hardware_config {
@@ -441,6 +452,9 @@ async fn main() -> Result<()> {
             }
             if let Some(ref ui) = web_ui_path {
                 println!("Web UI path: {} (CLI/Env)", ui.display());
+            }
+            if let Some(ref dp) = data_path {
+                println!("Data path: {} ({data_path_source})", dp.display());
             }
 
             println!(
@@ -461,6 +475,7 @@ async fn main() -> Result<()> {
                 #[cfg(not(feature = "db"))]
                 None,
                 web_ui_path,
+                data_path,
             )
             .await
         }
@@ -722,6 +737,21 @@ fn resolve_runtime_mode(cli_mode: Option<RuntimeMode>) -> (Option<RuntimeMode>, 
     (None, "default")
 }
 
+/// Resolve the storage data path from CLI flag or `DAQ_DATA_PATH` env var.
+///
+/// Precedence: CLI flag > `DAQ_DATA_PATH` env var > None (use config file default).
+fn resolve_data_path(cli_path: Option<PathBuf>) -> (Option<PathBuf>, &'static str) {
+    if cli_path.is_some() {
+        return (cli_path, "from --data-path flag");
+    }
+    if let Ok(val) = std::env::var("DAQ_DATA_PATH")
+        && !val.is_empty()
+    {
+        return (Some(PathBuf::from(val)), "from DAQ_DATA_PATH env var");
+    }
+    (None, "default")
+}
+
 async fn start_daemon(
     port: u16,
     runtime_mode: Option<RuntimeMode>,
@@ -729,6 +759,7 @@ async fn start_daemon(
     lab_hardware: bool,
     db_path: Option<PathBuf>,
     web_ui_path: Option<PathBuf>,
+    data_path: Option<PathBuf>,
 ) -> Result<()> {
     use daemon_manager::{DaemonConfig, DaemonInstance};
 
@@ -796,6 +827,7 @@ async fn start_daemon(
         #[cfg(feature = "db")]
         db_path,
         web_ui_path,
+        data_path,
     };
 
     let instance = DaemonInstance::start(daemon_config).await?;
@@ -1302,6 +1334,7 @@ mod tests {
             std::env::remove_var("DAQ_CONFIG_PATH");
             std::env::remove_var("DAQ_RUNTIME_MODE");
             std::env::remove_var("RUSTDAQ_RUNTIME_MODE");
+            std::env::remove_var("DAQ_DATA_PATH");
         }
     }
 
@@ -1490,5 +1523,57 @@ mod tests {
         let (mode, source) = resolve_runtime_mode(None);
         assert!(matches!(mode, Some(RuntimeMode::HybridDb)));
         assert_eq!(source, "from DAQ_RUNTIME_MODE env var");
+    }
+
+    // ---- resolve_data_path tests ----
+
+    #[test]
+    fn data_path_cli_flag_wins_over_env() {
+        let _lock = ENV_LOCK.lock().expect("test mutex poisoned");
+        // SAFETY: ENV_LOCK held; no concurrent env access.
+        unsafe {
+            clear_env_vars();
+            std::env::set_var("DAQ_DATA_PATH", "/env/data");
+        }
+        let cli_path = Some(PathBuf::from("/cli/data"));
+        let (path, source) = resolve_data_path(cli_path);
+        assert_eq!(path.as_deref(), Some(std::path::Path::new("/cli/data")));
+        assert_eq!(source, "from --data-path flag");
+    }
+
+    #[test]
+    fn data_path_env_var_used_when_no_cli_flag() {
+        let _lock = ENV_LOCK.lock().expect("test mutex poisoned");
+        // SAFETY: ENV_LOCK held; no concurrent env access.
+        unsafe {
+            clear_env_vars();
+            std::env::set_var("DAQ_DATA_PATH", "/env/data");
+        }
+        let (path, source) = resolve_data_path(None);
+        assert_eq!(path.as_deref(), Some(std::path::Path::new("/env/data")));
+        assert_eq!(source, "from DAQ_DATA_PATH env var");
+    }
+
+    #[test]
+    fn data_path_none_when_nothing_set() {
+        let _lock = ENV_LOCK.lock().expect("test mutex poisoned");
+        // SAFETY: ENV_LOCK held; no concurrent env access.
+        unsafe { clear_env_vars() };
+        let (path, source) = resolve_data_path(None);
+        assert!(path.is_none());
+        assert_eq!(source, "default");
+    }
+
+    #[test]
+    fn data_path_empty_env_var_treated_as_unset() {
+        let _lock = ENV_LOCK.lock().expect("test mutex poisoned");
+        // SAFETY: ENV_LOCK held; no concurrent env access.
+        unsafe {
+            clear_env_vars();
+            std::env::set_var("DAQ_DATA_PATH", "");
+        }
+        let (path, source) = resolve_data_path(None);
+        assert!(path.is_none());
+        assert_eq!(source, "default");
     }
 }

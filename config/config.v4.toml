@@ -36,6 +36,7 @@ allowed_origins = ["*"]
 # hdf5_path = "/tmp/rust_daq_scan_data.h5"
 
 # Directory where persistent recordings (HDF5) are saved.
+# Also overridable via --data-path CLI flag or DAQ_DATA_PATH env var.
 # output_directory = "./data"
 
 # Tap channel size (frames buffered per tap consumer).

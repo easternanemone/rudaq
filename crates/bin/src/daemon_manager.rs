@@ -46,6 +46,9 @@ pub struct DaemonConfig {
     pub db_path: Option<PathBuf>,
     /// Optional path to the WASM web UI directory.
     pub web_ui_path: Option<PathBuf>,
+    /// Optional override for the storage output directory.
+    /// When set, overrides `output_directory` from config/config.v4.toml.
+    pub data_path: Option<PathBuf>,
 }
 
 /// Resolve the `devices/` manifest directory adjacent to a config file.
@@ -575,7 +578,17 @@ impl DaemonInstance {
         println!();
 
         // Phase 1: Config
-        let _server_config = init_server_config(&config)?;
+        let mut _server_config = init_server_config(&config)?;
+        if let Some(ref data_path) = config.data_path {
+            tracing::info!(
+                path = %data_path.display(),
+                "Overriding storage output_directory from DAQ_DATA_PATH / --data-path"
+            );
+            _server_config
+                .storage
+                .output_directory
+                .clone_from(data_path);
+        }
 
         // Phase 2: Health
         let health = init_health();
@@ -1062,6 +1075,7 @@ mod tests {
             #[cfg(feature = "db")]
             db_path: None,
             web_ui_path: None,
+            data_path: None,
         };
         let debug = format!("{config:?}");
         assert!(debug.contains("50051"));
@@ -1348,6 +1362,7 @@ mod tests {
             #[cfg(feature = "db")]
             db_path: None,
             web_ui_path: None,
+            data_path: None,
         };
 
         let instance = DaemonInstance::start(config)
@@ -1375,6 +1390,7 @@ mod tests {
             #[cfg(feature = "db")]
             db_path: None,
             web_ui_path: None,
+            data_path: None,
         };
 
         let instance = DaemonInstance::start(config)
