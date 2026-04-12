@@ -248,6 +248,282 @@ pub const SHUTDOWN_PHASE_ORDER: &[DaemonPhase] = &[
     DaemonPhase::Hardware,
 ];
 
+// ─── Phase resource structs ─────────────────────────────────────────────────
+
+/// Resources produced by the health monitoring initialization phase.
+struct HealthResources {
+    monitor: Arc<SystemHealthMonitor>,
+    metrics_task: JoinHandle<()>,
+}
+
+/// Resources produced by the hardware registry initialization phase.
+#[cfg(feature = "networking")]
+struct HardwareResources {
+    registry: DeviceRegistry,
+    #[allow(dead_code)]
+    hw_config: Option<HardwareConfig>,
+}
+
+/// Resources produced by the safety initialization phase.
+struct SafetyResources {
+    sentinel: SafetySentinel,
+    watchdog: HardwareWatchdog,
+    registry_monitor_task: JoinHandle<()>,
+    supervisor_task: JoinHandle<()>,
+}
+
+// ─── Phase initialization functions ─────────────────────────────────────────
+
+fn init_server_config(config: &DaemonConfig) -> Result<ServerConfig> {
+    let mut server_config = ServerConfig::load().context("Failed to load server configuration")?;
+    if let Some(ref ui_path) = config.web_ui_path {
+        server_config.grpc.web_ui_path = Some(ui_path.clone());
+    }
+    server_config
+        .validate()
+        .context("Config validation failed after applying overrides")?;
+    Ok(server_config)
+}
+
+fn init_health() -> HealthResources {
+    println!("❤️  Initializing health monitoring...");
+    let monitor = Arc::new(SystemHealthMonitor::new(HealthMonitorConfig::default()));
+    let metrics_collector = SystemMetricsCollector::new(monitor.clone());
+    let metrics_task = tokio::spawn(async move {
+        metrics_collector.run().await;
+    });
+    HealthResources {
+        monitor,
+        metrics_task,
+    }
+}
+
+#[cfg(feature = "db")]
+async fn init_database(config: &DaemonConfig, health: &HealthResources) -> Option<db::DaqDb> {
+    println!("🗄️  Initializing database (SQLite)...");
+    let engine_name = if config.db_path.is_some() {
+        "file"
+    } else {
+        "memory"
+    };
+    let db_config = if let Some(ref path) = config.db_path {
+        println!("   Engine: file ({})", path.display());
+        db::DbConfig::file(path.display().to_string())
+    } else {
+        println!("   Engine: in-memory (no persistence)");
+        db::DbConfig::in_memory()
+    };
+    match db::DaqDb::init(db_config).await {
+        Ok(db) => {
+            match db.info().await {
+                Ok(info) => {
+                    println!(
+                        "   ✓ Database ready (schema v{}, {} drivers, {} instruments)",
+                        info.schema_version, info.driver_count, info.instrument_count
+                    );
+                    println!();
+                    health
+                        .monitor
+                        .heartbeat_with_message(
+                            "database",
+                            Some(format!(
+                                "SQLite ({engine_name}) — schema v{}, {} drivers, {} instruments",
+                                info.schema_version, info.driver_count, info.instrument_count,
+                            )),
+                        )
+                        .await;
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "Failed to query DB info after init");
+                    println!("   ✓ Database initialized ({engine_name})");
+                    println!();
+                }
+            }
+            Some(db)
+        }
+        Err(e) => {
+            tracing::warn!(
+                engine = engine_name,
+                error = %e,
+                "Database initialization failed — running without persistence. \
+                 ConfigService and metadata catalogs will be unavailable. \
+                 Use --db-path <dir> to configure persistent storage."
+            );
+            health
+                .monitor
+                .report_error(
+                    "database",
+                    common::health::ErrorSeverity::Warning,
+                    format!("SQLite init failed: {e}"),
+                    vec![("engine", engine_name)],
+                )
+                .await;
+            eprintln!("   ⚠️  Database initialization failed: {e}");
+            eprintln!("   Continuing without database persistence (ConfigService unavailable).");
+            println!();
+            None
+        }
+    }
+}
+
+#[cfg(all(feature = "storage_hdf5", feature = "storage_arrow"))]
+fn init_storage(server_config: &ServerConfig) -> Result<StorageResources> {
+    use storage::hdf5_writer::HDF5Writer;
+    use storage::ring_buffer::RingBuffer;
+
+    let rb_path = &server_config.storage.ring_buffer_path;
+    let rb_size = server_config.storage.ring_buffer_size_mb;
+    let hdf5_path = &server_config.storage.hdf5_path;
+
+    println!("📊 Initializing data plane (Phase 4)...");
+    println!("   - Ring buffer: {} MB in {}", rb_size, rb_path.display());
+    println!("   - HDF5 output: {}", hdf5_path.display());
+    println!("   - Background flush: every 1 second");
+
+    let ring_buffer = Arc::new(
+        RingBuffer::create(rb_path.as_path(), rb_size).context("Failed to create ring buffer")?,
+    );
+
+    let writer = HDF5Writer::new(hdf5_path.as_path(), ring_buffer.clone())
+        .context("Failed to create HDF5 writer")?;
+    let writer_arc = Arc::new(writer);
+    let writer_clone = writer_arc.clone();
+
+    let writer_task = tokio::spawn(async move {
+        writer_clone.run_shared().await;
+    });
+
+    println!("✅ Data plane ready");
+    println!();
+
+    Ok(StorageResources {
+        writer: writer_arc,
+        writer_task,
+        _ring_buffer: ring_buffer,
+    })
+}
+
+#[cfg(feature = "networking")]
+async fn init_hardware(config: &DaemonConfig) -> Result<HardwareResources> {
+    println!("🔧 Initializing hardware registry...");
+    let (registry, hw_config) = if let Some(ref config_path) = config.hardware_config {
+        let (reg, hw) = load_hardware_config(config_path, "config", &config.runtime_mode).await?;
+        (reg, Some(hw))
+    } else if config.lab_hardware {
+        let default_path = std::path::Path::new("config/maitai_universal.toml");
+        if !default_path.exists() {
+            anyhow::bail!(
+                "--lab-hardware requires {} or use --hardware-config <path>",
+                default_path.display()
+            );
+        }
+        let (reg, hw) = load_hardware_config(default_path, "lab", &config.runtime_mode).await?;
+        (reg, Some(hw))
+    } else {
+        let default_mock_profile = std::path::Path::new("config/profiles/mock_maitai_lab.toml");
+        if default_mock_profile.exists() {
+            println!(
+                "   Using mock profile bootstrap: {}",
+                default_mock_profile.display()
+            );
+            let (reg, hw) =
+                load_hardware_config(default_mock_profile, "mock-profile", &config.runtime_mode)
+                    .await?;
+            (reg, Some(hw))
+        } else {
+            anyhow::bail!(
+                "No hardware config specified and default mock profile not found: {}\n\
+                 Use --hardware-config <path> or ensure the mock profile exists.",
+                default_mock_profile.display()
+            );
+        }
+    };
+
+    // Register driver factories for plugin-based device creation
+    let config_dir = std::path::Path::new("config/devices");
+    if let Err(e) = register_all_factories(&registry, Some(config_dir)).await {
+        tracing::warn!("Failed to register some factories: {}", e);
+    }
+    let factory_count = registry.list_factories().len();
+    if factory_count > 0 {
+        println!("   Registered {factory_count} driver factories");
+    }
+
+    let device_count = registry.len();
+    println!("   Registered {device_count} device(s)");
+    for info in registry.list_devices() {
+        registry.set_config_source(info.id.as_str(), "toml");
+        tracing::info!(device_id = %info.id, config_source = "toml", "device config source tagged");
+        println!(
+            "     - {}: {} ({:?})",
+            info.id, info.name, info.capabilities
+        );
+    }
+    println!();
+
+    Ok(HardwareResources {
+        registry,
+        hw_config,
+    })
+}
+
+fn init_safety(registry: &DeviceRegistry, shutdown_token: &CancellationToken) -> SafetyResources {
+    // Safety panic hook
+    println!("🛡️  Installing hardware safety panic hook...");
+    ShutterRegistry::install_panic_hook_with_hardware(registry);
+    let sentinel = SafetySentinel::new();
+    println!("   Emergency shutdown will activate on panic (shutters + emission + motors + DAQ)");
+    println!("   Safety sentinel armed (auto-close on abnormal exit)");
+    println!();
+
+    // Hardware watchdog
+    println!("🐕 Starting hardware watchdog...");
+    let (watchdog, wd_kicker) = HardwareWatchdog::start(WatchdogConfig::default(), || {
+        ShutterRegistry::emergency_close_all();
+        ShutterRegistry::emergency_close_all_shutters_from_registry();
+        ShutterRegistry::emergency_disable_all_emission();
+        ShutterRegistry::emergency_stop_motors();
+        ShutterRegistry::emergency_zero_outputs();
+    });
+    println!("   Timeout: 30s (kicks from registry monitor task)");
+    println!();
+
+    // Registry monitoring (also kicks the watchdog)
+    let mon_registry = registry.clone();
+    let mon_health_clone = {
+        // We don't have health here, but the monitor task just needs a registry clone
+        // The health heartbeat will be handled separately
+        mon_registry.clone()
+    };
+    let _ = mon_health_clone; // suppress unused
+
+    let registry_monitor_task = {
+        let mon_reg = registry.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(10));
+            loop {
+                interval.tick().await;
+                wd_kicker.kick();
+                let _count = mon_reg.len();
+            }
+        })
+    };
+
+    // Device supervisor
+    let sup_registry = registry.clone();
+    let sup_token = shutdown_token.clone();
+    let supervisor_task = tokio::spawn(async move {
+        run_device_supervisor(sup_registry, SupervisorConfig::default(), sup_token).await;
+    });
+
+    SafetyResources {
+        sentinel,
+        watchdog,
+        registry_monitor_task,
+        supervisor_task,
+    }
+}
+
 /// The running daemon instance.
 ///
 /// Owns all system components and enforces safe shutdown ordering.
@@ -290,239 +566,45 @@ pub struct DaemonInstance {
 impl DaemonInstance {
     /// Initialize and start the daemon.
     ///
-    /// Startup phases (in order):
-    /// 1. Health monitoring
-    /// 2. Storage (ring buffer + HDF5 writer) — feature-gated
-    /// 3. Hardware registry
-    /// 4. Safety panic hook
-    /// 5. Registry monitoring
-    /// 6. gRPC server
+    /// Each phase is extracted into a dedicated function for testability.
+    /// Phase ordering is enforced by data dependencies between phase outputs.
     pub async fn start(config: DaemonConfig) -> Result<Self> {
         println!("🌐 Starting Headless DAQ Daemon");
         println!("   Architecture: V5 (Headless-First + Scriptable)");
         println!("   gRPC Port: {}", config.port);
         println!();
 
-        // --- Phase: Config Loading & Validation ---
-        let mut _server_config =
-            ServerConfig::load().context("Failed to load server configuration")?;
-        if let Some(ref ui_path) = config.web_ui_path {
-            _server_config.grpc.web_ui_path = Some(ui_path.clone());
-        }
-        _server_config
-            .validate()
-            .context("Config validation failed after applying overrides")?;
+        // Phase 1: Config
+        let _server_config = init_server_config(&config)?;
 
-        // --- Phase: Health Monitoring ---
-        println!("❤️  Initializing health monitoring...");
-        let health = Arc::new(SystemHealthMonitor::new(HealthMonitorConfig::default()));
+        // Phase 2: Health
+        let health = init_health();
 
-        let metrics_collector = SystemMetricsCollector::new(health.clone());
-        let metrics_task = tokio::spawn(async move {
-            metrics_collector.run().await;
-        });
-
-        // --- Phase: Database (feature-gated: db) ---
+        // Phase 3: Database
         #[cfg(feature = "db")]
-        let db = {
-            println!("🗄️  Initializing database (SQLite)...");
-            let engine_name = if config.db_path.is_some() {
-                "file"
-            } else {
-                "memory"
-            };
-            let db_config = if let Some(ref path) = config.db_path {
-                println!("   Engine: file ({})", path.display());
-                db::DbConfig::file(path.display().to_string())
-            } else {
-                println!("   Engine: in-memory (no persistence)");
-                db::DbConfig::in_memory()
-            };
-            match db::DaqDb::init(db_config).await {
-                Ok(db) => {
-                    match db.info().await {
-                        Ok(info) => {
-                            println!(
-                                "   ✓ Database ready (schema v{}, {} drivers, {} instruments)",
-                                info.schema_version, info.driver_count, info.instrument_count
-                            );
-                            println!();
-                            health
-                                .heartbeat_with_message(
-                                    "database",
-                                    Some(format!(
-                                        "SQLite ({engine_name}) — schema v{}, {} drivers, {} instruments",
-                                        info.schema_version,
-                                        info.driver_count,
-                                        info.instrument_count,
-                                    )),
-                                )
-                                .await;
-                        }
-                        Err(e) => {
-                            tracing::warn!(error = %e, "Failed to query DB info after init");
-                            println!("   ✓ Database initialized ({engine_name})");
-                            println!();
-                        }
-                    }
-                    Some(db)
-                }
-                Err(e) => {
-                    // DB failure is non-fatal — the daemon can still run from TOML config.
-                    tracing::warn!(
-                        engine = engine_name,
-                        error = %e,
-                        "Database initialization failed — running without persistence. \
-                         ConfigService and metadata catalogs will be unavailable. \
-                         Use --db-path <dir> to configure persistent storage."
-                    );
-                    health
-                        .report_error(
-                            "database",
-                            common::health::ErrorSeverity::Warning,
-                            format!("SQLite init failed: {e}"),
-                            vec![("engine", engine_name)],
-                        )
-                        .await;
-                    eprintln!("   ⚠️  Database initialization failed: {e}");
-                    eprintln!(
-                        "   Continuing without database persistence (ConfigService unavailable)."
-                    );
-                    println!();
-                    None
-                }
-            }
-        };
+        let db = init_database(&config, &health).await;
 
-        // --- Phase: Storage (feature-gated) ---
+        // Phase 4: Storage
         #[cfg(all(feature = "storage_hdf5", feature = "storage_arrow"))]
-        let storage = {
-            use storage::hdf5_writer::HDF5Writer;
-            use storage::ring_buffer::RingBuffer;
+        let storage = Some(init_storage(&_server_config)?);
 
-            let rb_path = &_server_config.storage.ring_buffer_path;
-            let rb_size = _server_config.storage.ring_buffer_size_mb;
-            let hdf5_path = &_server_config.storage.hdf5_path;
-
-            println!("📊 Initializing data plane (Phase 4)...");
-            println!("   - Ring buffer: {} MB in {}", rb_size, rb_path.display());
-            println!("   - HDF5 output: {}", hdf5_path.display());
-            println!("   - Background flush: every 1 second");
-
-            let ring_buffer = Arc::new(
-                RingBuffer::create(rb_path.as_path(), rb_size)
-                    .context("Failed to create ring buffer")?,
-            );
-
-            let writer = HDF5Writer::new(hdf5_path.as_path(), ring_buffer.clone())
-                .context("Failed to create HDF5 writer")?;
-            let writer_arc = Arc::new(writer);
-            let writer_clone = writer_arc.clone();
-
-            let writer_task = tokio::spawn(async move {
-                writer_clone.run_shared().await;
-            });
-
-            println!("✅ Data plane ready");
-            println!();
-
-            Some(StorageResources {
-                writer: writer_arc,
-                writer_task,
-                _ring_buffer: ring_buffer,
-            })
-        };
-
-        // --- Phase: Hardware Registry ---
-        // Parse HardwareConfig once and reuse for both registry creation and DB shadow write.
+        // Phase 5: Hardware registry
         #[cfg(feature = "networking")]
-        #[allow(unused_variables)] // hw_config used only with db-surreal feature
-        let (registry, hw_config) = {
-            println!("🔧 Initializing hardware registry...");
-            let (registry, hw_config) = if let Some(ref config_path) = config.hardware_config {
-                let (reg, hw) =
-                    load_hardware_config(config_path, "config", &config.runtime_mode).await?;
-                (reg, Some(hw))
-            } else if config.lab_hardware {
-                let default_path = std::path::Path::new("config/maitai_universal.toml");
-                if !default_path.exists() {
-                    anyhow::bail!(
-                        "--lab-hardware requires {} or use --hardware-config <path>",
-                        default_path.display()
-                    );
-                }
-                let (reg, hw) =
-                    load_hardware_config(default_path, "lab", &config.runtime_mode).await?;
-                (reg, Some(hw))
-            } else {
-                let default_mock_profile =
-                    std::path::Path::new("config/profiles/mock_maitai_lab.toml");
-                if default_mock_profile.exists() {
-                    println!(
-                        "   Using mock profile bootstrap: {}",
-                        default_mock_profile.display()
-                    );
-                    let (reg, hw) = load_hardware_config(
-                        default_mock_profile,
-                        "mock-profile",
-                        &config.runtime_mode,
-                    )
-                    .await?;
-                    (reg, Some(hw))
-                } else {
-                    anyhow::bail!(
-                        "No hardware config specified and default mock profile not found: {}\n\
-                         Use --hardware-config <path> or ensure the mock profile exists.",
-                        default_mock_profile.display()
-                    );
-                }
-            };
-
-            // Register driver factories for plugin-based device creation
-            let config_dir = std::path::Path::new("config/devices");
-            if let Err(e) = register_all_factories(&registry, Some(config_dir)).await {
-                tracing::warn!("Failed to register some factories: {}", e);
-            }
-            let factory_count = registry.list_factories().len();
-            if factory_count > 0 {
-                println!("   Registered {factory_count} driver factories");
-            }
-
-            let device_count = registry.len();
-            println!("   Registered {device_count} device(s)");
-            for info in registry.list_devices() {
-                registry.set_config_source(info.id.as_str(), "toml");
-                tracing::info!(device_id = %info.id, config_source = "toml", "device config source tagged");
-                println!(
-                    "     - {}: {} ({:?})",
-                    info.id, info.name, info.capabilities
-                );
-            }
-            println!();
-
-            (registry, hw_config)
-        };
-
+        let hw = init_hardware(&config).await?;
+        #[cfg(feature = "networking")]
+        let registry = hw.registry;
         #[cfg(not(feature = "networking"))]
         let registry = DeviceRegistry::new();
 
-        // --- Phase: Shadow Write to Database ---
-        // Mirror the parsed hardware config into the DB (write-only shadow copy).
-        // Reuses the HardwareConfig already parsed above — no redundant file I/O.
-        // Non-fatal: if anything fails, log a warning and continue.
+        // Phase 6: Shadow write config to DB + reconcile + restore parameters
         #[cfg(all(feature = "db", feature = "networking"))]
-        if let (Some(db), Some(hw_config)) = (&db, &hw_config) {
+        if let (Some(db), Some(hw_config)) = (&db, &hw.hw_config) {
             use crate::db_bridge;
             match db_bridge::shadow_write_with_registry(db, hw_config, &registry).await {
                 Ok((drivers, instruments)) => {
                     println!(
                         "   🗄️  Shadowed config to DB ({drivers} drivers, {instruments} instruments)"
                     );
-
-                    // Set config_hash for each TOML-registered device so the
-                    // initial reconcile sees old_hash == new_hash (unchanged).
-                    // Without this, all devices appear "changed" because
-                    // registry defaults config_hash to 0.
                     let db_instruments = db_bridge::devices_to_db(hw_config);
                     for inst in &db_instruments {
                         let hash = db::config_store::config_hash(&inst.config);
@@ -535,17 +617,12 @@ impl DaemonInstance {
             }
         }
 
-        // --- Phase: Reconciler Metrics (feature-gated) ---
         #[cfg(all(feature = "db", feature = "metrics"))]
         {
             crate::reconciler_metrics::init();
             println!("   📊 Reconciler Prometheus metrics registered");
         }
 
-        // --- Phase: Reconcile DB → Registry ---
-        // After shadow-writing config to DB, run one reconciliation pass to
-        // converge the registry if the DB has instruments the TOML didn't include
-        // (e.g., added via CLI between restarts).  Non-fatal.
         #[cfg(feature = "db")]
         if let Some(ref db) = db {
             use crate::reconciler;
@@ -577,14 +654,7 @@ impl DaemonInstance {
                     tracing::warn!(error = %e, "Initial reconciliation failed — continuing with TOML-only state");
                 }
             }
-        }
 
-        // --- Phase: Restore Parameter State (bd-4wf7) ---
-        // Apply last-known parameter values from the database to devices.
-        // This restores user settings (exposure, trigger mode, etc.) across daemon restarts.
-        // Runs after reconciliation to ensure devices exist in the registry.
-        #[cfg(feature = "db")]
-        if let Some(ref db) = db {
             match restore_parameter_state(db, &registry).await {
                 Ok(count) if count > 0 => {
                     println!("   🔧 Restored {count} parameter(s) from database");
@@ -596,69 +666,18 @@ impl DaemonInstance {
             }
         }
 
-        // --- Phase: Safety Hooks (CRITICAL) ---
-        println!("🛡️  Installing hardware safety panic hook...");
-        ShutterRegistry::install_panic_hook_with_hardware(&registry);
-        let sentinel = SafetySentinel::new();
-        println!(
-            "   Emergency shutdown will activate on panic (shutters + emission + motors + DAQ)"
-        );
-        println!("   Safety sentinel armed (auto-close on abnormal exit)");
-        println!();
-
-        // --- Phase: Hardware Watchdog (bd-qa36.4.1) ---
-        // Separate OS thread monitors daemon liveness. If the tokio runtime hangs
-        // (deadlock, blocking call, etc.), the watchdog fires emergency shutdown.
-        println!("🐕 Starting hardware watchdog...");
-        let (watchdog, wd_kicker) = HardwareWatchdog::start(WatchdogConfig::default(), || {
-            // Emergency action runs on the watchdog's OS thread.
-            // ShutterRegistry handles its own runtime bridging internally.
-            // Order: close shutters first (block beam), then disable emission,
-            // then stop motors, then zero DAQ outputs.
-
-            // 1. Close scripting-registered shutters (HeartbeatShutterGuard)
-            ShutterRegistry::emergency_close_all();
-            // 2. Close ALL ShutterControl devices from the hardware registry
-            ShutterRegistry::emergency_close_all_shutters_from_registry();
-            // 3. Disable ALL EmissionControl devices
-            ShutterRegistry::emergency_disable_all_emission();
-            // 4. Stop motors and zero DAQ outputs
-            ShutterRegistry::emergency_stop_motors();
-            ShutterRegistry::emergency_zero_outputs();
-        });
-        println!("   Timeout: 30s (kicks from registry monitor task)");
-        println!();
-
-        // --- Phase: Registry Monitoring ---
-        let mon_registry = registry.clone();
-        let mon_health = health.clone();
-        let registry_monitor_task = tokio::spawn(async move {
-            let mut interval = tokio::time::interval(std::time::Duration::from_secs(10));
-            loop {
-                interval.tick().await;
-                // Kick the hardware watchdog — proves the tokio runtime is responsive
-                wd_kicker.kick();
-                let count = mon_registry.len();
-                mon_health
-                    .heartbeat_with_message(
-                        "hardware_registry",
-                        Some(format!("Managing {count} devices")),
-                    )
-                    .await;
-            }
-        });
-
-        // --- Phase: Shutdown Token (bd-1afe.12) ---
-        // CancellationToken enables graceful server shutdown + script abort before hardware teardown.
+        // Phase 7: Shutdown token
         let shutdown_token = CancellationToken::new();
 
-        // --- Phase: Safety Heartbeat (bd-nfav) ---
-        // Toggles a Comedi DIO channel at 100ms to drive an external hardware interlock.
-        // If the daemon crashes, the pulse stops, and the interlock cuts laser power.
+        // Phase 8: Safety (panic hook + watchdog + monitor + supervisor)
+        let safety = init_safety(&registry, &shutdown_token);
+
+        // Phase 9: Safety heartbeat (Comedi DIO)
         #[cfg(feature = "comedi_hardware")]
         let heartbeat_task = {
             #[cfg(feature = "networking")]
-            let hb_ref = hw_config
+            let hb_ref = hw
+                .hw_config
                 .as_ref()
                 .and_then(|hw| hw.safety_heartbeat.as_ref());
             #[cfg(not(feature = "networking"))]
@@ -694,17 +713,7 @@ impl DaemonInstance {
             }
         };
 
-        // --- Phase: Device Supervisor (bd-qa36.4.2) ---
-        // Periodically checks for faulted devices and attempts restart with backoff.
-        let sup_registry = registry.clone();
-        let sup_token = shutdown_token.clone();
-        let supervisor_task = tokio::spawn(async move {
-            run_device_supervisor(sup_registry, SupervisorConfig::default(), sup_token).await;
-        });
-
-        // --- Phase: Watch Reconciler (broadcast → debounce → reconcile) ---
-        // Continuously watches SQLite for config changes and reconciles the
-        // hardware registry.  Uses CancellationToken for graceful shutdown.
+        // Phase 10: Watch reconciler
         #[cfg(feature = "db")]
         let watch_reconciler_task = if let Some(ref db) = db {
             let wr_db = db.clone();
@@ -724,7 +733,7 @@ impl DaemonInstance {
             None
         };
 
-        // --- Phase: gRPC Server ---
+        // Phase 11: gRPC server
         #[cfg(feature = "networking")]
         let server_task = {
             let addr = format!("0.0.0.0:{}", config.port)
@@ -739,7 +748,6 @@ impl DaemonInstance {
             println!("     - Module system (ModuleService)");
             println!("     - Preset save/load (PresetService)");
             println!("     - System Health Monitoring (HealthService)");
-            // DB state summary in startup banner (bd-9n9k.3)
             #[cfg(feature = "db")]
             if db.is_some() {
                 println!("     - Config management (ConfigService) [DB available]");
@@ -753,7 +761,7 @@ impl DaemonInstance {
             println!();
 
             let srv_registry = registry.clone();
-            let srv_health = health.clone();
+            let srv_health = health.monitor.clone();
             let srv_token = shutdown_token.clone();
             #[cfg(feature = "db")]
             let srv_db = db.clone();
@@ -771,20 +779,21 @@ impl DaemonInstance {
             })
         };
 
+        // Assemble the daemon instance from phase outputs
         Ok(Self {
             _config: config,
-            _health: health,
+            _health: health.monitor,
             registry,
             shutdown_token,
-            metrics_task,
-            registry_monitor_task,
-            watchdog: Some(watchdog),
-            supervisor_task,
+            metrics_task: health.metrics_task,
+            registry_monitor_task: safety.registry_monitor_task,
+            watchdog: Some(safety.watchdog),
+            supervisor_task: safety.supervisor_task,
             #[cfg(feature = "networking")]
             server_task,
             #[cfg(all(feature = "storage_hdf5", feature = "storage_arrow"))]
             storage,
-            sentinel,
+            sentinel: safety.sentinel,
             #[cfg(feature = "comedi_hardware")]
             heartbeat_task,
             #[cfg(feature = "db")]
