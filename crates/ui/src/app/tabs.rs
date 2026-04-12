@@ -27,6 +27,7 @@ impl TabViewer for DaqTabViewer<'_> {
             Panel::SignalPlotter => format!("{} Signal Plotter", icons::nav::SIGNAL_PLOTTER).into(),
             Panel::ImageViewer => format!("{} Image Viewer", icons::nav::IMAGE_VIEWER).into(),
             Panel::Logs => format!("{} Logs", icons::nav::LOGGING).into(),
+            Panel::Repl => format!("{} REPL", icons::TERMINAL_WINDOW).into(),
             Panel::DeviceControl { id } => {
                 // Look up device name from the panel ID mapping
                 if let Some(info) = self.app.device_panel_info.get(id) {
@@ -113,6 +114,11 @@ impl TabViewer for DaqTabViewer<'_> {
                     .ui(ui, self.app.client.as_mut(), &self.app.runtime);
             }
             Panel::Logs => self.app.logging_panel.ui(ui),
+            Panel::Repl => {
+                self.app
+                    .repl_panel
+                    .ui(ui, self.app.client.as_mut(), Some(&self.app.runtime));
+            }
             Panel::DeviceControl { id } => {
                 self.render_device_control(ui, *id);
             }
@@ -173,6 +179,7 @@ impl DaqTabViewer<'_> {
 
             Self::section_label(ui, "Experiment");
             self.nav_button(ui, icons::nav::SCRIPTS, "Scripts", Panel::Scripts);
+            self.nav_button(ui, icons::TERMINAL_WINDOW, "REPL", Panel::Repl);
             self.nav_button(ui, icons::nav::SCANS, "Scan Builder", Panel::ScanBuilder);
             self.nav_button(
                 ui,

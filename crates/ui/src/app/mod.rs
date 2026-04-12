@@ -26,7 +26,7 @@ use crate::panels::instrument_manager::{
 use crate::panels::{
     ComediPanel, DocumentViewerPanel, ExperimentDesignerPanel, GettingStartedPanel,
     ImageViewerPanel, InstrumentManagerPanel, LoggingPanel, ModulesPanel, PlanRunnerPanel,
-    RunHistoryPanel, ScanBuilderPanel, ScriptsPanel, SignalPlotterPanel, StoragePanel,
+    ReplPanel, RunHistoryPanel, ScanBuilderPanel, ScriptsPanel, SignalPlotterPanel, StoragePanel,
 };
 #[cfg(not(target_arch = "wasm32"))]
 use crate::panels::{ConnectionDiagnostics, ConnectionStatus as LogConnectionStatus};
@@ -116,6 +116,7 @@ pub struct DaqApp {
     signal_plotter_panel: SignalPlotterPanel,
     image_viewer_panel: ImageViewerPanel,
     logging_panel: LoggingPanel,
+    repl_panel: ReplPanel,
 
     /// Tokio runtime for async operations
     runtime: crate::runtime::Runtime,
@@ -518,6 +519,7 @@ impl DaqApp {
             signal_plotter_panel: SignalPlotterPanel::new(),
             image_viewer_panel: ImageViewerPanel::new(),
             logging_panel: LoggingPanel::new(),
+            repl_panel: ReplPanel::default(),
             runtime,
             health_tx,
             health_rx,
@@ -708,6 +710,7 @@ impl DaqApp {
             signal_plotter_panel: SignalPlotterPanel::new(),
             image_viewer_panel: ImageViewerPanel::new(),
             logging_panel: LoggingPanel::new(),
+            repl_panel: ReplPanel::default(),
             runtime,
             device_reconcile_epoch: 0,
             device_reconcile_tx,

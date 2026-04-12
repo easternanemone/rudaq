@@ -819,6 +819,7 @@ pub enum Panel {
     SignalPlotter,
     ImageViewer,
     Logs,
+    Repl,
     /// Dockable device control panel (uses id to lookup device_id in app state)
     DeviceControl {
         id: usize,

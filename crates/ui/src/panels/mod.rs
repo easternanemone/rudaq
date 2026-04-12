@@ -9,6 +9,7 @@ mod logging;
 mod modules;
 mod multi_detector_grid;
 mod plan_runner;
+mod repl;
 mod run_history;
 mod scan_builder;
 mod script_editor;
@@ -39,6 +40,7 @@ pub use logging::{ConnectionDiagnostics, ConnectionStatus, LogLevel, LoggingPane
 pub use modules::ModulesPanel;
 pub use multi_detector_grid::{DetectorPanel, DetectorType, MultiDetectorGrid};
 pub use plan_runner::PlanRunnerPanel;
+pub use repl::ReplPanel;
 pub use run_history::RunHistoryPanel;
 pub use scan_builder::ScanBuilderPanel;
 pub use script_editor::ScriptEditorPanel;
