@@ -74,6 +74,11 @@ jobs:
     name: Format, lint, and tests (self-hosted)
     runs-on: [self-hosted, Linux, X64, leabs]
     timeout-minutes: 35
+    # Serialize all self-hosted jobs to prevent CPU saturation on shared runners.
+    # Only one validate job runs at a time across ALL refs (main + PRs).
+    concurrency:
+      group: self-hosted-runner-ci
+      cancel-in-progress: false
     env:
       CARGO_BUILD_JOBS: "2"
       CARGO_INCREMENTAL: "0"
