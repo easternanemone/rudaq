@@ -137,13 +137,12 @@ jobs:
             --exclude driver-comedi
 
       - name: Ring buffer performance benchmark
-        # The assertion (>1,000 FPS) already runs as part of the workspace
-        # test suite above and gates the build there.  This dedicated step
-        # re-runs the benchmark solely to populate the GitHub Step Summary
-        # with structured metrics.  On shared CI runners the second run can
-        # hit scheduling variance after 1800+ prior tests, so we allow it
-        # to fail without blocking the build.
-        continue-on-error: true
+        # Blocking gate: the test asserts >1,000 FPS for 1 KB mmap writes.
+        # This threshold is deliberately conservative for shared CI runners
+        # and catches catastrophic regressions (O(n) locking, accidental
+        # disk sync). The same assertion also runs in the workspace test
+        # suite above; this dedicated step additionally populates the GitHub
+        # Step Summary with structured metrics.
         env:
           RUST_DAQ_DEBUG_FRAME_TIMING: "1"
         run: |
@@ -152,7 +151,8 @@ jobs:
             bench_ring_buffer_write_throughput --profile ci \
             --success-output immediate 2>&1) || {
             echo "$output"
-            echo "::warning::Ring buffer benchmark did not meet threshold (informational — gated in workspace tests)"
+            echo "::error::Ring buffer benchmark did not meet 1,000 FPS threshold"
+            exit 1
           }
 
           # Parse structured output from the test (|| true guards against
@@ -311,18 +311,22 @@ jobs:
 
       - name: Install cargo-sbom
         if: github.event_name == 'push'
+        continue-on-error: true
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-sbom
 
       - name: Generate SBOM (CycloneDX)
         if: github.event_name == 'push'
+        # SBOM generation is best-effort — it should not block CI (bd-qawq)
+        continue-on-error: true
         run: |
           cargo sbom --output-format=cdx-json > sbom.cdx.json
           echo "SBOM generated: $(wc -c < sbom.cdx.json) bytes"
 
       - name: Upload SBOM artifact
         if: github.event_name == 'push'
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: sbom-cyclonedx
