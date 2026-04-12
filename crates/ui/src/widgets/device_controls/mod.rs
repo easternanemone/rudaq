@@ -7,6 +7,7 @@ mod andor_panel;
 mod dover_panel;
 mod generic_panel;
 mod maitai_panel;
+pub mod parameter_widget;
 mod power_meter_panel;
 mod rotator_panel;
 mod spectrograph_panel;
