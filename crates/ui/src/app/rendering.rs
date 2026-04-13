@@ -379,27 +379,18 @@ impl DaqApp {
 
                 // Database status indicator (bd-9n9k.3)
                 if is_connected {
-                    ui.separator();
                     if let Some(ref db) = self.db_status {
-                        let (label, color, tooltip) = if db.available {
-                            let engine = db.engine.as_deref().unwrap_or("unknown");
-                            (
-                                format!("DB: {engine}"),
-                                layout::colors::SUCCESS,
-                                db.state_message
-                                    .clone()
-                                    .unwrap_or_else(|| format!("{engine} — available")),
-                            )
+                        ui.separator();
+                        let (label, color, tooltip): (&str, _, &str) = if db.available {
+                            let engine = db.engine.as_deref().unwrap_or("SQLite");
+                            let msg = db.state_message.as_deref().unwrap_or(engine);
+                            (engine, layout::colors::SUCCESS, msg)
                         } else {
-                            (
-                                "DB: off".to_string(),
-                                layout::colors::MUTED,
-                                db.state_message
-                                    .clone()
-                                    .unwrap_or_else(|| "Database not configured".to_string()),
-                            )
+                            let msg = db.state_message.as_deref().unwrap_or("not configured");
+                            ("off", layout::colors::MUTED, msg)
                         };
-                        ui.colored_label(color, &label).on_hover_text(&tooltip);
+                        ui.colored_label(color, format!("DB: {label}"))
+                            .on_hover_text(tooltip);
                     }
                 }
             });

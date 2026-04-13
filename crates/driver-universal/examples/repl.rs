@@ -486,27 +486,20 @@ impl Repl {
     fn cmd_list(&self, what: Option<&str>) {
         match what {
             Some("commands") | Some("cmd") | Some("c") => {
-                println!("  Commands ({}):", self.manifest.commands.len());
-                let mut names: Vec<&String> = self.manifest.commands.keys().collect();
-                names.sort();
-                for name in names {
-                    let cmd = &self.manifest.commands[name];
-                    let resp = if cmd.expects_response {
+                print_sorted("Commands", self.manifest.commands.keys(), |name| {
+                    let suffix = if self.manifest.commands[name].expects_response {
                         " [expects response]"
                     } else {
                         ""
                     };
-                    println!("    {name}{resp}");
-                }
+                    format!("{name}{suffix}")
+                });
             }
             Some("params") | Some("p") => self.cmd_params(),
             Some("responses") | Some("resp") | Some("r") => {
-                println!("  Responses ({}):", self.manifest.responses.len());
-                let mut names: Vec<&String> = self.manifest.responses.keys().collect();
-                names.sort();
-                for name in names {
-                    println!("    {name}");
-                }
+                print_sorted("Responses", self.manifest.responses.keys(), |n| {
+                    n.to_string()
+                });
             }
             Some("caps") | Some("capabilities") => {
                 let caps = &self.manifest.device.capability_names;
@@ -516,12 +509,9 @@ impl Repl {
                 }
             }
             Some("conversions") | Some("conv") => {
-                println!("  Conversions ({}):", self.manifest.conversions.len());
-                let mut names: Vec<&String> = self.manifest.conversions.keys().collect();
-                names.sort();
-                for name in names {
-                    println!("    {name}");
-                }
+                print_sorted("Conversions", self.manifest.conversions.keys(), |n| {
+                    n.to_string()
+                });
             }
             _ => {
                 println!(
@@ -608,6 +598,20 @@ impl Repl {
 
         self.cmd_validate();
         Ok(())
+    }
+}
+
+/// Print a sorted list of items with a title and per-item formatting.
+fn print_sorted<'a>(
+    title: &str,
+    keys: impl Iterator<Item = &'a String>,
+    fmt: impl Fn(&str) -> String,
+) {
+    let mut names: Vec<&str> = keys.map(String::as_str).collect();
+    names.sort_unstable();
+    println!("  {title} ({}):", names.len());
+    for name in names {
+        println!("    {}", fmt(name));
     }
 }
 
