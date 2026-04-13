@@ -91,6 +91,8 @@ codebase_analysis.md
 .mcp.json
 claude-flow.config.json
 .swarm/
+.swarm-progress.txt
+.swarm-workpad.jsonl
 .hive-mind/
 .claude-flow/
 memory/

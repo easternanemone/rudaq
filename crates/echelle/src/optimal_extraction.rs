@@ -19,7 +19,7 @@
 use crate::rectification::RectifiedOrder;
 use std::time::Instant;
 
-use tracing::{debug, info};
+use tracing::debug;
 
 /// Configuration for optimal extraction.
 #[derive(Debug, Clone)]
@@ -226,7 +226,7 @@ pub fn optimal_extract(
     let stage_a_pct = stage_a_duration.as_secs_f64() / total_duration.as_secs_f64() * 100.0;
     let stage_bc_pct = stage_bc_duration.as_secs_f64() / total_duration.as_secs_f64() * 100.0;
 
-    info!(
+    debug!(
         target: "echelle::optimal_extraction",
         order_index = %rect.order_index,
         total_duration_ms = total_ms,
