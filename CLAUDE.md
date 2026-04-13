@@ -199,7 +199,7 @@ registry.register_from_config(DeviceConfig { id, name, driver: DriverConfig { ty
 
 ## Code Style
 
-- Current stable Rust toolchain (edition 2024 for all crates, requires Rust 1.85+), async/await everywhere (Tokio runtime). Never `std::thread::sleep` in async code. Note: `async_trait` is retained for capability traits — native async fn in trait only supports static dispatch, but `Arc<dyn Trait>` (used by `DeviceComponents`) requires dynamic dispatch via boxed futures.
+- Current pinned Rust toolchain is `1.92.0` (`rust-toolchain.toml`), edition 2024 across crates. Async/await everywhere (Tokio runtime). Never `std::thread::sleep` in async code. Note: `async_trait` is retained for capability traits — native async fn in trait only supports static dispatch, but `Arc<dyn Trait>` (used by `DeviceComponents`) requires dynamic dispatch via boxed futures.
 - Error handling: propagate with `?`, add context via `anyhow::Context`. No `.unwrap()` in library code (CI enforces `clippy::unwrap_used`); use `.expect("reason")` for invariants.
 - Hardware state: always use `Parameter<T>` with `BoxFuture<'static, Result<()>>` callbacks.
 - Workspace clippy: pedantic lints enabled with project-specific allows (see `Cargo.toml` `[workspace.lints.clippy]`).
@@ -242,7 +242,7 @@ registry.register_from_config(DeviceConfig { id, name, driver: DriverConfig { ty
 
 **Structural search**: `sg` (ast-grep) for AST-aware code patterns. E.g., `sg -p '$EXPR.unwrap()' --lang rust`.
 
-**Quality gates**: `bd close` triggers hook checks (`validate-epic-close` + `quality-gate-on-close`: fmt check + ast-grep error scan). Canonical Git pre-push enforcement is `.beads/hooks/pre-push`, which chains into `scripts/ci/pre-push-gate.sh` (fmt + optional mdBook + clippy + tests; CI parity includes `integration-tests` and excludes only `ui` for tests). In Claude Code Bash-tool flows, `git push` is also intercepted by `.claude/hooks/pre-push-checks.sh` (fmt + clippy + tests, excluding `ui` and `integration-tests`). Use `bd preflight --check` for PR readiness.
+**Quality gates**: `bd close` triggers hook checks (`validate-epic-close` + `quality-gate-on-close`: fmt check + ast-grep error scan). Canonical Git pre-push enforcement is `.beads/hooks/pre-push`, which chains into `scripts/ci/pre-push-gate.sh` (fmt + optional mdBook + clippy + tests; CI parity includes `integration-tests` and excludes only `ui` for tests). In Claude Code Bash-tool flows, `git push` is also intercepted by `.claude/hooks/pre-push-checks.sh` (fmt + clippy + tests, excluding `ui` and `integration-tests`, nextest `--profile ci` when available). CI clippy gate in `.github/workflows/ci.yml` runs `cargo clippy --workspace --all-targets --exclude ui --exclude comedi-sys --exclude driver-comedi -- -D warnings` (includes `integration-tests` and `ui-graph`). Use `bd preflight --check` for PR readiness.
 
 **Hook dispatch**: `.claude/hooks/pretool-dispatch.sh` routes `bd close` and `git push` to the relevant checks, and blocks `git worktree remove` unless the command starts with an explicit `cd` to a safe directory.
 
