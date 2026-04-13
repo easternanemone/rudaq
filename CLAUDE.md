@@ -86,7 +86,7 @@ source scripts/ops/env-check.sh && cargo nextest run --profile hardware --featur
 
 ## Architecture
 
-### Crate Dependency Layers (28 workspace crates)
+### Crate Dependency Layers (29 workspace crates)
 
 ```
 Foundation
@@ -125,11 +125,12 @@ Echelle Spectroscopy (in common crate)
 Services & Storage
   server           ← gRPC services: Hardware, Scan, RunEngine, Storage, Plugin, etc.
   client           ← gRPC client library
-  db               ← SQLite-first control-plane (default); legacy SurrealDB engines optional
+  db               ← SQLite-first control-plane (default `sqlite`; legacy SurrealDB `kv-mem`/`kv-rocksdb` optional)
   storage          ← RingBuffer (mmap, seqlock), HDF5, Arrow IPC, Parquet, Tiff, Zarr writers, DocumentSink trait, ZarrSink (feature "storage_zarr")
 
 Applications
   bin              ← CLI daemon (mimalloc allocator), reconciler, safety sentinel, safety heartbeat, snapshot + calibrate subcommands
+  ui-graph         ← Node graph editor crate extracted from `ui` (experiment design graph logic)
   ui               ← Web-based user interface (egui/eframe + WASM)
   ui-slint         ← [EXPERIMENTAL] Slint evaluation UI (native + WASM)
 
@@ -169,7 +170,7 @@ Testing
 
 **Error hierarchy** (`common-traits/src/error.rs`, `server/src/grpc/error_mapping.rs`, `client/src/error.rs`): Four-layer boundary contract: (1) `DaqError` is the canonical error enum, (2) capability trait methods return `anyhow::Result` for driver ergonomics, (3) `error_mapping.rs` downcasts anyhow chains at the gRPC boundary via 3-step chain (DaqError → DriverError → StorageError → fallback) and sets `x-daq-error-kind` metadata headers, (4) `ClientError` extracts structured error info via `daq_error_kind()`, `driver_type()`, `driver_kind()` methods. This closes the round-trip: DaqError → gRPC Status (with metadata) → ClientError (with structured extraction).
 
-**Hybrid Persistence** — Three-tier model: TOML (design-time, git-tracked), SurrealDB (runtime control plane, optional), specialized writers (science data: HDF5, Arrow, Zarr). See [ADR-015](docs/adr/015-hybrid-persistence-architecture.md).
+**Hybrid Persistence** — Three-tier model: TOML (design-time, git-tracked), SQLite-first runtime control plane (legacy SurrealDB optional), specialized writers (science data: HDF5, Arrow, Zarr). See [ADR-015](docs/adr/015-hybrid-persistence-architecture.md).
 
 ### DriverFactory Pattern
 
@@ -215,7 +216,7 @@ registry.register_from_config(DeviceConfig { id, name, driver: DriverConfig { ty
 
 ## Tools & Workflow
 
-**Issue tracking**: `bd` (beads) — Run `bd prime` for workflow context (auto-injected at session start). If a worktree cannot resolve the canonical beads DB, use `bash scripts/bd-safe.sh ...` (including `ready`, `where`, and `memories` lookups). If `bd dolt push` reports missing remote `origin`, run `bash scripts/ops/setup-beads-dolt-remote.sh`.
+**Issue tracking**: `bd` (beads) — Run `bd prime` for workflow context (auto-injected at session start). `bdh` is available as a transparent wrapper around `bd` for agent sessions. If a worktree cannot resolve the canonical beads DB, use `bash scripts/bd-safe.sh ...` (including `ready`, `where`, and `memories` lookups). If `bd dolt push` reports missing remote `origin`, run `bash scripts/ops/setup-beads-dolt-remote.sh`.
 
 **Advanced features:**
 - `bd query "status=open AND priority<=1"` — compound query language
