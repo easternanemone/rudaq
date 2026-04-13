@@ -6,7 +6,7 @@ Purpose: operational signoff checklist for `hybrid-db` runtime mode on LEABS har
 
 1. Access to `leabs-dev` via Tailscale SSH (`ssh leabs-dev`).
 2. Andor SDK3 environment available (`source config/hosts/leabs-dev.env`).
-3. Daemon built with DB support (`db-surreal-rocksdb`) and LEABS hardware features.
+3. Daemon built with DB support (`db`) and LEABS hardware features.
 
 ## Hardware Profile
 
@@ -34,25 +34,24 @@ bash scripts/deploy/deploy-leabs.sh --with-db
 cd ~/code/rust-daq
 source config/hosts/leabs-dev.env
 
-# Clean rebuild with LEABS hardware + SurrealDB
-cargo clean
-cargo build --release -p bin --features "leabs_hardware,db-surreal-rocksdb"
+# Build with LEABS hardware + SQLite
+cargo build --release -p bin --features "leabs_hardware,db"
 
-# Ensure RocksDB directory exists
-mkdir -p data/surrealdb-leabs
+# Ensure SQLite data directory exists
+mkdir -p data/sqlite-leabs
 
 # Start daemon with LEABS hardware config and persistent database
 ./target/release/rust-daq-daemon daemon \
   --port 50051 \
   --hardware-config config/leabs_hardware.toml \
-  --db-path data/surrealdb-leabs
+  --db-path data/sqlite-leabs/daq.db
 ```
 
 Expected startup indicators:
 
-- `Runtime mode: hybrid-db`
-- `Runtime policy [config/leabs_hardware.toml]: universal=2, native_exception=1, deprecated_native=0`
-- `Database ready` (or explicit non-fatal DB warning if unavailable)
+- `Initializing database (SQLite)...`
+- `Engine: file (data/sqlite-leabs/daq.db)`
+- `Database ready (schema v9, ...)`
 - Device registration list including all 3 instruments
 
 ## Smoke Validation
@@ -97,10 +96,10 @@ Expected:
 - Wavelength parameter set/get round-trip.
 - Verify USB TMC path (`/dev/usbtmc0`) is accessible (udev rule in place).
 
-### 6. DB Reconciliation Sanity
+### 6. DB Persistence Check
 
-- Edit one instrument config via config service and verify watch/reconcile applies change without losing command metadata.
-- Restart daemon and verify DB-persisted config survives restart (RocksDB persistence check).
+- Restart daemon and verify SQLite-persisted config survives restart.
+- After restart, run `config-list` and verify all 3 instruments are present without re-import from TOML.
 
 ### 7. DB Health Check
 
@@ -112,7 +111,7 @@ Expected:
 
 - `Healthy: true`
 - `Instruments: 3`
-- `Engine: rocksdb`
+- `Engine: file`
 
 ## Signoff Record Template
 
@@ -132,5 +131,4 @@ Expected:
 - Andor iStar runs in mock mode on macOS. Real SDK validation requires `leabs-dev` Linux VM with `andor_hardware` feature.
 - IPG laser TCP control requires network access to 10.0.0.15. Verify Tailscale routing if commands time out.
 - PM400 USB TMC requires `usbtmc` kernel module loaded and udev rule for non-root access.
-- `hybrid-db` assumes daemon was built with `db-surreal-rocksdb` feature.
-- Legacy SCPI/TCP native driver paths are on deprecation path; see `docs/how-to/legacy-scpi-deprecation.md`.
+- `hybrid-db` requires daemon built with `db` feature (enabled by default).

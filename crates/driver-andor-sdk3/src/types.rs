@@ -129,7 +129,7 @@ impl TryFrom<&str> for InsertionDelay {
     }
 }
 
-/// Device lifecycle state for SurrealDB persistence.
+/// Device lifecycle state for database persistence.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DeviceState {
     /// Camera not connected

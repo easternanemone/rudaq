@@ -92,6 +92,11 @@ pub struct DaqApp {
     /// Daemon version (retrieved via GetDaemonInfo)
     daemon_version: Option<String>,
 
+    /// Database status from the daemon (bd-9n9k.3)
+    db_status: Option<DbStatus>,
+    db_status_tx: mpsc::Sender<DbStatus>,
+    db_status_rx: mpsc::Receiver<DbStatus>,
+
     /// GUI version (from CARGO_PKG_VERSION)
     #[cfg(not(target_arch = "wasm32"))]
     gui_version: String,
@@ -399,6 +404,7 @@ impl DaqApp {
 
         // Create health check channel
         let (health_tx, health_rx) = mpsc::channel(4);
+        let (db_status_tx, db_status_rx) = mpsc::channel(1);
 
         // Create device reconciliation channel
         let (device_reconcile_tx, device_reconcile_rx) = mpsc::channel(4);
@@ -505,6 +511,9 @@ impl DaqApp {
             address_input,
             address_error: None,
             daemon_version: None,
+            db_status: None,
+            db_status_tx,
+            db_status_rx,
             gui_version: env!("CARGO_PKG_VERSION").to_string(),
             dock_state: Some(dock_state),
             ui_actions: Vec::new(),
@@ -633,8 +642,9 @@ impl DaqApp {
             .and_then(|s| eframe::get_value(s, "control_panel_layout_mode"))
             .unwrap_or(ControlPanelLayoutMode::Simple);
 
-        // Device reconciliation channel
+        // Device reconciliation and DB status channels
         let (device_reconcile_tx, device_reconcile_rx) = mpsc::channel(4);
+        let (db_status_tx, db_status_rx) = mpsc::channel(1);
 
         // Load persisted device panel info
         let (device_panel_info, next_device_panel_id) = if let Some(storage) = cc.storage {
@@ -698,6 +708,9 @@ impl DaqApp {
         let mut app = Self {
             client: None,
             daemon_version: None,
+            db_status: None,
+            db_status_tx,
+            db_status_rx,
             dock_state: Some(dock_state),
             ui_actions: Vec::new(),
             getting_started_panel: GettingStartedPanel::default(),

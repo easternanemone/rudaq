@@ -72,9 +72,6 @@ allow = [
 
 # Per-crate license exceptions (for external crates with unusual licenses)
 exceptions = [
-    # SurrealDB uses BUSL-1.1; this backend is an intentional optional dependency.
-    { allow = ["BUSL-1.1"], crate = "surrealdb" },
-    { allow = ["BUSL-1.1"], crate = "surrealdb-core" },
     # Example: { allow = ["LGPL-3.0"], crate = "some-lgpl-crate" }
 ]
 
@@ -83,16 +80,6 @@ exceptions = [
 crate = "ring"
 expression = "MIT AND ISC AND OpenSSL"
 license-files = [{ path = "LICENSE", hash = 0xbd0eed23 }]
-
-[[licenses.clarify]]
-crate = "surrealdb"
-expression = "BUSL-1.1"
-license-files = [{ path = "LICENSE", hash = 0x2273894e }]
-
-[[licenses.clarify]]
-crate = "surrealdb-core"
-expression = "BUSL-1.1"
-license-files = [{ path = "LICENSE", hash = 0x2273894e }]
 
 # Workspace crates - assign MIT license (matching intended license for publication)
 # These crates are internal and not published to crates.io yet

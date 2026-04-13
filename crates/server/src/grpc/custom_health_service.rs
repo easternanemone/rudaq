@@ -24,7 +24,7 @@ use tonic::{Request, Response, Status};
 pub struct HealthServiceImpl {
     monitor: Arc<SystemHealthMonitor>,
     registry: Option<DeviceRegistry>,
-    /// Whether SurrealDB initialized successfully (bd-9n9k.3).
+    /// Whether the database initialized successfully (bd-9n9k.3).
     db_available: bool,
     /// Whether ConfigService is registered in the gRPC server (bd-9n9k.3).
     config_service_available: bool,
@@ -447,7 +447,7 @@ mod tests {
             .report_error(
                 "database",
                 ErrorSeverity::Warning,
-                "SurrealDB init failed: connection refused",
+                "Database init failed: connection refused",
                 vec![("engine", "rocksdb")],
             )
             .await;

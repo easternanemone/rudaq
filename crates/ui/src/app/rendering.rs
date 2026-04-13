@@ -63,7 +63,7 @@ impl DaqApp {
                         ui.close();
                     }
 
-                    ui.small("Hybrid+DB requires daemon build with db-surreal feature flags.");
+                    ui.small("Hybrid+DB requires daemon build with db feature flag.");
 
                     // Connection presets from gui.toml
                     if !self.gui_presets.is_empty() {
@@ -375,6 +375,32 @@ impl DaqApp {
                     let friendly = friendly_error_message(err_msg);
                     ui.colored_label(egui::Color32::RED, &friendly)
                         .on_hover_text(format!("Raw error: {}", err_msg)); // Show raw error on hover
+                }
+
+                // Database status indicator (bd-9n9k.3)
+                if is_connected {
+                    ui.separator();
+                    if let Some(ref db) = self.db_status {
+                        let (label, color, tooltip) = if db.available {
+                            let engine = db.engine.as_deref().unwrap_or("unknown");
+                            (
+                                format!("DB: {engine}"),
+                                layout::colors::SUCCESS,
+                                db.state_message
+                                    .clone()
+                                    .unwrap_or_else(|| format!("{engine} — available")),
+                            )
+                        } else {
+                            (
+                                "DB: off".to_string(),
+                                layout::colors::MUTED,
+                                db.state_message
+                                    .clone()
+                                    .unwrap_or_else(|| "Database not configured".to_string()),
+                            )
+                        };
+                        ui.colored_label(color, &label).on_hover_text(&tooltip);
+                    }
                 }
             });
         });

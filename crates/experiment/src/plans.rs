@@ -1193,7 +1193,7 @@ impl PlanRegistry {
 
 /// A plan that replays a pre-translated sequence of `PlanCommand`s.
 ///
-/// Used when plans are loaded from SurrealDB storage. The graph-to-command
+/// Used when plans are loaded from database storage. The graph-to-command
 /// translation happens at save time (in the UI), and this struct simply
 /// plays back the resulting commands at execution time.
 #[derive(Debug, Clone)]

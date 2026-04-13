@@ -800,7 +800,7 @@ async fn start_daemon(
         resolved_runtime_mode = "custom";
         resolved_lab_hardware = false;
     } else {
-        // Default: hybrid-db — the universal TOML driver system with SurrealDB
+        // Default: hybrid-db — the universal TOML driver system with SQLite
         resolved_runtime_mode = "hybrid-db";
         resolved_hardware_config = Some(PathBuf::from("config/maitai_universal.toml"));
     }
@@ -813,7 +813,7 @@ async fn start_daemon(
     #[cfg(not(feature = "db"))]
     if resolved_runtime_mode == "hybrid-db" {
         eprintln!(
-            "⚠️  hybrid-db mode active but this build has no db-surreal feature; running universal TOML without DB persistence."
+            "⚠️  hybrid-db mode active but this build has no db feature; running universal TOML without DB persistence."
         );
     }
     #[cfg(not(feature = "db"))]

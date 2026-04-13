@@ -5,7 +5,7 @@
 //! [`PvcamDeviceState`]. On state transitions the monitor:
 //!
 //! 1. Logs the transition at `info` level.
-//! 2. Persists a lifecycle event to SurrealDB (via the `_lifecycle_state`
+//! 2. Persists a lifecycle event to the database (via the `_lifecycle_state`
 //!    pseudo-parameter in `device_runtime_state`).
 //! 3. Reports success/failure to the [`DeviceRegistry`] health tracker,
 //!    which in turn fires webhook alerts through the existing alerting

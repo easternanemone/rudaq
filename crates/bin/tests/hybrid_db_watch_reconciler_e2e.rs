@@ -1,15 +1,15 @@
 #![cfg(feature = "db")]
 #![allow(unsafe_code)]
-//! Daemon subprocess + gRPC E2E for SurrealDB watch reconciler (bd-zyc8).
+//! Daemon subprocess + gRPC E2E for DB watch reconciler (bd-zyc8).
 //!
 //! Validates that the daemon correctly hot-swaps devices in response to
-//! ConfigService gRPC calls by leveraging the SurrealDB LIVE SELECT watch loop.
+//! ConfigService gRPC calls by leveraging the broadcast channel watch loop.
 //!
 //! Uses `--runtime-mode mock` so no hardware config or serial ports are needed.
 //! The test seeds instruments via gRPC and verifies add/modify/delete through
 //! the watch reconciler.
 //!
-//! Run with: cargo nextest run -p bin --features db-surreal-mem --test hybrid_db_watch_reconciler_e2e
+//! Run with: cargo nextest run -p bin --features db --test hybrid_db_watch_reconciler_e2e
 
 use protocol::daq::config_service_client::ConfigServiceClient;
 use protocol::daq::{
@@ -96,7 +96,7 @@ async fn test_watch_reconciler_adds_removes_and_restarts_devices() {
 
     // 1. Start daemon in mock mode on an ephemeral port.
     // Mock mode avoids loading maitai_universal.toml (which needs real serial ports).
-    // SurrealDB (kv-mem) still initializes, so ConfigService + watch reconciler work.
+    // SQLite still initializes, so ConfigService + watch reconciler work.
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
     drop(listener);
@@ -169,7 +169,7 @@ async fn test_watch_reconciler_adds_removes_and_restarts_devices() {
         .await
         .unwrap();
 
-    // Wait for reconciler to process the LIVE SELECT event.
+    // Wait for reconciler to process the change notification event.
     tokio::time::sleep(Duration::from_secs(2)).await;
 
     let resp = client

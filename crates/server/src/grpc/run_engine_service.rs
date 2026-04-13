@@ -56,7 +56,7 @@ pub struct RunEngineServiceImpl {
     /// Prometheus metrics for observability (bd-2r60, bd-4de1)
     #[cfg(feature = "metrics")]
     metrics: Option<Arc<crate::grpc::metrics_service::DaqMetrics>>,
-    /// Optional SurrealDB handle for plan storage (bd-yz1w)
+    /// Optional database handle for plan storage (bd-yz1w)
     #[cfg(feature = "db")]
     db: Option<db::DaqDb>,
 }
@@ -442,7 +442,7 @@ impl RunEngineService for RunEngineServiceImpl {
 
         // Determine plan source: stored plan (by plan_id) or inline (by plan_type)
         let plan: Box<dyn experiment::plans::Plan> = if let Some(plan_id) = &req.plan_id {
-            // Load stored plan from SurrealDB
+            // Load stored plan from the database
             #[cfg(feature = "db")]
             {
                 let db = self.db.as_ref().ok_or_else(|| {

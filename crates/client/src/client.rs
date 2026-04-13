@@ -94,6 +94,7 @@ use protocol::daq::{
     GetShutterRequest,
     // Storage types
     GetStorageConfigRequest,
+    GetSystemHealthRequest,
     GetWavelengthRequest,
     ListAcquisitionsRequest,
     ListDevicesRequest,
@@ -145,6 +146,7 @@ use protocol::daq::{
     UploadResponse as ScriptUploadResponse,
     control_service_client::ControlServiceClient,
     hardware_service_client::HardwareServiceClient,
+    health_service_client::HealthServiceClient,
     module_service_client::ModuleServiceClient,
     run_engine_service_client::RunEngineServiceClient,
     storage_service_client::StorageServiceClient,
@@ -165,6 +167,7 @@ pub struct DaqClient {
     storage: StorageServiceClient<Transport>,
     module: ModuleServiceClient<Transport>,
     run_engine: RunEngineServiceClient<Transport>,
+    health: HealthServiceClient<Transport>,
     /// NI DAQ service client for Comedi hardware control
     ni_daq: NiDaqServiceClient<Transport>,
     /// Dedicated NI DAQ streaming client (no request timeout, for stream_analog_input)
@@ -257,6 +260,7 @@ impl DaqClient {
             storage: StorageServiceClient::new(channel.clone()),
             module: ModuleServiceClient::new(channel.clone()),
             run_engine: RunEngineServiceClient::new(channel.clone()),
+            health: HealthServiceClient::new(channel.clone()),
             ni_daq: NiDaqServiceClient::new(channel),
             ni_daq_streaming: NiDaqServiceClient::new(streaming_channel),
         })
@@ -294,6 +298,7 @@ impl DaqClient {
             storage: StorageServiceClient::new(client.clone()),
             module: ModuleServiceClient::new(client.clone()),
             run_engine: RunEngineServiceClient::new(client.clone()),
+            health: HealthServiceClient::new(client.clone()),
             ni_daq: NiDaqServiceClient::new(client.clone()),
             ni_daq_streaming: NiDaqServiceClient::new(client),
         }
@@ -313,6 +318,18 @@ impl DaqClient {
     /// Get daemon information (version, capabilities, etc.)
     pub async fn get_daemon_info(&mut self) -> Result<protocol::daq::DaemonInfoResponse> {
         let response = self.control.get_daemon_info(DaemonInfoRequest {}).await?;
+        Ok(response.into_inner())
+    }
+
+    /// Get system health including database status (bd-9n9k.3).
+    ///
+    /// Returns overall system health, module counts, and database readiness
+    /// (engine type, availability, state message).
+    pub async fn get_system_health(&mut self) -> Result<protocol::daq::GetSystemHealthResponse> {
+        let response = self
+            .health
+            .get_system_health(GetSystemHealthRequest {})
+            .await?;
         Ok(response.into_inner())
     }
 

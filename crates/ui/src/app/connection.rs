@@ -41,6 +41,7 @@ impl DaqApp {
     pub(super) fn disconnect(&mut self) {
         self.client = None;
         self.daemon_version = None;
+        self.db_status = None;
         self.connection.disconnect();
         self.logging_panel.connection_status = LogConnectionStatus::Disconnected;
         self.logging_panel
@@ -216,6 +217,7 @@ impl DaqApp {
                         // Clear client - connection is stale
                         self.client = None;
                         self.daemon_version = None;
+                        self.db_status = None;
                         self.logging_panel.connection_status = LogConnectionStatus::Connecting;
                         self.logging_panel.warn(
                             "Connection",
@@ -310,6 +312,9 @@ impl DaqApp {
         self.logging_panel
             .info("Connection", "Connected - panels will refresh data");
 
+        // Fetch database status from the daemon (bd-9n9k.3)
+        self.fetch_db_status();
+
         // Update browser tab title to show connected daemon
         #[cfg(target_arch = "wasm32")]
         set_page_title(&format!(
@@ -379,6 +384,7 @@ impl DaqApp {
     pub(super) fn wasm_disconnect(&mut self) {
         self.client = None;
         self.daemon_version = None;
+        self.db_status = None;
         self.device_panel_info.clear();
         self.invalidate_all_panel_widgets();
         self.was_connected = false;
@@ -392,6 +398,42 @@ impl DaqApp {
         }
         // Update browser tab title to show disconnected state
         set_page_title("DAQ Panel — Disconnected");
+    }
+
+    /// Fetch database status from the daemon via `GetSystemHealth` (bd-9n9k.3).
+    ///
+    /// Called once on connection. Sends the result through `db_status_tx`; the
+    /// lifecycle poll loop picks it up and stores it in `self.db_status`.
+    fn fetch_db_status(&mut self) {
+        let Some(ref client) = self.client else {
+            return;
+        };
+        let mut client = client.clone();
+        let tx = self.db_status_tx.clone();
+
+        self.runtime.spawn(async move {
+            match client.get_system_health().await {
+                Ok(resp) => {
+                    let _ = tx
+                        .send(DbStatus {
+                            available: resp.db_available,
+                            engine: resp.db_engine,
+                            state_message: resp.db_state_message,
+                        })
+                        .await;
+                }
+                Err(e) => {
+                    tracing::debug!("Failed to fetch system health: {e}");
+                }
+            }
+        });
+    }
+
+    /// Poll for pending db_status results.
+    pub(super) fn poll_db_status(&mut self) {
+        while let Ok(status) = self.db_status_rx.try_recv() {
+            self.db_status = Some(status);
+        }
     }
 }
 

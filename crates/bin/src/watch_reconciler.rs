@@ -56,7 +56,7 @@ impl Default for WatchConfig {
 /// On each `DbChangeEvent::InstrumentsUpdated`, debounces and triggers
 /// `reconcile_once()`. The broadcast channel is reliable within the process
 /// (no network disconnects), so the retry/backoff logic from the previous
-/// SurrealDB implementation is simplified to just lagged-receiver recovery.
+/// Uses lagged-receiver recovery for broadcast channel back-pressure.
 ///
 /// Runs until the `shutdown` token is cancelled.
 #[tracing::instrument(skip_all, name = "watch_reconciler")]

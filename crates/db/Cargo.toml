@@ -17,33 +17,13 @@ chrono.workspace = true
 toml.workspace = true
 futures.workspace = true
 
-# SurrealDB — legacy backend (deprecated, will be removed).
-surrealdb = { version = "2", default-features = false, optional = true }
-
-# SQLite — primary backend (bd-2a2ne).
-rusqlite = { version = "0.37", features = ["bundled"], optional = true }
-tokio-rusqlite = { version = "0.7", optional = true }
+# SQLite — primary (and only) backend (bd-2a2ne).
+rusqlite = { version = "0.37", features = ["bundled"] }
+tokio-rusqlite = { version = "0.7" }
 
 [dev-dependencies]
 tempfile.workspace = true
 tokio = { workspace = true, features = ["rt", "macros", "test-util"] }
-criterion = { version = "0.5", features = ["async_tokio"] }
-
-[features]
-default = ["sqlite"]
-
-# SQLite backend — lightweight embedded database (bd-2a2ne).
-# ~15 deps, ~20s compile.  Primary backend going forward.
-sqlite = ["dep:rusqlite", "dep:tokio-rusqlite"]
-
-# Legacy SurrealDB engines (deprecated — use sqlite instead).
-kv-mem = ["dep:surrealdb", "surrealdb/kv-mem"]
-kv-rocksdb = ["dep:surrealdb", "surrealdb/kv-rocksdb"]
-
-[[bench]]
-name = "startup"
-harness = false
-required-features = ["kv-mem"]
 
 [lints]
 workspace = true

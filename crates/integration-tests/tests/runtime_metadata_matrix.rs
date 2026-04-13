@@ -20,6 +20,8 @@ use db::{DaqDb, DbConfig};
 use std::collections::HashMap;
 #[cfg(feature = "db")]
 use std::collections::HashSet;
+#[cfg(feature = "db")]
+use tempfile::TempDir;
 
 fn workspace_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -836,4 +838,164 @@ async fn matrix_universal_spectrometer_category_is_detector() {
         Some("detector"),
         "spectrometer panel_kind should be 'detector'"
     );
+}
+
+// =============================================================================
+// File-backed DB persistence: metadata survives "restart" (bd-9n9k.4)
+// =============================================================================
+
+/// Verifies that driver metadata, instruments, and device features survive a
+/// file-backed DB close + reopen cycle, simulating a daemon restart.
+#[cfg(feature = "db")]
+#[tokio::test]
+async fn matrix_db_file_persistence_survives_restart() {
+    let tmp = TempDir::new().expect("temp dir");
+    let db_path = tmp.path().join("restart_test.db");
+    let db_path_str = db_path.display().to_string();
+
+    let config = load_profile("config/profiles/mock_maitai_lab.toml");
+    let registry = create_profile_registry("config/profiles/mock_maitai_lab.toml").await;
+
+    // --- Phase 1: Write metadata to file-backed DB ---
+
+    let mut seen_driver_types = HashSet::new();
+    let mut drivers = Vec::<DbDriver>::new();
+    for device in &config.devices {
+        if !seen_driver_types.insert(device.driver.driver_type.clone()) {
+            continue;
+        }
+        let factory = registry
+            .factory_info(&device.driver.driver_type)
+            .expect("factory should exist");
+        drivers.push(DbDriver {
+            driver_type: device.driver.driver_type.clone(),
+            name: factory.name,
+            capabilities: factory.capabilities,
+            commands: factory.available_commands,
+        });
+    }
+
+    let instruments: Vec<DbInstrument> = config
+        .devices
+        .iter()
+        .map(|device| DbInstrument {
+            device_id: device.id.to_string(),
+            name: device.name.clone(),
+            driver_type: device.driver.driver_type.clone(),
+            config: toml_to_json(&device.driver.config),
+            enabled: device.enabled,
+        })
+        .collect();
+
+    let expected_driver_count = drivers.len() as u64;
+    let expected_instrument_count = instruments.len() as u64;
+
+    // Also persist device features for the first universal device
+    let first_universal = registry
+        .list_devices()
+        .into_iter()
+        .find(|d| !d.metadata.manifest_features.is_empty());
+    let expected_features: Vec<db::config_store::DbDeviceFeature> =
+        if let Some(ref device) = first_universal {
+            device
+                .metadata
+                .manifest_features
+                .iter()
+                .map(|mf| db::config_store::DbDeviceFeature {
+                    device_id: device.id.to_string(),
+                    feature_name: mf.name.clone(),
+                    feature_type: mf.feature_type.clone(),
+                    readable: mf.readable,
+                    writable: mf.writable,
+                    min_value: mf.min_value,
+                    max_value: mf.max_value,
+                    step: None,
+                    enum_values: Vec::new(),
+                    unit: mf.unit.clone(),
+                    description: mf.description.clone(),
+                    group_name: None,
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+
+    {
+        let db = DaqDb::init(DbConfig::file(&db_path_str))
+            .await
+            .expect("file DB init");
+
+        db.upsert_drivers(&drivers).await.expect("upsert drivers");
+        db.upsert_instruments(&instruments)
+            .await
+            .expect("upsert instruments");
+        if !expected_features.is_empty() {
+            db.upsert_device_features(&expected_features)
+                .await
+                .expect("upsert features");
+        }
+
+        // Verify data is present before close
+        let info = db.info().await.expect("info");
+        assert_eq!(info.driver_count, expected_driver_count);
+        assert_eq!(info.instrument_count, expected_instrument_count);
+        // DB drops here, closing the connection
+    }
+
+    // --- Phase 2: Reopen DB and verify metadata survived ---
+
+    let db2 = DaqDb::init(DbConfig::file(&db_path_str))
+        .await
+        .expect("file DB re-init should succeed");
+
+    let info2 = db2.info().await.expect("info after reopen");
+    assert_eq!(
+        info2.driver_count, expected_driver_count,
+        "driver count should survive restart"
+    );
+    assert_eq!(
+        info2.instrument_count, expected_instrument_count,
+        "instrument count should survive restart"
+    );
+
+    // Verify specific driver metadata round-tripped
+    let stored_drivers: HashMap<String, DbDriver> = db2
+        .get_all_drivers()
+        .await
+        .expect("drivers after reopen")
+        .into_iter()
+        .map(|d| (d.driver_type.clone(), d))
+        .collect();
+
+    for expected in &drivers {
+        let actual = stored_drivers
+            .get(&expected.driver_type)
+            .unwrap_or_else(|| panic!("driver '{}' should survive restart", expected.driver_type));
+        assert_eq!(
+            normalize(&actual.capabilities),
+            normalize(&expected.capabilities),
+            "capabilities should survive restart for '{}'",
+            expected.driver_type
+        );
+        assert_eq!(
+            normalize(&actual.commands),
+            normalize(&expected.commands),
+            "commands should survive restart for '{}'",
+            expected.driver_type
+        );
+    }
+
+    // Verify device features round-tripped
+    if let Some(ref device) = first_universal {
+        let stored_features = db2
+            .get_device_features(&device.id)
+            .await
+            .expect("features after reopen");
+        assert_eq!(
+            stored_features.len(),
+            expected_features.len(),
+            "feature count should survive restart for '{}'",
+            device.id
+        );
+    }
 }

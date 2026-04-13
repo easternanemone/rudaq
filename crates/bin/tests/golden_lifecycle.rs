@@ -151,7 +151,7 @@ fn test_golden_startup_runtime_mode_universal() {
 // =============================================================================
 
 /// Golden test: daemon starts in default hybrid-db mode when no flags provided,
-/// using SurrealDB in-memory engine.
+/// using SQLite in-memory engine.
 #[test]
 #[cfg(feature = "db")]
 fn test_golden_default_runtime_hybrid_db_startup_shutdown() {
@@ -169,7 +169,7 @@ fn test_golden_default_runtime_hybrid_db_startup_shutdown() {
         .expect("Failed to spawn daemon");
 
     // Give the daemon time to initialize and emit startup logs.
-    // Hybrid-db mode requires SurrealDB init (slower than mock) and is sensitive
+    // Hybrid-db mode requires SQLite init (slower than mock) and is sensitive
     // to system load during parallel test runs — 8s provides headroom.
     std::thread::sleep(Duration::from_secs(8));
 
@@ -213,7 +213,7 @@ fn test_golden_default_runtime_registers_devices() {
         .expect("Failed to spawn daemon");
 
     // Give daemon time to register devices and start.
-    // Hybrid-db mode must init SurrealDB + load TOML manifests; 8s provides
+    // Hybrid-db mode must init SQLite + load TOML manifests; 8s provides
     // headroom when the system is under load during parallel test runs.
     std::thread::sleep(Duration::from_secs(8));
 

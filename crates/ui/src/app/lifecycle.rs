@@ -53,6 +53,7 @@ impl eframe::App for DaqApp {
 
         // --- Cross-platform polling ---
         self.poll_device_reconcile(); // bd-vjzq
+        self.poll_db_status(); // bd-9n9k.3
 
         // Health checks use ConnectionManager (native-only)
         #[cfg(not(target_arch = "wasm32"))]

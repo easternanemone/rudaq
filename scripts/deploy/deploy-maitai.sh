@@ -4,7 +4,7 @@
 # Usage:
 #   bash scripts/deploy/deploy-maitai.sh                           # Full deploy from main
 #   bash scripts/deploy/deploy-maitai.sh --branch feat/my-feature  # Deploy a feature branch
-#   bash scripts/deploy/deploy-maitai.sh --with-db                 # Enable SurrealDB persistence
+#   bash scripts/deploy/deploy-maitai.sh --with-db                 # Enable SQLite persistence
 #   bash scripts/deploy/deploy-maitai.sh --gui-only                # Just launch GUI (daemon running)
 #   bash scripts/deploy/deploy-maitai.sh --skip-build --daemon-only  # Restart daemon, skip build
 #
