@@ -2,24 +2,18 @@
 // WP4: RocksDB Persistence (T9) -- compile-gated
 // ============================================================================
 
-// RocksDB tests require the db-surreal-rocksdb feature and use a temp directory.
-// Uses subprocess isolation to work around RocksDB's process-global lock:
-// the writer subprocess exits (releasing the lock via OS cleanup), then
-// the main test reopens the database. This works regardless of whether
-// kv-mem is also compiled in.
+// File-backed SQLite tests require the db feature and use a temp directory.
+// Uses subprocess isolation to verify persistence across process restarts.
 
 use db::{DaqDb, DbConfig};
 use tempfile::TempDir;
 
 use super::helpers::*;
 
-/// Helper subprocess that writes the full mock_maitai_lab config to RocksDB.
+/// Helper subprocess that writes the full mock_maitai_lab config to a file-backed DB.
 ///
-/// Invoked as a subprocess by the main test so the RocksDB process-global
-/// lock is released when this process exits. SurrealDB provides no
-/// `disconnect()` API, and RocksDB's C++ layer tracks open databases in
-/// a process-global static set -- the only reliable way to release the
-/// lock is to exit the process.
+/// Invoked as a subprocess by the main test to verify data persists
+/// across process restarts.
 #[tokio::test]
 #[ignore = "only invoked as a subprocess by test_t9_rocksdb_persistence_across_restart"]
 async fn rocksdb_t9_writer_helper() {
@@ -37,11 +31,10 @@ async fn rocksdb_t9_writer_helper() {
     assert_eq!(drivers.len(), 5, "should write 5 drivers");
 }
 
-/// T9: Instruments survive daemon restart with RocksDB persistence.
+/// T9: Instruments survive daemon restart with file-backed persistence.
 ///
 /// Uses subprocess isolation: spawns `rocksdb_t9_writer_helper` as a
-/// separate OS process to write data. When that process exits, the
-/// RocksDB lock is released by the OS. The main test then reopens the
+/// separate OS process to write data. The main test then reopens the
 /// database and verifies all 9 instruments and 5 drivers persist.
 #[tokio::test]
 async fn test_t9_rocksdb_persistence_across_restart() {
@@ -49,8 +42,6 @@ async fn test_t9_rocksdb_persistence_across_restart() {
     let db_path = tmpdir.path().join("test.db");
 
     // First boot: spawn the writer helper as a separate OS process.
-    // RocksDB's C++ layer uses a process-global lock set, so the only
-    // way to release the lock is to exit the process.
     let test_bin = std::env::current_exe().unwrap();
     let output = std::process::Command::new(&test_bin)
         .arg("rocksdb_tests::rocksdb_t9_writer_helper")

@@ -300,7 +300,7 @@ impl HardwareServiceImpl {
         self
     }
 
-    /// Attach a SurrealDB instance for offline device feature queries (bd-mmjc).
+    /// Attach a database instance for offline device feature queries (bd-mmjc).
     ///
     /// Also spawns a debounced parameter state writer (bd-4wf7) that persists
     /// writable parameter changes to the `device_runtime_state` table every 2 seconds.
@@ -313,7 +313,7 @@ impl HardwareServiceImpl {
         self
     }
 
-    /// Spawn a background task that debounce-writes parameter changes to SurrealDB (bd-4wf7).
+    /// Spawn a background task that debounce-writes parameter changes to the database (bd-4wf7).
     ///
     /// Subscribes to the `param_change_tx` broadcast channel and collects dirty parameters
     /// into a batch. Every 2 seconds, the batch is flushed to `device_runtime_state` via

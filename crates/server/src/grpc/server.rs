@@ -2239,7 +2239,7 @@ pub async fn start_server_with_hardware(
         .add_service(tonic_web::enable(PresetServiceServer::new(preset_server)))
         .add_service(tonic_web::enable(StorageServiceServer::new(storage_server)));
 
-    // ConfigService — SurrealDB config management (bd-itsc)
+    // ConfigService — SQLite config management (bd-itsc)
     #[cfg(all(feature = "serial", feature = "db"))]
     let server_builder = if let Some(ref db) = _db {
         server_builder.add_service(tonic_web::enable(
@@ -2295,7 +2295,7 @@ pub async fn start_server_with_hardware(
         .add_service(tonic_web::enable(PresetServiceServer::new(preset_server)))
         .add_service(tonic_web::enable(StorageServiceServer::new(storage_server)));
 
-    // ConfigService — SurrealDB config management (bd-itsc)
+    // ConfigService — SQLite config management (bd-itsc)
     #[cfg(all(not(feature = "serial"), feature = "db"))]
     let server_builder = if let Some(ref db) = _db {
         server_builder.add_service(tonic_web::enable(

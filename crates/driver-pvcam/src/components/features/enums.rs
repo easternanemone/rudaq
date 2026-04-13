@@ -2,7 +2,7 @@
 // Device Lifecycle State (bd-oqo7.9)
 // =============================================================================
 
-/// PVCAM camera lifecycle state for SurrealDB persistence and health monitoring.
+/// PVCAM camera lifecycle state for database persistence and health monitoring.
 ///
 /// Derived from `get_controller_alive()` and `get_ccs_status()` polling.
 /// State transitions are logged and persisted to the `device_runtime_state` table.

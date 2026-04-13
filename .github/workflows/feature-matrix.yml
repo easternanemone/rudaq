@@ -98,11 +98,6 @@ jobs:
             features: storage_arrow
             cache-suffix: storage_arrow
             timeout: 15
-          - name: "db / rocksdb"
-            package: db
-            features: kv-rocksdb
-            cache-suffix: kv-rocksdb
-            timeout: 15
           - name: "bin / all_hardware mock"
             package: bin
             features: all_hardware
@@ -114,24 +109,16 @@ jobs:
             cache-suffix: modules-scripting-storage_hdf5-storage_arrow
             timeout: 25
           # Runtime-mode smoke tests (bd-9n9k.7)
-          # TEMPORARILY DISABLED: integration-tests has compile errors from
-          # W3.4 DeviceRegistry API change. Tracked by bd-46cmt.
-          # - name: "runtime / universal-smoke"
-          #   package: integration-tests
-          #   features: universal
-          #   cache-suffix: universal
-          #   timeout: 35
-          # - name: "runtime / hybrid-db-mem-smoke"
-          #   package: integration-tests
-          #   features: universal,db-surreal-mem
-          #   cache-suffix: universal-db-surreal-mem
-          #   timeout: 35
-          # - name: "runtime / hybrid-db-rocksdb-smoke"
-          #   package: integration-tests
-          #   features: networking,server,scripting,storage_hdf5,storage_arrow,serial,modules,pvcam,universal,db-surreal-rocksdb
-          #   cargo-args: "--no-default-features"
-          #   cache-suffix: universal-db-surreal-rocksdb
-          #   timeout: 35
+          - name: "runtime / universal-smoke"
+            package: integration-tests
+            features: universal
+            cache-suffix: universal
+            timeout: 35
+          - name: "runtime / universal-db-smoke"
+            package: integration-tests
+            features: universal,db
+            cache-suffix: universal-db
+            timeout: 35
     steps:
       - name: Checkout
         uses: actions/checkout@v4

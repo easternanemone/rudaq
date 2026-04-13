@@ -2,7 +2,7 @@
 //!
 //! Enumerates all features available on a camera handle, probing their types,
 //! ranges, and enum values. This enables dynamic `Parameter<T>` creation and
-//! SurrealDB metadata caching without hardcoding feature sets.
+//! Database metadata caching without hardcoding feature sets.
 //!
 //! # Hardware vs Mock
 //!

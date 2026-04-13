@@ -1,7 +1,7 @@
 //! Reconciler: diffs DB desired state against live DeviceRegistry and applies changes.
 //!
 //! Follows the Kubernetes reconciler pattern:
-//! 1. Read desired state from SurrealDB
+//! 1. Read desired state from the database
 //! 2. Read observed state from DeviceRegistry (DashMap)
 //! 3. Compute diff (add/remove)
 //! 4. Apply changes
@@ -180,7 +180,7 @@ async fn repair_driver_metadata(
 }
 
 /// Convert a device's parameter metadata into `DbDeviceFeature` rows and
-/// persist them to SurrealDB.
+/// persist them to the database.
 ///
 /// Called after successful device registration or reconfiguration.
 ///
@@ -276,7 +276,7 @@ async fn upsert_features(db: &DaqDb, device_id: &str, features: &[DbDeviceFeatur
     }
 }
 
-/// Restore persisted parameter values from SurrealDB after device registration (bd-oqo7.8).
+/// Restore persisted parameter values from the database after device registration (bd-oqo7.8).
 ///
 /// Reads the `device_runtime_state` table for the device and applies each
 /// persisted value to the device's Parameters via the `Parameterized` trait.
@@ -349,7 +349,7 @@ async fn restore_device_parameters(db: &DaqDb, registry: &DeviceRegistry, device
     }
 }
 
-/// Remove cached feature metadata for a device from SurrealDB.
+/// Remove cached feature metadata for a device from the database.
 ///
 /// Called after successful device removal.
 async fn cleanup_device_features(db: &DaqDb, device_id: &str) {
@@ -518,7 +518,7 @@ pub async fn reconcile_once(
                     "reconciler: added device"
                 );
                 persist_device_features(db, registry, id).await;
-                // bd-oqo7.8: Restore persisted parameter values from SurrealDB.
+                // bd-oqo7.8: Restore persisted parameter values from the database.
                 // This applies the last-known parameter state (exposure, temperature,
                 // speed table, etc.) so the device resumes where it left off.
                 restore_device_parameters(db, registry, id).await;
@@ -576,7 +576,7 @@ pub async fn cleanup_stale_runs(db: &DaqDb, stale_threshold: std::time::Duration
 /// Also runs stale-run detection on each tick (heartbeat crash recovery).
 /// Runs until the `shutdown` token is cancelled. Errors are logged but do not
 /// stop the loop.
-#[allow(dead_code)] // Wired in Phase 3b2 (LIVE SELECT watch)
+#[allow(dead_code)] // Wired in Phase 3b2 (change notification watch)
 pub async fn start_polling_reconciler(
     db: DaqDb,
     registry: DeviceRegistry,
@@ -1042,7 +1042,7 @@ mod tests {
 
     /// E2E: watch reconciler → DB change → device appears in registry → readable.
     ///
-    /// Exercises the reactive path: LIVE SELECT notification triggers
+    /// Exercises the reactive path: change notification triggers
     /// reconcile_once, which adds the device to the registry. Then verifies
     /// the device is Readable (proving the full factory → capabilities path).
     #[tokio::test]
@@ -1072,10 +1072,10 @@ mod tests {
             .await;
         });
 
-        // Let the watch reconciler establish the LIVE SELECT stream.
+        // Let the watch reconciler establish the broadcast channel.
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
-        // Insert an instrument — LIVE SELECT should trigger reconciliation.
+        // Insert an instrument — change notification should trigger reconciliation.
         db.upsert_instruments(&[sample_instrument("pm_reactive")])
             .await
             .unwrap();
@@ -1103,7 +1103,7 @@ mod tests {
     ///
     /// Exercises the reactive delete path: insert a device, let the watch
     /// reconciler add it, then delete from DB and verify the watch reconciler
-    /// removes it from the registry via LIVE SELECT → reconcile_once.
+    /// removes it from the registry via change notification → reconcile_once.
     #[tokio::test]
     async fn test_e2e_watch_detects_delete() {
         use crate::watch_reconciler::{WatchConfig, start_watch_reconciler};
@@ -1131,7 +1131,7 @@ mod tests {
             .await;
         });
 
-        // Let the watch reconciler establish the LIVE SELECT stream.
+        // Let the watch reconciler establish the broadcast channel.
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
         // Insert an instrument — watch reconciler should add it.
@@ -1146,7 +1146,7 @@ mod tests {
             "pm_del should be in registry after insert"
         );
 
-        // Delete from DB — LIVE SELECT should trigger reconcile → removal.
+        // Delete from DB — change notification should trigger reconcile → removal.
         db.delete_instrument("pm_del").await.unwrap();
 
         // Wait for debounce + reconcile.
@@ -1161,7 +1161,7 @@ mod tests {
 
     /// E2E: full lifecycle through watch reconciler — insert → update → delete.
     ///
-    /// Proves the watch reconciler handles all three LIVE SELECT action types
+    /// Proves the watch reconciler handles all three change notification types
     /// in sequence: Create → Update → Delete, each triggering reconcile_once.
     #[tokio::test]
     async fn test_e2e_watch_full_lifecycle() {
@@ -1228,7 +1228,7 @@ mod tests {
         shutdown.cancel();
     }
 
-    /// E2E hot-swap test: gRPC → DB → LIVE SELECT → reconciler → registry → gRPC.
+    /// E2E hot-swap test: gRPC → DB → change notification → reconciler → registry → gRPC.
     ///
     /// Exercises the full ConfigService + watch reconciler pipeline:
     /// 1. Start watch reconciler + gRPC service impls sharing the same DB + registry
@@ -1301,7 +1301,7 @@ mod tests {
             .unwrap();
         assert!(upsert_resp.into_inner().success);
 
-        // Wait for LIVE SELECT → debounce → reconcile.
+        // Wait for change notification → debounce → reconcile.
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
         // Step 2: Verify device appears in HardwareService.ListDevices.
@@ -1327,7 +1327,7 @@ mod tests {
             .unwrap();
         assert!(del_resp.into_inner().success);
 
-        // Wait for LIVE SELECT → debounce → reconcile.
+        // Wait for change notification → debounce → reconcile.
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
         // Step 4: Verify device is gone from HardwareService.ListDevices.
@@ -1349,7 +1349,7 @@ mod tests {
     /// while a device is actively measuring, then applies it after release.
     ///
     /// Exercises the safety interlock through the full watch reconciler path:
-    /// LIVE SELECT detects the config change, but reconcile_once skips the
+    /// Change notification detects the config change, but reconcile_once skips the
     /// device because MeasurementLock::Measuring is set. After releasing the
     /// lock, the periodic resync (or next notification) picks it up.
     #[tokio::test]
@@ -1401,7 +1401,7 @@ mod tests {
             common::capabilities::MeasurementLock::Measuring,
         );
 
-        // Change config — LIVE SELECT fires, but reconcile should defer.
+        // Change config — change notification fires, but reconcile should defer.
         let mut updated = sample_instrument("pm_lock_test");
         updated.config = serde_json::json!({"wavelength_nm": 1064});
         db.upsert_instruments(&[updated]).await.unwrap();

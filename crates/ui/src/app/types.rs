@@ -15,6 +15,15 @@ pub(super) enum HealthCheckResult {
     Failed(String),
 }
 
+/// Database status from the daemon (bd-9n9k.3).
+#[derive(Clone, Debug)]
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+pub(super) struct DbStatus {
+    pub available: bool,
+    pub engine: Option<String>,
+    pub state_message: Option<String>,
+}
+
 /// Device reconciliation result (validates persisted panels against daemon)
 pub(super) enum DeviceReconcileMsg {
     Ok {

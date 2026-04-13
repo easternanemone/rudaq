@@ -60,11 +60,6 @@ modules = ["dep:daq-modules"]                        # Activates optional dep (i
 metrics = ["dep:prometheus", "server/metrics"]        # cfg-gated Prometheus endpoint in watch_reconciler
 db = ["dep:db", "server/db"]                          # cfg-gated DB init paths in main + daemon_manager
 
-# Legacy aliases (deprecated — db now uses sqlite by default)
-db-surreal = ["db"]
-db-surreal-mem = ["db"]
-db-surreal-rocksdb = ["db"]
-
 # ============================================================================
 # PURE PASS-THROUGH (forwarded only, no #[cfg] usage in bin source)
 # ============================================================================

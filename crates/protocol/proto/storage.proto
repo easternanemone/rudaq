@@ -681,14 +681,14 @@ message DestroyPluginInstanceResponse {
 }
 
 // =============================================================================
-// ConfigService - SurrealDB Configuration Management (bd-3gvx)
+// ConfigService - SQLite Configuration Management (bd-3gvx)
 // =============================================================================
 //
-// Provides CRUD access to the SurrealDB control plane database.
+// Provides CRUD access to the SQLite control plane database.
 // Changes made via this service are automatically detected by the watch
-// reconciler (LIVE SELECT) and reconciled to the hardware registry.
+// reconciler (change notification) and reconciled to the hardware registry.
 //
-// Feature-gated behind db-surreal -- not compiled without SurrealDB support.
+// Feature-gated behind db -- not compiled without database support.
 //
 // Example workflow:
 //   1. ListInstruments() - see current device configs

@@ -17,7 +17,7 @@ pub enum DaemonMode {
     LabHardware { port: u16 },
     /// Auto-start a local daemon with universal (TOML-driven) maitai profile
     LabUniversal { port: u16 },
-    /// Auto-start a local daemon with universal profile + SurrealDB control plane
+    /// Auto-start a local daemon with universal profile + SQLite control plane
     LabHybridDb { port: u16 },
 }
 

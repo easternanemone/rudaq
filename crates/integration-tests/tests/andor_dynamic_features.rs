@@ -5,10 +5,10 @@
 //! - gRPC `ListParameters` → verify all dynamic features visible
 //! - gRPC `SetParameter` / `GetParameter` → type-dispatched operations
 //! - Read-only rejection
-//! - SurrealDB `device_feature` persistence from parameter metadata
+//! - Database `device_feature` persistence from parameter metadata
 //! - Feature cleanup on device removal
 //!
-//! Run with: cargo nextest run -p integration-tests --features db-surreal-mem --test andor_dynamic_features
+//! Run with: cargo nextest run -p integration-tests --features db --test andor_dynamic_features
 #![cfg(feature = "db")]
 #![allow(
     clippy::unwrap_used,
@@ -342,11 +342,11 @@ async fn test_andor_readonly_parameter_rejects_set() {
 }
 
 // =============================================================================
-// Test 4: SurrealDB feature persistence from parameter metadata
+// Test 4: Database feature persistence from parameter metadata
 // =============================================================================
 
 #[tokio::test]
-async fn test_andor_features_persisted_to_surrealdb() {
+async fn test_andor_features_persisted_to_db() {
     let db = DaqDb::init(DbConfig::in_memory()).await.unwrap();
     let registry = test_registry().await;
     if !register_andor_mock(&registry).await {

@@ -3,7 +3,7 @@
 /// Errors originating from the persistence layer.
 #[derive(Debug, thiserror::Error)]
 pub enum DbError {
-    /// SurrealDB returned an error.
+    /// The database returned an error.
     #[error("database error: {0}")]
     Database(String),
 
@@ -40,21 +40,12 @@ pub enum DbError {
     ReconcileFailed(String),
 }
 
-#[cfg(any(feature = "kv-mem", feature = "kv-rocksdb"))]
-impl From<surrealdb::Error> for DbError {
-    fn from(e: surrealdb::Error) -> Self {
-        Self::Database(e.to_string())
-    }
-}
-
-#[cfg(feature = "sqlite")]
 impl From<rusqlite::Error> for DbError {
     fn from(e: rusqlite::Error) -> Self {
         Self::Database(e.to_string())
     }
 }
 
-#[cfg(feature = "sqlite")]
 impl From<tokio_rusqlite::Error> for DbError {
     fn from(e: tokio_rusqlite::Error) -> Self {
         Self::Database(e.to_string())

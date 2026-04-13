@@ -1,11 +1,7 @@
-//! SQLite-backed persistence layer for rust-daq (bd-ba6cd).
+//! SQLite-backed persistence layer for rust-daq (bd-2a2ne).
 //!
-//! Drop-in replacement for the SurrealDB control plane with ~15 deps instead
-//! of 118.  Uses `rusqlite` (bundled SQLite) + `tokio-rusqlite` for async.
-//!
-//! # Feature gate
-//!
-//! This module is only compiled when the `sqlite` feature is enabled:
+//! Uses `rusqlite` (bundled SQLite) + `tokio-rusqlite` for async access from
+//! the Tokio runtime.
 //!
 //! ```bash
 //! cargo check -p db --features sqlite
@@ -22,7 +18,7 @@ use crate::schema::SCHEMA_VERSION;
 
 /// Summary of a config import operation.
 ///
-/// Compatible with the SurrealDB `ImportReport` so downstream callers
+/// Import report returned by upsert operations so downstream callers
 /// (e.g., `db_bridge::shadow_write`) work unchanged.
 #[derive(Debug, Clone, Default)]
 pub struct ImportReport {
@@ -31,15 +27,11 @@ pub struct ImportReport {
     pub errors: Vec<String>,
 }
 
-// Re-use the existing DB-native types from config_store so we don't diverge.
-// These are gated on surreal features in config_store.rs, so we re-declare
-// a compatible subset here for the sqlite backend.  When migration is
-// complete the canonical types will move to a shared location.
+// Canonical DB-native types for the SQLite backend.
 
 /// An instrument (device instance) stored in SQLite.
 ///
-/// Field-compatible with [`crate::config_store::DbInstrument`] so callers
-/// can convert freely between the two backends.
+/// Field layout matches the `instrument` table schema.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DbInstrument {
     /// Unique device ID (e.g., "rotator_2").
@@ -218,13 +210,12 @@ pub struct SqliteDbInfo {
 }
 
 // ---------------------------------------------------------------------------
-// Change notifications (replaces LIVE SELECT)
+// Change notifications (broadcast channel for reactive reconciliation)
 // ---------------------------------------------------------------------------
 
 /// Lightweight change event broadcast from the SQLite backend.
 ///
-/// Subscribers receive these via [`SqliteDb::subscribe_changes`] to replace
-/// the SurrealDB `LIVE SELECT` mechanism.
+/// Subscribers receive these via [`SqliteDb::subscribe_changes`].
 #[derive(Clone, Debug)]
 pub enum DbChangeEvent {
     /// The `instrument` table was modified (insert, update, or delete).
@@ -467,8 +458,7 @@ pub fn config_hash(config: &serde_json::Value) -> u64 {
 impl SqliteDb {
     /// Initialize from a [`DbConfig`].
     ///
-    /// This is the primary constructor — matches `DaqDb::init(config)` from the
-    /// SurrealDB backend so callers don't need to change.
+    /// This is the primary constructor.
     pub async fn init(config: DbConfig) -> Result<Self> {
         match config.path {
             Some(path) => Self::open(&path).await,

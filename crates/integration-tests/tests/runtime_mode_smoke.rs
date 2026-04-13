@@ -177,7 +177,7 @@ async fn smoke_hybrid_driver_classification() {
 }
 
 // -------------------------------------------------------------------------
-// hybrid-db-smoke (requires db-surreal-mem feature)
+// hybrid-db-smoke (requires db feature)
 // -------------------------------------------------------------------------
 
 #[cfg(feature = "db")]
@@ -258,7 +258,7 @@ mod db_smoke {
 }
 
 // -------------------------------------------------------------------------
-// hybrid-db-rocksdb-smoke (requires db-surreal-rocksdb feature)
+// hybrid-db-rocksdb-smoke (requires db feature)
 // -------------------------------------------------------------------------
 
 #[cfg(feature = "db")]
@@ -269,7 +269,7 @@ mod db_rocksdb_smoke {
     /// Validates RocksDB engine initialises, reports healthy, and can
     /// round-trip driver + instrument records.
     ///
-    /// NOTE: SurrealDB's embedded RocksDB engine holds a process-level
+    /// NOTE: SQLite's file-backed engine holds a process-level
     /// file lock that is not released on `DaqDb` drop, so in-process
     /// reopen tests are not possible.  Cross-process restart persistence
     /// is an inherent property of the RocksDB engine and is validated by

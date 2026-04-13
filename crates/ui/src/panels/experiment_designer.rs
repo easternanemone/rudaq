@@ -1260,7 +1260,7 @@ impl ExperimentDesignerPanel {
         let runtime = runtime.unwrap();
         self.start_visualization(client, runtime);
 
-        // Save plan to SurrealDB and queue by plan_id (bd-yz1w)
+        // Save plan to database and queue by plan_id (bd-yz1w)
         let mut metadata = self.metadata_editor.to_metadata_map();
         metadata.insert(
             "graph_node_count".to_string(),

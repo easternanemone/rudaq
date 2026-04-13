@@ -7,7 +7,7 @@
 //! - Parameter control during active streaming
 //! - Sustained streaming performance (100 frames, no corruption)
 //!
-//! Run with: cargo nextest run -p integration-tests --features db-surreal-mem --test andor_streaming
+//! Run with: cargo nextest run -p integration-tests --features db --test andor_streaming
 #![cfg(feature = "db")]
 #![allow(
     clippy::unwrap_used,

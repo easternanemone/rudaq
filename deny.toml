@@ -37,6 +37,8 @@ ignore = [
     { id = "RUSTSEC-2024-0436", reason = "Widely used proc-macro, no security vulnerability" },
     # proc-macro-error - transitive via clap/structopt ecosystem
     { id = "RUSTSEC-2024-0370", reason = "Transitive via clap, awaiting ecosystem update" },
+    # rand unsoundness with custom logger — we don't use rand::rng() with custom loggers
+    { id = "RUSTSEC-2026-0097", reason = "Unsoundness requires custom logger with rand::rng(), not applicable" },
 ]
 
 # ============================================================================
@@ -72,9 +74,6 @@ allow = [
 
 # Per-crate license exceptions (for external crates with unusual licenses)
 exceptions = [
-    # SurrealDB uses BUSL-1.1; this backend is an intentional optional dependency.
-    { allow = ["BUSL-1.1"], crate = "surrealdb" },
-    { allow = ["BUSL-1.1"], crate = "surrealdb-core" },
     # Example: { allow = ["LGPL-3.0"], crate = "some-lgpl-crate" }
 ]
 
@@ -83,16 +82,6 @@ exceptions = [
 crate = "ring"
 expression = "MIT AND ISC AND OpenSSL"
 license-files = [{ path = "LICENSE", hash = 0xbd0eed23 }]
-
-[[licenses.clarify]]
-crate = "surrealdb"
-expression = "BUSL-1.1"
-license-files = [{ path = "LICENSE", hash = 0x2273894e }]
-
-[[licenses.clarify]]
-crate = "surrealdb-core"
-expression = "BUSL-1.1"
-license-files = [{ path = "LICENSE", hash = 0x2273894e }]
 
 # Workspace crates - assign MIT license (matching intended license for publication)
 # These crates are internal and not published to crates.io yet

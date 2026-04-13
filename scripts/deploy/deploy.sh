@@ -39,13 +39,13 @@ setup_maitai() {
     REMOTE_DIR="${REMOTE_DIR:-/home/${TARGET_USER}/code/rust-daq}"
     ENV_FILE="config/hosts/maitai.env"
     HARDWARE_CONFIG=""  # maitai uses --runtime-mode, not --hardware-config
-    DEFAULT_FEATURES="maitai,db-surreal-rocksdb"
+    DEFAULT_FEATURES="maitai,db"
     GIT_REMOTE="origin"
     CARGO_CLEAN=true
     DEFAULT_WITH_DB=false
     DEFAULT_RUNTIME_MODE="hybrid-db"
     BANNER_NAME="Maitai"
-    DB_DATA_DIR="data/surrealdb-maitai"
+    DB_DATA_DIR="data/sqlite-maitai"
 }
 
 setup_leabs_dev() {
@@ -56,13 +56,13 @@ setup_leabs_dev() {
     REMOTE_DIR="${REMOTE_DIR:-/home/${TARGET_USER}/code/rust-daq}"
     ENV_FILE="config/hosts/leabs-dev.env"
     HARDWARE_CONFIG="config/leabs_hardware.toml"
-    DEFAULT_FEATURES="leabs_hardware,db-surreal-rocksdb"
+    DEFAULT_FEATURES="leabs_hardware,db"
     GIT_REMOTE="github"
     CARGO_CLEAN=false
     DEFAULT_WITH_DB=true
     DEFAULT_RUNTIME_MODE=""  # leabs uses --hardware-config, not --runtime-mode
     BANNER_NAME="LEABS"
-    DB_DATA_DIR="data/surrealdb-leabs"
+    DB_DATA_DIR="data/sqlite-leabs"
 }
 
 # ============================================================================
@@ -97,8 +97,8 @@ TARGETS:
 OPTIONS:
   --target <name>       Deploy target (required unless auto-detected)
   --branch <name>       Branch to checkout on remote (default: main)
-  --with-db             Enable SurrealDB persistence
-  --no-db               Disable SurrealDB persistence (override target default)
+  --with-db             Enable SQLite database persistence
+  --no-db               Disable database persistence (override target default)
   --skip-build          Skip remote build (just restart daemon + launch GUI)
   --skip-gui            Don't launch local GUI (deploy daemon only)
   --daemon-only         Alias for --skip-gui
@@ -214,8 +214,8 @@ fi
 # Start with target defaults; adjust based on DB flag and SDK detection
 CARGO_FEATURES="$DEFAULT_FEATURES"
 if ! $WITH_DB; then
-    # Strip db-surreal-rocksdb from features
-    CARGO_FEATURES=$(echo "$CARGO_FEATURES" | sed 's/,db-surreal-rocksdb//' | sed 's/db-surreal-rocksdb,//' | sed 's/db-surreal-rocksdb//')
+    # Strip db from features
+    CARGO_FEATURES=$(echo "$CARGO_FEATURES" | sed 's/,db//' | sed 's/db,//' | sed 's/^db$//')
 fi
 
 # ============================================================================
@@ -229,7 +229,7 @@ echo -e "${NC}"
 echo -e "  Target:     ${BOLD}${DEPLOY_SSH}${NC}"
 echo -e "  Branch:     ${BOLD}${BRANCH}${NC}"
 echo -e "  Features:   ${BOLD}${CARGO_FEATURES}${NC}"
-echo -e "  SurrealDB:  ${BOLD}$(${WITH_DB} && echo 'enabled' || echo 'disabled')${NC}"
+echo -e "  Database:   ${BOLD}$(${WITH_DB} && echo 'enabled (SQLite)' || echo 'disabled')${NC}"
 echo -e "  Build:      ${BOLD}$(${SKIP_BUILD} && echo 'skip' || echo 'release')${NC}"
 echo -e "  GUI:        ${BOLD}$(${SKIP_GUI} && echo 'skip' || echo 'launch locally')${NC}"
 if [[ -n "$RUNTIME_MODE" ]]; then
@@ -307,7 +307,7 @@ if ! $GUI_ONLY; then
 
     # Warn if --skip-build could cause a flag/binary mismatch
     if $SKIP_BUILD && $WITH_DB; then
-        warn "--skip-build with --with-db: ensure the existing binary was built with db-surreal-rocksdb"
+        warn "--skip-build with --with-db: ensure the existing binary was built with the db feature"
     fi
 
     # Build daemon command line

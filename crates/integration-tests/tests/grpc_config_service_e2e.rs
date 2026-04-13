@@ -1,9 +1,9 @@
 //! Integration tests for ConfigService gRPC surface (bd-zyc8).
 //!
-//! Extracted from the surrealdb_daemon_e2e monolith. Focuses on gRPC wire path
+//! Extracted from the db_daemon_e2e monolith. Focuses on gRPC wire path
 //! for hardware configuration CRUD, driver discovery, and metadata enrichment.
 //!
-//! Run with: cargo nextest run -p integration-tests --features db-surreal-mem --test grpc_config_service_e2e
+//! Run with: cargo nextest run -p integration-tests --features db --test grpc_config_service_e2e
 
 #![cfg(all(feature = "db", feature = "server"))]
 #![allow(
@@ -30,7 +30,7 @@ use server::grpc::{
 };
 
 // ---------------------------------------------------------------------------
-// Helpers (mirrors surrealdb_daemon_e2e until extracted to common)
+// Helpers (mirrors db_e2e until extracted to common)
 // ---------------------------------------------------------------------------
 
 fn workspace_root() -> PathBuf {

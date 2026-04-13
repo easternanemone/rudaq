@@ -119,7 +119,7 @@ struct Cli {
     /// - mock: local mock devices
     /// - native: native maitai hardware config
     /// - universal: universal TOML maitai profile
-    /// - hybrid-db: universal profile with SurrealDB control-plane expectations
+    /// - hybrid-db: universal profile with SQLite control-plane persistence
     #[arg(
         long,
         value_enum,

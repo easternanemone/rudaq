@@ -20,7 +20,7 @@ use crate::grpc::proto::{
     SubscribeConfigRequest, UpsertInstrumentRequest, UpsertInstrumentResponse,
 };
 
-/// ConfigService gRPC handler backed by SurrealDB.
+/// ConfigService gRPC handler backed by SQLite.
 pub struct ConfigServiceImpl {
     db: DaqDb,
     registry: Option<DeviceRegistry>,
@@ -357,10 +357,10 @@ impl ConfigService for ConfigServiceImpl {
     /// Subscribe to config changes via broadcast channel.
     ///
     /// Uses `DbChangeEvent::InstrumentsUpdated` from the SQLite backend
-    /// (replaces SurrealDB LIVE SELECT). On each event, fetches the current
+    /// (broadcast-channel based). On each event, fetches the current
     /// instrument list and sends all instruments as "upsert" events.
     ///
-    /// **Note**: Unlike the old SurrealDB LIVE SELECT, this does not distinguish
+    /// **Note**: Unlike a database-level live query, this does not distinguish
     /// individual Create/Update/Delete actions — it sends the full instrument
     /// snapshot on any change. This is simpler but coarser. No clients currently
     /// consume this stream, so the semantic difference is acceptable.

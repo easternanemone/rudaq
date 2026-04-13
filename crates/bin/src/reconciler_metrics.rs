@@ -36,7 +36,7 @@ pub struct ReconcilerMetrics {
     /// Total reconcile errors (DB failures, driver instantiation failures, etc.).
     pub reconcile_errors: IntCounter,
 
-    /// Total LIVE SELECT reconnections (indicates watch instability).
+    /// Total change-notification reconnections (indicates watch instability).
     pub watch_reconnections: IntCounter,
 
     /// Total driver metadata drift detections.
@@ -81,7 +81,7 @@ impl ReconcilerMetrics {
 
         let watch_reconnections = register_int_counter_with_registry!(
             "daq_watch_reconnections_total",
-            "Total LIVE SELECT reconnection attempts",
+            "Total change-notification reconnection attempts",
             registry
         )
         .expect("Failed to create daq_watch_reconnections_total counter");

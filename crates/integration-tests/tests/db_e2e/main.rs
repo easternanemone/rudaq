@@ -1,6 +1,6 @@
-//! SurrealDB E2E Validation with Mock Hardware (bd-p33c)
+//! Database E2E Validation with Mock Hardware (bd-p33c)
 //!
-//! Validates the full SurrealDB persistence layer with a realistic 9-device,
+//! Validates the full SQLite persistence layer with a realistic 9-device,
 //! 5-driver-type mock hardware profile (mock_maitai_lab).
 //!
 //! Covers:
@@ -11,7 +11,7 @@
 //! - Error resilience (DB init failure, clean shutdown)
 //! - Concurrent operations and MeasurementLock safety
 //!
-//! Run with: cargo nextest run -p integration-tests --features db-surreal-mem --test surrealdb_e2e
+//! Run with: cargo nextest run -p integration-tests --features db --test db_e2e
 #![cfg(feature = "db")]
 #![allow(
     clippy::unwrap_used,

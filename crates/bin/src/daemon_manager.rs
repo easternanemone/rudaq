@@ -953,7 +953,7 @@ impl DaemonInstance {
     }
 }
 
-/// Restore last-known parameter values from SurrealDB to devices (bd-4wf7, bd-oqo7.8).
+/// Restore last-known parameter values from the database to devices (bd-4wf7, bd-oqo7.8).
 ///
 /// On daemon startup, reads `device_runtime_state` entries and applies them via
 /// `Parameter::set_json()`. If a value is rejected by the driver (e.g., constraint
