@@ -37,6 +37,8 @@ ignore = [
     { id = "RUSTSEC-2024-0436", reason = "Widely used proc-macro, no security vulnerability" },
     # proc-macro-error - transitive via clap/structopt ecosystem
     { id = "RUSTSEC-2024-0370", reason = "Transitive via clap, awaiting ecosystem update" },
+    # rand unsoundness with custom logger — we don't use rand::rng() with custom loggers
+    { id = "RUSTSEC-2026-0097", reason = "Unsoundness requires custom logger with rand::rng(), not applicable" },
 ]
 
 # ============================================================================
