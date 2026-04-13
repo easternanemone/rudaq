@@ -27,6 +27,7 @@ libc = "0.2"
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "io-util", "sync"] }
 tempfile.workspace = true
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 driver-universal = { path = ".", features = ["emulator"] }
 
 [features]
