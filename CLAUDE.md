@@ -10,11 +10,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Disk Safety (MANDATORY for Agents)
 
-**The shared target directory in `.cargo/config.toml` (`target-dir = ".../target"`) is load-bearing.** All worktrees reuse the primary checkout's `target/` instead of each creating a 10-15GB copy. Without this, 4 parallel agents consume 40-60GB and exhaust disk quota.
+**Shared build artifacts are load-bearing for disk health, but they are configured via `CARGO_TARGET_DIR` (shell env), not via `.cargo/config.toml`.** This repo intentionally does not set an absolute `target-dir` in config because it breaks CI.
 
 **Rules:**
 - **NEVER** run `cargo clean` in a worktree — it wipes the shared target
-- **NEVER** remove or override `target-dir` in `.cargo/config.toml`
+- **Set `CARGO_TARGET_DIR` in your shell profile** when using many parallel worktrees to avoid `target/` duplication
+- **Do not re-introduce absolute `target-dir` paths** in `.cargo/config.toml`
 - **Before launching >2 parallel worktree agents**, check `df -h /` — need at least 15GB free
 - **After agents complete**, merge branches immediately, then remove worktrees (`git worktree remove`)
 - If disk fills: use Serena MCP `execute_shell_command` to clean up (Bash tool fails when disk is full because it needs to create output files in /tmp)
@@ -240,7 +241,7 @@ registry.register_from_config(DeviceConfig { id, name, driver: DriverConfig { ty
 
 **Structural search**: `sg` (ast-grep) for AST-aware code patterns. E.g., `sg -p '$EXPR.unwrap()' --lang rust`.
 
-**Quality gates**: `bd close` triggers hook checks (`validate-epic-close` + `quality-gate-on-close`: fmt check + ast-grep error scan). `git push` triggers `.claude/hooks/pre-push-checks.sh` (fmt + clippy + tests, excluding `ui` and `integration-tests`, nextest `--profile ci` when available). Canonical CI-parity gate remains `bash scripts/ci/pre-push-gate.sh` (includes `integration-tests`, excludes only `ui` for tests). `bd preflight --check` for PR readiness.
+**Quality gates**: `bd close` triggers hook checks (`validate-epic-close` + `quality-gate-on-close`: fmt check + ast-grep error scan). Canonical Git pre-push enforcement is `.beads/hooks/pre-push`, which chains into `scripts/ci/pre-push-gate.sh` (fmt + optional mdBook + clippy + tests; CI parity includes `integration-tests` and excludes only `ui` for tests). In Claude Code Bash-tool flows, `git push` is also intercepted by `.claude/hooks/pre-push-checks.sh` (fmt + clippy + tests, excluding `ui` and `integration-tests`). Use `bd preflight --check` for PR readiness.
 
 **Hook dispatch**: `.claude/hooks/pretool-dispatch.sh` routes `bd close` and `git push` to the relevant checks, and blocks `git worktree remove` unless the command starts with an explicit `cd` to a safe directory.
 
@@ -341,9 +342,12 @@ pub fn set_page_title(title: &str) {
 | `scripts/ops/calibrate-comedi.sh` | Comedi DAQ calibration |
 | `scripts/ops/stress-test-comedi-concurrent.sh` | Concurrent Comedi AI/AO stress harness via gRPC |
 | `scripts/ops/fast-check.sh` | Fast local smoke loop (cargo check + nextest + doctests), not a replacement for pre-push gates |
+| `scripts/ops/detect-sdk.sh` | Detect installed PVCAM/Andor/Comedi SDKs and emit sourceable cargo-feature vars |
 | `scripts/ops/bench-harness.sh` | Lightweight baseline harness for optimization/performance comparisons |
-| `scripts/ops/setup-beads-dolt-remote.sh` | Configure beads Dolt `origin` remote when sync/push fails |
+| `scripts/ops/measure-startup.sh` | Measure daemon startup latency and summarize registration/DB readiness |
 | `scripts/ops/regenerate_blueprints.sh` | Rebuild Rerun blueprint artifacts from `crates/server/blueprints/generate_blueprints.py` |
+| `scripts/ops/stress-test-comedi-concurrent.sh` | Concurrent Comedi AI/AO stress harness via gRPC |
+| `scripts/ops/setup-beads-dolt-remote.sh` | Configure beads Dolt `origin` remote when sync/push fails |
 | `scripts/ops/post-crash-forensics.sh` | Post-crash system forensics (dmesg, coredumps, journal, network) |
 | `scripts/ops/runner-health-check.sh` | CI runner diagnostics and auto-remediation (`--fix` flag) |
 | **ci/** | |
@@ -372,6 +376,29 @@ pub fn set_page_title(title: &str) {
 | `scripts/bd-safe.sh` | Worktree-safe beads commands (auto-discovers Dolt/SQLite backend) |
 | `scripts/beads-sync-ai-proxy.sh` | Sync `.beads` issue data to remote BeadHub + Dolt instances (requires env + connectivity) |
 | `scripts/generate-feature-matrix.sh` | Generate/check feature matrix from Cargo metadata (`--check`, `--output`) |
+
+## GitHub Command Workflows
+
+The repository ships Gemini CLI automation workflows in `.github/commands/`:
+
+- `.github/commands/gemini-triage.toml` — single-issue label triage
+- `.github/commands/gemini-scheduled-triage.toml` — scheduled batch issue triage
+- `.github/commands/gemini-review.toml` — pull request review flow
+- `.github/commands/gemini-invoke.toml` — plan/approve/execute issue automation flow
+
+## MCP AccessKit Workflow
+
+`tools/mcp-accesskit` is the native-GUI MCP bridge for AccessKit/AXUIElement automation:
+
+```bash
+cd tools/mcp-accesskit
+bash build.sh
+npm run dev      # tsx src/index.ts (local development)
+npm run build
+npm start        # node dist/index.js
+```
+
+Key MCP tools now exposed by the server include: `ax_list_apps`, `ax_read_tree`, `ax_find_elements`, `ax_click`, `ax_set_value`, `ax_read_value`, `ax_increment`, `ax_screenshot`, `ax_app_status`, and `ax_launch`.
 
 ### Echelle Calibration CLI
 
@@ -409,7 +436,11 @@ bash scripts/repro/istar-stream-overnight-matrix.sh --hours 10 --batch-size 6   
 ## Quick Commands
 
 - `/rust-check` — CI-style Rust gate (`cargo fmt --all -- --check`, workspace clippy gate, nextest `--profile ci`)
+- `/python-check` — Python lint/format/test gate for repo helper scripts
 - `/security-audit` — Structural audit via `bash scripts/ci/run-ast-grep.sh`
+- `/pr` — Push branch and open a pull request
+- `/branch-cleanup` — Remove merged/stale local branches after verification
+- `/ralph-tracked` — Ralph loop with beads-backed tracking
 - `/test [crate] [--ci|--hardware|--coverage]` — Run nextest with smart defaults
 - `/clippy [crate] [--fix]` — Clippy with CI-parity flags
 - `/check [crate] [--wasm|--all]` — Fast cargo check
