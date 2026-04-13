@@ -65,6 +65,12 @@ cargo deny check                             # License/advisory/ban audit
 cargo machete                                # Find unused dependencies
 bash scripts/ops/fast-check.sh               # Quick smoke (check + nextest + doctests, excludes UI)
 bash scripts/generate-feature-matrix.sh --check  # Detect feature-doc drift from cargo metadata
+python3 scripts/ci/check-benchmark-regressions.py --output-dir target/performance-gate  # CI performance regression gate
+bash scripts/ops/bench-harness.sh            # Local before/after benchmark harness for optimization claims
+eval "$(bash scripts/ops/detect-sdk.sh)"     # Detect host SDKs and emit sourceable hardware feature vars
+bash scripts/ops/measure-startup.sh mock     # Measure daemon startup readiness latency
+bash scripts/ops/stress-test-comedi-concurrent.sh --daemon-url 100.117.5.12:50051 --duration 30 --rate 50  # Concurrent Comedi AI/AO stress
+bash scripts/ops/regenerate_blueprints.sh    # Regenerate Rerun blueprints via isolated venv
 ```
 
 ### Maitai Hardware Build (Critical)
@@ -234,7 +240,7 @@ registry.register_from_config(DeviceConfig { id, name, driver: DriverConfig { ty
 
 **Structural search**: `sg` (ast-grep) for AST-aware code patterns. E.g., `sg -p '$EXPR.unwrap()' --lang rust`.
 
-**Quality gates**: `bd close` triggers hook checks (`validate-epic-close` + `quality-gate-on-close`: fmt check + ast-grep error scan). `git push` triggers `.claude/hooks/pre-push-checks.sh` (fmt + clippy + tests, excluding `ui`, nextest `--profile ci` when available). `bd preflight --check` for PR readiness.
+**Quality gates**: `bd close` triggers hook checks (`validate-epic-close` + `quality-gate-on-close`: fmt check + ast-grep error scan). `git push` triggers `.claude/hooks/pre-push-checks.sh` (fmt + clippy + tests, excluding `ui` and `integration-tests`, nextest `--profile ci` when available). Canonical CI-parity gate remains `bash scripts/ci/pre-push-gate.sh` (includes `integration-tests`, excludes only `ui` for tests). `bd preflight --check` for PR readiness.
 
 **Hook dispatch**: `.claude/hooks/pretool-dispatch.sh` routes `bd close` and `git push` to the relevant checks, and blocks `git worktree remove` unless the command starts with an explicit `cd` to a safe directory.
 
@@ -330,14 +336,20 @@ pub fn set_page_title(title: &str) {
 | `scripts/ops/demo.sh` | Mock-hardware demo (daemon + GUI/script) |
 | `scripts/ops/env-check.sh` | Source before hardware tests |
 | `scripts/ops/install-hooks.sh [quick]` | Pre-commit hooks (full or format-only) |
+| `scripts/ops/detect-sdk.sh` | Detect installed PVCAM/Andor/Comedi SDKs and emit sourceable cargo-feature vars |
+| `scripts/ops/measure-startup.sh <mode>` | Measure daemon startup latency and summarize registration/DB readiness |
 | `scripts/ops/calibrate-comedi.sh` | Comedi DAQ calibration |
+| `scripts/ops/stress-test-comedi-concurrent.sh` | Concurrent Comedi AI/AO stress harness via gRPC |
 | `scripts/ops/fast-check.sh` | Fast local smoke loop (cargo check + nextest + doctests), not a replacement for pre-push gates |
+| `scripts/ops/bench-harness.sh` | Lightweight baseline harness for optimization/performance comparisons |
 | `scripts/ops/setup-beads-dolt-remote.sh` | Configure beads Dolt `origin` remote when sync/push fails |
+| `scripts/ops/regenerate_blueprints.sh` | Rebuild Rerun blueprint artifacts from `crates/server/blueprints/generate_blueprints.py` |
 | `scripts/ops/post-crash-forensics.sh` | Post-crash system forensics (dmesg, coredumps, journal, network) |
 | `scripts/ops/runner-health-check.sh` | CI runner diagnostics and auto-remediation (`--fix` flag) |
 | **ci/** | |
 | `scripts/ci/pre-push-gate.sh` | Pre-push quality gate (fmt, optional mdBook build, clippy, tests) |
 | `scripts/ci/feature-check.sh` | cargo-hack feature powerset check on key crates (local CI parity) |
+| `scripts/ci/check-benchmark-regressions.py` | CI benchmark regression gate using `.github/performance-regression-baseline.json` |
 | `scripts/ci/run-ast-grep.sh` | AST-grep structural search helper |
 | **hygiene/** | |
 | `scripts/hygiene/target-maintenance.sh` | Clean bloated target/ directory |
@@ -358,6 +370,7 @@ pub fn set_page_title(title: &str) {
 | `scripts/echelle/validate_vs_pypeit.py` | E2E validation: compare rust-daq extraction vs PypeIt reference |
 | **root** | |
 | `scripts/bd-safe.sh` | Worktree-safe beads commands (auto-discovers Dolt/SQLite backend) |
+| `scripts/beads-sync-ai-proxy.sh` | Sync `.beads` issue data to remote BeadHub + Dolt instances (requires env + connectivity) |
 | `scripts/generate-feature-matrix.sh` | Generate/check feature matrix from Cargo metadata (`--check`, `--output`) |
 
 ### Echelle Calibration CLI
