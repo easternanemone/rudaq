@@ -689,7 +689,6 @@ pub fn register_libs_hardware(engine: &mut Engine) {
 
             let coverage = calibrator
                 .loaded_gratings()
-                .into_iter()
                 .filter_map(|grating| {
                     calibrator.grating_wavelength_bounds(grating).map(|(min_nm, max_nm)| {
                         (
