@@ -412,11 +412,9 @@ impl RadianceCalibrator {
         self.grating_calibrations.get(&grating)
     }
 
-    /// Returns the loaded grating indices in ascending order.
-    pub fn loaded_gratings(&self) -> Vec<u8> {
-        let mut gratings: Vec<u8> = self.grating_calibrations.keys().copied().collect();
-        gratings.sort_unstable();
-        gratings
+    /// Returns an iterator over the loaded grating indices.
+    pub fn loaded_gratings(&self) -> impl Iterator<Item = u8> + '_ {
+        self.grating_calibrations.keys().copied()
     }
 
     /// Returns the min/max wavelength covered by the calibration for `grating`.
