@@ -13,6 +13,7 @@
  *   ax_click          — Click a button or element by title
  *   ax_set_value      — Set a text field value by nearby label
  *   ax_read_value     — Read element values matching a title
+ *   ax_watch          — Stream accessibility events (value/focus changes)
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -356,6 +357,66 @@ server.tool(
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
     };
+  }
+);
+
+server.tool(
+  "ax_watch",
+  "Watch for accessibility events from an application. Listens for value changes, focus changes, and element destruction for the specified duration. Returns all events as a JSON array. Use to observe state changes after triggering an action (e.g., click a button, then watch for value updates).",
+  {
+    pid: z.number().optional().describe("Process ID of the target app"),
+    app_name: z
+      .string()
+      .optional()
+      .describe("App name substring (alternative to PID)"),
+    timeout: z
+      .number()
+      .default(5)
+      .describe("How long to watch in seconds (default: 5)"),
+    notifications: z
+      .string()
+      .default("value,focus")
+      .describe("Comma-separated notification types: value, focus, destroyed, created, moved, resized, title"),
+  },
+  async ({ pid, app_name, timeout, notifications }) => {
+    const resolvedPid = await resolvePid(pid, app_name);
+    // Watch command streams JSONL, so we need to parse each line
+    try {
+      const { stdout } = await execFile(
+        AX_BRIDGE,
+        [
+          "watch",
+          String(resolvedPid),
+          "--timeout",
+          String(timeout),
+          "--notifications",
+          notifications,
+        ],
+        {
+          timeout: (timeout + 5) * 1000,
+          encoding: "utf-8",
+          maxBuffer: 1024 * 1024,
+        }
+      );
+      const events = stdout
+        .split("\n")
+        .filter((line: string) => line.trim())
+        .map((line: string) => {
+          try {
+            return JSON.parse(line);
+          } catch (e) {
+            return { raw: line, parse_error: e instanceof Error ? e.message : String(e) };
+          }
+        });
+      return {
+        content: [{ type: "text", text: JSON.stringify(events, null, 2) }],
+      };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return {
+        content: [{ type: "text", text: JSON.stringify({ error: msg }) }],
+      };
+    }
   }
 );
 

@@ -9,6 +9,7 @@
 ///   ax-bridge click <pid> --title <substring>
 ///   ax-bridge set-value <pid> --title <title> --value <value>
 ///   ax-bridge read-value <pid> --title <substring>
+///   ax-bridge watch <pid> [--timeout N] [--notifications value,focus,destroyed]
 
 import Cocoa
 import ApplicationServices
@@ -341,6 +342,17 @@ func outputError(_ msg: String) {
         print(str)
     }
     exit(1)
+}
+
+/// Emit a single-line JSON object (JSONL format) for streaming commands.
+/// Unlike `outputJSON()` which pretty-prints, this uses compact formatting
+/// so each event is one line — required for JSONL consumers.
+func outputJSONLine(_ value: [String: Any]) {
+    if let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]),
+       let str = String(data: data, encoding: .utf8) {
+        print(str)
+        fflush(stdout)
+    }
 }
 
 // MARK: - Main
@@ -677,6 +689,104 @@ case "launch":
            let str = String(data: data, encoding: .utf8) { print(str) }
     }
 
+case "watch":
+    // Watch for accessibility notifications from an app (bd-o9xod).
+    // Streams JSON events to stdout, one per line (JSONL).
+    // Ctrl-C or SIGTERM to stop.
+    //
+    // Usage: ax-bridge watch <pid> [--timeout N] [--notifications value,focus,destroyed]
+    guard args.count >= 3, let pid = Int32(args[2]) else {
+        outputError("Usage: ax-bridge watch <pid> [--timeout N] [--notifications value,focus,destroyed]")
+        exit(1)
+    }
+
+    var watchTimeout: Double = 30.0
+    if let idx = args.firstIndex(of: "--timeout"), idx + 1 < args.count, let t = Double(args[idx + 1]) {
+        watchTimeout = t
+    }
+
+    // Parse which notifications to watch
+    var watchNotifications: Set<String> = ["value", "focus"]
+    if let idx = args.firstIndex(of: "--notifications"), idx + 1 < args.count {
+        watchNotifications = Set(args[idx + 1].split(separator: ",").map(String.init))
+    }
+
+    let watchApp = AXUIElementCreateApplication(pid)
+
+    // Map notification names to AX constants
+    let notificationMap: [(String, String)] = [
+        ("value", kAXValueChangedNotification),
+        ("focus", kAXFocusedUIElementChangedNotification),
+        ("destroyed", kAXUIElementDestroyedNotification),
+        ("created", kAXCreatedNotification),
+        ("moved", kAXMovedNotification),
+        ("resized", kAXResizedNotification),
+        ("title", kAXTitleChangedNotification),
+    ]
+
+    // Create observer
+    var observer: AXObserver?
+    let callback: AXObserverCallback = { _, element, notification, _ in
+        let role = getStringAttr(element, kAXRoleAttribute)
+        let title = getStringAttr(element, kAXTitleAttribute)
+        let value = resolveValue(element, role: role)
+        let desc = getStringAttr(element, kAXDescriptionAttribute)
+
+        var event: [String: Any] = [
+            "notification": notification as String,
+            "role": role,
+            "timestamp": ISO8601DateFormatter().string(from: Date()),
+        ]
+        if !title.isEmpty { event["title"] = title }
+        if !value.isEmpty { event["value"] = value }
+        if !desc.isEmpty { event["description"] = desc }
+
+        outputJSONLine(event)
+    }
+
+    let createResult = AXObserverCreate(pid, callback, &observer)
+    guard createResult == .success, let obs = observer else {
+        // outputError() calls exit(1) internally, but Swift's guard needs explicit control flow
+        outputError("Failed to create AXObserver (error: \(createResult.rawValue))")
+        exit(1)
+    }
+
+    // Register for requested notifications
+    var registered = 0
+    for (name, axNotification) in notificationMap {
+        if watchNotifications.contains(name) {
+            let addResult = AXObserverAddNotification(obs, watchApp, axNotification as CFString, nil)
+            if addResult == .success || addResult == .notificationAlreadyRegistered {
+                registered += 1
+            }
+        }
+    }
+
+    // Add observer to run loop
+    CFRunLoopAddSource(CFRunLoopGetCurrent(), AXObserverGetRunLoopSource(obs), .defaultMode)
+
+    // Print start message
+    let startMsg: [String: Any] = [
+        "type": "started",
+        "pid": pid,
+        "notifications": Array(watchNotifications),
+        "registered": registered,
+        "timeout_seconds": watchTimeout,
+    ]
+    outputJSONLine(startMsg)
+
+    // Run for the specified timeout
+    CFRunLoopRunInMode(.defaultMode, watchTimeout, false)
+
+    // Cleanup
+    for (name, axNotification) in notificationMap {
+        if watchNotifications.contains(name) {
+            AXObserverRemoveNotification(obs, watchApp, axNotification as CFString)
+        }
+    }
+
+    outputJSONLine(["type": "stopped", "reason": "timeout"])
+
 default:
-    outputError("Unknown command: \(command). Available: list-apps, tree, find, click, set-value, read-value, increment, decrement, screenshot, app-status, launch")
+    outputError("Unknown command: \(command). Available: list-apps, tree, find, click, set-value, read-value, increment, decrement, screenshot, app-status, launch, watch")
 }
