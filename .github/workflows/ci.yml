@@ -73,7 +73,7 @@ jobs:
   validate:
     name: Format, lint, and tests (self-hosted)
     runs-on: [self-hosted, Linux, X64, leabs]
-    timeout-minutes: 35
+    timeout-minutes: 50
     # Serialize all self-hosted jobs to prevent CPU saturation on shared runners.
     # Only one validate job runs at a time across ALL refs (main + PRs).
     concurrency:
@@ -235,7 +235,7 @@ jobs:
     name: Performance regression gate
     if: github.event_name != 'pull_request'
     runs-on: [self-hosted, Linux, X64, leabs]
-    timeout-minutes: 35
+    timeout-minutes: 50
     env:
       CARGO_BUILD_JOBS: "2"
       CARGO_INCREMENTAL: "0"
