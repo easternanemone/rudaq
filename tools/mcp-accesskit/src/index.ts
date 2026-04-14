@@ -404,8 +404,8 @@ server.tool(
         .map((line: string) => {
           try {
             return JSON.parse(line);
-          } catch {
-            return { raw: line };
+          } catch (e) {
+            return { raw: line, parse_error: e instanceof Error ? e.message : String(e) };
           }
         });
       return {

@@ -344,6 +344,17 @@ func outputError(_ msg: String) {
     exit(1)
 }
 
+/// Emit a single-line JSON object (JSONL format) for streaming commands.
+/// Unlike `outputJSON()` which pretty-prints, this uses compact formatting
+/// so each event is one line — required for JSONL consumers.
+func outputJSONLine(_ value: [String: Any]) {
+    if let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]),
+       let str = String(data: data, encoding: .utf8) {
+        print(str)
+        fflush(stdout)
+    }
+}
+
 // MARK: - Main
 
 let args = CommandLine.arguments
@@ -730,15 +741,12 @@ case "watch":
         if !value.isEmpty { event["value"] = value }
         if !desc.isEmpty { event["description"] = desc }
 
-        if let data = try? JSONSerialization.data(withJSONObject: event, options: [.sortedKeys]),
-           let str = String(data: data, encoding: .utf8) {
-            print(str)
-            fflush(stdout)
-        }
+        outputJSONLine(event)
     }
 
     let createResult = AXObserverCreate(pid, callback, &observer)
     guard createResult == .success, let obs = observer else {
+        // outputError() calls exit(1) internally, but Swift's guard needs explicit control flow
         outputError("Failed to create AXObserver (error: \(createResult.rawValue))")
         exit(1)
     }
@@ -765,11 +773,7 @@ case "watch":
         "registered": registered,
         "timeout_seconds": watchTimeout,
     ]
-    if let data = try? JSONSerialization.data(withJSONObject: startMsg, options: [.sortedKeys]),
-       let str = String(data: data, encoding: .utf8) {
-        print(str)
-        fflush(stdout)
-    }
+    outputJSONLine(startMsg)
 
     // Run for the specified timeout
     CFRunLoopRunInMode(.defaultMode, watchTimeout, false)
@@ -781,12 +785,7 @@ case "watch":
         }
     }
 
-    let stopMsg: [String: Any] = ["type": "stopped", "reason": "timeout"]
-    if let data = try? JSONSerialization.data(withJSONObject: stopMsg, options: [.sortedKeys]),
-       let str = String(data: data, encoding: .utf8) {
-        print(str)
-        fflush(stdout)
-    }
+    outputJSONLine(["type": "stopped", "reason": "timeout"])
 
 default:
     outputError("Unknown command: \(command). Available: list-apps, tree, find, click, set-value, read-value, increment, decrement, screenshot, app-status, launch, watch")
