@@ -75,93 +75,122 @@ macro_rules! skip_if_disabled {
 // Mock Integration Tests (Always Run)
 // =============================================================================
 
+/// Verify that mock gated camera supports the full DDG/MCP workflow
+/// required by LIBS experiments: set gate mode, configure timing, arm.
 #[tokio::test]
-async fn mock_stage_camera_sync() {
-    println!("=== LIBS Mock Stage-Camera Synchronization Test ===");
+async fn mock_gated_camera_ddg_workflow() {
+    use common::capabilities::{FrameProducer, GatedCamera, Triggerable};
+    use driver_mock::MockGatedCamera;
 
-    // This test verifies that the stage and camera can work together
-    // in a mock environment to simulate a LIBS acquisition
+    let camera = MockGatedCamera::new();
 
-    // In a real LIBS system:
-    // 1. Stage moves to scan position
-    // 2. Stage triggers camera via TOP (Trigger On Position)
-    // 3. Camera acquires spectrum when triggered
+    // Configure DDG timing (standard LIBS parameters)
+    GatedCamera::set_gate_mode(&camera, "DDG")
+        .await
+        .expect("set_gate_mode(DDG) should succeed");
+    GatedCamera::set_trigger_mode(&camera, "External")
+        .await
+        .expect("set_trigger_mode(External) should succeed");
+    camera
+        .set_ddg_timing(1_300_000, 10_000_000)
+        .await
+        .expect("set_ddg_timing should succeed");
+    camera
+        .set_mcp_gain(3600)
+        .await
+        .expect("set_mcp_gain should succeed");
 
-    println!("  Simulating stage movement with TOP enabled...");
-    println!("  Simulating camera armed and waiting for trigger...");
-    println!("  Simulating trigger pulse from stage to camera...");
-    println!("  Simulating camera frame acquisition...");
-
-    // Since we're in mock mode without actual drivers,
-    // we just verify the conceptual flow
-
-    println!("=== Mock Stage-Camera Sync Test PASSED ===");
+    // Arm and verify
+    Triggerable::arm(&camera).await.expect("arm should succeed");
+    camera
+        .stop_stream()
+        .await
+        .expect("stop_stream should succeed");
 }
 
+/// Verify that mock spectrograph supports grating and wavelength control
+/// required by LIBS experiment setup.
 #[tokio::test]
-async fn mock_full_libs_sequence() {
-    println!("=== LIBS Mock Full Acquisition Sequence Test ===");
+async fn mock_spectrograph_grating_workflow() {
+    use common::capabilities::SpectrometerControl;
+    use driver_mock::MockSpectrograph;
 
-    // Simulate complete LIBS measurement workflow:
-    //
-    // 1. LASER PREPARATION
-    //    - Enable laser emission (standby → on)
-    //    - Keep shutter closed initially
-    //
-    // 2. CAMERA PREPARATION
-    //    - Set exposure time (typically 1-2ms)
-    //    - Configure external trigger mode
-    //    - Set MCP gain for intensified detection
-    //    - Configure DDG timing for gate
-    //    - Arm camera
-    //
-    // 3. STAGE PREPARATION
-    //    - Enable Trigger-On-Position (TOP)
-    //    - Configure scan start, end, increment
-    //    - Set bidirectional scanning if needed
-    //
-    // 4. ACQUISITION
-    //    - Open laser shutter (beam now active!)
-    //    - Start stage scan
-    //    - Stage triggers camera at each position
-    //    - Camera acquires spectrum
-    //    - Collect N spectra across scan
-    //
-    // 5. SHUTDOWN
-    //    - Close laser shutter first
-    //    - Stop stage motion
-    //    - Disarm camera
-    //    - Disable TOP
-    //    - Set laser to standby
+    let spec = MockSpectrograph::new();
 
-    println!("\n[1/5] Laser preparation");
-    println!("  - Laser: standby → on (emission enabled, shutter closed)");
+    // Select grating 2 and tune to 310 nm (standard LIBS UV range)
+    SpectrometerControl::set_grating(&spec, 2)
+        .await
+        .expect("set_grating should succeed");
+    SpectrometerControl::set_wavelength(&spec, 310.0)
+        .await
+        .expect("set_wavelength should succeed");
+    // slit_id: 2 = input side slit (Shamrock convention)
+    spec.set_slit_width(2, 150.0)
+        .await
+        .expect("set_slit_width should succeed");
 
-    println!("\n[2/5] Camera preparation");
-    println!("  - Exposure: 1.5ms");
-    println!("  - Trigger mode: External");
-    println!("  - MCP gain: 3600");
-    println!("  - DDG delay: 1.3µs, width: 10µs");
-    println!("  - Camera: armed");
+    // Verify readback
+    let grating = SpectrometerControl::get_grating(&spec)
+        .await
+        .expect("get_grating should succeed");
+    assert_eq!(grating, 2, "grating should be 2");
 
-    println!("\n[3/5] Stage preparation");
-    println!("  - TOP: enabled (start=0mm, end=10mm, increment=0.5mm)");
-    println!("  - Expected triggers: 20");
+    let wl = SpectrometerControl::get_wavelength(&spec)
+        .await
+        .expect("get_wavelength should succeed");
+    assert!(
+        (wl - 310.0).abs() < 0.1,
+        "wavelength should be ~310 nm, got {wl}"
+    );
+}
 
-    println!("\n[4/5] Acquisition");
-    println!("  - Laser shutter: OPEN (beam active!)");
-    println!("  - Stage: scanning 0→10mm");
-    println!("  - Triggers sent: 20");
-    println!("  - Spectra acquired: 20");
+/// Simulate a complete LIBS measurement cycle using mock devices:
+/// spectrograph setup → camera configure → camera arm → acquire → shutdown.
+#[tokio::test]
+async fn mock_full_libs_acquisition_cycle() {
+    use common::capabilities::{FrameProducer, GatedCamera, SpectrometerControl, Triggerable};
+    use driver_mock::{MockGatedCamera, MockSpectrograph};
 
-    println!("\n[5/5] Shutdown");
-    println!("  - Laser shutter: closed (beam safe)");
-    println!("  - Stage: stopped");
-    println!("  - Camera: disarmed");
-    println!("  - TOP: disabled");
-    println!("  - Laser: on → standby");
+    let camera = MockGatedCamera::new();
+    let spec = MockSpectrograph::new();
 
-    println!("\n=== Mock Full LIBS Sequence Test PASSED ===");
+    // Step 1: Configure spectrograph
+    SpectrometerControl::set_grating(&spec, 2).await.unwrap();
+    SpectrometerControl::set_wavelength(&spec, 310.0)
+        .await
+        .unwrap();
+    spec.set_slit_width(2, 150.0).await.unwrap();
+
+    // Step 2: Configure camera for gated acquisition
+    GatedCamera::set_trigger_mode(&camera, "External")
+        .await
+        .unwrap();
+    GatedCamera::set_gate_mode(&camera, "DDG").await.unwrap();
+    camera.set_ddg_timing(1_300_000, 10_000_000).await.unwrap();
+    camera.set_mcp_gain(3600).await.unwrap();
+    Triggerable::arm(&camera).await.unwrap();
+
+    // Step 3: Simulate acquisition at multiple delay points
+    for delay_ps in [500_000_u64, 1_000_000, 2_000_000, 5_000_000] {
+        camera
+            .set_ddg_timing(delay_ps, 10_000_000)
+            .await
+            .expect("DDG timing change during scan should succeed");
+    }
+
+    // Step 4: Shutdown
+    camera.stop_stream().await.unwrap();
+
+    // Step 5: Change grating position (multi-grating scan simulation)
+    SpectrometerControl::set_grating(&spec, 1).await.unwrap();
+    SpectrometerControl::set_wavelength(&spec, 250.0)
+        .await
+        .unwrap();
+    let wl: f64 = SpectrometerControl::get_wavelength(&spec).await.unwrap();
+    assert!(
+        (wl - 250.0).abs() < 0.1,
+        "wavelength should update to ~250 nm after grating change"
+    );
 }
 
 // =============================================================================
