@@ -36,18 +36,16 @@ if ! bd stats >/dev/null 2>&1; then
   exit 1
 fi
 
-# Verify Tailscale connectivity
+# Verify Tailscale connectivity (remotesapi returns HTTP 400 for non-Dolt
+# requests, so any response — even an error — means the server is reachable)
 echo "[1/4] Checking connectivity to ai-proxy..."
-if ! curl -s -o /dev/null -w "" --connect-timeout 5 "http://${AI_PROXY_IP}:8001/rust_daq" 2>/dev/null; then
-  # curl will fail with non-200 but that's OK — 400 means server is reachable
-  # Only fail if we can't connect at all
-  if ! curl -s -o /dev/null --connect-timeout 5 "http://${AI_PROXY_IP}:8001/" 2>/dev/null; then
-    echo "Warning: Could not reach ai-proxy at $AI_PROXY_IP:8001"
-    echo "  Is Tailscale running? Check: tailscale status"
-    echo "  Proceeding anyway (remote will be configured for later use)..."
-  fi
+if ! curl -s -o /dev/null --connect-timeout 5 "http://${AI_PROXY_IP}:8001/" 2>/dev/null; then
+  echo "Warning: Could not reach ai-proxy at $AI_PROXY_IP:8001"
+  echo "  Is Tailscale running? Check: tailscale status"
+  echo "  Proceeding anyway (remote will be configured for later use)..."
+else
+  echo "  Connectivity OK"
 fi
-echo "  Connectivity OK (or will retry on push)"
 
 # Remove existing origin if present, then add the correct one
 echo "[2/4] Configuring Dolt remote..."
