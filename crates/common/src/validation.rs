@@ -116,3 +116,82 @@ pub fn is_not_empty(value: &str) -> Result<(), &'static str> {
         Err("Value cannot be empty")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_valid_port() {
+        assert_eq!(is_valid_port(8080), Ok(()));
+        assert_eq!(is_valid_port(1), Ok(()));
+        assert_eq!(is_valid_port(65535), Ok(()));
+        assert_eq!(is_valid_port(0), Err("Port number must be greater than 0"));
+    }
+
+    #[test]
+    fn test_is_valid_ip() {
+        // Valid IPv4
+        assert_eq!(is_valid_ip("192.168.1.1"), Ok(()));
+        assert_eq!(is_valid_ip("127.0.0.1"), Ok(()));
+        assert_eq!(is_valid_ip("0.0.0.0"), Ok(()));
+        assert_eq!(is_valid_ip("255.255.255.255"), Ok(()));
+
+        // Valid IPv6
+        assert_eq!(is_valid_ip("::1"), Ok(()));
+        assert_eq!(
+            is_valid_ip("2001:0db8:85a3:0000:0000:8a2e:0370:7334"),
+            Ok(())
+        );
+        assert_eq!(is_valid_ip("2001:db8::1"), Ok(()));
+        assert_eq!(is_valid_ip("::ffff:192.0.2.128"), Ok(()));
+
+        // Invalid IPs
+        assert_eq!(is_valid_ip("256.256.256.256"), Err("Invalid IP address"));
+        assert_eq!(is_valid_ip("not.an.ip"), Err("Invalid IP address"));
+        assert_eq!(is_valid_ip(""), Err("Invalid IP address"));
+        assert_eq!(is_valid_ip("192.168.1"), Err("Invalid IP address"));
+        assert_eq!(is_valid_ip("192.168.1.1.1"), Err("Invalid IP address"));
+        assert_eq!(is_valid_ip("::ffff:192.0.2.256"), Err("Invalid IP address"));
+    }
+
+    #[test]
+    fn test_is_valid_path() {
+        assert_eq!(is_valid_path("/etc/config.toml"), Ok(()));
+        assert_eq!(is_valid_path("config.toml"), Ok(()));
+        assert_eq!(is_valid_path("C:\\Windows\\System32"), Ok(()));
+        assert_eq!(is_valid_path(""), Err("File path cannot be empty"));
+        assert_eq!(
+            is_valid_path("/etc/config\0.toml"),
+            Err("File path cannot contain null bytes")
+        );
+    }
+
+    #[test]
+    fn test_is_in_range() {
+        assert_eq!(is_in_range(5, 1..=10), Ok(()));
+        assert_eq!(is_in_range(1, 1..=10), Ok(()));
+        assert_eq!(is_in_range(10, 1..=10), Ok(()));
+        assert_eq!(
+            is_in_range(0, 1..=10),
+            Err("Value is outside the specified range")
+        );
+        assert_eq!(
+            is_in_range(11, 1..=10),
+            Err("Value is outside the specified range")
+        );
+
+        assert_eq!(is_in_range(5.0, 1.0..=10.0), Ok(()));
+        assert_eq!(
+            is_in_range(0.0, 1.0..=10.0),
+            Err("Value is outside the specified range")
+        );
+    }
+
+    #[test]
+    fn test_is_not_empty() {
+        assert_eq!(is_not_empty("hello"), Ok(()));
+        assert_eq!(is_not_empty(" "), Ok(()));
+        assert_eq!(is_not_empty(""), Err("Value cannot be empty"));
+    }
+}

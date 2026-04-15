@@ -284,6 +284,45 @@ pub fn validate_comedi_device(path: &str) -> Result<(), Box<EvalAltResult>> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn test_set_data_directory_behavior() {
+        if std::env::var("TEST_SET_DATA_DIR_SUBPROC").is_ok() {
+            let dir = tempfile::tempdir().expect("create temp dir");
+            let path1 = dir.path().join("dir1");
+            let path2 = dir.path().join("dir2");
+
+            assert!(!path1.exists());
+
+            let res1 = set_data_directory(path1.clone());
+            assert!(res1.is_ok());
+            assert!(path1.exists(), "Directory should be created");
+
+            let res2 = set_data_directory(path2);
+            assert!(res2.is_err(), "Second call should return Err");
+            assert_eq!(
+                res2.unwrap_err(),
+                std::fs::canonicalize(&path1).unwrap_or(path1)
+            );
+
+            std::process::exit(0);
+        }
+
+        let exe = std::env::current_exe().unwrap();
+        let output = std::process::Command::new(exe)
+            .arg("tests::test_set_data_directory_behavior")
+            .arg("--exact")
+            .env("TEST_SET_DATA_DIR_SUBPROC", "1")
+            .output()
+            .unwrap();
+
+        assert!(
+            output.status.success(),
+            "Subprocess failed:\nstdout: {}\nstderr: {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
     // Use a temp dir for tests to avoid filesystem side effects
     fn with_temp_data_dir<F: FnOnce(&Path)>(f: F) {
         let dir = tempfile::tempdir().expect("create temp dir");

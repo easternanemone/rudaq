@@ -368,7 +368,8 @@ def match_orders(
                 used_pypeit.add(id(po))
 
     # Pass 2: match remaining by wavelength overlap
-    unmatched_rust = [ro for ro in rust_orders if not any(ro is m[0] for m in matched)]
+    matched_rust_ids = {id(m[0]) for m in matched}
+    unmatched_rust = [ro for ro in rust_orders if id(ro) not in matched_rust_ids]
     unmatched_pypeit = [po for po in pypeit_orders if id(po) not in used_pypeit]
 
     for ro in unmatched_rust:

@@ -825,6 +825,27 @@ mod tests {
     };
 
     #[test]
+    fn test_translation_error_display() {
+        assert_eq!(
+            TranslationError::CycleDetected.to_string(),
+            "Graph contains a cycle"
+        );
+        assert_eq!(
+            TranslationError::InvalidNode {
+                node_id: egui_snarl::NodeId(42),
+                reason: "missing actuator".to_string(),
+            }
+            .to_string(),
+            "Invalid node NodeId(42): missing actuator"
+        );
+        assert_eq!(TranslationError::EmptyGraph.to_string(), "Graph is empty");
+        assert_eq!(
+            TranslationError::NoRootNodes.to_string(),
+            "No root nodes found"
+        );
+    }
+
+    #[test]
     fn test_empty_graph() {
         let snarl: Snarl<ExperimentNode> = Snarl::new();
         let result = GraphPlan::from_snarl(&snarl);

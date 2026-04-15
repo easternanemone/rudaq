@@ -1042,12 +1042,6 @@ pub trait Parameterized: Send + Sync {
 //
 // A camera that supports external triggering would implement:
 // ```rust,ignore
-// struct TriggeredCamera { /* ... */ }
-//
-// impl Triggerable for TriggeredCamera { /* ... */ }
-// impl ExposureControl for TriggeredCamera { /* ... */ }
-// impl FrameProducer for TriggeredCamera { /* ... */ }
-//
 // // Use in generic scan code
 // async fn scan_with_camera<C>(camera: &C) -> Result<()>
 // where
