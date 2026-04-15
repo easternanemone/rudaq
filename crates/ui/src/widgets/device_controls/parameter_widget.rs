@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Generic parameter widget for device control panels.
 //!
 //! `ParameterWidget` encapsulates the common pattern of:

@@ -525,10 +525,8 @@ impl SqliteDb {
         self.conn
             .call(move |conn| {
                 let tx = conn.transaction()?;
-                for inst in &instruments {
-                    let config_json = serde_json::to_string(&inst.config)
-                        .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
-                    tx.execute(
+                {
+                    let mut stmt = tx.prepare_cached(
                         "INSERT INTO instrument \
                          (device_id, name, driver_type, config, enabled, updated_at) \
                          VALUES (?1, ?2, ?3, ?4, ?5, datetime('now')) \
@@ -538,14 +536,18 @@ impl SqliteDb {
                          config = excluded.config, \
                          enabled = excluded.enabled, \
                          updated_at = datetime('now')",
-                        rusqlite::params![
+                    )?;
+                    for inst in &instruments {
+                        let config_json = serde_json::to_string(&inst.config)
+                            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+                        stmt.execute(rusqlite::params![
                             inst.device_id,
                             inst.name,
                             inst.driver_type,
                             config_json,
                             inst.enabled,
-                        ],
-                    )?;
+                        ])?;
+                    }
                 }
                 tx.commit()?;
                 Ok(())
@@ -641,12 +643,8 @@ impl SqliteDb {
         self.conn
             .call(move |conn| {
                 let tx = conn.transaction()?;
-                for drv in &drivers {
-                    let capabilities_json = serde_json::to_string(&drv.capabilities)
-                        .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
-                    let commands_json = serde_json::to_string(&drv.commands)
-                        .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
-                    tx.execute(
+                {
+                    let mut stmt = tx.prepare_cached(
                         "INSERT INTO driver \
                          (driver_type, name, capabilities, commands, updated_at) \
                          VALUES (?1, ?2, ?3, ?4, datetime('now')) \
@@ -655,13 +653,19 @@ impl SqliteDb {
                          capabilities = excluded.capabilities, \
                          commands = excluded.commands, \
                          updated_at = datetime('now')",
-                        rusqlite::params![
+                    )?;
+                    for drv in &drivers {
+                        let capabilities_json = serde_json::to_string(&drv.capabilities)
+                            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+                        let commands_json = serde_json::to_string(&drv.commands)
+                            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+                        stmt.execute(rusqlite::params![
                             drv.driver_type,
                             drv.name,
                             capabilities_json,
                             commands_json,
-                        ],
-                    )?;
+                        ])?;
+                    }
                 }
                 tx.commit()?;
                 Ok(())
@@ -706,16 +710,18 @@ impl SqliteDb {
         self.conn
             .call(move |conn| {
                 let tx = conn.transaction()?;
-                for feat in &features_owned {
-                    let enum_values_json = serde_json::to_string(&feat.enum_values)
-                        .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
-                    tx.execute(
+                {
+                    let mut stmt = tx.prepare_cached(
                         "INSERT OR REPLACE INTO device_feature \
                          (device_id, feature_name, feature_type, readable, writable, \
                           min_value, max_value, step, enum_values, unit, description, \
                           group_name, discovered_at) \
                          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, datetime('now'))",
-                        rusqlite::params![
+                    )?;
+                    for feat in &features_owned {
+                        let enum_values_json = serde_json::to_string(&feat.enum_values)
+                            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+                        stmt.execute(rusqlite::params![
                             feat.device_id,
                             feat.feature_name,
                             feat.feature_type,
@@ -728,8 +734,8 @@ impl SqliteDb {
                             feat.unit,
                             feat.description,
                             feat.group_name,
-                        ],
-                    )?;
+                        ])?;
+                    }
                 }
                 tx.commit()?;
                 Ok(())
@@ -1099,11 +1105,11 @@ impl SqliteDb {
         self.conn
             .call(move |conn| {
                 let tx = conn.transaction()?;
-                for (device_id, param_name, value_json) in &serialized {
-                    tx.execute(
-                        UPSERT_DEVICE_STATE_SQL,
-                        rusqlite::params![device_id, param_name, value_json],
-                    )?;
+                {
+                    let mut stmt = tx.prepare_cached(UPSERT_DEVICE_STATE_SQL)?;
+                    for (device_id, param_name, value_json) in &serialized {
+                        stmt.execute(rusqlite::params![device_id, param_name, value_json])?;
+                    }
                 }
                 tx.commit()?;
                 Ok(serialized)

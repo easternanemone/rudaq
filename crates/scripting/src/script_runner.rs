@@ -244,9 +244,25 @@ impl ScriptPlanRunner {
                                     total_events += result.num_events;
                                     run_uids.push(result.run_uid.clone());
 
+                                    let is_fail = result.is_fail();
+                                    let error_msg = result
+                                        .error
+                                        .clone()
+                                        .unwrap_or_else(|| "Unknown plan failure".to_string());
+
                                     // Send result back to script
                                     if result_tx.send(Some(result)).is_err() {
                                         warn!("Failed to send result to script (channel closed)");
+                                    }
+
+                                    if is_fail && !self.config.continue_on_error {
+                                        return Ok(ScriptRunReport::failure(
+                                            error_msg,
+                                            plans_executed,
+                                            total_events,
+                                            start_time.elapsed(),
+                                            run_uids,
+                                        ));
                                     }
                                 }
                                 Err(e) => {
@@ -277,8 +293,24 @@ impl ScriptPlanRunner {
                                     total_events += result.num_events;
                                     run_uids.push(result.run_uid.clone());
 
+                                    let is_fail = result.is_fail();
+                                    let error_msg = result
+                                        .error
+                                        .clone()
+                                        .unwrap_or_else(|| "Unknown command failure".to_string());
+
                                     if result_tx.send(Some(result)).is_err() {
                                         warn!("Failed to send result to script");
+                                    }
+
+                                    if is_fail && !self.config.continue_on_error {
+                                        return Ok(ScriptRunReport::failure(
+                                            error_msg,
+                                            plans_executed,
+                                            total_events,
+                                            start_time.elapsed(),
+                                            run_uids,
+                                        ));
                                     }
                                 }
                                 Err(e) => {

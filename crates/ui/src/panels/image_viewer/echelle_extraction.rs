@@ -236,6 +236,7 @@ mod tests {
     #[allow(clippy::cast_possible_truncation)]
     fn real_canned_hg2_reference_regression_matches_declared_tolerances() {
         let dataset_dir = real_hg2_dataset_dir();
+        let dataset_dir = dataset_dir.canonicalize().unwrap();
         let reference_dir = dataset_dir.join("reference");
 
         let tolerances = read_json_value(reference_dir.join("comparison_tolerances.json"));
@@ -413,8 +414,11 @@ mod tests {
         }
 
         let dataset_dir = real_hg2_dataset_dir();
+        let dataset_dir = dataset_dir.canonicalize().unwrap();
         let script_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../scripts/echelle/fixture_sidecar_hg2.py");
+            .join("../../scripts/echelle/fixture_sidecar_hg2.py")
+            .canonicalize()
+            .unwrap();
         let runner = EchelleSidecarRunner::new(
             "/usr/bin/env",
             [

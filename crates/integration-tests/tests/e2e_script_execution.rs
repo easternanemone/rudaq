@@ -134,10 +134,20 @@ async fn test_e2e_script_multiple_plans() {
     assert_eq!(report.total_events, 5); // 2 + 3
 }
 
-/*
 /// Test: Script with error handling
 #[tokio::test]
 async fn test_e2e_script_error_propagation() {
-    // ... TODO: Investigate why RunEngine succeeds with missing device ...
+    let registry = create_test_registry().await;
+    let run_engine = Arc::new(RunEngine::new(registry));
+    let runner = ScriptPlanRunner::new(run_engine.clone());
+
+    let script = r#"
+        yield_plan(__yield_handle, count(2, "missing_device_123", 0.0));
+        ()
+    "#;
+
+    let report = runner.run(script).await.expect("Script execution failed");
+
+    // We expect it to fail
+    assert!(!report.success, "Script should fail with missing device");
 }
-*/

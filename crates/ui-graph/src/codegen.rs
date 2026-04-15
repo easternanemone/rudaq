@@ -239,15 +239,42 @@ fn wait_to_rhai(condition: &WaitCondition, indent: usize) -> String {
             };
             let _ = writeln!(
                 code,
-                "{}// TODO: Wait until {} {} {} (timeout: {}ms)",
+                "{}// Wait until {} {} {} (timeout: {}ms)",
                 ind, device_id, op_str, value, timeout_ms
             );
+
+            let poll_interval_ms = 50.0;
+            #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let max_iters = (timeout_ms / poll_interval_ms).ceil() as u32;
+            let poll_interval_sec = poll_interval_ms / 1000.0;
+
+            let condition_expr = match operator {
+                ThresholdOp::LessThan => format!("val < {}", value),
+                ThresholdOp::GreaterThan => format!("val > {}", value),
+                ThresholdOp::EqualWithin { tolerance } => format!(
+                    "val >= {} && val <= {}",
+                    value - tolerance,
+                    value + tolerance
+                ),
+            };
+
+            let _ = writeln!(code, "{}let mut met = false;", ind);
+            let _ = writeln!(code, "{}for i in 0..{} {{", ind, max_iters);
+            let _ = writeln!(code, "{}  let val = {}.read();", ind, device_id);
+            let _ = writeln!(code, "{}  if {} {{", ind, condition_expr);
+            let _ = writeln!(code, "{}    met = true;", ind);
+            let _ = writeln!(code, "{}    break;", ind);
+            let _ = writeln!(code, "{}  }}", ind);
+            let _ = writeln!(code, "{}  sleep({});", ind, poll_interval_sec);
+            let _ = writeln!(code, "{}}}", ind);
+
+            let _ = writeln!(code, "{}if !met {{", ind);
             let _ = writeln!(
                 code,
-                "{}// Threshold-based waits not yet implemented in Rhai",
-                ind
+                "{}  print(\"WARNING: Timeout waiting for {} {} {}\");",
+                ind, device_id, op_str, value
             );
-            let _ = writeln!(code, "{}sleep({});", ind, timeout_ms / 1000.0);
+            let _ = writeln!(code, "{}}}", ind);
         }
         WaitCondition::Stability {
             device_id,
@@ -584,17 +611,52 @@ fn adaptive_scan_to_rhai(config: &AdaptiveScanConfig, indent: usize) -> String {
         let _ = writeln!(code, "{}// (requires user approval before action)", ind);
     }
 
-    let _ = writeln!(
-        code,
-        "{}// TODO: AdaptiveScan requires runtime trigger evaluation",
-        ind
-    );
-    let _ = writeln!(code, "{}// Falling back to regular scan for now", ind);
+    // Initialize arrays for tracking data
+    let _ = writeln!(code, "{}let mut signal_data = [];", ind);
+    let _ = writeln!(code, "{}let mut position_data = [];", ind);
+    let _ = writeln!(code, "{}let mut triggered = false;", ind);
 
-    // Generate basic scan as fallback
+    // Track which devices we need to read based on triggers
+    let mut devices_to_read = std::collections::HashSet::new();
+    for trigger in &config.triggers {
+        match trigger {
+            TriggerCondition::Threshold { device_id, .. }
+            | TriggerCondition::PeakDetection { device_id, .. } => {
+                devices_to_read.insert(device_id.clone());
+            }
+        }
+    }
+
+    // Since our evaluator expects a single signal array, we need to pick one device to use
+    let primary_device = if devices_to_read.is_empty() {
+        let _ = writeln!(
+            code,
+            "{}// WARNING: AdaptiveScan has no triggers specified, acting as normal scan",
+            ind
+        );
+        None
+    } else {
+        let device = devices_to_read.iter().next().unwrap().clone();
+        if devices_to_read.len() > 1 {
+            let _ = writeln!(
+                code,
+                "{}// WARNING: AdaptiveScan runtime evaluator currently supports a single signal array.",
+                ind
+            );
+            let _ = writeln!(code, "{}// Will use {} for signal data.", ind, device);
+        }
+        Some(device)
+    };
+
+    // Scan loop
     let _ = writeln!(code, "{}for i in 0..{} {{", ind, config.scan.points);
 
     let body_ind = indent_str(indent + 1);
+
+    // Check if we've triggered and should break
+    let _ = writeln!(code, "{}if triggered {{", body_ind);
+    let _ = writeln!(code, "{}  break;", body_ind);
+    let _ = writeln!(code, "{}}}", body_ind);
 
     if config.scan.points > 1 {
         let _ = writeln!(
@@ -608,6 +670,24 @@ fn adaptive_scan_to_rhai(config: &AdaptiveScanConfig, indent: usize) -> String {
 
     let _ = writeln!(code, "{}{}.move_abs(pos);", body_ind, config.scan.actuator);
     let _ = writeln!(code, "{}{}.wait_settled();", body_ind, config.scan.actuator);
+
+    if let Some(device) = &primary_device {
+        let _ = writeln!(code, "{}let val = {}.read();", body_ind, device);
+        let _ = writeln!(code, "{}signal_data.push(val);", body_ind);
+        let _ = writeln!(code, "{}position_data.push(pos);", body_ind);
+
+        let _ = writeln!(
+            code,
+            "{}// Runtime trigger evaluation not fully available in Rhai yet",
+            body_ind
+        );
+        let _ = writeln!(
+            code,
+            "{}// TODO: Call evaluate_triggers(triggers, logic, signal, positions)",
+            body_ind
+        );
+    }
+
     let _ = writeln!(
         code,
         "{}yield_event(#{{ \"{}\": pos }});",
@@ -797,10 +877,13 @@ mod tests {
 
         let code = wait_to_rhai(&condition, 0);
 
-        assert!(code.contains("TODO"));
-        assert!(code.contains("sensor"));
-        assert!(code.contains('>'));
-        assert!(code.contains('5'));
+        assert!(code.contains("Wait until sensor > 5"));
+        assert!(code.contains("for i in 0..20"));
+        assert!(code.contains("let val = sensor.read()"));
+        assert!(code.contains("if val > 5"));
+        assert!(code.contains("met = true"));
+        assert!(code.contains("sleep(0.05)"));
+        assert!(code.contains("WARNING: Timeout waiting for"));
     }
 
     #[test]
@@ -1044,5 +1127,43 @@ mod tests {
             code.contains("WARNING"),
             "Should warn about empty actuators"
         );
+    }
+
+    #[test]
+    fn test_adaptive_scan_to_rhai() {
+        let config = AdaptiveScanConfig {
+            scan: crate::nodes::ScanDimension {
+                actuator: "stage_x".to_string(),
+                start: 0.0,
+                stop: 100.0,
+                points: 10,
+                dimension_name: "x_pos".to_string(),
+            },
+            triggers: vec![TriggerCondition::Threshold {
+                device_id: "sensor1".to_string(),
+                operator: ThresholdOp::GreaterThan,
+                value: 10.0,
+            }],
+            trigger_logic: crate::nodes::TriggerLogic::Any,
+            action: AdaptiveAction::Zoom2x,
+            require_approval: false,
+        };
+
+        let code = adaptive_scan_to_rhai(&config, 0);
+
+        // Should initialize arrays
+        assert!(code.contains("let mut signal_data = []"));
+        assert!(code.contains("let mut position_data = []"));
+
+        // Should read from the sensor
+        assert!(code.contains("let val = sensor1.read()"));
+        assert!(code.contains("signal_data.push(val)"));
+
+        // Should warn that runtime evaluation is not fully implemented in Rhai
+        assert!(code.contains("Runtime trigger evaluation not fully available in Rhai yet"));
+
+        // Should have loop break logic
+        assert!(code.contains("if triggered {"));
+        assert!(code.contains("break;"));
     }
 }

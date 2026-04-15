@@ -91,6 +91,8 @@ pub(super) enum SidecarRunnerError {
         consecutive_failures: u32,
         cooldown_remaining: Duration,
     },
+    /// Path validation failed (traversal or null bytes).
+    InvalidPath(String),
     /// All retry attempts exhausted.
     RetriesExhausted {
         attempts: u32,
@@ -123,6 +125,7 @@ impl std::fmt::Display for SidecarRunnerError {
                      (cooldown: {cooldown_remaining:?} remaining)"
                 )
             }
+            Self::InvalidPath(msg) => write!(f, "invalid path in sidecar command: {msg}"),
             Self::RetriesExhausted {
                 attempts,
                 last_error,
@@ -228,6 +231,20 @@ impl EchelleSidecarRunner {
         &self,
         request: &Value,
     ) -> Result<SidecarInvocationResult, SidecarRunnerError> {
+        let is_invalid = |s: &str| s.contains("..") || s.contains('\0');
+        if is_invalid(&self.program) {
+            return Err(SidecarRunnerError::InvalidPath(
+                "program path contains null bytes or directory traversal characters".to_string(),
+            ));
+        }
+        for arg in &self.args {
+            if is_invalid(arg) {
+                return Err(SidecarRunnerError::InvalidPath(
+                    "argument contains null bytes or directory traversal characters".to_string(),
+                ));
+            }
+        }
+
         let mut cmd = Command::new(&self.program);
         cmd.args(&self.args)
             .stdin(Stdio::piped())
@@ -516,5 +533,35 @@ mod tests {
             .request_json(&serde_json::json!({"op":"health"}))
             .expect("request should succeed");
         assert_eq!(runner.consecutive_failures(), 0);
+    }
+
+    #[test]
+    fn rejects_path_traversal_in_program() {
+        let runner = EchelleSidecarRunner::new("../../bin/sh", ["-c", "echo '{\"ok\":true}'"]);
+        let err = runner
+            .request_json(&serde_json::json!({"op":"health"}))
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            SidecarRunnerError::RetriesExhausted {
+                last_error,
+                ..
+            } if matches!(*last_error, SidecarRunnerError::InvalidPath(_))
+        ));
+    }
+
+    #[test]
+    fn rejects_path_traversal_in_args() {
+        let runner = EchelleSidecarRunner::new("/bin/sh", ["-c", "../../etc/passwd"]);
+        let err = runner
+            .request_json(&serde_json::json!({"op":"health"}))
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            SidecarRunnerError::RetriesExhausted {
+                last_error,
+                ..
+            } if matches!(*last_error, SidecarRunnerError::InvalidPath(_))
+        ));
     }
 }
