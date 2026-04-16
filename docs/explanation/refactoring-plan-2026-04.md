@@ -226,10 +226,10 @@ The audits explicitly recommend **against** the following, despite surface plaus
 - **Outcome:** PVCAM shrinks from 7.1 KLOC to ~4 KLOC; mock-state lock-poisoning eliminated; safety forensics improved; two unbounded-growth maps bounded.
 
 **Phase 2 (week 3): Hardware boundary**
-- B1 (registry decomposition; choose B1a or B1b)
+- ✅ B1a (registry decomposition, in-place split): `registry.rs` (3685 LOC) → `registry/mod.rs` (1911) + `tests.rs` (1232) + `types.rs` (293) + `loading.rs` (287). Three pure mechanical commits, no behavior change.
 - ~~B3~~ falsified (production code has no panic risk)
 - ~~C2~~ already correct (falsified)
-- **Outcome:** `hardware` crate becomes navigable.
+- **Outcome:** `hardware` crate is navigable. Production code per file is at least 60% smaller; tests + helpers are siblings rather than buried inside a 3.7 KLOC monolith.
 
 **Phase 3 (week 4): Server & engine**
 - C1 (server.rs decomposition)
