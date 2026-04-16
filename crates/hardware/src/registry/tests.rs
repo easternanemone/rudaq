@@ -819,8 +819,8 @@ fn test_hardware_config_with_heartbeat() {
 #[test]
 fn test_heartbeat_config_defaults() {
     // Verify the default helper functions return expected values
-    assert!(super::default_heartbeat_enabled());
-    assert_eq!(super::default_heartbeat_interval_ms(), 100);
+    assert!(super::types::default_heartbeat_enabled());
+    assert_eq!(super::types::default_heartbeat_interval_ms(), 100);
 }
 
 #[tokio::test]
