@@ -35,6 +35,7 @@
 use plugin_api::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
+use std::io::Write;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tracing::{debug, error, info, warn};
@@ -166,6 +167,8 @@ struct Esp300Inner {
     state: Esp300State,
     /// Mock mode for testing
     mock_mode: bool,
+    /// Active serial port connection
+    port: Option<Box<dyn tokio_serial::SerialPort>>,
 }
 
 impl Esp300Stage {
@@ -179,6 +182,7 @@ impl Esp300Stage {
                 axis: 1,
                 state: Esp300State::default(),
                 mock_mode: cfg!(feature = "mock"),
+                port: None,
             })),
             events: Arc::new(Mutex::new(VecDeque::new())),
             data: Arc::new(Mutex::new(VecDeque::new())),
@@ -347,8 +351,14 @@ impl Esp300Stage {
             inner.state.target_position = None;
         } else {
             // Real implementation would send: "{axis}PA{position}\r\n"
-            let _cmd = format!("{}PA{:.6}\r\n", inner.axis, position);
-            // TODO: Send command over serial port
+            let cmd = format!("{}PA{:.6}\r\n", inner.axis, position);
+            if let Some(port) = &mut inner.port {
+                if let Err(e) = port.write_all(cmd.as_bytes()) {
+                    return Err(format!("Serial write error: {}", e));
+                }
+            } else {
+                warn!("ESP300: Serial port not open, dropping command: {}", cmd.trim());
+            }
             inner.state.target_position = Some(position);
             inner.state.is_moving = true;
         }
@@ -454,8 +464,14 @@ impl Esp300Stage {
             inner.state.target_position = None;
         } else {
             // Real implementation would send: "{axis}ST\r\n"
-            let _cmd = format!("{}ST\r\n", inner.axis);
-            // TODO: Send command over serial port
+            let cmd = format!("{}ST\r\n", inner.axis);
+            if let Some(port) = &mut inner.port {
+                if let Err(e) = port.write_all(cmd.as_bytes()) {
+                    error!("ESP300: Serial write error: {}", e);
+                }
+            } else {
+                warn!("ESP300: Serial port not open, dropping command: {}", cmd.trim());
+            }
         }
 
         drop(inner);
@@ -481,8 +497,14 @@ impl Esp300Stage {
             inner.state.is_homed = true;
         } else {
             // Real implementation would send: "{axis}OR\r\n"
-            let _cmd = format!("{}OR\r\n", inner.axis);
-            // TODO: Send command and wait for completion
+            let cmd = format!("{}OR\r\n", inner.axis);
+            if let Some(port) = &mut inner.port {
+                if let Err(e) = port.write_all(cmd.as_bytes()) {
+                    error!("ESP300: Serial write error: {}", e);
+                }
+            } else {
+                warn!("ESP300: Serial port not open, dropping command: {}", cmd.trim());
+            }
         }
 
         drop(inner);
@@ -636,11 +658,23 @@ impl ModuleFfi for Esp300Stage {
         };
 
         if !inner.mock_mode {
-            // TODO: Open serial port and initialize
-            debug!(
-                "ESP300: Would open port {} for axis {}",
-                inner.port_path, inner.axis
-            );
+            match tokio_serial::new(&inner.port_path, 19200)
+                .timeout(Duration::from_millis(100))
+                .open()
+            {
+                Ok(port) => {
+                    inner.port = Some(port);
+                    debug!(
+                        "ESP300: Opened port {} for axis {}",
+                        inner.port_path, inner.axis
+                    );
+                }
+                Err(e) => {
+                    error!("ESP300: Failed to open port {}: {}", inner.port_path, e);
+                    // Return early so we don't stage
+                    return RResult::RErr(RString::from(format!("Failed to open port: {}", e)));
+                }
+            }
         }
 
         drop(inner);
@@ -664,6 +698,11 @@ impl ModuleFfi for Esp300Stage {
 
         // Try to stop motion if running
         let _ = self.stop_motion();
+
+        if let Ok(mut inner) = self.inner.lock() {
+            // Drop port to close it
+            inner.port = None;
+        }
 
         self.state = FfiModuleState::Configured;
         self.emit_event("unstaged", "Module unstaged", 1);
