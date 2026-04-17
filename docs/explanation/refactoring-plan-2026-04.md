@@ -50,6 +50,7 @@ These items appeared in **three or more** of the six audits. They are the highes
 | A8 | TOCTOU race in `attach_choice_listeners` between `is_none()` and `as_ref().unwrap().clone()` on `speed_table` | `speed_table` is a plain `Option<Arc<SpeedTable>>` field with **no interior mutability** and `attach_choice_listeners` borrows `&self`. Concurrent mutation is impossible by Rust's borrow rules. | **Drop.** No race. |
 | C2 (server) | `module_service.rs` maps anyhow → `Status::internal(err.to_string())` without a downcast chain | `module_service.rs:50–59` already calls `anyhow_to_status(err)`, the canonical downcast. Nothing to fix. | **Drop.** Already correct. |
 | C3 (server) | `StreamLimiter::active_streams` grows unbounded; needs LRU | `streaming.rs:268–270` removes the entry when count reaches 0. Map is bounded by currently-streaming clients × MAX_STREAMS_PER_CLIENT. | **Drop.** Self-bounding by design. |
+| B3 (hardware) | `lib_reload.rs:372–407` has `TempDir::new().unwrap()` panics that crash the registry on full `/tmp` | All matches are inside `#[cfg(test)] mod tests` — production `StatePreserver` never uses `TempDir`. | **Drop.** No production panic site exists. |
 
 ---
 
@@ -100,8 +101,7 @@ The PVCAM driver is the single largest source of LOC concentration in the worksp
 **B2. Decompose `hardware/src/manifest_driver/driver.rs`** — `crates/hardware/src/manifest_driver/driver.rs:1–2106`
 - Manifest-driven device construction has accreted. Split by concern: parsing, transport binding, capability assembly, lifecycle.
 
-**B3. Add structured-error wrapping to dynamic library reload** — `crates/hardware/src/manifest_driver/lib_reload.rs:372–407`
-- Multiple `TempDir::new().unwrap()` calls panic the entire registry on full `/tmp`. Convert to `DaqError::Io` propagation.
+**B3. ~~Add structured-error wrapping to dynamic library reload~~** — **FALSIFIED.** Every `.unwrap()` and `TempDir` reference in `lib_reload.rs` is inside the `#[cfg(test)] mod tests` block (lines 372, 388, 397, plus the `.unwrap()`s on `save`/`load`/`clear`). The production `StatePreserver` has no panic-on-disk-full risk because it never touches `TempDir`. No change needed.
 
 ---
 
@@ -226,10 +226,10 @@ The audits explicitly recommend **against** the following, despite surface plaus
 - **Outcome:** PVCAM shrinks from 7.1 KLOC to ~4 KLOC; mock-state lock-poisoning eliminated; safety forensics improved; two unbounded-growth maps bounded.
 
 **Phase 2 (week 3): Hardware boundary**
-- B1 (registry decomposition; choose B1a or B1b)
-- B3 (lib_reload error wrapping)
+- ✅ B1a (registry decomposition, in-place split): `registry.rs` (3685 LOC) → `registry/mod.rs` (1911) + `tests.rs` (1232) + `types.rs` (293) + `loading.rs` (287). Three pure mechanical commits, no behavior change.
+- ~~B3~~ falsified (production code has no panic risk)
 - ~~C2~~ already correct (falsified)
-- **Outcome:** `hardware` crate becomes navigable.
+- **Outcome:** `hardware` crate is navigable. Production code per file is at least 60% smaller; tests + helpers are siblings rather than buried inside a 3.7 KLOC monolith.
 
 **Phase 3 (week 4): Server & engine**
 - C1 (server.rs decomposition)
