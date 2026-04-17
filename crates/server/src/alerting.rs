@@ -35,6 +35,7 @@ pub struct WebhookNotifier {
     webhook_url: String,
     rate_limit: std::time::Duration,
     last_alert: DashMap<String, Instant>,
+    prune_threshold: usize,
     config: AlertingConfig,
 }
 
@@ -68,6 +69,7 @@ impl WebhookNotifier {
             webhook_url: url.to_string(),
             rate_limit: std::time::Duration::from_secs(config.rate_limit_secs),
             last_alert: DashMap::new(),
+            prune_threshold: Self::DEFAULT_PRUNE_THRESHOLD,
             config,
         })
     }
@@ -84,8 +86,22 @@ impl WebhookNotifier {
             return false;
         }
         self.last_alert.insert(key.to_string(), now);
+        // Opportunistically prune entries past their rate-limit window. Keys like
+        // `abort:{run_uid}` would otherwise accumulate forever (one per aborted plan).
+        // We keep entries up to `2 × rate_limit` old as a safety margin against
+        // clock granularity; anything older is definitionally past its window.
+        if self.last_alert.len() > self.prune_threshold {
+            let cutoff = self.rate_limit.saturating_mul(2);
+            self.last_alert
+                .retain(|_, t| now.duration_since(*t) < cutoff);
+        }
         true
     }
+
+    /// Default map size that triggers opportunistic pruning of expired
+    /// rate-limit entries. Chosen to keep the typical cost of `retain`
+    /// (~O(n) shard scan) under one millisecond at typical alert volumes.
+    const DEFAULT_PRUNE_THRESHOLD: usize = 1024;
 
     /// Send a Slack/Discord-compatible webhook payload.
     ///
@@ -390,6 +406,48 @@ mod tests {
 
         handle_health_event(&notifier, &event);
         assert!(notifier.last_alert.contains_key("fault:stage"));
+    }
+
+    #[test]
+    fn test_rate_limit_map_prunes_expired_entries() {
+        let config = AlertingConfig {
+            webhook_url: Some("https://hooks.slack.com/test".to_string()),
+            ..Default::default()
+        };
+        let mut notifier = WebhookNotifier::new(config).unwrap();
+        // Small threshold + short-but-realistic rate limit so cutoff (20 ms)
+        // comfortably outlives a tight insertion loop.
+        notifier.prune_threshold = 4;
+        notifier.rate_limit = std::time::Duration::from_millis(10);
+
+        // Fill past the threshold; these stale entries should be evicted later.
+        for i in 0..=notifier.prune_threshold {
+            assert!(notifier.check_rate_limit(&format!("stale-{i}")));
+        }
+
+        // Sleep so all entries fall outside the 2 × rate_limit cutoff.
+        std::thread::sleep(std::time::Duration::from_millis(30));
+
+        // Insert fresh keys until we cross the threshold again, triggering
+        // retain(). Fresh keys are within microseconds of `now`, so they all
+        // survive; the stale keys do not.
+        for i in 0..=notifier.prune_threshold {
+            assert!(notifier.check_rate_limit(&format!("fresh-{i}")));
+        }
+
+        let len = notifier.last_alert.len();
+        assert!(
+            len <= notifier.prune_threshold + 1,
+            "expected ≤ {} fresh entries after prune, got {len}",
+            notifier.prune_threshold + 1
+        );
+        assert!(
+            notifier
+                .last_alert
+                .iter()
+                .all(|kv| kv.key().starts_with("fresh-")),
+            "expected only fresh-* keys after prune, found stale ones"
+        );
     }
 
     #[test]

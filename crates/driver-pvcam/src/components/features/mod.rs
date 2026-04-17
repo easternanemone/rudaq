@@ -178,7 +178,7 @@ impl PvcamFeatures {
             return Ok(temp_raw as f64 / 100.0);
         }
         #[cfg(not(feature = "pvcam_sdk"))]
-        return Ok(_conn.mock_state.lock().unwrap().temperature_c);
+        return Ok(_conn.mock_state.lock().temperature_c);
 
         #[cfg(feature = "pvcam_sdk")]
         Ok(-40.0)
@@ -209,7 +209,7 @@ impl PvcamFeatures {
         }
         #[cfg(not(feature = "pvcam_sdk"))]
         {
-            let mut state = _conn.mock_state.lock().unwrap();
+            let mut state = _conn.mock_state.lock();
             state.temperature_setpoint_c = _celsius;
         }
         Ok(())
@@ -340,7 +340,7 @@ impl PvcamFeatures {
         }
         #[cfg(not(feature = "pvcam_sdk"))]
         {
-            let state = _conn.mock_state.lock().unwrap();
+            let state = _conn.mock_state.lock();
             Ok(FanSpeed::from_pvcam(state.fan_speed))
         }
 
@@ -363,7 +363,7 @@ impl PvcamFeatures {
         }
         #[cfg(not(feature = "pvcam_sdk"))]
         {
-            let mut state = _conn.mock_state.lock().unwrap();
+            let mut state = _conn.mock_state.lock();
             state.fan_speed = _speed.to_pvcam();
         }
         Ok(())
@@ -390,7 +390,7 @@ impl PvcamFeatures {
                 .map_err(|e| anyhow!("Failed to get speed index: {}", e));
         }
         #[cfg(not(feature = "pvcam_sdk"))]
-        return Ok(_conn.mock_state.lock().unwrap().speed_index);
+        return Ok(_conn.mock_state.lock().speed_index);
 
         #[cfg(feature = "pvcam_sdk")]
         Ok(0)
@@ -422,7 +422,7 @@ impl PvcamFeatures {
         }
         #[cfg(not(feature = "pvcam_sdk"))]
         {
-            let mut state = _conn.mock_state.lock().unwrap();
+            let mut state = _conn.mock_state.lock();
             state.speed_index = _index;
         }
         Ok(())
@@ -445,7 +445,7 @@ impl PvcamFeatures {
                 .map_err(|e| anyhow!("Failed to get readout port: {}", e));
         }
         #[cfg(not(feature = "pvcam_sdk"))]
-        return Ok(_conn.mock_state.lock().unwrap().readout_port_index);
+        return Ok(_conn.mock_state.lock().readout_port_index);
 
         #[cfg(feature = "pvcam_sdk")]
         Ok(0)
@@ -477,7 +477,7 @@ impl PvcamFeatures {
         }
         #[cfg(not(feature = "pvcam_sdk"))]
         {
-            let mut state = _conn.mock_state.lock().unwrap();
+            let mut state = _conn.mock_state.lock();
             state.readout_port_index = _port;
         }
         Ok(())
@@ -631,7 +631,7 @@ impl PvcamFeatures {
                 .map_err(|e| anyhow!("Failed to get gain index: {}", e));
         }
         #[cfg(not(feature = "pvcam_sdk"))]
-        return Ok(_conn.mock_state.lock().unwrap().gain_index);
+        return Ok(_conn.mock_state.lock().gain_index);
 
         #[cfg(feature = "pvcam_sdk")]
         Ok(0)
@@ -659,7 +659,7 @@ impl PvcamFeatures {
         }
         #[cfg(not(feature = "pvcam_sdk"))]
         {
-            let mut state = _conn.mock_state.lock().unwrap();
+            let mut state = _conn.mock_state.lock();
             state.gain_index = _index;
         }
         Ok(())
@@ -738,7 +738,7 @@ impl PvcamFeatures {
         }
         #[cfg(not(feature = "pvcam_sdk"))]
         {
-            let state = _conn.mock_state.lock().unwrap();
+            let state = _conn.mock_state.lock();
             Ok(ExposureMode::from_pvcam(state.exposure_mode))
         }
     }
@@ -777,7 +777,7 @@ impl PvcamFeatures {
         }
         #[cfg(not(feature = "pvcam_sdk"))]
         {
-            let state = _conn.mock_state.lock().unwrap();
+            let state = _conn.mock_state.lock();
             Ok(state.exposure_mode)
         }
 
@@ -816,7 +816,7 @@ impl PvcamFeatures {
         }
         #[cfg(not(feature = "pvcam_sdk"))]
         {
-            let mut state = _conn.mock_state.lock().unwrap();
+            let mut state = _conn.mock_state.lock();
             state.exposure_mode = _mode_raw;
         }
         Ok(())
@@ -882,7 +882,7 @@ impl PvcamFeatures {
         }
         #[cfg(not(feature = "pvcam_sdk"))]
         {
-            let state = _conn.mock_state.lock().unwrap();
+            let state = _conn.mock_state.lock();
             Ok(ClearMode::from_pvcam(state.clear_mode))
         }
 
@@ -905,7 +905,7 @@ impl PvcamFeatures {
         }
         #[cfg(not(feature = "pvcam_sdk"))]
         {
-            let mut state = _conn.mock_state.lock().unwrap();
+            let mut state = _conn.mock_state.lock();
             state.clear_mode = _mode.to_pvcam();
         }
         Ok(())
@@ -1119,7 +1119,7 @@ impl PvcamFeatures {
         }
         #[cfg(not(feature = "pvcam_sdk"))]
         {
-            let state = _conn.mock_state.lock().unwrap();
+            let state = _conn.mock_state.lock();
             Ok(ExposeOutMode::from_pvcam(state.expose_out_mode))
         }
 
@@ -1154,7 +1154,7 @@ impl PvcamFeatures {
         }
         #[cfg(not(feature = "pvcam_sdk"))]
         {
-            let mut state = _conn.mock_state.lock().unwrap();
+            let mut state = _conn.mock_state.lock();
             state.expose_out_mode = _mode.to_pvcam();
         }
         Ok(())
@@ -1452,7 +1452,7 @@ impl PvcamFeatures {
         }
         #[cfg(not(feature = "pvcam_sdk"))]
         {
-            let state = _conn.mock_state.lock().unwrap();
+            let state = _conn.mock_state.lock();
             Ok(EdgeTrigger::from_pvcam(state.edge_trigger))
         }
 
@@ -1481,7 +1481,7 @@ impl PvcamFeatures {
         }
         #[cfg(not(feature = "pvcam_sdk"))]
         {
-            let mut state = _conn.mock_state.lock().unwrap();
+            let mut state = _conn.mock_state.lock();
             state.edge_trigger = _mode.to_pvcam();
         }
         Ok(())
@@ -1511,7 +1511,7 @@ impl PvcamFeatures {
         }
         #[cfg(not(feature = "pvcam_sdk"))]
         {
-            let mut state = _conn.mock_state.lock().unwrap();
+            let mut state = _conn.mock_state.lock();
             state.pre_trigger_delay_us = _delay_us;
         }
         Ok(())
@@ -1537,7 +1537,7 @@ impl PvcamFeatures {
         }
         #[cfg(not(feature = "pvcam_sdk"))]
         {
-            let mut state = _conn.mock_state.lock().unwrap();
+            let mut state = _conn.mock_state.lock();
             state.post_trigger_delay_us = _delay_us;
         }
         Ok(())
@@ -1688,7 +1688,7 @@ impl PvcamFeatures {
         }
         #[cfg(not(feature = "pvcam_sdk"))]
         {
-            let mut state = _conn.mock_state.lock().unwrap();
+            let mut state = _conn.mock_state.lock();
             state.exposure_time_ms = _ms;
         }
         Ok(())
@@ -1874,7 +1874,7 @@ impl PvcamFeatures {
         }
         #[cfg(not(feature = "pvcam_sdk"))]
         {
-            let state = _conn.mock_state.lock().unwrap();
+            let state = _conn.mock_state.lock();
             return Ok(state.pre_trigger_delay_us);
         }
         #[expect(
@@ -1910,7 +1910,7 @@ impl PvcamFeatures {
         }
         #[cfg(not(feature = "pvcam_sdk"))]
         {
-            let state = _conn.mock_state.lock().unwrap();
+            let state = _conn.mock_state.lock();
             return Ok(state.post_trigger_delay_us);
         }
         #[expect(
@@ -1972,7 +1972,7 @@ impl PvcamFeatures {
         }
         #[cfg(not(feature = "pvcam_sdk"))]
         return Ok(ShutterMode::from_pvcam(
-            _conn.mock_state.lock().unwrap().shutter_mode,
+            _conn.mock_state.lock().shutter_mode,
         ));
 
         #[cfg(feature = "pvcam_sdk")]
@@ -2907,7 +2907,7 @@ impl PvcamFeatures {
         }
         #[cfg(not(feature = "pvcam_sdk"))]
         {
-            let mut state = _conn.mock_state.lock().unwrap();
+            let mut state = _conn.mock_state.lock();
             state.smart_stream_enabled = _enabled;
         }
         Ok(())
@@ -2947,7 +2947,7 @@ impl PvcamFeatures {
         }
         #[cfg(not(feature = "pvcam_sdk"))]
         return Ok(SmartStreamMode::from_pvcam(
-            _conn.mock_state.lock().unwrap().smart_stream_mode,
+            _conn.mock_state.lock().smart_stream_mode,
         ));
 
         #[cfg(feature = "pvcam_sdk")]
@@ -2981,7 +2981,7 @@ impl PvcamFeatures {
         }
         #[cfg(not(feature = "pvcam_sdk"))]
         {
-            let mut state = _conn.mock_state.lock().unwrap();
+            let mut state = _conn.mock_state.lock();
             state.smart_stream_mode = _mode.to_pvcam();
         }
         Ok(())

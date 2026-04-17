@@ -396,8 +396,47 @@ enum ClientCommands {
     },
 }
 
+/// Install a panic hook that emits structured forensics before chaining to the
+/// default panic handler. Critical for safety-interlock post-mortems: if the
+/// daemon panics, the heartbeat thread stops toggling the Comedi DIO line and
+/// the external interlock should fire — operators need a timestamped record of
+/// the panic that preceded that event.
+fn install_safety_panic_hook() {
+    let prior = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let location = info
+            .location()
+            .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()))
+            .unwrap_or_else(|| "<unknown location>".to_string());
+        let payload = info
+            .payload()
+            .downcast_ref::<&str>()
+            .copied()
+            .or_else(|| info.payload().downcast_ref::<String>().map(String::as_str))
+            .unwrap_or("<non-string panic payload>");
+        let thread = std::thread::current()
+            .name()
+            .unwrap_or("<unnamed>")
+            .to_string();
+
+        tracing::error!(
+            thread = %thread,
+            location = %location,
+            payload = %payload,
+            "FATAL: daemon panic detected — safety interlock should activate within 100ms"
+        );
+        eprintln!(
+            "FATAL: daemon panic on thread {thread} at {location}: {payload} \
+             — safety interlock should activate within 100ms"
+        );
+
+        prior(info);
+    }));
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
+    install_safety_panic_hook();
     println!("🚀 rust-daq - Headless DAQ System");
     println!("Architecture: Headless-First + Scriptable (v5)");
     #[cfg(feature = "networking")]

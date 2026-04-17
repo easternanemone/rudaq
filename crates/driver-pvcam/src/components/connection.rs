@@ -153,9 +153,14 @@ pub struct PvcamConnection {
     #[cfg(feature = "pvcam_sdk")]
     sdk_initialized: bool,
 
-    /// Mock state for testing without hardware
+    /// Mock state for testing without hardware.
+    ///
+    /// Uses `parking_lot::Mutex` rather than `std::sync::Mutex` because the mock
+    /// path is purely synchronous and we want lock-poisoning panics out of the
+    /// test surface; if a panic ever does occur while holding this lock, we
+    /// would rather subsequent tests recover than cascade-fail.
     #[cfg(not(feature = "pvcam_sdk"))]
-    pub mock_state: std::sync::Mutex<MockCameraState>,
+    pub mock_state: parking_lot::Mutex<MockCameraState>,
 }
 
 #[cfg(not(feature = "pvcam_sdk"))]
