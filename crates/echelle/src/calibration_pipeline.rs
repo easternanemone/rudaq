@@ -28,7 +28,7 @@ use std::sync::Arc;
 
 use chrono::Utc;
 
-use crate::optimal_extraction::{OptimalExtractionConfig, optimal_extract};
+use crate::optimal_extraction::OptimalExtractionConfig;
 use crate::rectification::{OrderSpec, RectifyConfig, rectify_order};
 use crate::scattered_light::{ScatteredLightConfig, TraceInfo, subtract_scattered_light};
 use crate::trace_fitting::{OrderTrace, TraceFitConfig, detect_orders};
@@ -704,23 +704,86 @@ fn run_calibration_pipeline_impl(
         }
     }
 
-    // ── Deduplicate physical_order_number (safety net) ────────────────
+    // ── Deduplicate physical_order_number (safety net, bd-ccer6 P1.5) ─
     // Arc-matched orders (Pass 1/2) appear before bootstrapped ones, so
-    // first-wins preserves the higher-quality calibrations.
+    // first-wins preserves the higher-quality calibrations. Collisions
+    // remove the later order entirely (rather than clearing its physical m
+    // and leaving an orphaned wavelength model in the profile); downstream
+    // consumers depend on every profile order carrying a physical m.
     {
         let mut seen_m: std::collections::HashSet<i32> = std::collections::HashSet::new();
-        for cal in &mut order_calibrations {
-            if let Some(m) = cal.physical_order_number
-                && !seen_m.insert(m)
-            {
+        order_calibrations.retain(|cal| match cal.physical_order_number {
+            Some(m) if !seen_m.insert(m) => {
                 eprintln!(
-                    "Deduplicator: Clearing order {} because physical order {} is duplicate",
+                    "Deduplicator: dropping order {} (physical order {} already claimed)",
                     cal.relative_index, m
                 );
-                cal.physical_order_number = None;
-                if let Some(notes) = cal.notes.as_mut() {
-                    notes.push_str(" [physical_order_number cleared: duplicate]");
-                }
+                false
+            }
+            _ => true,
+        });
+    }
+
+    // ── Grating-constant sanity warning (bd-ccer6 P1.7) ────────────────
+    // Every calibrated order must satisfy m · λ_center ≈ gc. If the
+    // observed scatter across orders exceeds 3% of the mean, the
+    // configured grating_constant_nm is likely mis-measured.
+    if let Some(gc_configured) = grating_constant_nm {
+        let products: Vec<f64> = order_calibrations
+            .iter()
+            .filter_map(|cal| {
+                let m = f64::from(cal.physical_order_number?);
+                let wl = match &cal.wavelength {
+                    EchelleWavelengthModel::Polynomial {
+                        basis,
+                        coefficients,
+                        domain_start,
+                        domain_end,
+                        ..
+                    } => {
+                        let mid = f64::midpoint(*domain_start, *domain_end);
+                        let x_norm =
+                            2.0 * (mid - *domain_start) / (*domain_end - *domain_start) - 1.0;
+                        match basis {
+                            PolynomialBasis::Chebyshev => {
+                                crate::wavelength_fitting::chebyshev_eval(coefficients, x_norm)
+                            }
+                            PolynomialBasis::Monomial => {
+                                let mut acc = 0.0f64;
+                                let mut xp = 1.0;
+                                for c in coefficients {
+                                    acc += c * xp;
+                                    xp *= mid;
+                                }
+                                acc
+                            }
+                        }
+                    }
+                    EchelleWavelengthModel::Sampled { wavelengths, .. } => {
+                        *wavelengths.get(wavelengths.len() / 2)?
+                    }
+                };
+                Some(m * wl)
+            })
+            .collect();
+        if products.len() >= 3 {
+            let n = f64::from(u32::try_from(products.len()).expect("order count fits in u32"));
+            let mean = products.iter().sum::<f64>() / n;
+            let var = products.iter().map(|g| (g - mean).powi(2)).sum::<f64>() / n;
+            let stddev = var.sqrt();
+            let rel = if mean.abs() > 1e-12 {
+                stddev / mean.abs() * 100.0
+            } else {
+                f64::NAN
+            };
+            if rel > 3.0 {
+                tracing::warn!(
+                    configured_gc = gc_configured,
+                    observed_mean = mean,
+                    observed_stddev = stddev,
+                    relative_percent = rel,
+                    "grating-constant scatter exceeds 3%; configured grating_constant_nm may be mis-tuned"
+                );
             }
         }
     }
@@ -821,14 +884,14 @@ fn extract_order_spectrum_f32(
         order_index,
     };
     let rect = rectify_order(frame, width, height, &spec, &config.rectify_config)?;
-    let spectrum_f64: Vec<f64> = if config.use_optimal_extraction {
-        match optimal_extract(&rect, None, &config.optimal_config) {
-            Some(result) => result.flux,
-            None => simple_sum_extract(&rect),
-        }
-    } else {
-        simple_sum_extract(&rect)
-    };
+    // Arc line detection always uses the boxcar sum (bd-8yjd1 P2 follow-up):
+    // optimal extraction needs a calibrated spatial profile, but calibration
+    // is downstream of arc line detection — so using the Horne kernel here
+    // would use an uncalibrated narrow profile that collapses arc peaks to
+    // <1.5-px FWHM, causing the arc-line detector to reject them. The
+    // `use_optimal_extraction` flag is recorded on the profile so downstream
+    // consumers use Horne for science extraction once the profile exists.
+    let spectrum_f64: Vec<f64> = simple_sum_extract(&rect);
     Some(spectrum_f64.iter().map(|&v| v as f32).collect())
 }
 
@@ -1302,10 +1365,13 @@ fn bootstrap_uncalibrated_orders(
         .filter_map(|cal| cal.physical_order_number)
         .collect();
 
-    // Step 2: Compute physics baseline dispersion model.
+    // Step 2: Compute physics baseline dispersion model (bd-ccer6 P1.4).
     // Fit the actual dispersion (nm/pixel) vs m from calibrated orders.
-    // Dispersion theoretically scales as gc/m²/npx. We fit a scale factor.
-    let mut disp_products: Vec<f64> = Vec::new();
+    // Dispersion theoretically scales as gc/m²/npx; we fit a per-m scale
+    // factor as a linear function of m rather than a single scalar so that
+    // bootstrapped orders at the extremes benefit from the observed trend.
+    // Fall back to the scalar mean if fewer than 3 anchors are available.
+    let mut disp_samples: Vec<(f64, f64)> = Vec::new(); // (m, ratio)
     for diag in diagnostics.iter() {
         if !diag.success {
             continue;
@@ -1317,7 +1383,6 @@ fn bootstrap_uncalibrated_orders(
             if m < 1.0 {
                 continue;
             }
-            // Compute actual dispersion from the Chebyshev solution
             let p_lo = sol.pixel_min + 10.0;
             let p_hi = sol.pixel_max - 10.0;
             if p_hi <= p_lo {
@@ -1326,14 +1391,46 @@ fn bootstrap_uncalibrated_orders(
             let actual_disp = (sol.eval(p_hi) - sol.eval(p_lo)) / (p_hi - p_lo);
             let theoretical_disp = gc / (m * m * npx);
             if theoretical_disp.abs() > 1e-15 {
-                disp_products.push(actual_disp / theoretical_disp);
+                disp_samples.push((m, actual_disp / theoretical_disp));
             }
         }
     }
-    let disp_scale = if disp_products.is_empty() {
+    // `disp_scale_at(m)` returns the ratio to apply for physical order m.
+    // With 3+ anchors we fit ratio = a + b·m; with 1-2 we use the scalar
+    // mean; with 0 we fall back to 1.0 (pure echelle equation).
+    #[allow(clippy::items_after_statements)]
+    enum DispScale {
+        Constant(f64),
+        Linear { a: f64, b: f64 },
+    }
+    let disp_model = if disp_samples.is_empty() {
+        DispScale::Constant(1.0)
+    } else if disp_samples.len() < 3 {
+        let n = f64::from(u32::try_from(disp_samples.len()).expect("anchor count fits in u32"));
+        let mean = disp_samples.iter().map(|(_, r)| r).sum::<f64>() / n;
+        DispScale::Constant(mean)
+    } else {
+        let (slope, intercept) = linear_regression(&disp_samples);
+        DispScale::Linear {
+            a: intercept,
+            b: slope,
+        }
+    };
+    let disp_scale_at = |m_query: f64| -> f64 {
+        match disp_model {
+            DispScale::Constant(c) => c,
+            DispScale::Linear { a, b } => a + b * m_query,
+        }
+    };
+    // Keep `disp_scale` as a single representative value so the downstream
+    // Chebyshev residual baseline stays well-defined when the linear model
+    // evaluates at the anchor-m mean.
+    let disp_scale = if disp_samples.is_empty() {
         1.0
     } else {
-        disp_products.iter().sum::<f64>() / disp_products.len() as f64
+        let n = f64::from(u32::try_from(disp_samples.len()).expect("anchor count fits in u32"));
+        let m_mean = disp_samples.iter().map(|(m, _)| m).sum::<f64>() / n;
+        disp_scale_at(m_mean)
     };
 
     // Step 3: Collect (pixel, m, δλ) residuals from calibrated orders
@@ -1411,7 +1508,11 @@ fn bootstrap_uncalibrated_orders(
         }
 
         let lambda_center = gc / mf;
-        let theoretical_disp = disp_scale * gc / (mf * mf * npx);
+        // Use the per-m dispersion scale (bd-ccer6 P1.4): bootstrapped orders
+        // at the extremes of the calibrated m range benefit from the observed
+        // linear trend in actual/theoretical dispersion ratio, not the scalar
+        // anchor mean.
+        let theoretical_disp = disp_scale_at(mf) * gc / (mf * mf * npx);
 
         // Build the predicted wavelength as: baseline + 2D residual correction
         // We store it as a monomial polynomial for the EchelleOrderCalibration

@@ -24,6 +24,11 @@ use crate::types::EchelleTraceModel;
 /// Configuration for scattered light subtraction.
 #[derive(Debug, Clone)]
 pub struct ScatteredLightConfig {
+    /// Whether to estimate and subtract a scattered-light background at all.
+    /// Pure emission sources (HgAr, ThAr) with zero true continuum can get
+    /// over-subtracted by this step; setting to `false` bypasses the stage
+    /// entirely (bd-8yjd1 P2.5).
+    pub enabled: bool,
     /// Aperture half-width used to define order regions (pixels).
     /// Pixels within this distance of any trace center are excluded.
     pub aperture_half_width: f64,
@@ -39,6 +44,7 @@ pub struct ScatteredLightConfig {
 impl Default for ScatteredLightConfig {
     fn default() -> Self {
         Self {
+            enabled: true,
             aperture_half_width: 5.0,
             block_size: 64,
             poly_degree_x: 3,
@@ -124,6 +130,9 @@ pub fn estimate_scattered_light(
     traces: &[TraceInfo<'_>],
     config: &ScatteredLightConfig,
 ) -> Option<ScatteredLightModel> {
+    if !config.enabled {
+        return None;
+    }
     let w = width as usize;
     let h = height as usize;
     if frame.len() < w * h || w < 2 || h < 2 {
@@ -163,13 +172,15 @@ pub fn estimate_scattered_light(
             }
 
             if scratch.len() >= 3 {
-                scratch
-                    .sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-                let median = scratch[scratch.len() / 2];
-                // Block center coordinates.
+                // Sigma-clipped median (bd-8yjd1 P2.5): a single cosmic-ray
+                // hit inside an inter-order block used to corrupt the block
+                // median, which then distorted the 2D Chebyshev background
+                // fit. Clip values > 5σ from the current median for up to 3
+                // passes before taking the final median.
+                let robust = sigma_clipped_median(&mut scratch, 5.0, 3);
                 block_x.push(x_start.midpoint(x_end) as f64);
                 block_y.push(y_start.midpoint(y_end) as f64);
-                block_val.push(median);
+                block_val.push(robust);
             }
         }
     }
@@ -550,6 +561,38 @@ fn is_inter_order(col: f64, row: f64, traces: &[TraceInfo<'_>], aperture_half_wi
     true
 }
 
+/// Median of `values` after `max_iters` passes of σ-clipping at `clip_sigma`.
+///
+/// Each pass computes the current median and MAD-based σ, drops values whose
+/// |x − median| > `clip_sigma · σ`, and re-sorts. Returns early when a pass
+/// removes nothing. If the input has fewer than 3 samples it falls back to
+/// the plain median. `values` is sorted in place.
+fn sigma_clipped_median(values: &mut Vec<f64>, clip_sigma: f64, max_iters: usize) -> f64 {
+    if values.is_empty() {
+        return 0.0;
+    }
+    values.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    for _ in 0..max_iters {
+        let n = values.len();
+        if n < 3 {
+            break;
+        }
+        let median = values[n / 2];
+        // MAD: median absolute deviation; robust σ ≈ 1.4826 · MAD.
+        let mut abs_dev: Vec<f64> = values.iter().map(|v| (v - median).abs()).collect();
+        abs_dev.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let mad = abs_dev[abs_dev.len() / 2];
+        let sigma = (1.4826 * mad).max(1e-12);
+        let threshold = clip_sigma * sigma;
+        let before = values.len();
+        values.retain(|&v| (v - median).abs() <= threshold);
+        if values.len() == before || values.len() < 3 {
+            break;
+        }
+    }
+    values[values.len() / 2]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -613,6 +656,7 @@ mod tests {
         let frame = vec![background; width as usize * height as usize];
 
         let config = ScatteredLightConfig {
+            enabled: true,
             block_size: 32,
             poly_degree_x: 1,
             poly_degree_y: 1,
@@ -648,6 +692,7 @@ mod tests {
         }
 
         let config = ScatteredLightConfig {
+            enabled: true,
             block_size: 32,
             poly_degree_x: 2,
             poly_degree_y: 1,
@@ -693,6 +738,7 @@ mod tests {
         }];
 
         let config = ScatteredLightConfig {
+            enabled: true,
             block_size: 32,
             poly_degree_x: 1,
             poly_degree_y: 1,

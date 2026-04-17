@@ -104,9 +104,9 @@ impl AndorCamera {
                                 let fname = fname.clone();
                                 Box::pin(async move {
                                     crate::ffi_timeout::ffi_call_daq(
-                                        move || AndorCamera::set_float_feature(handle, &fname, val),
-                                        crate::ffi_timeout::FFI_CONFIG_TIMEOUT,
                                         "dynamic:set_float",
+                                        crate::ffi_timeout::FFI_CONFIG_TIMEOUT,
+                                        move || AndorCamera::set_float_feature(handle, &fname, val),
                                     )
                                     .await
                                 })
@@ -138,9 +138,9 @@ impl AndorCamera {
                                 let fname = fname.clone();
                                 Box::pin(async move {
                                     crate::ffi_timeout::ffi_call_daq(
-                                        move || AndorCamera::set_int_feature(handle, &fname, val),
-                                        crate::ffi_timeout::FFI_CONFIG_TIMEOUT,
                                         "dynamic:set_int",
+                                        crate::ffi_timeout::FFI_CONFIG_TIMEOUT,
+                                        move || AndorCamera::set_int_feature(handle, &fname, val),
                                     )
                                     .await
                                 })
@@ -168,9 +168,9 @@ impl AndorCamera {
                                 let fname = fname.clone();
                                 Box::pin(async move {
                                     crate::ffi_timeout::ffi_call_daq(
-                                        move || AndorCamera::set_bool_feature(handle, &fname, val),
-                                        crate::ffi_timeout::FFI_CONFIG_TIMEOUT,
                                         "dynamic:set_bool",
+                                        crate::ffi_timeout::FFI_CONFIG_TIMEOUT,
+                                        move || AndorCamera::set_bool_feature(handle, &fname, val),
                                     )
                                     .await
                                 })
@@ -201,9 +201,9 @@ impl AndorCamera {
                                 let fname = fname.clone();
                                 Box::pin(async move {
                                     crate::ffi_timeout::ffi_call_daq(
-                                        move || AndorCamera::set_enum_feature(handle, &fname, &val),
-                                        crate::ffi_timeout::FFI_CONFIG_TIMEOUT,
                                         "dynamic:set_enum",
+                                        crate::ffi_timeout::FFI_CONFIG_TIMEOUT,
+                                        move || AndorCamera::set_enum_feature(handle, &fname, &val),
                                     )
                                     .await
                                 })

@@ -26,6 +26,11 @@ pub struct ArcDetectConfig {
     /// Minimum separation in pixels between accepted lines (default: 3.0).
     pub min_separation: f64,
     /// Median filter window size for continuum estimation (default: 101).
+    ///
+    /// Set to 0 to request an adaptive window sized at ~5% of the order
+    /// length (minimum 21 px, rounded to an odd value). Adaptive is
+    /// preferred for instruments with widely-varying order lengths; a
+    /// fixed 101 px is fine for 2k-pixel detectors (bd-ccer6 P1.3).
     pub continuum_window: usize,
 }
 
@@ -85,7 +90,19 @@ pub fn detect_arc_lines(
     }
 
     // Step 1: Continuum subtraction via running median.
-    let continuum = running_median(order_spectrum, config.continuum_window);
+    // `continuum_window = 0` → adaptive: max(21, ~5% of order length, odd).
+    let window = if config.continuum_window == 0 {
+        let target = order_spectrum.len() / 20;
+        let target = target.max(21);
+        if target.is_multiple_of(2) {
+            target + 1
+        } else {
+            target
+        }
+    } else {
+        config.continuum_window
+    };
+    let continuum = running_median(order_spectrum, window);
     let subtracted: Vec<f64> = order_spectrum
         .iter()
         .zip(&continuum)
@@ -1682,7 +1699,7 @@ fn fit_order_wavelength_with_degree(
 /// Evaluate a Chebyshev polynomial at a point using the recurrence relation.
 ///
 /// T_0(x) = 1, T_1(x) = x, T_{n+1}(x) = 2*x*T_n(x) - T_{n-1}(x)
-fn chebyshev_eval(coeffs: &[f64], x: f64) -> f64 {
+pub(crate) fn chebyshev_eval(coeffs: &[f64], x: f64) -> f64 {
     if coeffs.is_empty() {
         return 0.0;
     }
