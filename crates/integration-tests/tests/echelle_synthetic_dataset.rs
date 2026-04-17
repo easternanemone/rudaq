@@ -569,7 +569,7 @@ fn test_echelle_pipeline_with_realistic_synthetic_hgar() {
             continue;
         }
         let truth = &orders_truth[idx];
-        let midpoint = (sol.pixel_min + sol.pixel_max) / 2.0;
+        let midpoint = f64::midpoint(sol.pixel_min, sol.pixel_max);
         let midpoint_wl = sol.eval(midpoint);
         assert!(
             midpoint_wl >= truth.lambda_start_nm - 5.0 && midpoint_wl <= truth.lambda_end_nm + 5.0,
