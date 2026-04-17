@@ -39,9 +39,9 @@ use crate::types::{
     EchelleWavelengthModel, PolynomialBasis,
 };
 use crate::wavelength_fitting::{
-    ArcDetectConfig, ArcLine, AtlasLine, OrderWlSolution, TwoPhaseMatchConfig, WlFitConfig,
-    detect_arc_lines, fit_order_wavelength, match_lines_to_atlas, match_lines_two_phase,
-    merge_arc_lines_hdr,
+    ArcDetectConfig, ArcLine, AtlasLine, OrderWlSolution, SingleLineFallbackSeed,
+    TwoPhaseMatchConfig, WlFitConfig, detect_arc_lines, fit_order_wavelength, match_lines_to_atlas,
+    match_lines_two_phase, merge_arc_lines_hdr,
 };
 
 // ─── Configuration ───────────────────────────────────────────────────────────
@@ -536,7 +536,7 @@ fn run_calibration_pipeline_impl(
             best_diag = Some(cand_diag);
         }
 
-        let final_diag = best_diag.unwrap_or_else(|| OrderDiagnostic {
+        let mut final_diag = best_diag.unwrap_or_else(|| OrderDiagnostic {
             order_index: oi,
             n_lines_detected: lines.len(),
             n_lines_matched: 0,
@@ -550,15 +550,31 @@ fn run_calibration_pipeline_impl(
             wl_solution: None,
         });
 
-        if final_diag.success
-            && let Some(ref sol) = final_diag.wl_solution
-        {
-            let order_cal = build_order_calibration(trace, sol, oi, width, grating_constant_nm);
-            eprintln!(
-                "Pass 1: Order {} matched physical order {:?}",
-                oi, order_cal.physical_order_number
-            );
-            order_calibrations.push(order_cal);
+        if final_diag.success {
+            let validation = final_diag
+                .wl_solution
+                .as_ref()
+                .map(|sol| sol.validate_monotonic(&config.orientation, 150.0, 1200.0));
+            match validation {
+                Some(Ok(())) => {
+                    let sol = final_diag.wl_solution.as_ref().expect("checked above");
+                    let order_cal =
+                        build_order_calibration(trace, sol, oi, width, grating_constant_nm);
+                    eprintln!(
+                        "Pass 1: Order {} matched physical order {:?}",
+                        oi, order_cal.physical_order_number
+                    );
+                    order_calibrations.push(order_cal);
+                }
+                Some(Err(err)) => {
+                    tracing::warn!("Pass 1: order {oi} rejected — {err}");
+                    eprintln!("Pass 1: Order {oi} REJECTED (wavelength axis): {err}");
+                    final_diag.success = false;
+                    final_diag.failure_reason = Some(format!("wavelength axis invalid: {err}"));
+                    final_diag.wl_solution = None;
+                }
+                None => {}
+            }
         }
 
         diagnostics.push(final_diag);
@@ -625,15 +641,32 @@ fn run_calibration_pipeline_impl(
                     Some(&tp_config_p2),
                 );
 
-                if diag.success
-                    && let Some(ref sol) = diag.wl_solution
-                {
-                    let order_cal = build_order_calibration(trace, sol, oi, width, Some(gc));
-                    eprintln!(
-                        "Pass 2: Order {} matched physical order {:?}",
-                        oi, order_cal.physical_order_number
-                    );
-                    order_calibrations.push(order_cal);
+                let mut diag = diag;
+                if diag.success {
+                    let validation = diag
+                        .wl_solution
+                        .as_ref()
+                        .map(|sol| sol.validate_monotonic(&config.orientation, 150.0, 1200.0));
+                    match validation {
+                        Some(Ok(())) => {
+                            let sol = diag.wl_solution.as_ref().expect("checked above");
+                            let order_cal =
+                                build_order_calibration(trace, sol, oi, width, Some(gc));
+                            eprintln!(
+                                "Pass 2: Order {} matched physical order {:?}",
+                                oi, order_cal.physical_order_number
+                            );
+                            order_calibrations.push(order_cal);
+                        }
+                        Some(Err(err)) => {
+                            tracing::warn!("Pass 2: order {oi} rejected — {err}");
+                            eprintln!("Pass 2: Order {oi} REJECTED (wavelength axis): {err}");
+                            diag.success = false;
+                            diag.failure_reason = Some(format!("wavelength axis invalid: {err}"));
+                            diag.wl_solution = None;
+                        }
+                        None => {}
+                    }
                 }
                 diagnostics[order_idx] = diag;
             }
@@ -893,12 +926,31 @@ fn match_and_fit(
         return diag;
     }
 
+    // When we know the physical order and grating constant for this trace
+    // (via the two-phase seed), thread them to the wavelength fitter so the
+    // single-line fallback can derive a physically-correct dispersion rather
+    // than the legacy hardcoded heuristic. Orientation sign and detector
+    // width come from the pipeline-level instrument config.
+    let mut wl_config_local = config.wl_config.clone();
+    if let Some(tp) = two_phase {
+        let physical_order = tp.physical_order.round() as i32;
+        let n_pixels = f64::from(config.frame_compat.frame_width.max(1));
+        wl_config_local.fallback_seed = Some(SingleLineFallbackSeed {
+            grating_constant_nm: tp.grating_constant_nm,
+            physical_order,
+            n_pixels,
+            wavelength_ascending: config
+                .orientation
+                .wavelength_increase_with_dispersion_positive,
+        });
+    }
+
     match fit_order_wavelength(
         lines,
         &config.atlas,
         &matches,
         order_index,
-        &config.wl_config,
+        &wl_config_local,
     ) {
         Some(sol) => {
             diag.n_lines_used = sol.n_lines_used;

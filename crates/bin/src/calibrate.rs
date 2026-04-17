@@ -538,7 +538,9 @@ fn emit_diagnose_report(result: &CalibrationResult, orientation: &EchelleOrienta
         } else {
             f64::NAN
         };
-        println!("grating constant (m·λ_center): mean={mean:.1} nm  stddev={stddev:.1} nm ({rel:.2}%)");
+        println!(
+            "grating constant (m·λ_center): mean={mean:.1} nm  stddev={stddev:.1} nm ({rel:.2}%)"
+        );
         if rel > 3.0 {
             println!(
                 "  ⚠ GC scatter > 3%: configured grating_constant_nm is likely wrong \
