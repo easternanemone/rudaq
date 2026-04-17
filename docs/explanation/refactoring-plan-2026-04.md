@@ -107,8 +107,7 @@ The PVCAM driver is the single largest source of LOC concentration in the worksp
 
 ### Theme C — Server / gRPC layer cleanup (P1, ~1 week)
 
-**C1. Decompose `server/src/grpc/server.rs`** — `crates/server/src/grpc/server.rs:1–3069`
-- Split into `server/{builder, service_registry, health, shutdown, reflection}.rs`. Existing tests cover all paths. Mostly mechanical extraction.
+**C1. ~~Decompose `server/src/grpc/server.rs`~~** — **DONE (branch `refactor/phase-3-server-decomposition`, 5 commits).** Converted `server.rs` (3069 LOC) to a module directory `grpc/server/` with six focused sibling files: `auth` (127), `daq_server` (1118, struct + `ControlService` impl), `measurement_pipeline` (273), `startup` (847, `build_grpc_server!` macro + `start_server*`), `tests` (574), `web_ui` (154). `mod.rs` is now 74 LOC of pure wiring (imports, `mod X;` declarations, `pub use` re-exports for `DaqServer`/`start_server*`). Crate-public API unchanged; 203/203 server tests green at each step; zero clippy warnings under `-D warnings`. The final theme split differs slightly from the originally sketched `{builder, service_registry, health, shutdown, reflection}` names because the actual call-site coupling favored grouping by concern (`startup` = builder+reflection; `daq_server` absorbed `service_registry`+`shutdown`; `health` stayed in the separate `grpc/health_service.rs` module that already existed).
 
 **C2. ~~Add downcast chain to `module_service.rs`~~** — **FALSIFIED.** See §2.1. `module_service.rs:50–59` already calls `anyhow_to_status(err)`. No change needed.
 
