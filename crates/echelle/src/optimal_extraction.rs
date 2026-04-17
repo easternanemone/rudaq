@@ -114,7 +114,7 @@ pub fn optimal_extract(
 
     // Stage A: Fit spatial profile.
     let stage_a_start = timing.then(Instant::now);
-    let profile = fit_spatial_profile(rect, sky);
+    let profile = fit_spatial_profile(rect, sky, config);
     let stage_a_elapsed = stage_a_start.map(|t| t.elapsed());
 
     if let Some(dur) = stage_a_elapsed {
@@ -257,12 +257,20 @@ pub fn optimal_extract(
 /// For each dispersion column, computes the normalized cross-dispersion
 /// flux distribution. Uses a simple boxcar estimate smoothed along
 /// the dispersion axis for stability.
-fn fit_spatial_profile(rect: &RectifiedOrder, sky: Option<&[f32]>) -> Vec<f64> {
+fn fit_spatial_profile(
+    rect: &RectifiedOrder,
+    sky: Option<&[f32]>,
+    config: &OptimalExtractionConfig,
+) -> Vec<f64> {
     let n_disp = rect.n_dispersion;
     let n_cross = rect.n_cross;
     let mut profile = vec![0.0f64; n_cross * n_disp];
 
-    // Step 1: Crude boxcar flux f0(x) per dispersion column.
+    // Step 1: Crude boxcar flux f0(x) per dispersion column. Columns whose
+    // total signal is below `3 × read_noise` are treated as "profile
+    // unknown" (f0 set to NaN) so Step 3 can smooth them out from their
+    // neighbors rather than inventing a unit-flux profile (bd-8yjd1 P2.1).
+    let low_signal_threshold = 3.0 * config.read_noise;
     let mut f0 = vec![0.0f64; n_disp];
     for (col, f0_val) in f0.iter_mut().enumerate() {
         let mut sum = 0.0;
@@ -273,20 +281,34 @@ fn fit_spatial_profile(rect: &RectifiedOrder, sky: Option<&[f32]>) -> Vec<f64> {
             let weight = f64::from(rect.mask[idx]);
             sum += (data_val - sky_val) * weight;
         }
-        *f0_val = sum.max(1.0); // avoid division by zero
+        *f0_val = if sum > low_signal_threshold {
+            sum
+        } else {
+            f64::NAN
+        };
     }
 
     // Step 2: Compute raw profile P_raw(x,y) = (D - sky) / f0(x).
+    // Columns with f0 = NaN produce NaN entries that are skipped in the
+    // smoothing pass below. Negative residuals (D < sky) are kept instead
+    // of clipped at zero so downstream sigma-clipping + renormalization
+    // can handle them correctly (bd-8yjd1 P2.2).
     for (col, &f0_val) in f0.iter().enumerate() {
         for row in 0..n_cross {
             let idx = row * n_disp + col;
+            if f0_val.is_nan() {
+                profile[idx] = f64::NAN;
+                continue;
+            }
             let data_val = f64::from(rect.data[idx]);
             let sky_val = sky.map_or(0.0, |sk| f64::from(sk[idx]));
-            profile[idx] = (data_val - sky_val).max(0.0) / f0_val;
+            profile[idx] = (data_val - sky_val) / f0_val;
         }
     }
 
-    // Step 3: Smooth along dispersion axis (boxcar of width 5) for each spatial row.
+    // Step 3: Smooth along dispersion axis (boxcar of width 5) for each
+    // spatial row, skipping NaN neighbors so missing columns are
+    // interpolated from their valid neighbors.
     let smooth_half = 2;
     let mut smoothed = vec![0.0f64; n_cross * n_disp];
     for row in 0..n_cross {
@@ -294,10 +316,13 @@ fn fit_spatial_profile(rect: &RectifiedOrder, sky: Option<&[f32]>) -> Vec<f64> {
             let start = col.saturating_sub(smooth_half);
             let end = (col + smooth_half + 1).min(n_disp);
             let mut sum = 0.0;
-            let mut count = 0;
+            let mut count = 0u32;
             for c in start..end {
-                sum += profile[row * n_disp + c];
-                count += 1;
+                let v = profile[row * n_disp + c];
+                if v.is_finite() {
+                    sum += v;
+                    count += 1;
+                }
             }
             smoothed[row * n_disp + col] = if count > 0 {
                 sum / f64::from(count)
@@ -346,6 +371,12 @@ fn extract_with_profile(
     let rn2 = config.read_noise * config.read_noise;
     let f2 = config.excess_noise_factor * config.excess_noise_factor;
 
+    // Minimum-variance floor to avoid ivar → ∞ when the signal model
+    // evaluates to zero. 1e-6·rn² is small relative to real read noise but
+    // large enough to keep the weighted solver numerically stable
+    // (bd-8yjd1 P2.3).
+    let v_floor = (rn2 * 1e-6).max(1e-10);
+
     for col in 0..n_disp {
         let mut num = 0.0f64;
         let mut denom = 0.0f64;
@@ -366,18 +397,17 @@ fn extract_with_profile(
             let d = f64::from(rect.data[idx]);
             let s = sky.map_or(0.0, |sk| f64::from(sk[idx]));
 
-            // Variance model: V = readnoise² + F² × max(signal, 0) / gain
-            // F = excess noise factor (1.0 for CCD, ~1.6 for ICCD, √2 for EMCCD).
-            // For first iteration, use D as flux estimate.
-            let v = if is_first_iteration {
-                rn2 + f2 * (s + (d - s).max(0.0)).max(0.0) / config.gain
+            // Variance model (bd-8yjd1 P2.3):
+            //   V = readnoise² + F² × max(signal, 0) / gain
+            // First iteration: variance of the raw data. Subsequent
+            // iterations: variance of (sky + current-column flux × profile),
+            // which drives the solver toward the Horne 1986 fixed point.
+            let v_raw = if is_first_iteration {
+                rn2 + f2 * d.max(0.0) / config.gain
             } else {
                 rn2 + f2 * (s + prev_flux * p).max(0.0) / config.gain
             };
-
-            if v <= 0.0 {
-                continue;
-            }
+            let v = v_raw.max(v_floor);
             let ivar = 1.0 / v;
 
             num += ivar * (d - s) * p;
@@ -426,11 +456,12 @@ fn reject_cosmic_rays(
             let sky_val = sky.map_or(0.0, |sk| f64::from(sk[idx]));
             let prof = profile[idx];
 
-            // Variance: V = readnoise² + F² × max(sky + flux*P, 0) / gain
-            let var = rn2 + f2 * (sky_val + flux_col * prof).max(0.0) / config.gain;
-            if var <= 1e-30 {
-                continue;
-            }
+            // Variance (bd-8yjd1 P2.4): identical floor + formula as Stage B
+            // so `residual/σ` is meaningful and the CR threshold bites the
+            // same σ-scale used by the fit.
+            let v_floor = (rn2 * 1e-6).max(1e-10);
+            let var_raw = rn2 + f2 * (sky_val + flux_col * prof).max(0.0) / config.gain;
+            let var = var_raw.max(v_floor);
 
             let residual = (data_val - sky_val - flux_col * prof) / var.sqrt();
             if residual.abs() > config.cr_sigma {
@@ -641,7 +672,7 @@ mod tests {
         let rect =
             rectify_order(&frame, width, height, &spec, &rect_config).expect("should rectify");
 
-        let profile = fit_spatial_profile(&rect, None);
+        let profile = fit_spatial_profile(&rect, None, &OptimalExtractionConfig::default());
 
         // Profile should be normalized: sum over cross-dispersion = 1 per column.
         for col in 0..rect.n_dispersion {

@@ -139,6 +139,7 @@ fn bench_scattered_light(c: &mut Criterion) {
             })
             .collect();
         let config = ScatteredLightConfig {
+            enabled: true,
             aperture_half_width: 8.0,
             block_size: 16,
             poly_degree_x: 3,
