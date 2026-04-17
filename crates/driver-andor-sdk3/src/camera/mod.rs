@@ -150,7 +150,7 @@ where
     F: FnOnce() -> anyhow::Result<T> + Send + 'static,
     T: Send + 'static,
 {
-    crate::ffi_timeout::ffi_call_daq(f, crate::ffi_timeout::FFI_CONFIG_TIMEOUT, "sdk_blocking")
+    crate::ffi_timeout::ffi_call_daq("sdk_blocking", crate::ffi_timeout::FFI_CONFIG_TIMEOUT, f)
         .await
 }
 

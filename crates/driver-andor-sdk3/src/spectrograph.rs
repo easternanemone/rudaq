@@ -1024,6 +1024,8 @@ impl AndorSpectrograph {
         param.connect_to_hardware_write(move |val: f64| {
             Box::pin(async move {
                 crate::ffi_timeout::ffi_call_daq(
+                    "set_wavelength",
+                    crate::ffi_timeout::FFI_MOTION_TIMEOUT,
                     move || {
                         use crate::error::sdk_result;
                         // SAFETY: handle is valid from initialization.
@@ -1034,8 +1036,6 @@ impl AndorSpectrograph {
                             Ok(())
                         }
                     },
-                    crate::ffi_timeout::FFI_MOTION_TIMEOUT,
-                    "set_wavelength",
                 )
                 .await
             })
@@ -1048,6 +1048,8 @@ impl AndorSpectrograph {
             Box::pin(async move {
                 let grating_index = grating as i32;
                 crate::ffi_timeout::ffi_call_daq(
+                    "set_grating",
+                    crate::ffi_timeout::FFI_MOTION_TIMEOUT,
                     move || {
                         use crate::error::sdk_result;
                         // SAFETY: handle is valid from initialization.
@@ -1058,8 +1060,6 @@ impl AndorSpectrograph {
                             Ok(())
                         }
                     },
-                    crate::ffi_timeout::FFI_MOTION_TIMEOUT,
-                    "set_grating",
                 )
                 .await
             })
@@ -1071,6 +1071,8 @@ impl AndorSpectrograph {
         param.connect_to_hardware_read(move || {
             Box::pin(async move {
                 crate::ffi_timeout::ffi_call_daq(
+                    "read_wavelength",
+                    crate::ffi_timeout::FFI_QUERY_TIMEOUT,
                     move || {
                         use crate::error::sdk_result;
                         // SAFETY: handle is valid from initialization.
@@ -1083,8 +1085,6 @@ impl AndorSpectrograph {
                             Ok(wavelength as f64)
                         }
                     },
-                    crate::ffi_timeout::FFI_QUERY_TIMEOUT,
-                    "read_wavelength",
                 )
                 .await
             })
@@ -1096,6 +1096,8 @@ impl AndorSpectrograph {
         param.connect_to_hardware_write(move |width_um: f64| {
             Box::pin(async move {
                 crate::ffi_timeout::ffi_call_daq(
+                    "set_slit_width",
+                    crate::ffi_timeout::FFI_MOTION_TIMEOUT,
                     move || {
                         use crate::error::sdk_result;
                         // SAFETY: handle is valid from initialization.
@@ -1106,8 +1108,6 @@ impl AndorSpectrograph {
                             Ok(())
                         }
                     },
-                    crate::ffi_timeout::FFI_MOTION_TIMEOUT,
-                    "set_slit_width",
                 )
                 .await
             })
@@ -1120,6 +1120,8 @@ impl AndorSpectrograph {
             Box::pin(async move {
                 let pos = position as i32;
                 crate::ffi_timeout::ffi_call_daq(
+                    "set_flipper_mirror",
+                    crate::ffi_timeout::FFI_CONFIG_TIMEOUT,
                     move || {
                         use crate::error::sdk_result;
                         // SAFETY: handle is valid from initialization.
@@ -1130,8 +1132,6 @@ impl AndorSpectrograph {
                             Ok(())
                         }
                     },
-                    crate::ffi_timeout::FFI_CONFIG_TIMEOUT,
-                    "set_flipper_mirror",
                 )
                 .await
             })
