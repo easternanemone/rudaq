@@ -377,15 +377,28 @@ fn loop_to_rhai(
             };
             let _ = writeln!(
                 code,
-                "{}// TODO: Loop until {} {} {} (max {} iterations)",
+                "{}// Loop until {} {} {} (max {} iterations)",
                 ind, device_id, op_str, value, max_iterations
             );
-            let _ = writeln!(
-                code,
-                "{}// Condition-based loops not yet implemented in Rhai",
-                ind
-            );
+
+            let condition_expr = match operator {
+                ThresholdOp::LessThan => format!("val < {}", value),
+                ThresholdOp::GreaterThan => format!("val > {}", value),
+                ThresholdOp::EqualWithin { tolerance } => format!(
+                    "val >= {} && val <= {}",
+                    value - tolerance,
+                    value + tolerance
+                ),
+            };
+
             let _ = writeln!(code, "{}for i in 0..{} {{", ind, max_iterations);
+
+            // Generate condition check at the start of loop body (it's checked on every iteration)
+            let body_ind = indent_str(indent + 1);
+            let _ = writeln!(code, "{}let val = {}.read();", body_ind, device_id);
+            let _ = writeln!(code, "{}if {} {{", body_ind, condition_expr);
+            let _ = writeln!(code, "{}  break;", body_ind);
+            let _ = writeln!(code, "{}}}", body_ind);
         }
         LoopTermination::Infinite { max_iterations } => {
             let _ = writeln!(
@@ -936,6 +949,43 @@ mod tests {
         assert!(code.contains("for i in 0..5"));
         assert!(code.contains("trigger()"));
         assert!(code.contains("read()"));
+    }
+
+    #[test]
+    fn test_loop_to_rhai_condition() {
+        let mut snarl = Snarl::new();
+        let loop_node = snarl.insert_node(
+            pos2(0.0, 0.0),
+            ExperimentNode::Loop(LoopConfig {
+                termination: LoopTermination::Condition {
+                    device_id: "sensor".to_string(),
+                    operator: ThresholdOp::GreaterThan,
+                    value: 5.0,
+                    max_iterations: 10,
+                },
+            }),
+        );
+
+        let code = loop_to_rhai(
+            &LoopConfig {
+                termination: LoopTermination::Condition {
+                    device_id: "sensor".to_string(),
+                    operator: ThresholdOp::GreaterThan,
+                    value: 5.0,
+                    max_iterations: 10,
+                },
+            },
+            loop_node,
+            &snarl,
+            &HashSet::new(),
+            0,
+        );
+
+        assert!(code.contains("// Loop until sensor > 5 (max 10 iterations)"));
+        assert!(code.contains("for i in 0..10 {"));
+        assert!(code.contains("let val = sensor.read();"));
+        assert!(code.contains("if val > 5 {"));
+        assert!(code.contains("break;"));
     }
 
     #[test]
