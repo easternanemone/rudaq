@@ -454,9 +454,8 @@ fn emit_diagnose_report(result: &CalibrationResult, orientation: &EchelleOrienta
     );
 
     for diag in &result.per_order_diagnostics {
-        let sol = match &diag.wl_solution {
-            Some(s) => s,
-            None => continue,
+        let Some(sol) = &diag.wl_solution else {
+            continue;
         };
         let m = m_by_idx.get(&diag.order_index).copied().flatten();
         let samples: Vec<(f64, f64)> = sample_fracs
@@ -529,7 +528,9 @@ fn emit_diagnose_report(result: &CalibrationResult, orientation: &EchelleOrienta
     println!("orders outside [150,1200] nm:   {n_out_of_range}");
 
     if gc_products.len() >= 2 {
-        let n = gc_products.len() as f64;
+        let n = f64::from(
+            u32::try_from(gc_products.len()).expect("order count fits in u32"),
+        );
         let mean = gc_products.iter().sum::<f64>() / n;
         let var = gc_products.iter().map(|g| (g - mean).powi(2)).sum::<f64>() / n;
         let stddev = var.sqrt();

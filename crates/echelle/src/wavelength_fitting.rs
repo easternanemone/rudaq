@@ -1258,9 +1258,12 @@ impl OrderWlSolution {
             });
         }
 
+        let n_span =
+            f64::from(u32::try_from(N_SAMPLES - 1).expect("N_SAMPLES-1 fits in u32"));
         let samples: Vec<f64> = (0..N_SAMPLES)
             .map(|i| {
-                let frac = i as f64 / (N_SAMPLES as f64 - 1.0);
+                let frac =
+                    f64::from(u32::try_from(i).expect("sample index fits in u32")) / n_span;
                 let px = self.pixel_min + (self.pixel_max - self.pixel_min) * frac;
                 self.eval(px)
             })
