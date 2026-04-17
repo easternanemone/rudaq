@@ -12,7 +12,7 @@ use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use echelle::calibration_pipeline::{CalibrationPipelineConfig, WavelengthSeed};
+use echelle::calibration_pipeline::{CalibrationPipelineConfig, CalibrationResult, WavelengthSeed};
 use echelle::wavelength_fitting::{load_hg_atlas, load_hgar_atlas};
 use echelle::{EchelleFrameCompatibility, EchelleOrientation};
 
@@ -72,6 +72,10 @@ pub struct TuningSection {
     pub wl_seed_tolerance_nm: f64,
     /// Minimum matched lines required per order
     pub min_lines_per_order: usize,
+    /// Maximum acceptable per-order wavelength-fit RMS in nm (bd-0poyt).
+    /// Fits whose RMS exceeds this are rejected as likely spurious.
+    /// Set to 0.0 to disable the gate.
+    pub max_fit_rms_nm: f64,
     /// Use Horne 1986 optimal extraction (vs simple summation)
     pub use_optimal_extraction: bool,
     /// Calibration lamp type: "hg" (pure mercury, e.g. HG-2), "hgar" (mercury-argon).
@@ -101,6 +105,7 @@ impl Default for TuningSection {
             wl_poly_degree: 2,
             wl_seed_tolerance_nm: 2.0,
             min_lines_per_order: 3,
+            max_fit_rms_nm: 1.0,
             use_optimal_extraction: false,
             lamp: default_lamp(),
         }
@@ -164,6 +169,7 @@ impl CalibrateFileConfig {
         let mut wl_config = d.wl_config;
         wl_config.poly_degree = self.tuning.wl_poly_degree;
         wl_config.seed_tolerance_nm = self.tuning.wl_seed_tolerance_nm;
+        wl_config.max_fit_rms_nm = self.tuning.max_fit_rms_nm;
 
         CalibrationPipelineConfig {
             trace_config,
@@ -217,6 +223,7 @@ pub async fn handle_calibrate(
     flat_path: Option<PathBuf>,
     config_path: PathBuf,
     output_path: PathBuf,
+    diagnose: bool,
 ) -> Result<()> {
     // 1. Load calibration config
     let config_str = tokio::fs::read_to_string(&config_path)
@@ -337,6 +344,10 @@ pub async fn handle_calibrate(
         );
     }
 
+    if diagnose {
+        emit_diagnose_report(&result, &pipeline_config.orientation);
+    }
+
     // 5. Serialize and write profile
     let profile_toml = toml::to_string_pretty(&result.profile)
         .context("Failed to serialize calibration profile to TOML")?;
@@ -403,6 +414,143 @@ async fn load_frame(path: &PathBuf, expected_width: u32, expected_height: u32) -
             }
 
             Ok(gray.pixels().map(|p| f32::from(p[0])).collect())
+        }
+    }
+}
+
+// ─── Diagnostic report ──────────────────────────────────────────────────────
+
+/// Emit a verbose per-order diagnostic report to stdout.
+///
+/// Included checks:
+///   - Physical order number m (from the assembled profile)
+///   - Wavelength samples at 5 pixel fractions across each order
+///   - Monotonicity of the wavelength axis (strict increase / strict decrease)
+///   - Sign agreement with `orientation.wavelength_increase_with_dispersion_positive`
+///   - Grating-constant consistency (stddev / mean of m·λ_center across orders)
+///
+/// The report is plain text so an operator can `diff` before/after runs.
+fn emit_diagnose_report(result: &CalibrationResult, orientation: &EchelleOrientation) {
+    use std::collections::HashMap;
+
+    let m_by_idx: HashMap<u32, Option<i32>> = result
+        .profile
+        .orders
+        .iter()
+        .map(|o| (o.relative_index, o.physical_order_number))
+        .collect();
+
+    let expect_ascending = orientation.wavelength_increase_with_dispersion_positive;
+    let sample_fracs = [0.1_f64, 0.25, 0.5, 0.75, 0.9];
+
+    let mut n_inverted = 0usize;
+    let mut n_nonmonotonic = 0usize;
+    let mut n_out_of_range = 0usize;
+    let mut gc_products: Vec<f64> = Vec::new();
+
+    println!();
+    println!("=== --diagnose: per-order wavelength dump ===");
+    println!(
+        "expected sign: {}",
+        if expect_ascending {
+            "λ INCREASES with pixel (ascending)"
+        } else {
+            "λ DECREASES with pixel (descending)"
+        }
+    );
+
+    for diag in &result.per_order_diagnostics {
+        let Some(sol) = &diag.wl_solution else {
+            continue;
+        };
+        let m = m_by_idx.get(&diag.order_index).copied().flatten();
+        let samples: Vec<(f64, f64)> = sample_fracs
+            .iter()
+            .map(|f| {
+                let px = sol.pixel_min + (sol.pixel_max - sol.pixel_min) * *f;
+                (px, sol.eval(px))
+            })
+            .collect();
+
+        let diffs: Vec<f64> = samples.windows(2).map(|w| w[1].1 - w[0].1).collect();
+        let strictly_ascending = diffs.iter().all(|&d| d > 0.0);
+        let strictly_descending = diffs.iter().all(|&d| d < 0.0);
+        let monotonic = strictly_ascending || strictly_descending;
+        let sign_ok = if expect_ascending {
+            strictly_ascending
+        } else {
+            strictly_descending
+        };
+
+        let min_wl = samples
+            .iter()
+            .map(|(_, w)| *w)
+            .fold(f64::INFINITY, f64::min);
+        let max_wl = samples
+            .iter()
+            .map(|(_, w)| *w)
+            .fold(f64::NEG_INFINITY, f64::max);
+        let in_physical_range = min_wl >= 150.0 && max_wl <= 1200.0;
+
+        if !monotonic {
+            n_nonmonotonic += 1;
+        } else if !sign_ok {
+            n_inverted += 1;
+        }
+        if !in_physical_range {
+            n_out_of_range += 1;
+        }
+
+        if let Some(m_val) = m {
+            let center_px = 0.5 * (sol.pixel_min + sol.pixel_max);
+            let center_wl = sol.eval(center_px);
+            gc_products.push(f64::from(m_val) * center_wl);
+        }
+
+        let flag_mono = if monotonic { "mono" } else { "WAVY" };
+        let flag_sign = if sign_ok { "sign" } else { "INVR" };
+        let flag_range = if in_physical_range { "rng" } else { "OOR" };
+        let m_str = m.map_or_else(|| "m=?  ".to_string(), |v| format!("m={v:3}"));
+
+        println!(
+            "  Order {:3} {} [{} {} {}] λ@({:.1},{:.1},{:.1},{:.1},{:.1})nm",
+            diag.order_index,
+            m_str,
+            flag_mono,
+            flag_sign,
+            flag_range,
+            samples[0].1,
+            samples[1].1,
+            samples[2].1,
+            samples[3].1,
+            samples[4].1,
+        );
+    }
+
+    println!();
+    println!("=== --diagnose: summary ===");
+    println!("orders with non-monotonic axis: {n_nonmonotonic}");
+    println!("orders with inverted sign:      {n_inverted}");
+    println!("orders outside [150,1200] nm:   {n_out_of_range}");
+
+    if gc_products.len() >= 2 {
+        let n = f64::from(u32::try_from(gc_products.len()).expect("order count fits in u32"));
+        let mean = gc_products.iter().sum::<f64>() / n;
+        let var = gc_products.iter().map(|g| (g - mean).powi(2)).sum::<f64>() / n;
+        let stddev = var.sqrt();
+        let rel = if mean.abs() > 1e-12 {
+            stddev / mean.abs() * 100.0
+        } else {
+            f64::NAN
+        };
+        println!(
+            "grating constant (m·λ_center): mean={mean:.1} nm  stddev={stddev:.1} nm ({rel:.2}%)"
+        );
+        if rel > 3.0 {
+            println!(
+                "  ⚠ GC scatter > 3%: configured grating_constant_nm is likely wrong \
+                 (suspected actual: {mean:.0} nm)"
+            );
         }
     }
 }

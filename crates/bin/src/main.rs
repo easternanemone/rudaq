@@ -205,6 +205,12 @@ enum Commands {
         /// Output path for calibration profile (TOML)
         #[arg(long)]
         output: PathBuf,
+
+        /// Emit a verbose per-order diagnostic report (wavelength samples,
+        /// monotonicity check, grating-constant consistency). Useful for
+        /// debugging scientific correctness of a calibration run.
+        #[arg(long, default_value_t = false)]
+        diagnose: bool,
     },
 
     /// Generate a synthetic echelle frame (continuum, arc, or combined)
@@ -533,7 +539,8 @@ async fn main() -> Result<()> {
             flat,
             config,
             output,
-        } => calibrate::handle_calibrate(frame, flat, config, output).await,
+            diagnose,
+        } => calibrate::handle_calibrate(frame, flat, config, output, diagnose).await,
         Commands::Simulate {
             source,
             output,

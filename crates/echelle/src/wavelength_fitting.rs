@@ -647,6 +647,44 @@ pub struct WlFitConfig {
     pub max_clip_iters: usize,
     /// Seed tolerance in nm for initial atlas matching (default: 0.5).
     pub seed_tolerance_nm: f64,
+    /// Maximum acceptable per-order wavelength-fit RMS in nm (default: 0.5).
+    /// Fits whose RMS exceeds this are rejected as likely-spurious matches
+    /// (bd-0poyt). A value of 0.0 disables the gate.
+    #[serde(default = "default_max_fit_rms_nm")]
+    pub max_fit_rms_nm: f64,
+    /// Physics-based seed for the single-line fallback. When `Some`, the
+    /// fallback uses `fsr = grating_constant / m²` and the orientation sign
+    /// to build a linear wavelength model — avoiding the former hardcoded
+    /// detector width and sign (bd-ccer6, supersedes bd-3hlp heuristic).
+    ///
+    /// Skipped by serde because it is populated per-order from pipeline
+    /// state, not from user-facing TOML.
+    #[serde(skip)]
+    pub fallback_seed: Option<SingleLineFallbackSeed>,
+}
+
+fn default_max_fit_rms_nm() -> f64 {
+    1.0
+}
+
+/// Physics-based inputs for the single-line wavelength fallback.
+///
+/// When fewer atlas lines match than `poly_degree + 1`, the fallback builds
+/// a linear wavelength model anchored at the matched line. The dispersion
+/// magnitude is `grating_constant_nm / (physical_order² · n_pixels)`
+/// (free-spectral-range spread across the detector) and the sign comes from
+/// the instrument orientation.
+#[derive(Debug, Clone, Copy)]
+pub struct SingleLineFallbackSeed {
+    /// Echelle grating constant `m · λ_center` in nm.
+    pub grating_constant_nm: f64,
+    /// Physical diffraction order `m` for this trace.
+    pub physical_order: i32,
+    /// Detector width in pixels along the dispersion direction.
+    pub n_pixels: f64,
+    /// True if wavelength increases with pixel index (from
+    /// `EchelleOrientation.wavelength_increase_with_dispersion_positive`).
+    pub wavelength_ascending: bool,
 }
 
 impl Default for WlFitConfig {
@@ -656,6 +694,8 @@ impl Default for WlFitConfig {
             sigma_clip: 3.0,
             max_clip_iters: 5,
             seed_tolerance_nm: 0.5,
+            max_fit_rms_nm: default_max_fit_rms_nm(),
+            fallback_seed: None,
         }
     }
 }
@@ -957,6 +997,33 @@ pub fn is_gc_consistent(physical_order: f64, wavelength_nm: f64, gc: f64, tolera
     (product - gc).abs() / gc <= tolerance
 }
 
+/// Stronger physics filter: does `wavelength_nm` fall within the free spectral
+/// range of diffraction order `physical_order`?
+///
+/// For an echelle spectrograph with grating constant `gc = m · λ_center`:
+/// - `λ_center = gc / m`
+/// - Free spectral range `FSR = gc / m²`
+/// - The order transmits wavelengths in `[λ_center − FSR, λ_center + FSR]`
+///
+/// The `fsr_scale` parameter widens or tightens that window (1.0 = exactly
+/// ±FSR, 0.5 = ±½·FSR for tight physics-only matching). Returns `false` when
+/// `physical_order` or `gc` is non-positive so this is safe to call on
+/// uninitialised or anchor-only configs.
+#[must_use]
+pub fn is_within_order_fsr(
+    physical_order: f64,
+    wavelength_nm: f64,
+    gc: f64,
+    fsr_scale: f64,
+) -> bool {
+    if physical_order <= 0.0 || gc <= 0.0 || fsr_scale <= 0.0 {
+        return false;
+    }
+    let lambda_center = gc / physical_order;
+    let fsr = gc / (physical_order * physical_order);
+    (wavelength_nm - lambda_center).abs() <= fsr * fsr_scale
+}
+
 /// Configuration for two-phase atlas matching (bd-huzm).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TwoPhaseMatchConfig {
@@ -1153,10 +1220,25 @@ pub fn match_lines_two_phase(
                 continue;
             }
             let dist = (atlas_line.wavelength_nm - approx_wl).abs();
-            if dist < config.final_tolerance_nm && dist < best_dist {
-                best_dist = dist;
-                best_ai = Some(ai);
+            if dist >= config.final_tolerance_nm || dist >= best_dist {
+                continue;
             }
+            // Reject matches outside this order's free spectral range. Without
+            // this check, wide `final_tolerance_nm` values let cross-order
+            // atlas lines bleed in (bd-0poyt): Order 1 (m=19) on a gc=6300 nm
+            // grating could match atlas lines outside its FSR, inflating
+            // per-order RMS without improving coverage. We use FSR (not the
+            // global `gc_tolerance`) because a single order covers
+            // `λ_center ± FSR`, which is fractionally 1/m — far wider than
+            // the 1% `gc_tolerance` that only validates per-order `m·λ`
+            // agreement within a narrow band.
+            if gc_active
+                && !is_within_order_fsr(config.physical_order, atlas_line.wavelength_nm, gc, 1.0)
+            {
+                continue;
+            }
+            best_dist = dist;
+            best_ai = Some(ai);
         }
 
         if let Some(ai) = best_ai {
@@ -1194,7 +1276,135 @@ impl OrderWlSolution {
         let x_norm = 2.0 * (pixel - self.pixel_min) / (self.pixel_max - self.pixel_min) - 1.0;
         chebyshev_eval(&self.coefficients, x_norm)
     }
+
+    /// Verify that this wavelength solution is physically sensible.
+    ///
+    /// Checks three properties by sampling 20 pixels across `[pixel_min, pixel_max]`:
+    ///
+    /// 1. **Strict monotonicity** — consecutive wavelength samples differ in a consistent
+    ///    direction (no oscillation).
+    /// 2. **Sign agreement with orientation** — the monotonic direction matches
+    ///    `orientation.wavelength_increase_with_dispersion_positive`.
+    /// 3. **Physical range** — every sampled wavelength lies within
+    ///    `[min_wl_nm, max_wl_nm]` (typical usable range is 150–1200 nm).
+    ///
+    /// Returns `Ok(())` when the solution is valid, otherwise the first violation
+    /// encountered. Used to reject garbage wavelength models before they land in
+    /// a calibration profile (bd-ccer6).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MonotonicityError`] describing the first violation found.
+    pub fn validate_monotonic(
+        &self,
+        orientation: &crate::types::EchelleOrientation,
+        min_wl_nm: f64,
+        max_wl_nm: f64,
+    ) -> Result<(), MonotonicityError> {
+        const N_SAMPLES: usize = 20;
+
+        if self.pixel_max <= self.pixel_min {
+            return Err(MonotonicityError::InvalidDomain {
+                pixel_min: self.pixel_min,
+                pixel_max: self.pixel_max,
+            });
+        }
+
+        let n_span = f64::from(u32::try_from(N_SAMPLES - 1).expect("N_SAMPLES-1 fits in u32"));
+        let samples: Vec<f64> = (0..N_SAMPLES)
+            .map(|i| {
+                let frac = f64::from(u32::try_from(i).expect("sample index fits in u32")) / n_span;
+                let px = self.pixel_min + (self.pixel_max - self.pixel_min) * frac;
+                self.eval(px)
+            })
+            .collect();
+
+        for (idx, &wl) in samples.iter().enumerate() {
+            if !wl.is_finite() || wl < min_wl_nm || wl > max_wl_nm {
+                return Err(MonotonicityError::OutOfRange {
+                    sample_index: idx,
+                    wavelength_nm: wl,
+                    min_nm: min_wl_nm,
+                    max_nm: max_wl_nm,
+                });
+            }
+        }
+
+        let diffs: Vec<f64> = samples.windows(2).map(|w| w[1] - w[0]).collect();
+        let ascending = diffs.iter().all(|&d| d > 0.0);
+        let descending = diffs.iter().all(|&d| d < 0.0);
+
+        if !ascending && !descending {
+            return Err(MonotonicityError::NonMonotonic);
+        }
+
+        let sign_ok = if orientation.wavelength_increase_with_dispersion_positive {
+            ascending
+        } else {
+            descending
+        };
+
+        if !sign_ok {
+            return Err(MonotonicityError::InvertedSign {
+                expected_ascending: orientation.wavelength_increase_with_dispersion_positive,
+            });
+        }
+
+        Ok(())
+    }
 }
+
+/// Failure mode reported by [`OrderWlSolution::validate_monotonic`].
+#[derive(Debug, Clone, PartialEq)]
+pub enum MonotonicityError {
+    /// Pixel domain is invalid (`pixel_max <= pixel_min`).
+    InvalidDomain { pixel_min: f64, pixel_max: f64 },
+    /// Wavelength samples are not strictly monotonic.
+    NonMonotonic,
+    /// Wavelength monotonic direction disagrees with the instrument orientation.
+    InvertedSign { expected_ascending: bool },
+    /// A sampled wavelength falls outside the physical range.
+    OutOfRange {
+        sample_index: usize,
+        wavelength_nm: f64,
+        min_nm: f64,
+        max_nm: f64,
+    },
+}
+
+impl std::fmt::Display for MonotonicityError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidDomain {
+                pixel_min,
+                pixel_max,
+            } => write!(f, "invalid pixel domain [{pixel_min}, {pixel_max}]"),
+            Self::NonMonotonic => write!(f, "wavelength axis is not strictly monotonic"),
+            Self::InvertedSign { expected_ascending } => {
+                let want = if *expected_ascending {
+                    "ascending"
+                } else {
+                    "descending"
+                };
+                write!(
+                    f,
+                    "wavelength axis sign disagrees with orientation (expected {want})"
+                )
+            }
+            Self::OutOfRange {
+                sample_index,
+                wavelength_nm,
+                min_nm,
+                max_nm,
+            } => write!(
+                f,
+                "wavelength {wavelength_nm:.3} nm at sample {sample_index} outside [{min_nm}, {max_nm}] nm"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for MonotonicityError {}
 
 /// Match detected arc lines to atlas entries using a seed wavelength model.
 ///
@@ -1249,18 +1459,18 @@ pub fn match_lines_to_atlas(
 /// Takes detected lines with `wavelength_hint` filled in (from atlas matching)
 /// and fits a Chebyshev polynomial mapping pixel → wavelength (nm).
 /// Uses iterative sigma-clipping to reject outliers.
-/// Single-line wavelength calibration fallback (bd-3hlp).
+/// Single-line wavelength calibration fallback.
 ///
-/// When only 1 atlas match is available, we can't fit a polynomial.
-/// Instead, we construct a linear model by:
-/// 1. Using the matched line as an absolute wavelength anchor
-/// 2. Estimating the dispersion from the seed tolerance as a proxy for FSR:
-///    The tolerance (nm) roughly indicates the expected wavelength range per order.
-///    For echelle spectrographs, the free spectral range (FSR ≈ λ/m) is typically
-///    10-30nm, spread across ~2560 pixels → dispersion ≈ 0.004-0.012 nm/pixel.
+/// Builds a linear wavelength model anchored at the single matched atlas line.
 ///
-/// This gives a first-order wavelength solution good enough for order
-/// identification and approximate wavelength assignment.
+/// If `config.fallback_seed` is `Some`, dispersion is derived from the echelle
+/// equation: `|fsr| = grating_constant / m²`, sign from orientation, and
+/// `n_pixels` from detector width. This is the physically-correct path.
+///
+/// If `fallback_seed` is `None`, we fall back to a conservative tolerance-based
+/// heuristic (FSR ≈ 2 · seed_tolerance across an assumed 2560-pixel detector).
+/// The sign still follows orientation when a seed is supplied, so HgAr on
+/// `wavelength_ascending = true` instruments is no longer silently inverted.
 fn fit_single_line_fallback(
     lines: &[ArcLine],
     atlas: &[AtlasLine],
@@ -1272,26 +1482,31 @@ fn fit_single_line_fallback(
     let anchor_pixel = lines[li].pixel_center;
     let anchor_wl = atlas[ai].wavelength_nm;
 
-    // Estimate dispersion from the seed tolerance as a proxy for order width.
-    // The tolerance (typically 5-15nm) is roughly half the free spectral range.
-    // FSR ≈ 2 * tolerance, spread across the detector width.
-    let n_pixels = 2560.0_f64;
-    let estimated_fsr = config.seed_tolerance_nm.max(5.0) * 2.0;
-    let dispersion = -estimated_fsr / n_pixels; // nm/pixel (negative = wavelength decreases with pixel)
+    let (n_pixels, dispersion_magnitude, sign) = if let Some(seed) = config.fallback_seed {
+        let m = f64::from(seed.physical_order);
+        if m.abs() < 1e-6 || seed.n_pixels <= 1.0 {
+            return None;
+        }
+        let fsr = seed.grating_constant_nm / (m * m);
+        let sign = if seed.wavelength_ascending { 1.0 } else { -1.0 };
+        (seed.n_pixels, fsr / seed.n_pixels, sign)
+    } else {
+        // Legacy tolerance-based heuristic, preserved for callers that don't
+        // yet supply physics inputs. No longer hardcodes a negative sign.
+        let n_pixels = 2560.0_f64;
+        let estimated_fsr = config.seed_tolerance_nm.max(5.0) * 2.0;
+        (n_pixels, estimated_fsr / n_pixels, 1.0)
+    };
 
-    // Build linear Chebyshev coefficients on [0, n_pixels-1].
-    // λ(p) = anchor_wl + dispersion * (p - anchor_pixel)
-    //      = (anchor_wl - dispersion * anchor_pixel) + dispersion * p
+    let dispersion = sign * dispersion_magnitude;
+
     let pixel_min: f64 = 0.0;
-    let pixel_max: f64 = 2559.0; // standard detector width
+    let pixel_max: f64 = n_pixels - 1.0;
     let mid = pixel_min.midpoint(pixel_max);
     let half_range = (pixel_max - pixel_min) / 2.0;
 
-    // Chebyshev T0 = 1, T1 = x on [-1, 1]
-    // λ(x) = c0 + c1 * x where x = (p - mid) / half_range
-    // λ(p) = c0 + c1 * (p - mid) / half_range
-    // At anchor_pixel: anchor_wl = c0 + c1 * (anchor_pixel - mid) / half_range
-    // dispersion = c1 / half_range → c1 = dispersion * half_range
+    // Chebyshev T0 = 1, T1 = x on [-1, 1]; λ(p) = c0 + c1·(p - mid)/half_range.
+    // Differentiating: dispersion = c1 / half_range.
     let c1 = dispersion * half_range;
     let c0 = anchor_wl - c1 * (anchor_pixel - mid) / half_range;
 
@@ -1317,13 +1532,31 @@ pub fn fit_order_wavelength(
         return None;
     }
     if matches.len() <= config.poly_degree {
-        // Single-line fallback: with only 1 match and poly_degree <= 1,
-        // use the echelle equation as a prior and anchor to the matched line.
-        // This gives a reasonable linear solution when the echelle equation
-        // provides a good dispersion estimate. (bd-3hlp)
-        if matches.len() == 1 && config.poly_degree <= 1 {
+        // Single-match fallback: the physics-seeded linear model anchors at
+        // the matched line and derives dispersion from the echelle equation
+        // (bd-ccer6, supersedes bd-3hlp). Degree-reduced overfit fits for
+        // matches==N==poly_degree are deliberately *not* taken here: a fit
+        // with zero degrees of freedom has RMS=0 regardless of whether the
+        // matches correspond to the right physical order, and cannot be
+        // distinguished from a wrong-candidate_m win (bd-0poyt). Let orders
+        // with `1 < matches.len() <= poly_degree` fall through to Pass 3
+        // bootstrap instead.
+        if matches.len() == 1 && (config.fallback_seed.is_some() || config.poly_degree <= 1) {
             return fit_single_line_fallback(lines, atlas, matches, order, config);
         }
+        return None;
+    }
+    fit_order_wavelength_with_degree(lines, atlas, matches, order, config)
+}
+
+fn fit_order_wavelength_with_degree(
+    lines: &[ArcLine],
+    atlas: &[AtlasLine],
+    matches: &[(usize, usize)],
+    order: u32,
+    config: &WlFitConfig,
+) -> Option<OrderWlSolution> {
+    if matches.len() <= config.poly_degree {
         return None;
     }
 
@@ -1425,6 +1658,13 @@ pub fn fit_order_wavelength(
 
     let n_used = mask.iter().filter(|&&m| m).count();
     if n_used <= config.poly_degree {
+        return None;
+    }
+
+    // Reject fits with unreasonably high RMS — these are almost always caused
+    // by spurious atlas matches (bd-0poyt). `max_fit_rms_nm = 0.0` disables
+    // the gate for callers that want every fit regardless of quality.
+    if config.max_fit_rms_nm > 0.0 && rms > config.max_fit_rms_nm {
         return None;
     }
 
@@ -1777,6 +2017,247 @@ pub fn leave_one_out_rms(points: &[(f64, f64, f64)], degree_x: usize, degree_y: 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ─── validate_monotonic ────────────────────────────────────────────────
+
+    fn orientation(ascending: bool) -> crate::types::EchelleOrientation {
+        crate::types::EchelleOrientation {
+            dispersion_axis: crate::types::DetectorAxis::X,
+            cross_dispersion_axis: crate::types::DetectorAxis::Y,
+            order_number_increase_direction: crate::types::AxisDirection::Positive,
+            wavelength_increase_with_dispersion_positive: ascending,
+        }
+    }
+
+    fn ascending_solution() -> OrderWlSolution {
+        // λ(pixel) = 500 + 0.1·pixel on [0, 1000]. Cast to Chebyshev T0/T1:
+        // x_norm = 2*(p - 500)/1000 - 0 on [-1, 1]; λ = 550 + 50·x_norm.
+        OrderWlSolution {
+            order: 0,
+            coefficients: vec![550.0, 50.0],
+            pixel_min: 0.0,
+            pixel_max: 1000.0,
+            rms_nm: 0.0,
+            n_lines_used: 2,
+            n_lines_total: 2,
+        }
+    }
+
+    fn descending_solution() -> OrderWlSolution {
+        // λ(pixel) = 550 - 0.05·pixel → c1 negative.
+        OrderWlSolution {
+            order: 0,
+            coefficients: vec![525.0, -25.0],
+            pixel_min: 0.0,
+            pixel_max: 1000.0,
+            rms_nm: 0.0,
+            n_lines_used: 2,
+            n_lines_total: 2,
+        }
+    }
+
+    #[test]
+    fn validate_monotonic_accepts_ascending_when_orientation_ascending() {
+        let sol = ascending_solution();
+        assert!(
+            sol.validate_monotonic(&orientation(true), 150.0, 1200.0)
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn validate_monotonic_rejects_descending_when_orientation_ascending() {
+        let sol = descending_solution();
+        let err = sol
+            .validate_monotonic(&orientation(true), 150.0, 1200.0)
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            MonotonicityError::InvertedSign {
+                expected_ascending: true
+            }
+        ));
+    }
+
+    #[test]
+    fn validate_monotonic_rejects_ascending_when_orientation_descending() {
+        let sol = ascending_solution();
+        let err = sol
+            .validate_monotonic(&orientation(false), 150.0, 1200.0)
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            MonotonicityError::InvertedSign {
+                expected_ascending: false
+            }
+        ));
+    }
+
+    #[test]
+    fn validate_monotonic_rejects_nonmonotonic() {
+        // Parabolic λ(x_norm) = 500 + 0·x + 20·x² → not monotonic.
+        let sol = OrderWlSolution {
+            order: 0,
+            coefficients: vec![500.0, 0.0, 20.0],
+            pixel_min: 0.0,
+            pixel_max: 1000.0,
+            rms_nm: 0.0,
+            n_lines_used: 3,
+            n_lines_total: 3,
+        };
+        let err = sol
+            .validate_monotonic(&orientation(true), 150.0, 1200.0)
+            .unwrap_err();
+        assert!(matches!(err, MonotonicityError::NonMonotonic));
+    }
+
+    #[test]
+    fn validate_monotonic_rejects_out_of_range() {
+        // λ hovers around 50 nm — far outside [150, 1200].
+        let sol = OrderWlSolution {
+            order: 0,
+            coefficients: vec![50.0, 5.0],
+            pixel_min: 0.0,
+            pixel_max: 1000.0,
+            rms_nm: 0.0,
+            n_lines_used: 2,
+            n_lines_total: 2,
+        };
+        let err = sol
+            .validate_monotonic(&orientation(true), 150.0, 1200.0)
+            .unwrap_err();
+        assert!(matches!(err, MonotonicityError::OutOfRange { .. }));
+    }
+
+    #[test]
+    fn validate_monotonic_rejects_invalid_domain() {
+        let sol = OrderWlSolution {
+            order: 0,
+            coefficients: vec![500.0, 0.0],
+            pixel_min: 500.0,
+            pixel_max: 500.0, // degenerate
+            rms_nm: 0.0,
+            n_lines_used: 1,
+            n_lines_total: 1,
+        };
+        let err = sol
+            .validate_monotonic(&orientation(true), 150.0, 1200.0)
+            .unwrap_err();
+        assert!(matches!(err, MonotonicityError::InvalidDomain { .. }));
+    }
+
+    // ─── fit_single_line_fallback with physics seed (bd-ccer6) ─────────────
+
+    #[test]
+    fn single_line_fallback_uses_positive_sign_when_ascending() {
+        let lines = vec![ArcLine {
+            order: 0,
+            pixel_center: 1280.0,
+            pixel_sigma: 2.0,
+            amplitude: 1000.0,
+            wavelength_hint: None,
+            used: true,
+            saturated: false,
+        }];
+        let atlas = vec![AtlasLine {
+            wavelength_nm: 546.074,
+            species: "Hg I".into(),
+            strength: 10000.0,
+        }];
+        let matches = vec![(0, 0)];
+        let mut config = WlFitConfig {
+            poly_degree: 1,
+            ..Default::default()
+        };
+        config.fallback_seed = Some(SingleLineFallbackSeed {
+            grating_constant_nm: 36300.0,
+            physical_order: 66, // 36300/66 ≈ 550 nm
+            n_pixels: 2560.0,
+            wavelength_ascending: true,
+        });
+        let sol = fit_order_wavelength(&lines, &atlas, &matches, 0, &config).expect("should fit");
+        let wl_lo = sol.eval(sol.pixel_min);
+        let wl_hi = sol.eval(sol.pixel_max);
+        assert!(
+            wl_hi > wl_lo,
+            "expected ascending λ, got lo={wl_lo} hi={wl_hi}"
+        );
+    }
+
+    #[test]
+    fn single_line_fallback_uses_negative_sign_when_descending() {
+        let lines = vec![ArcLine {
+            order: 0,
+            pixel_center: 1280.0,
+            pixel_sigma: 2.0,
+            amplitude: 1000.0,
+            wavelength_hint: None,
+            used: true,
+            saturated: false,
+        }];
+        let atlas = vec![AtlasLine {
+            wavelength_nm: 546.074,
+            species: "Hg I".into(),
+            strength: 10000.0,
+        }];
+        let matches = vec![(0, 0)];
+        let mut config = WlFitConfig {
+            poly_degree: 1,
+            ..Default::default()
+        };
+        config.fallback_seed = Some(SingleLineFallbackSeed {
+            grating_constant_nm: 36300.0,
+            physical_order: 66,
+            n_pixels: 2560.0,
+            wavelength_ascending: false,
+        });
+        let sol = fit_order_wavelength(&lines, &atlas, &matches, 0, &config).expect("should fit");
+        let wl_lo = sol.eval(sol.pixel_min);
+        let wl_hi = sol.eval(sol.pixel_max);
+        assert!(
+            wl_hi < wl_lo,
+            "expected descending λ, got lo={wl_lo} hi={wl_hi}"
+        );
+    }
+
+    #[test]
+    fn single_line_fallback_magnitude_matches_fsr_over_n_pixels() {
+        // FSR = 36300 / 66^2 ≈ 8.33 nm; dispersion = FSR / 2560 ≈ 0.00325 nm/pixel.
+        // Total wavelength span across the detector ≈ FSR.
+        let lines = vec![ArcLine {
+            order: 0,
+            pixel_center: 1280.0,
+            pixel_sigma: 2.0,
+            amplitude: 1000.0,
+            wavelength_hint: None,
+            used: true,
+            saturated: false,
+        }];
+        let atlas = vec![AtlasLine {
+            wavelength_nm: 550.0,
+            species: "Hg I".into(),
+            strength: 10000.0,
+        }];
+        let matches = vec![(0, 0)];
+        let mut config = WlFitConfig {
+            poly_degree: 1,
+            ..Default::default()
+        };
+        config.fallback_seed = Some(SingleLineFallbackSeed {
+            grating_constant_nm: 36300.0,
+            physical_order: 66,
+            n_pixels: 2560.0,
+            wavelength_ascending: true,
+        });
+        let sol = fit_order_wavelength(&lines, &atlas, &matches, 0, &config).expect("should fit");
+        let span = sol.eval(sol.pixel_max) - sol.eval(sol.pixel_min);
+        let expected_fsr = 36300.0 / (66.0 * 66.0);
+        let ratio = span / expected_fsr;
+        assert!(
+            (ratio - 1.0).abs() < 0.01,
+            "span {span:.4} nm vs expected FSR {expected_fsr:.4} nm (ratio {ratio:.4})"
+        );
+    }
 
     /// Build a synthetic spectrum with known Gaussian peaks at given positions.
     ///
