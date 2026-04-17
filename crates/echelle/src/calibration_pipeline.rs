@@ -28,7 +28,7 @@ use std::sync::Arc;
 
 use chrono::Utc;
 
-use crate::optimal_extraction::{OptimalExtractionConfig, optimal_extract};
+use crate::optimal_extraction::OptimalExtractionConfig;
 use crate::rectification::{OrderSpec, RectifyConfig, rectify_order};
 use crate::scattered_light::{ScatteredLightConfig, TraceInfo, subtract_scattered_light};
 use crate::trace_fitting::{OrderTrace, TraceFitConfig, detect_orders};
@@ -884,14 +884,14 @@ fn extract_order_spectrum_f32(
         order_index,
     };
     let rect = rectify_order(frame, width, height, &spec, &config.rectify_config)?;
-    let spectrum_f64: Vec<f64> = if config.use_optimal_extraction {
-        match optimal_extract(&rect, None, &config.optimal_config) {
-            Some(result) => result.flux,
-            None => simple_sum_extract(&rect),
-        }
-    } else {
-        simple_sum_extract(&rect)
-    };
+    // Arc line detection always uses the boxcar sum (bd-8yjd1 P2 follow-up):
+    // optimal extraction needs a calibrated spatial profile, but calibration
+    // is downstream of arc line detection — so using the Horne kernel here
+    // would use an uncalibrated narrow profile that collapses arc peaks to
+    // <1.5-px FWHM, causing the arc-line detector to reject them. The
+    // `use_optimal_extraction` flag is recorded on the profile so downstream
+    // consumers use Horne for science extraction once the profile exists.
+    let spectrum_f64: Vec<f64> = simple_sum_extract(&rect);
     Some(spectrum_f64.iter().map(|&v| v as f32).collect())
 }
 

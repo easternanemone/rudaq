@@ -1,0 +1,316 @@
+🚀 rust-daq - Headless DAQ System
+Architecture: Headless-First + Scriptable (v5)
+DEBUG: Feature networking ENABLED
+SDK probe: DiscoveredSdks(none)
+
+Loaded 2560x2160 arc frame from /tmp/hgar-hw-test/hgar-real.tiff
+Running calibration pipeline...
+Pass 1: Order 0 matched physical order Some(43)
+Pass 1: Order 1 matched physical order Some(47)
+Pass 1: Order 2 matched physical order Some(45)
+Pass 1: Order 3 matched physical order Some(44)
+Pass 1: Order 4 matched physical order Some(45)
+Pass 1: Order 5 matched physical order Some(48)
+Pass 1: Order 6 matched physical order Some(49)
+Pass 1: Order 7 matched physical order Some(51)
+Pass 1: Order 8 matched physical order Some(52)
+Pass 1: Order 9 matched physical order Some(50)
+Pass 1: Order 16 REJECTED (wavelength axis): wavelength axis sign disagrees with orientation (expected ascending)
+Pass 1: Order 17 REJECTED (wavelength axis): wavelength axis sign disagrees with orientation (expected ascending)
+Pass 1: Order 18 REJECTED (wavelength axis): wavelength axis sign disagrees with orientation (expected ascending)
+Pass 1: Order 19 matched physical order Some(63)
+Pass 1: Order 20 matched physical order Some(62)
+Pass 1: Order 21 matched physical order Some(66)
+Pass 1: Order 22 matched physical order Some(67)
+Pass 1: Order 37 matched physical order Some(83)
+Pass 1: Order 38 matched physical order Some(84)
+Pass 1: Order 43 matched physical order Some(89)
+Pass 1: Order 44 matched physical order Some(90)
+Pass 1: Order 53 matched physical order Some(99)
+Pass 1: Order 54 matched physical order Some(100)
+Pass 1: Order 62 matched physical order Some(108)
+Pass 1: Order 63 matched physical order Some(108)
+Pass 1: Order 64 matched physical order Some(108)
+Pass 1: Order 65 matched physical order Some(108)
+Pass 1: Order 66 matched physical order Some(108)
+Pass 1: Order 67 matched physical order Some(108)
+Pass 1: Order 68 matched physical order Some(108)
+Pass 1: Order 69 matched physical order Some(108)
+Pass 1: Order 70 matched physical order Some(116)
+Pass 1: Order 71 matched physical order Some(116)
+Pass 1: Order 72 matched physical order Some(116)
+Pass 1: Order 73 matched physical order Some(116)
+Pass 1: Order 74 matched physical order Some(116)
+Pass 1: Order 75 matched physical order Some(116)
+Pass 1: Order 76 matched physical order Some(116)
+Pass 1: Order 77 matched physical order Some(116)
+Pass 1: Order 78 matched physical order Some(120)
+Pass 1: Order 79 matched physical order Some(120)
+Pass 1: Order 80 matched physical order Some(120)
+Pass 1: Order 81 matched physical order Some(120)
+Pass 1: Order 82 matched physical order Some(122)
+Pass 1: Order 83 matched physical order Some(122)
+Pass 1: Order 97 matched physical order Some(143)
+Pass 1: Order 98 matched physical order Some(143)
+Pass 1: Order 99 matched physical order Some(143)
+Pass 1: Order 100 matched physical order Some(143)
+Pass 1: Order 101 matched physical order Some(143)
+Pass 1: Order 102 matched physical order Some(143)
+Pass 1: Order 103 matched physical order Some(143)
+Pass 2: Order 18 REJECTED (wavelength axis): wavelength axis sign disagrees with orientation (expected ascending)
+Pass 2: Order 23 matched physical order Some(67)
+Pass 2: Order 39 matched physical order Some(83)
+Pass 2: Order 40 matched physical order Some(83)
+Pass 2: Order 45 matched physical order Some(89)
+Pass 2: Order 46 matched physical order Some(90)
+Pass 2: Order 56 matched physical order Some(99)
+Pass 2: Order 57 matched physical order Some(100)
+Deduplicator: dropping order 4 (physical order 45 already claimed)
+Deduplicator: dropping order 63 (physical order 108 already claimed)
+Deduplicator: dropping order 64 (physical order 108 already claimed)
+Deduplicator: dropping order 65 (physical order 108 already claimed)
+Deduplicator: dropping order 66 (physical order 108 already claimed)
+Deduplicator: dropping order 67 (physical order 108 already claimed)
+Deduplicator: dropping order 68 (physical order 108 already claimed)
+Deduplicator: dropping order 69 (physical order 108 already claimed)
+Deduplicator: dropping order 71 (physical order 116 already claimed)
+Deduplicator: dropping order 72 (physical order 116 already claimed)
+Deduplicator: dropping order 73 (physical order 116 already claimed)
+Deduplicator: dropping order 74 (physical order 116 already claimed)
+Deduplicator: dropping order 75 (physical order 116 already claimed)
+Deduplicator: dropping order 76 (physical order 116 already claimed)
+Deduplicator: dropping order 77 (physical order 116 already claimed)
+Deduplicator: dropping order 79 (physical order 120 already claimed)
+Deduplicator: dropping order 80 (physical order 120 already claimed)
+Deduplicator: dropping order 81 (physical order 120 already claimed)
+Deduplicator: dropping order 83 (physical order 122 already claimed)
+Deduplicator: dropping order 98 (physical order 143 already claimed)
+Deduplicator: dropping order 99 (physical order 143 already claimed)
+Deduplicator: dropping order 100 (physical order 143 already claimed)
+Deduplicator: dropping order 101 (physical order 143 already claimed)
+Deduplicator: dropping order 102 (physical order 143 already claimed)
+Deduplicator: dropping order 103 (physical order 143 already claimed)
+Deduplicator: dropping order 23 (physical order 67 already claimed)
+Deduplicator: dropping order 39 (physical order 83 already claimed)
+Deduplicator: dropping order 40 (physical order 83 already claimed)
+Deduplicator: dropping order 45 (physical order 89 already claimed)
+Deduplicator: dropping order 46 (physical order 90 already claimed)
+Deduplicator: dropping order 56 (physical order 99 already claimed)
+Deduplicator: dropping order 57 (physical order 100 already claimed)
+
+=== Calibration Result ===
+Orders detected:    144
+Orders calibrated:  107
+Overall RMS:        0.1041 nm
+
+  Order   0:  OK  | lines: 6/3/3 (detected/matched/used) | RMS: 0.3206 nm
+  Order   1:  OK  | lines: 6/2/2 (detected/matched/used) | RMS: 0.0000 nm
+  Order   2:  OK  | lines: 14/3/3 (detected/matched/used) | RMS: 0.3240 nm
+  Order   3:  OK  | lines: 12/2/2 (detected/matched/used) | RMS: 0.0000 nm
+  Order   4:  OK  | lines: 11/3/3 (detected/matched/used) | RMS: 0.1452 nm
+  Order   5:  OK  | lines: 6/3/3 (detected/matched/used) | RMS: 0.1624 nm
+  Order   6:  OK  | lines: 20/3/3 (detected/matched/used) | RMS: 0.0706 nm
+  Order   7:  OK  | lines: 18/2/2 (detected/matched/used) | RMS: 0.0000 nm
+  Order   8:  OK  | lines: 11/2/2 (detected/matched/used) | RMS: 0.0000 nm
+  Order   9:  OK  | lines: 11/2/2 (detected/matched/used) | RMS: 0.0000 nm
+  Order  10:  OK  | lines: 10/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order  11:  OK  | lines: 14/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order  12:  OK  | lines: 8/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order  13:  OK  | lines: 17/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order  14:  OK  | lines: 12/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order  15:  OK  | lines: 13/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order  16:  OK  | lines: 16/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order  17:  OK  | lines: 13/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order  18: FAIL | lines: 10/2/2 (detected/matched/used) | RMS: 0.0000 nm | wavelength axis invalid: wavelength axis sign disagrees with orientation (expected ascending)
+  Order  19:  OK  | lines: 7/2/2 (detected/matched/used) | RMS: 0.0000 nm
+  Order  20:  OK  | lines: 7/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  21:  OK  | lines: 17/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  22:  OK  | lines: 12/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  23:  OK  | lines: 5/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  24:  OK  | lines: 16/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order  25:  OK  | lines: 15/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order  26:  OK  | lines: 10/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order  27:  OK  | lines: 14/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order  28:  OK  | lines: 14/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order  29:  OK  | lines: 9/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order  30:  OK  | lines: 8/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order  31:  OK  | lines: 15/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order  32:  OK  | lines: 18/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order  33:  OK  | lines: 8/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order  34:  OK  | lines: 11/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order  35:  OK  | lines: 15/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order  36:  OK  | lines: 12/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order  37:  OK  | lines: 14/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  38:  OK  | lines: 13/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  39:  OK  | lines: 10/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  40:  OK  | lines: 8/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  41:  OK  | lines: 15/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order  42:  OK  | lines: 9/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order  43:  OK  | lines: 15/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  44:  OK  | lines: 15/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  45:  OK  | lines: 16/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  46:  OK  | lines: 14/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  47:  OK  | lines: 7/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order  48:  OK  | lines: 14/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order  49:  OK  | lines: 6/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order  50:  OK  | lines: 7/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order  51:  OK  | lines: 11/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order  52:  OK  | lines: 11/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order  53:  OK  | lines: 22/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  54:  OK  | lines: 12/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  55:  OK  | lines: 10/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order  56:  OK  | lines: 10/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  57:  OK  | lines: 14/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  58:  OK  | lines: 11/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order  59:  OK  | lines: 15/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order  60:  OK  | lines: 8/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order  61:  OK  | lines: 18/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order  62:  OK  | lines: 8/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  63:  OK  | lines: 17/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  64:  OK  | lines: 17/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  65:  OK  | lines: 7/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  66:  OK  | lines: 10/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  67:  OK  | lines: 8/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  68:  OK  | lines: 6/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  69:  OK  | lines: 14/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  70:  OK  | lines: 8/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  71:  OK  | lines: 6/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  72:  OK  | lines: 12/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  73:  OK  | lines: 12/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  74:  OK  | lines: 12/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  75:  OK  | lines: 17/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  76:  OK  | lines: 10/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  77:  OK  | lines: 10/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  78:  OK  | lines: 10/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  79:  OK  | lines: 12/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  80:  OK  | lines: 13/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  81:  OK  | lines: 6/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  82:  OK  | lines: 10/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  83:  OK  | lines: 5/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  84:  OK  | lines: 7/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order  85:  OK  | lines: 13/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order  86:  OK  | lines: 16/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order  87:  OK  | lines: 15/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order  88:  OK  | lines: 9/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order  89:  OK  | lines: 12/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order  90:  OK  | lines: 14/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order  91:  OK  | lines: 8/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order  92:  OK  | lines: 8/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order  93:  OK  | lines: 16/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order  94:  OK  | lines: 14/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order  95:  OK  | lines: 5/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order  96:  OK  | lines: 15/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order  97:  OK  | lines: 11/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  98:  OK  | lines: 14/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  99:  OK  | lines: 7/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order 100:  OK  | lines: 14/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order 101:  OK  | lines: 17/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order 102:  OK  | lines: 12/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order 103:  OK  | lines: 10/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order 104:  OK  | lines: 7/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order 105:  OK  | lines: 9/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order 106:  OK  | lines: 15/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order 107:  OK  | lines: 8/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order 108:  OK  | lines: 13/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order 109:  OK  | lines: 11/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order 110:  OK  | lines: 13/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order 111: FAIL | lines: 14/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 112:  OK  | lines: 13/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order 113:  OK  | lines: 17/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order 114:  OK  | lines: 12/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order 115:  OK  | lines: 10/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order 116:  OK  | lines: 11/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order 117:  OK  | lines: 8/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order 118:  OK  | lines: 8/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order 119:  OK  | lines: 15/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order 120:  OK  | lines: 8/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order 121:  OK  | lines: 13/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order 122:  OK  | lines: 14/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order 123: FAIL | lines: 8/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 124:  OK  | lines: 9/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order 125:  OK  | lines: 10/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order 126:  OK  | lines: 12/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order 127:  OK  | lines: 9/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order 128:  OK  | lines: 15/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order 129:  OK  | lines: 17/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order 130:  OK  | lines: 9/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order 131:  OK  | lines: 17/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order 132:  OK  | lines: 21/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order 133: FAIL | lines: 9/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 134:  OK  | lines: 7/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order 135:  OK  | lines: 18/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order 136:  OK  | lines: 11/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order 137:  OK  | lines: 13/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order 138:  OK  | lines: 8/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order 139:  OK  | lines: 15/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order 140:  OK  | lines: 16/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order 141:  OK  | lines: 15/0/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order 142: FAIL | lines: 22/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 143:  OK  | lines: 14/0/0 (detected/matched/used) | RMS: 0.0000 nm
+
+=== --diagnose: per-order wavelength dump ===
+expected sign: λ INCREASES with pixel (ascending)
+  Order   0 m= 43 [mono sign rng] λ@(841.6,843.4,846.3,849.2,850.9)nm
+  Order   1 m= 47 [mono sign rng] λ@(764.4,765.7,767.9,770.2,771.5)nm
+  Order   2 m= 45 [mono sign rng] λ@(795.6,796.6,798.4,800.1,801.1)nm
+  Order   3 m= 44 [mono sign rng] λ@(813.0,815.3,819.0,822.7,825.0)nm
+  Order   4 m=?   [mono sign rng] λ@(795.5,796.4,798.1,799.7,800.7)nm
+  Order   5 m= 48 [mono sign rng] λ@(751.5,753.5,756.8,760.2,762.2)nm
+  Order   6 m= 49 [mono sign rng] λ@(739.7,741.6,744.9,748.1,750.1)nm
+  Order   7 m= 51 [mono sign rng] λ@(707.5,708.7,710.7,712.7,713.9)nm
+  Order   8 m= 52 [mono sign rng] λ@(697.6,699.1,701.6,704.2,705.7)nm
+  Order   9 m= 50 [mono sign rng] λ@(716.0,717.9,721.0,724.1,726.0)nm
+  Order  19 m= 63 [mono sign rng] λ@(577.2,577.5,578.0,578.5,578.9)nm
+  Order  20 m= 62 [mono sign rng] λ@(579.6,581.0,583.3,585.7,587.1)nm
+  Order  21 m= 66 [mono sign rng] λ@(546.7,547.9,550.0,552.1,553.3)nm
+  Order  22 m= 67 [mono sign rng] λ@(539.2,540.4,542.4,544.5,545.7)nm
+  Order  23 m=?   [mono sign rng] λ@(539.7,540.9,543.0,545.0,546.2)nm
+  Order  37 m= 83 [mono sign rng] λ@(435.5,436.2,437.6,438.9,439.7)nm
+  Order  38 m= 84 [mono sign rng] λ@(431.6,432.4,433.7,435.0,435.8)nm
+  Order  39 m=?   [mono sign rng] λ@(433.9,434.7,436.0,437.3,438.1)nm
+  Order  40 m=?   [mono sign rng] λ@(435.0,435.8,437.1,438.4,439.1)nm
+  Order  43 m= 89 [mono sign rng] λ@(404.3,405.0,406.2,407.3,408.0)nm
+  Order  44 m= 90 [mono sign rng] λ@(402.1,402.8,403.9,405.1,405.7)nm
+  Order  45 m=?   [mono sign rng] λ@(404.6,405.3,406.5,407.6,408.3)nm
+  Order  46 m=?   [mono sign rng] λ@(401.9,402.6,403.7,404.8,405.5)nm
+  Order  53 m= 99 [mono sign rng] λ@(363.8,364.3,365.2,366.2,366.7)nm
+  Order  54 m=100 [mono sign rng] λ@(362.9,363.5,364.4,365.3,365.8)nm
+  Order  56 m=?   [mono sign rng] λ@(365.1,365.7,366.6,367.5,368.1)nm
+  Order  57 m=?   [mono sign rng] λ@(362.1,362.7,363.6,364.5,365.0)nm
+  Order  62 m=108 [mono sign rng] λ@(334.4,334.8,335.6,336.4,336.8)nm
+  Order  63 m=?   [mono sign rng] λ@(334.5,334.9,335.7,336.4,336.9)nm
+  Order  64 m=?   [mono sign rng] λ@(334.2,334.7,335.5,336.2,336.7)nm
+  Order  65 m=?   [mono sign rng] λ@(334.4,334.9,335.6,336.4,336.9)nm
+  Order  66 m=?   [mono sign rng] λ@(334.3,334.8,335.5,336.3,336.7)nm
+  Order  67 m=?   [mono sign rng] λ@(334.4,334.9,335.6,336.4,336.9)nm
+  Order  68 m=?   [mono sign rng] λ@(333.7,334.2,335.0,335.7,336.2)nm
+  Order  69 m=?   [mono sign rng] λ@(334.4,334.8,335.6,336.4,336.8)nm
+  Order  70 m=116 [mono sign rng] λ@(311.2,311.6,312.2,312.9,313.3)nm
+  Order  71 m=?   [mono sign rng] λ@(312.8,313.2,313.9,314.6,315.0)nm
+  Order  72 m=?   [mono sign rng] λ@(312.6,313.0,313.7,314.4,314.8)nm
+  Order  73 m=?   [mono sign rng] λ@(312.8,313.2,313.9,314.6,315.0)nm
+  Order  74 m=?   [mono sign rng] λ@(312.6,313.0,313.7,314.4,314.8)nm
+  Order  75 m=?   [mono sign rng] λ@(312.7,313.1,313.8,314.5,314.9)nm
+  Order  76 m=?   [mono sign rng] λ@(310.9,311.3,311.9,312.6,313.0)nm
+  Order  77 m=?   [mono sign rng] λ@(310.9,311.3,311.9,312.6,313.0)nm
+  Order  78 m=120 [mono sign rng] λ@(302.2,302.6,303.3,303.9,304.3)nm
+  Order  79 m=?   [mono sign rng] λ@(302.1,302.4,303.1,303.7,304.1)nm
+  Order  80 m=?   [mono sign rng] λ@(300.4,300.8,301.4,302.0,302.4)nm
+  Order  81 m=?   [mono sign rng] λ@(300.5,300.8,301.5,302.1,302.4)nm
+  Order  82 m=122 [mono sign rng] λ@(295.8,296.1,296.8,297.4,297.7)nm
+  Order  83 m=?   [mono sign rng] λ@(295.4,295.8,296.4,297.0,297.4)nm
+  Order  97 m=143 [mono sign rng] λ@(252.7,253.0,253.4,253.8,254.1)nm
+  Order  98 m=?   [mono sign rng] λ@(253.2,253.5,254.0,254.4,254.7)nm
+  Order  99 m=?   [mono sign rng] λ@(253.0,253.2,253.7,254.1,254.4)nm
+  Order 100 m=?   [mono sign rng] λ@(253.5,253.8,254.2,254.7,255.0)nm
+  Order 101 m=?   [mono sign rng] λ@(253.2,253.4,253.9,254.3,254.6)nm
+  Order 102 m=?   [mono sign rng] λ@(253.6,253.8,254.3,254.7,255.0)nm
+  Order 103 m=?   [mono sign rng] λ@(252.7,252.9,253.4,253.8,254.1)nm
+
+=== --diagnose: summary ===
+orders with non-monotonic axis: 0
+orders with inverted sign:      0
+orders outside [150,1200] nm:   0
+grating constant (m·λ_center): mean=36267.7 nm  stddev=147.4 nm (0.41%)
+
+Profile written to: /tmp/hgar-hw-test/profile.toml
