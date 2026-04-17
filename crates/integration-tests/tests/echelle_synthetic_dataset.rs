@@ -429,7 +429,6 @@ fn build_pipeline_config(width: usize, height: usize) -> CalibrationPipelineConf
 
 /// Full pipeline test: realistic 2048x2048 synthetic HgAr arc frame through
 /// the calibration pipeline with all perturbations enabled.
-#[ignore = "pre-existing on main: RMS 2.3nm exceeds 1.0nm threshold (echelle calibration regression)"]
 #[test]
 fn test_echelle_pipeline_with_realistic_synthetic_hgar() {
     let start = std::time::Instant::now();
@@ -541,6 +540,65 @@ fn test_echelle_pipeline_with_realistic_synthetic_hgar() {
         .profile
         .validate()
         .expect("generated profile should pass validation");
+
+    // bd-0poyt / P3.2: ground-truth physical-order check for high-confidence orders.
+    //
+    // For orders with enough real degrees of freedom (n_used >= 5 real atlas
+    // matches on a Chebyshev-2 fit → at least 2 DOF), evaluate the fitted
+    // polynomial at the sample midpoint and require it to fall inside the
+    // *truth* order's [lambda_start, lambda_end] range (5 nm slack).
+    //
+    // Orders with fewer matches are not asserted: noise peaks in sparse-atlas
+    // regions can match ≤4 atlas lines via a wrong candidate_m, giving a
+    // low-RMS fit that is nonetheless scientifically wrong. Disambiguating
+    // those cases requires information this synthetic dataset does not carry
+    // (atlas uniqueness within FSR, higher SNR, or multi-frame HDR). Pass 3
+    // bootstrap (n_used == 0) is likewise skipped — its monotonicity is
+    // validated below.
+    //
+    // See bd-0poyt for follow-up work on sparse-FSR candidate-m disambiguation.
+    for diag in &result.per_order_diagnostics {
+        let Some(sol) = &diag.wl_solution else {
+            continue;
+        };
+        if diag.n_lines_used < 5 {
+            continue;
+        }
+        let idx = diag.order_index as usize;
+        if idx >= orders_truth.len() {
+            continue;
+        }
+        let truth = &orders_truth[idx];
+        let midpoint = (sol.pixel_min + sol.pixel_max) / 2.0;
+        let midpoint_wl = sol.eval(midpoint);
+        assert!(
+            midpoint_wl >= truth.lambda_start_nm - 5.0 && midpoint_wl <= truth.lambda_end_nm + 5.0,
+            "order {} midpoint λ = {midpoint_wl:.2} nm outside truth order m={} range [{:.2}, {:.2}] nm",
+            diag.order_index,
+            truth.physical_order,
+            truth.lambda_start_nm,
+            truth.lambda_end_nm,
+        );
+    }
+
+    // bd-ccer6 / P3.3: wavelength-axis monotonicity across the whole profile.
+    // Every calibrated order's polynomial must be strictly monotonic and sign-
+    // agree with the orientation flag. This catches any inverted-axis
+    // regressions that slip past Pass 1/2 validation (e.g., from the Pass 3
+    // bootstrap path where monotonicity is not yet enforced).
+    let orientation = echelle::EchelleOrientation {
+        dispersion_axis: DetectorAxis::X,
+        cross_dispersion_axis: DetectorAxis::Y,
+        order_number_increase_direction: AxisDirection::Negative,
+        wavelength_increase_with_dispersion_positive: true,
+    };
+    for diag in &result.per_order_diagnostics {
+        let Some(sol) = &diag.wl_solution else {
+            continue;
+        };
+        sol.validate_monotonic(&orientation, 150.0, 1200.0)
+            .unwrap_or_else(|e| panic!("order {} wavelength axis invalid: {e}", diag.order_index));
+    }
 
     let total_elapsed = start.elapsed();
     println!("\nTotal elapsed: {total_elapsed:.2?}");

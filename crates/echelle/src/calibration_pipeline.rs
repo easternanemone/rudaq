@@ -480,11 +480,19 @@ fn run_calibration_pipeline_impl(
 
         let mut best_diag = None;
 
-        if let Some((gc, first_m, _step)) = two_phase_base {
+        if let Some((gc, first_m, step)) = two_phase_base {
             // Search over candidate physical orders to robustly handle sparse traces.
             // We enforce uniqueness: an 'm' value can only be claimed by one trace.
-            let search_start = (first_m - 50).max(1);
-            let search_end = first_m + 150;
+            // Constrain each order's candidate search to a narrow window around
+            // the seed-predicted m for this trace index (bd-0poyt). A wide
+            // global window lets sparse-source orders match wrong-m candidates
+            // whose spurious atlas hits outnumber the true-m's real hits —
+            // classic degeneracy for HgAr lamps where most orders have ≤1
+            // atlas line in their true FSR.
+            let expected_m = first_m + step * (order_idx as i32);
+            const CANDIDATE_HALF_WINDOW: i32 = 3;
+            let search_start = (expected_m - CANDIDATE_HALF_WINDOW).max(1);
+            let search_end = expected_m + CANDIDATE_HALF_WINDOW;
 
             let mut max_matched = 0;
             let mut min_rms = f64::MAX;
@@ -953,10 +961,37 @@ fn match_and_fit(
         &wl_config_local,
     ) {
         Some(sol) => {
-            diag.n_lines_used = sol.n_lines_used;
-            diag.rms_nm = sol.rms_nm;
-            diag.success = true;
-            diag.wl_solution = Some(sol);
+            // Self-consistency gate (bd-0poyt): when the two-phase config
+            // supplies a candidate physical_order + grating constant, the
+            // fitted polynomial's midpoint wavelength must agree with the
+            // echelle equation `λ_center = gc / m` to within ±FSR. Otherwise
+            // the fit is drawn from spurious matches for a different order —
+            // typical when a degree-reduced 2-point linear fit overfits a
+            // pair of cross-order atlas matches, giving RMS=0 despite being
+            // physically wrong. Reject such fits so the candidate-m search
+            // doesn't accept them as winners.
+            let self_consistent = match two_phase {
+                Some(tp) if tp.physical_order > 0.0 && tp.grating_constant_nm > 0.0 => {
+                    let midpoint = sol.pixel_min.midpoint(sol.pixel_max);
+                    let midpoint_wl = sol.eval(midpoint);
+                    crate::wavelength_fitting::is_within_order_fsr(
+                        tp.physical_order,
+                        midpoint_wl,
+                        tp.grating_constant_nm,
+                        1.0,
+                    )
+                }
+                _ => true,
+            };
+            if self_consistent {
+                diag.n_lines_used = sol.n_lines_used;
+                diag.rms_nm = sol.rms_nm;
+                diag.success = true;
+                diag.wl_solution = Some(sol);
+            } else {
+                diag.failure_reason =
+                    Some("fitted polynomial midpoint not consistent with candidate m".into());
+            }
         }
         None => {
             diag.failure_reason = Some("wavelength fitting failed".into());

@@ -72,6 +72,10 @@ pub struct TuningSection {
     pub wl_seed_tolerance_nm: f64,
     /// Minimum matched lines required per order
     pub min_lines_per_order: usize,
+    /// Maximum acceptable per-order wavelength-fit RMS in nm (bd-0poyt).
+    /// Fits whose RMS exceeds this are rejected as likely spurious.
+    /// Set to 0.0 to disable the gate.
+    pub max_fit_rms_nm: f64,
     /// Use Horne 1986 optimal extraction (vs simple summation)
     pub use_optimal_extraction: bool,
     /// Calibration lamp type: "hg" (pure mercury, e.g. HG-2), "hgar" (mercury-argon).
@@ -101,6 +105,7 @@ impl Default for TuningSection {
             wl_poly_degree: 2,
             wl_seed_tolerance_nm: 2.0,
             min_lines_per_order: 3,
+            max_fit_rms_nm: 1.0,
             use_optimal_extraction: false,
             lamp: default_lamp(),
         }
@@ -164,6 +169,7 @@ impl CalibrateFileConfig {
         let mut wl_config = d.wl_config;
         wl_config.poly_degree = self.tuning.wl_poly_degree;
         wl_config.seed_tolerance_nm = self.tuning.wl_seed_tolerance_nm;
+        wl_config.max_fit_rms_nm = self.tuning.max_fit_rms_nm;
 
         CalibrationPipelineConfig {
             trace_config,
@@ -528,9 +534,7 @@ fn emit_diagnose_report(result: &CalibrationResult, orientation: &EchelleOrienta
     println!("orders outside [150,1200] nm:   {n_out_of_range}");
 
     if gc_products.len() >= 2 {
-        let n = f64::from(
-            u32::try_from(gc_products.len()).expect("order count fits in u32"),
-        );
+        let n = f64::from(u32::try_from(gc_products.len()).expect("order count fits in u32"));
         let mean = gc_products.iter().sum::<f64>() / n;
         let var = gc_products.iter().map(|g| (g - mean).powi(2)).sum::<f64>() / n;
         let stddev = var.sqrt();

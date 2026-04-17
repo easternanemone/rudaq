@@ -647,6 +647,11 @@ pub struct WlFitConfig {
     pub max_clip_iters: usize,
     /// Seed tolerance in nm for initial atlas matching (default: 0.5).
     pub seed_tolerance_nm: f64,
+    /// Maximum acceptable per-order wavelength-fit RMS in nm (default: 0.5).
+    /// Fits whose RMS exceeds this are rejected as likely-spurious matches
+    /// (bd-0poyt). A value of 0.0 disables the gate.
+    #[serde(default = "default_max_fit_rms_nm")]
+    pub max_fit_rms_nm: f64,
     /// Physics-based seed for the single-line fallback. When `Some`, the
     /// fallback uses `fsr = grating_constant / m²` and the orientation sign
     /// to build a linear wavelength model — avoiding the former hardcoded
@@ -656,6 +661,10 @@ pub struct WlFitConfig {
     /// state, not from user-facing TOML.
     #[serde(skip)]
     pub fallback_seed: Option<SingleLineFallbackSeed>,
+}
+
+fn default_max_fit_rms_nm() -> f64 {
+    1.0
 }
 
 /// Physics-based inputs for the single-line wavelength fallback.
@@ -685,6 +694,7 @@ impl Default for WlFitConfig {
             sigma_clip: 3.0,
             max_clip_iters: 5,
             seed_tolerance_nm: 0.5,
+            max_fit_rms_nm: default_max_fit_rms_nm(),
             fallback_seed: None,
         }
     }
@@ -987,6 +997,33 @@ pub fn is_gc_consistent(physical_order: f64, wavelength_nm: f64, gc: f64, tolera
     (product - gc).abs() / gc <= tolerance
 }
 
+/// Stronger physics filter: does `wavelength_nm` fall within the free spectral
+/// range of diffraction order `physical_order`?
+///
+/// For an echelle spectrograph with grating constant `gc = m · λ_center`:
+/// - `λ_center = gc / m`
+/// - Free spectral range `FSR = gc / m²`
+/// - The order transmits wavelengths in `[λ_center − FSR, λ_center + FSR]`
+///
+/// The `fsr_scale` parameter widens or tightens that window (1.0 = exactly
+/// ±FSR, 0.5 = ±½·FSR for tight physics-only matching). Returns `false` when
+/// `physical_order` or `gc` is non-positive so this is safe to call on
+/// uninitialised or anchor-only configs.
+#[must_use]
+pub fn is_within_order_fsr(
+    physical_order: f64,
+    wavelength_nm: f64,
+    gc: f64,
+    fsr_scale: f64,
+) -> bool {
+    if physical_order <= 0.0 || gc <= 0.0 || fsr_scale <= 0.0 {
+        return false;
+    }
+    let lambda_center = gc / physical_order;
+    let fsr = gc / (physical_order * physical_order);
+    (wavelength_nm - lambda_center).abs() <= fsr * fsr_scale
+}
+
 /// Configuration for two-phase atlas matching (bd-huzm).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TwoPhaseMatchConfig {
@@ -1183,10 +1220,25 @@ pub fn match_lines_two_phase(
                 continue;
             }
             let dist = (atlas_line.wavelength_nm - approx_wl).abs();
-            if dist < config.final_tolerance_nm && dist < best_dist {
-                best_dist = dist;
-                best_ai = Some(ai);
+            if dist >= config.final_tolerance_nm || dist >= best_dist {
+                continue;
             }
+            // Reject matches outside this order's free spectral range. Without
+            // this check, wide `final_tolerance_nm` values let cross-order
+            // atlas lines bleed in (bd-0poyt): Order 1 (m=19) on a gc=6300 nm
+            // grating could match atlas lines outside its FSR, inflating
+            // per-order RMS without improving coverage. We use FSR (not the
+            // global `gc_tolerance`) because a single order covers
+            // `λ_center ± FSR`, which is fractionally 1/m — far wider than
+            // the 1% `gc_tolerance` that only validates per-order `m·λ`
+            // agreement within a narrow band.
+            if gc_active
+                && !is_within_order_fsr(config.physical_order, atlas_line.wavelength_nm, gc, 1.0)
+            {
+                continue;
+            }
+            best_dist = dist;
+            best_ai = Some(ai);
         }
 
         if let Some(ai) = best_ai {
@@ -1258,12 +1310,10 @@ impl OrderWlSolution {
             });
         }
 
-        let n_span =
-            f64::from(u32::try_from(N_SAMPLES - 1).expect("N_SAMPLES-1 fits in u32"));
+        let n_span = f64::from(u32::try_from(N_SAMPLES - 1).expect("N_SAMPLES-1 fits in u32"));
         let samples: Vec<f64> = (0..N_SAMPLES)
             .map(|i| {
-                let frac =
-                    f64::from(u32::try_from(i).expect("sample index fits in u32")) / n_span;
+                let frac = f64::from(u32::try_from(i).expect("sample index fits in u32")) / n_span;
                 let px = self.pixel_min + (self.pixel_max - self.pixel_min) * frac;
                 self.eval(px)
             })
@@ -1482,13 +1532,31 @@ pub fn fit_order_wavelength(
         return None;
     }
     if matches.len() <= config.poly_degree {
-        // Single-line fallback: with only 1 match and poly_degree <= 1,
-        // use the echelle equation as a prior and anchor to the matched line.
-        // This gives a reasonable linear solution when the echelle equation
-        // provides a good dispersion estimate. (bd-3hlp)
-        if matches.len() == 1 && config.poly_degree <= 1 {
+        // Single-match fallback: the physics-seeded linear model anchors at
+        // the matched line and derives dispersion from the echelle equation
+        // (bd-ccer6, supersedes bd-3hlp). Degree-reduced overfit fits for
+        // matches==N==poly_degree are deliberately *not* taken here: a fit
+        // with zero degrees of freedom has RMS=0 regardless of whether the
+        // matches correspond to the right physical order, and cannot be
+        // distinguished from a wrong-candidate_m win (bd-0poyt). Let orders
+        // with `1 < matches.len() <= poly_degree` fall through to Pass 3
+        // bootstrap instead.
+        if matches.len() == 1 && (config.fallback_seed.is_some() || config.poly_degree <= 1) {
             return fit_single_line_fallback(lines, atlas, matches, order, config);
         }
+        return None;
+    }
+    fit_order_wavelength_with_degree(lines, atlas, matches, order, config)
+}
+
+fn fit_order_wavelength_with_degree(
+    lines: &[ArcLine],
+    atlas: &[AtlasLine],
+    matches: &[(usize, usize)],
+    order: u32,
+    config: &WlFitConfig,
+) -> Option<OrderWlSolution> {
+    if matches.len() <= config.poly_degree {
         return None;
     }
 
@@ -1590,6 +1658,13 @@ pub fn fit_order_wavelength(
 
     let n_used = mask.iter().filter(|&&m| m).count();
     if n_used <= config.poly_degree {
+        return None;
+    }
+
+    // Reject fits with unreasonably high RMS — these are almost always caused
+    // by spurious atlas matches (bd-0poyt). `max_fit_rms_nm = 0.0` disables
+    // the gate for callers that want every fit regardless of quality.
+    if config.max_fit_rms_nm > 0.0 && rms > config.max_fit_rms_nm {
         return None;
     }
 
