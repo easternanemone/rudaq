@@ -177,12 +177,22 @@ impl CalibrateFileConfig {
         // fit quality — without it the fit sees edge-clipped ghosts and
         // its RMS is dominated by outliers. Users can opt out by setting
         // all trace_validation.* fields explicitly in a custom config.
+        // bd-vdfum / Phase B: enable morphological-opening scattered-light
+        // subtraction by default for Mechelle-class ICCD frames. MCP halos
+        // flood the inter-order gap on HgAr captures (NotebookLM §FM4 —
+        // "4500-count baseline anomaly"); the morphological opening
+        // squashes those halos before the background surface is fit.
+        // Users can override via a custom config that sets scatter_config
+        // = None to disable.
+        let scatter_config = Some(
+            echelle::scattered_light::ScatteredLightConfig::mechelle_5000_istar(),
+        );
         CalibrationPipelineConfig {
             trace_config,
             trace_validation: echelle::trace_validation::TraceValidationConfig::mechelle_5000_istar(),
             arc_config,
             wl_config,
-            scatter_config: d.scatter_config,
+            scatter_config,
             rectify_config: d.rectify_config,
             optimal_config: d.optimal_config,
             use_optimal_extraction: self.tuning.use_optimal_extraction,
