@@ -543,6 +543,15 @@ fn run_calibration_pipeline_impl(
         diagnostics.push(final_diag);
     }
 
+    // ── Dedup by quality after Stage 1 ───────────────────────────────
+    // When the echelle-equation initial seed is off (because trace index
+    // is linear in detector space but m follows a prism-Cauchy curve),
+    // multiple traces can produce Stage-1 fits whose derived m collides.
+    // Keep the highest-quality fit per m (most lines used, then lowest
+    // RMS, then first arrival) and mark the losers as failed so that
+    // Stage 2 (Cauchy Y(m)) can re-seed them with a physically correct m.
+    dedup_order_calibrations_by_quality(&mut order_calibrations, &mut diagnostics);
+
     // ── Stage 2: Cauchy-series Y(m) re-assignment for failed orders ──
     // Physical model: for a prism cross-dispersed echelle the trace
     // y-centroid follows a Cauchy series Y(m) = a + b/m² + c/m⁴ (see
@@ -551,11 +560,26 @@ fn run_calibration_pipeline_impl(
     // for every failed trace, and retry the two-phase match.
     if let Some(gc) = grating_constant_nm {
         let x_mid = npx / 2.0;
+        // Physics-motivated pre-filter: reject Stage-1 anchors whose
+        // derived m is drastically off from the grating-equation seed.
+        // The prism non-linearity is smooth and small within ±5 orders
+        // of the linear guess; a |derived_m − expected_m| > 10 signals
+        // the single-line fallback matching a wrong atlas line, which
+        // would contaminate the Cauchy LSQ regardless of 3σ clipping
+        // (when >20% of anchors are wrong, the 3σ estimate itself is
+        // useless). This cap is generous — orders 44..143 with correct
+        // fits all have |Δm| ≤ 1 on real captures.
+        const MAX_ABS_DELTA_M: i32 = 10;
+        let (first_m_seed, step_seed) = two_phase_base.map_or((1, 1), |(_, fm, s)| (fm, s));
         let cauchy_anchors: Vec<(f64, i32)> = order_calibrations
             .iter()
             .filter_map(|cal| {
                 let m_int = cal.physical_order_number?;
                 let trace_idx = cal.relative_index as usize;
+                let expected_m = first_m_seed + step_seed * (trace_idx as i32);
+                if (m_int - expected_m).abs() > MAX_ABS_DELTA_M {
+                    return None;
+                }
                 let trace = traces.get(trace_idx)?;
                 let y_centroid = crate::trace_fitting::eval_trace_y(&trace.trace, x_mid)?;
                 Some((y_centroid, m_int))
@@ -565,11 +589,21 @@ fn run_calibration_pipeline_impl(
         let n_failed = diagnostics.iter().filter(|d| !d.success).count();
 
         if cauchy_anchors.len() >= 4 && n_failed > 0 {
-            if let Some(cauchy) = crate::cauchy_dispersion::fit_cauchy_y_of_m(&cauchy_anchors) {
+            // Iterative 3σ outlier rejection — Stage-1 fits can latch
+            // onto the wrong physical order when the grating-equation
+            // seed misidentifies arc lines. The Cauchy fit then sees
+            // several (y, m) pairs that don't fit the series, and
+            // without rejection the LSQ solution is pulled off course
+            // (seen in the real-HgAr capture: RMS=80 px across 23
+            // anchors because ≥4 had wrong m).
+            if let Some((cauchy, _kept)) =
+                crate::cauchy_dispersion::fit_cauchy_y_of_m_clipped(&cauchy_anchors, 3.0, 5)
+            {
                 tracing::info!(
-                    anchors = cauchy.n_anchors,
+                    anchors_used = cauchy.n_anchors,
+                    anchors_supplied = cauchy_anchors.len(),
                     rms_px = cauchy.rms_px,
-                    "Stage 2: fitted Cauchy Y(m) series"
+                    "Stage 2: fitted Cauchy Y(m) series (3σ clipped)"
                 );
                 let first_m_i32 = two_phase_base.map_or(1, |(_, fm, _)| fm);
                 let step_i32 = two_phase_base.map_or(1, |(_, _, s)| s);
@@ -652,6 +686,10 @@ fn run_calibration_pipeline_impl(
         }
     }
 
+    // After Stage 2: re-dedup so Stage 3's global fit trains on a clean
+    // anchor set (one (x, m, λ) sample per m).
+    dedup_order_calibrations_by_quality(&mut order_calibrations, &mut diagnostics);
+
     // ── Stage 3: Global 2D Chebyshev λ(x, m) + per-order synthesis ───
     // Canonical echelle wavelength solution (IRAF ECIDENTIFY, ESO MIDAS
     // IDENTIFY/ECHELLE, CERES, PypeIt): fit λ(x, m) as a tensor-product
@@ -667,6 +705,7 @@ fn run_calibration_pipeline_impl(
     // replaces the old Pass-3 residual-surface bootstrap (which fitted
     // Δλ and Runge-oscillated when extrapolated beyond anchor m range).
     if let Some(gc) = grating_constant_nm {
+        let (first_m_seed, step_seed) = two_phase_base.map_or((1, 1), |(_, fm, s)| (fm, s));
         refine_with_global_surface(
             gc,
             width,
@@ -674,6 +713,8 @@ fn run_calibration_pipeline_impl(
             &mut order_calibrations,
             &mut diagnostics,
             config,
+            first_m_seed,
+            step_seed,
         );
     }
 
@@ -1207,6 +1248,107 @@ fn build_anchor_seeds(
     Ok(fns)
 }
 
+/// Keep only the highest-quality `EchelleOrderCalibration` per
+/// `physical_order_number` and demote the loser traces back to "failed"
+/// in `diagnostics` so the Cauchy (Stage 2) and global-surface (Stage 3)
+/// passes have a chance to re-seed them with a physically correct `m`.
+///
+/// Ranking: (1) more matched lines is better; (2) lower RMS is better;
+/// (3) ties broken by first arrival (equivalent to the old `retain`
+/// dedup that preceded bd-mlwvz).
+///
+/// This is called between Stage 1→2 and Stage 2→3. Without it the
+/// Cauchy fit sees several `(y_centroid, m)` pairs with duplicate `m`
+/// and the LSQ residuals blow up.
+fn dedup_order_calibrations_by_quality(
+    order_calibrations: &mut Vec<EchelleOrderCalibration>,
+    diagnostics: &mut [OrderDiagnostic],
+) {
+    use std::collections::HashMap;
+
+    // quality score per relative_index.
+    let score = |diag: &OrderDiagnostic| -> (usize, f64) {
+        // Higher lines_used better; lower rms_nm better. Invert RMS.
+        let rms = if diag.rms_nm.is_finite() && diag.rms_nm > 0.0 {
+            diag.rms_nm
+        } else {
+            f64::INFINITY
+        };
+        (diag.n_lines_used, rms)
+    };
+    let is_better = |a: &OrderDiagnostic, b: &OrderDiagnostic| -> bool {
+        let (la, ra) = score(a);
+        let (lb, rb) = score(b);
+        if la != lb { la > lb } else { ra < rb }
+    };
+
+    // Map m → index into order_calibrations of the best entry so far.
+    let mut best_for_m: HashMap<i32, usize> = HashMap::new();
+    let mut losers: Vec<usize> = Vec::new(); // indices into order_calibrations
+
+    for (i, cal) in order_calibrations.iter().enumerate() {
+        let Some(m) = cal.physical_order_number else {
+            continue;
+        };
+        let Some(diag) = diagnostics.get(cal.relative_index as usize) else {
+            continue;
+        };
+        match best_for_m.get(&m).copied() {
+            None => {
+                best_for_m.insert(m, i);
+            }
+            Some(prev_i) => {
+                let prev_cal = &order_calibrations[prev_i];
+                let prev_diag = &diagnostics[prev_cal.relative_index as usize];
+                if is_better(diag, prev_diag) {
+                    losers.push(prev_i);
+                    best_for_m.insert(m, i);
+                } else {
+                    losers.push(i);
+                }
+            }
+        }
+    }
+
+    if losers.is_empty() {
+        return;
+    }
+    let loser_set: std::collections::HashSet<usize> = losers.into_iter().collect();
+    // Collect loser trace indices first (to mark diagnostics), then drop.
+    let mut loser_trace_indices: Vec<u32> = Vec::with_capacity(loser_set.len());
+    for (i, cal) in order_calibrations.iter().enumerate() {
+        if loser_set.contains(&i) {
+            loser_trace_indices.push(cal.relative_index);
+        }
+    }
+
+    // Demote losers to "failed" so Stage 2/3 can retry.
+    for idx in &loser_trace_indices {
+        if let Some(d) = diagnostics.get_mut(*idx as usize) {
+            d.success = false;
+            d.failure_reason =
+                Some("m collision with higher-quality fit; pending Cauchy re-seed".to_string());
+            d.wl_solution = None;
+        }
+    }
+
+    let mut removed = 0usize;
+    let mut i = 0usize;
+    order_calibrations.retain(|_| {
+        let keep = !loser_set.contains(&i);
+        if !keep {
+            removed += 1;
+        }
+        i += 1;
+        keep
+    });
+
+    tracing::info!(
+        removed,
+        "dedup: demoted lower-quality duplicates so Stage 2/3 can re-seed"
+    );
+}
+
 /// Refine the calibration with a single global 2D Chebyshev fit `λ(x, m)`.
 ///
 /// This is the IRAF ECIDENTIFY / ESO MIDAS / CERES / PypeIt standard
@@ -1236,6 +1378,8 @@ fn refine_with_global_surface(
     order_calibrations: &mut Vec<EchelleOrderCalibration>,
     diagnostics: &mut [OrderDiagnostic],
     config: &CalibrationPipelineConfig,
+    first_m_seed: i32,
+    step_seed: i32,
 ) -> usize {
     use crate::chebyshev_2d::fit_chebyshev_2d_clipped;
 
@@ -1306,18 +1450,28 @@ fn refine_with_global_surface(
     );
 
     // Rebuild the Cauchy Y(m) model from the calibrated anchor set so we
-    // can assign m to traces that never matched any atlas line.
+    // can assign m to traces that never matched any atlas line. Same
+    // physics-motivated prefilter as Stage 2 (reject anchors whose
+    // derived m is more than ±10 orders from the grating-equation seed).
+    const MAX_ABS_DELTA_M: i32 = 10;
     let cauchy_anchors: Vec<(f64, i32)> = order_calibrations
         .iter()
         .filter_map(|cal| {
             let m_int = cal.physical_order_number?;
             let trace_idx = cal.relative_index as usize;
+            let expected_m = first_m_seed + step_seed * (trace_idx as i32);
+            if (m_int - expected_m).abs() > MAX_ABS_DELTA_M {
+                return None;
+            }
             let trace = traces.get(trace_idx)?;
             let y = crate::trace_fitting::eval_trace_y(&trace.trace, x_mid)?;
             Some((y, m_int))
         })
         .collect();
-    let cauchy = crate::cauchy_dispersion::fit_cauchy_y_of_m(&cauchy_anchors);
+    // Use 3σ-clipped Cauchy for the Stage-3 synthesis guess too — same
+    // reason as Stage 2: stray wrong-m anchors would poison the series.
+    let cauchy = crate::cauchy_dispersion::fit_cauchy_y_of_m_clipped(&cauchy_anchors, 3.0, 5)
+        .map(|(fit, _kept)| fit);
 
     let mut assigned_m: std::collections::HashSet<i32> = order_calibrations
         .iter()

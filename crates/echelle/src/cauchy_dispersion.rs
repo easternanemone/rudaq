@@ -128,11 +128,102 @@ impl CauchyYofM {
     }
 }
 
+/// Fit `y(m) = a + b/m² + c/m⁴` with iterative 3σ outlier rejection.
+///
+/// Runs the linear-LSQ fit, drops anchors whose residual is more than
+/// `sigma_threshold × σ` from the mean, and refits until the kept set is
+/// stable (up to `max_iters` passes). Follows the same convention as the
+/// literature-standard 2D Chebyshev arc-line fitter
+/// (`chebyshev_2d::fit_chebyshev_2d_clipped`) and is necessary here
+/// because Stage-1 can produce anchors whose `m` is off by several
+/// orders when the grating-equation seed misidentifies arc lines.
+///
+/// Returns `(fit, kept_mask)`. Requires ≥ 4 anchors initially and ≥ 3
+/// to remain after rejection; otherwise returns `None`.
+#[must_use]
+pub fn fit_cauchy_y_of_m_clipped(
+    anchors: &[(f64, i32)],
+    sigma_threshold: f64,
+    max_iters: usize,
+) -> Option<(CauchyYofM, Vec<bool>)> {
+    if anchors.len() < 4 {
+        return None;
+    }
+    let mut kept: Vec<bool> = vec![true; anchors.len()];
+    let mut prev_count = anchors.len() + 1;
+
+    for _iter in 0..max_iters.max(1) {
+        let filtered: Vec<(f64, i32)> = anchors
+            .iter()
+            .zip(kept.iter())
+            .filter_map(|(pt, &k)| if k { Some(*pt) } else { None })
+            .collect();
+        if filtered.len() < 3 {
+            return None;
+        }
+        let fit = fit_cauchy_y_of_m(&filtered)?;
+
+        // Residuals only on currently-kept anchors.
+        let resids: Vec<(usize, f64)> = anchors
+            .iter()
+            .enumerate()
+            .zip(kept.iter())
+            .filter_map(|((i, &(y, m_int)), &k)| {
+                if !k || m_int <= 0 {
+                    None
+                } else {
+                    Some((i, y - fit.eval(f64::from(m_int))))
+                }
+            })
+            .collect();
+        if resids.is_empty() {
+            return Some((fit, kept));
+        }
+        let n = resids.len() as f64;
+        let mean = resids.iter().map(|(_, r)| r).sum::<f64>() / n;
+        let variance = resids.iter().map(|(_, r)| (r - mean).powi(2)).sum::<f64>() / n;
+        let sigma = variance.sqrt();
+        let threshold = sigma_threshold * sigma;
+
+        let mut new_kept = kept.clone();
+        let mut new_count = 0usize;
+        for (i, r) in resids {
+            if sigma > 0.0 && (r - mean).abs() > threshold {
+                new_kept[i] = false;
+            } else {
+                new_count += 1;
+            }
+        }
+        kept = new_kept;
+        if new_count == prev_count || new_count < 3 {
+            // Converged (or no more room to reject).
+            break;
+        }
+        prev_count = new_count;
+    }
+
+    // Final refit on the converged set.
+    let final_set: Vec<(f64, i32)> = anchors
+        .iter()
+        .zip(kept.iter())
+        .filter_map(|(pt, &k)| if k { Some(*pt) } else { None })
+        .collect();
+    if final_set.len() < 3 {
+        return None;
+    }
+    let fit = fit_cauchy_y_of_m(&final_set)?;
+    Some((fit, kept))
+}
+
 /// Fit `y(m) = a + b/m² + c/m⁴` from `(y_centroid, physical_order_m)` anchors.
 ///
 /// Needs ≥ 4 anchors for a well-posed 3-parameter fit. Falls through to a
 /// 2-parameter `y = a + b·u` (equivalent to dropping the `c/m⁴` term) if
 /// only 3 anchors are available; returns `None` for < 3.
+///
+/// **Note**: this is the raw LSQ fit with no outlier rejection. For
+/// real-data use, prefer [`fit_cauchy_y_of_m_clipped`], which iteratively
+/// rejects 3σ outliers.
 #[must_use]
 pub fn fit_cauchy_y_of_m(anchors: &[(f64, i32)]) -> Option<CauchyYofM> {
     let valid: Vec<(f64, f64)> = anchors
