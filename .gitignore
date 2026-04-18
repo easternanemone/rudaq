@@ -67,7 +67,7 @@ hive-mind-prompt-*.txt
 .claude/agents/
 .claude/commands/
 .claude/helpers/
-.claude/skills/
+# .claude/skills/ is tracked so agents in all contexts (ai-proxy, CI, remote) see committed skills
 # .claude/settings.json is now tracked for cloud env hooks
 .claude/statusline-command.sh
 .gemini-flow/
@@ -143,6 +143,10 @@ docs/MORPH_*.md
 !.claude/settings.json
 !.claude/hooks/
 !.claude/hooks/*.sh
+!.claude/skills/
+!.claude/skills/**
+.claude/skills/.DS_Store
+.claude/skills/*.skill
 .node_modules
 .jules
 .tmp
