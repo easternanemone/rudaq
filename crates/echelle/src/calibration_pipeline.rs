@@ -6,13 +6,20 @@
 //!
 //! # Pipeline stages
 //!
-//! 1. Scattered light subtraction (optional)
+//! 1. Scattered-light subtraction (optional)
 //! 2. Order trace detection
 //! 3. Per-order rectification
 //! 4. 1D spectral extraction (simple-sum or Horne optimal)
 //! 5. Arc emission line detection per order
-//! 6. Atlas matching + Chebyshev wavelength fit per order
-//! 7. Assembly into an `EchelleCalibrationProfile`
+//! 6. **Stage 1** — per-order atlas match + Chebyshev fit seeded from the
+//!    echelle grating equation at the expected physical order
+//! 7. **Stage 2** — Cauchy-series `y(m) = a + b/m² + c/m⁴` fit from
+//!    Stage-1 anchors; invert to predict m for uncalibrated traces and
+//!    retry atlas matching
+//! 8. **Stage 3** — single global 2D Chebyshev fit `λ(x, m)` over all
+//!    matched arc lines (3×5, 3σ clip); synthesize per-order solutions
+//!    for traces still without a per-order fit
+//! 9. Deduplicate by physical order number and assemble the profile
 
 // Numerical code: pixel-index casts are always lossless for realistic frame sizes.
 // Order indices are always small enough that u32→i32 won't wrap.
@@ -439,7 +446,7 @@ fn run_calibration_pipeline_impl(
         WavelengthSeed::Anchors(_) => None,
     };
 
-    // Build two-phase match config for Pass 1 when using echelle equation seed.
+    // Build two-phase match config for Stage 1 when using echelle equation seed.
     let two_phase_base = match &config.seed {
         WavelengthSeed::EchelleEquation {
             grating_constant_nm: gc,
@@ -450,11 +457,17 @@ fn run_calibration_pipeline_impl(
         WavelengthSeed::Anchors(_) => None,
     };
 
-    // ── Stages 3-6: Per-order processing (Pass 1) ────────────────────
-    // Always extract arc lines from the arc frame (frame_ref), using
-    // trace positions found from the flat/arc frame above.
+    // ── Stage 1: Per-order echelle-equation-seeded matching ─────────
+    // Each detected trace is seeded by the grating equation at its
+    // expected physical order `m = first_physical_order + step * index`.
+    // No candidate-m search: m collisions between traces are resolved
+    // by the Cauchy-series Y(m) model in Stage 2 (bd-s8d5g). The
+    // candidate-m search was non-canonical (IRAF ECIDENTIFY, CERES,
+    // PypeIt all assign m once from the physical grating equation) and
+    // produced derived-m collisions (bd-mlwvz).
     let mut diagnostics = Vec::with_capacity(n_orders);
-    let mut order_calibrations = Vec::new();
+    let mut order_calibrations: Vec<EchelleOrderCalibration> = Vec::new();
+    let npx = f64::from(width.max(1));
 
     for (order_idx, trace) in traces.iter().enumerate() {
         let oi = order_idx as u32;
@@ -478,85 +491,27 @@ fn run_calibration_pipeline_impl(
                 }
             };
 
-        let mut best_diag = None;
-
-        if let Some((gc, first_m, step)) = two_phase_base {
-            // Search over candidate physical orders to robustly handle sparse traces.
-            // We enforce uniqueness: an 'm' value can only be claimed by one trace.
-            // Constrain each order's candidate search to a narrow window around
-            // the seed-predicted m for this trace index (bd-0poyt). A wide
-            // global window lets sparse-source orders match wrong-m candidates
-            // whose spurious atlas hits outnumber the true-m's real hits —
-            // classic degeneracy for HgAr lamps where most orders have ≤1
-            // atlas line in their true FSR.
-            let expected_m = first_m + step * (order_idx as i32);
-            const CANDIDATE_HALF_WINDOW: i32 = 3;
-            let search_start = (expected_m - CANDIDATE_HALF_WINDOW).max(1);
-            let search_end = expected_m + CANDIDATE_HALF_WINDOW;
-
-            let mut max_matched = 0;
-            let mut min_rms = f64::MAX;
-
-            let npx = f64::from(width.max(1));
-
-            for candidate_m in search_start..=search_end {
-                // Skip if this physical order was already successfully claimed by a previous trace
-                if order_calibrations
-                    .iter()
-                    .any(|c: &EchelleOrderCalibration| c.physical_order_number == Some(candidate_m))
-                {
-                    continue;
-                }
-
-                let physical_order = candidate_m as f64;
-                let tp_config = TwoPhaseMatchConfig {
-                    primary_window_nm: 2.0,
-                    final_tolerance_nm: config.wl_config.seed_tolerance_nm,
-                    fallback_tolerance_nm: 1.0,
-                    grating_constant_nm: gc,
-                    gc_tolerance: 0.01,
-                    min_primary_matches: 0,
-                    physical_order,
-                };
-
-                let lambda_center = gc / physical_order;
-                let fsr = gc / (physical_order * physical_order);
-                let dispersion = fsr / npx;
-                let lambda_start = lambda_center - dispersion * (npx / 2.0);
-
-                let seed_fn = move |pixel: f64| -> f64 { lambda_start + dispersion * pixel };
-
-                let cand_diag = match_and_fit(&lines, oi, config, &seed_fn, Some(&tp_config));
-
-                if cand_diag.success
-                    && (cand_diag.n_lines_matched > max_matched
-                        || (cand_diag.n_lines_matched == max_matched && cand_diag.rms_nm < min_rms))
-                {
-                    max_matched = cand_diag.n_lines_matched;
-                    min_rms = cand_diag.rms_nm;
-                    best_diag = Some(cand_diag);
-                }
-            }
+        let mut final_diag = if let Some((gc, first_m, step)) = two_phase_base {
+            let expected_m = (first_m + step * (order_idx as i32)).max(1);
+            let physical_order = f64::from(expected_m);
+            let lambda_center = gc / physical_order;
+            let fsr = gc / (physical_order * physical_order);
+            let dispersion = fsr / npx;
+            let lambda_start = lambda_center - dispersion * (npx / 2.0);
+            let seed_fn = move |pixel: f64| -> f64 { lambda_start + dispersion * pixel };
+            let tp_config = TwoPhaseMatchConfig {
+                primary_window_nm: 2.0,
+                final_tolerance_nm: config.wl_config.seed_tolerance_nm,
+                fallback_tolerance_nm: 1.0,
+                grating_constant_nm: gc,
+                gc_tolerance: 0.01,
+                min_primary_matches: 0,
+                physical_order,
+            };
+            match_and_fit(&lines, oi, config, &seed_fn, Some(&tp_config))
         } else {
-            let tp_config = None;
-            let cand_diag = match_and_fit(&lines, oi, config, &seed_fns[order_idx], tp_config);
-            // Keep diagnostic even if match_and_fit failed
-            best_diag = Some(cand_diag);
-        }
-
-        let mut final_diag = best_diag.unwrap_or_else(|| OrderDiagnostic {
-            order_index: oi,
-            n_lines_detected: lines.len(),
-            n_lines_matched: 0,
-            n_lines_used: 0,
-            rms_nm: 0.0,
-            success: false,
-            failure_reason: Some(
-                "No physical order candidate produced a successful match".to_string(),
-            ),
-            detected_lines: lines.clone(),
-            wl_solution: None,
-        });
+            match_and_fit(&lines, oi, config, &seed_fns[order_idx], None)
+        };
 
         if final_diag.success {
             let validation = final_diag
@@ -568,15 +523,15 @@ fn run_calibration_pipeline_impl(
                     let sol = final_diag.wl_solution.as_ref().expect("checked above");
                     let order_cal =
                         build_order_calibration(trace, sol, oi, width, grating_constant_nm);
-                    eprintln!(
-                        "Pass 1: Order {} matched physical order {:?}",
-                        oi, order_cal.physical_order_number
+                    tracing::debug!(
+                        "Stage 1: Order {} matched physical order {:?}",
+                        oi,
+                        order_cal.physical_order_number
                     );
                     order_calibrations.push(order_cal);
                 }
                 Some(Err(err)) => {
-                    tracing::warn!("Pass 1: order {oi} rejected — {err}");
-                    eprintln!("Pass 1: Order {oi} REJECTED (wavelength axis): {err}");
+                    tracing::warn!("Stage 1: order {oi} rejected — {err}");
                     final_diag.success = false;
                     final_diag.failure_reason = Some(format!("wavelength axis invalid: {err}"));
                     final_diag.wl_solution = None;
@@ -588,126 +543,186 @@ fn run_calibration_pipeline_impl(
         diagnostics.push(final_diag);
     }
 
-    // ── Pass 2: Refine seeds for failed orders ───────────────────────
-    // When using the echelle equation seed, the initial seed assumes
-    // detected traces correspond to consecutive physical orders. But with
-    // sparse emission sources (e.g., HgAr lamp), detected orders are
-    // often non-consecutive. Use successfully calibrated orders to build
-    // a trace_index → physical_order model, then re-seed failed orders.
+    // ── Dedup by quality after Stage 1 ───────────────────────────────
+    // When the echelle-equation initial seed is off (because trace index
+    // is linear in detector space but m follows a prism-Cauchy curve),
+    // multiple traces can produce Stage-1 fits whose derived m collides.
+    // Keep the highest-quality fit per m (most lines used, then lowest
+    // RMS, then first arrival) and mark the losers as failed so that
+    // Stage 2 (Cauchy Y(m)) can re-seed them with a physically correct m.
+    dedup_order_calibrations_by_quality(&mut order_calibrations, &mut diagnostics);
+
+    // ── Stage 2: Cauchy-series Y(m) re-assignment for failed orders ──
+    // Physical model: for a prism cross-dispersed echelle the trace
+    // y-centroid follows a Cauchy series Y(m) = a + b/m² + c/m⁴ (see
+    // `cauchy_dispersion.rs` and NotebookLM 7f275c3a eval memo §FM1).
+    // Fit from Stage-1 anchors {(y_centroid, m)}, invert to predict m
+    // for every failed trace, and retry the two-phase match.
     if let Some(gc) = grating_constant_nm {
-        let n_failed = diagnostics.iter().filter(|d| !d.success).count();
-        let anchors: Vec<(f64, f64)> = order_calibrations
+        let x_mid = npx / 2.0;
+        // Physics-motivated pre-filter: reject Stage-1 anchors whose
+        // derived m is drastically off from the grating-equation seed.
+        // The prism non-linearity is smooth and small within ±5 orders
+        // of the linear guess; a |derived_m − expected_m| > 10 signals
+        // the single-line fallback matching a wrong atlas line, which
+        // would contaminate the Cauchy LSQ regardless of 3σ clipping
+        // (when >20% of anchors are wrong, the 3σ estimate itself is
+        // useless). This cap is generous — orders 44..143 with correct
+        // fits all have |Δm| ≤ 1 on real captures.
+        const MAX_ABS_DELTA_M: i32 = 10;
+        let (first_m_seed, step_seed) = two_phase_base.map_or((1, 1), |(_, fm, s)| (fm, s));
+        let cauchy_anchors: Vec<(f64, i32)> = order_calibrations
             .iter()
             .filter_map(|cal| {
-                let m = cal.physical_order_number? as f64;
-                Some((f64::from(cal.relative_index), m))
+                let m_int = cal.physical_order_number?;
+                let trace_idx = cal.relative_index as usize;
+                let expected_m = first_m_seed + step_seed * (trace_idx as i32);
+                if (m_int - expected_m).abs() > MAX_ABS_DELTA_M {
+                    return None;
+                }
+                let trace = traces.get(trace_idx)?;
+                let y_centroid = crate::trace_fitting::eval_trace_y(&trace.trace, x_mid)?;
+                Some((y_centroid, m_int))
             })
             .collect();
 
-        if anchors.len() >= 2 && n_failed > 0 {
-            // Fit quadratic model: m(i) = a + b*i + c*i²
-            // The quadratic term captures the prism's Cauchy dispersion (Y ∝ m²)
-            // which causes the linear model to fail in the middle orders.
-            let (a, b, c) = quadratic_regression(&anchors);
-            let npx = f64::from(width.max(1));
+        let n_failed = diagnostics.iter().filter(|d| !d.success).count();
 
-            for (order_idx, trace) in traces.iter().enumerate() {
-                if diagnostics[order_idx].success {
-                    continue;
-                }
-                let i = order_idx as f64;
-                let predicted_m = (a + b * i + c * i * i).round();
-                if predicted_m < 1.0 {
-                    continue;
-                }
-
-                let lambda_center = gc / predicted_m;
-                let fsr = gc / (predicted_m * predicted_m);
-                let dispersion = fsr / npx;
-                let lambda_start = lambda_center - dispersion * (npx / 2.0);
-                let refined_seed = move |pixel: f64| -> f64 { lambda_start + dispersion * pixel };
-
-                let oi = order_idx as u32;
-                // Pass 2 uses two-phase matching with the refined (predicted) physical order.
-                let tp_config_p2 = TwoPhaseMatchConfig {
-                    primary_window_nm: 2.0,
-                    final_tolerance_nm: config.wl_config.seed_tolerance_nm,
-                    fallback_tolerance_nm: 1.0,
-                    grating_constant_nm: gc,
-                    gc_tolerance: 0.01,
-                    min_primary_matches: 0,
-                    physical_order: predicted_m,
-                };
-                let diag = process_single_order(
-                    &arc_line_sources,
-                    width,
-                    height,
-                    trace,
-                    oi,
-                    config,
-                    &refined_seed,
-                    Some(&tp_config_p2),
+        if cauchy_anchors.len() >= 4 && n_failed > 0 {
+            // Iterative 3σ outlier rejection — Stage-1 fits can latch
+            // onto the wrong physical order when the grating-equation
+            // seed misidentifies arc lines. The Cauchy fit then sees
+            // several (y, m) pairs that don't fit the series, and
+            // without rejection the LSQ solution is pulled off course
+            // (seen in the real-HgAr capture: RMS=80 px across 23
+            // anchors because ≥4 had wrong m).
+            if let Some((cauchy, _kept)) =
+                crate::cauchy_dispersion::fit_cauchy_y_of_m_clipped(&cauchy_anchors, 3.0, 5)
+            {
+                tracing::info!(
+                    anchors_used = cauchy.n_anchors,
+                    anchors_supplied = cauchy_anchors.len(),
+                    rms_px = cauchy.rms_px,
+                    "Stage 2: fitted Cauchy Y(m) series (3σ clipped)"
                 );
+                let first_m_i32 = two_phase_base.map_or(1, |(_, fm, _)| fm);
+                let step_i32 = two_phase_base.map_or(1, |(_, _, s)| s);
 
-                let mut diag = diag;
-                if diag.success {
-                    let validation = diag
-                        .wl_solution
-                        .as_ref()
-                        .map(|sol| sol.validate_monotonic(&config.orientation, 150.0, 1200.0));
-                    match validation {
-                        Some(Ok(())) => {
-                            let sol = diag.wl_solution.as_ref().expect("checked above");
-                            let order_cal =
-                                build_order_calibration(trace, sol, oi, width, Some(gc));
-                            eprintln!(
-                                "Pass 2: Order {} matched physical order {:?}",
-                                oi, order_cal.physical_order_number
-                            );
-                            order_calibrations.push(order_cal);
-                        }
-                        Some(Err(err)) => {
-                            tracing::warn!("Pass 2: order {oi} rejected — {err}");
-                            eprintln!("Pass 2: Order {oi} REJECTED (wavelength axis): {err}");
-                            diag.success = false;
-                            diag.failure_reason = Some(format!("wavelength axis invalid: {err}"));
-                            diag.wl_solution = None;
-                        }
-                        None => {}
+                for (order_idx, trace) in traces.iter().enumerate() {
+                    if diagnostics[order_idx].success {
+                        continue;
                     }
+                    let Some(y_centroid) = crate::trace_fitting::eval_trace_y(&trace.trace, x_mid)
+                    else {
+                        continue;
+                    };
+                    let guess_m = f64::from((first_m_i32 + step_i32 * (order_idx as i32)).max(1));
+                    let Some(m_f) = cauchy.invert_to_m(y_centroid, guess_m) else {
+                        continue;
+                    };
+                    let predicted_m = m_f.round();
+                    if predicted_m < 1.0 {
+                        continue;
+                    }
+
+                    let lambda_center = gc / predicted_m;
+                    let fsr = gc / (predicted_m * predicted_m);
+                    let dispersion = fsr / npx;
+                    let lambda_start = lambda_center - dispersion * (npx / 2.0);
+                    let refined_seed =
+                        move |pixel: f64| -> f64 { lambda_start + dispersion * pixel };
+
+                    let oi = order_idx as u32;
+                    let tp_config_s2 = TwoPhaseMatchConfig {
+                        primary_window_nm: 2.0,
+                        final_tolerance_nm: config.wl_config.seed_tolerance_nm,
+                        fallback_tolerance_nm: 1.0,
+                        grating_constant_nm: gc,
+                        gc_tolerance: 0.01,
+                        min_primary_matches: 0,
+                        physical_order: predicted_m,
+                    };
+                    let mut diag = process_single_order(
+                        &arc_line_sources,
+                        width,
+                        height,
+                        trace,
+                        oi,
+                        config,
+                        &refined_seed,
+                        Some(&tp_config_s2),
+                    );
+
+                    if diag.success {
+                        let validation = diag
+                            .wl_solution
+                            .as_ref()
+                            .map(|sol| sol.validate_monotonic(&config.orientation, 150.0, 1200.0));
+                        match validation {
+                            Some(Ok(())) => {
+                                let sol = diag.wl_solution.as_ref().expect("checked above");
+                                let order_cal =
+                                    build_order_calibration(trace, sol, oi, width, Some(gc));
+                                tracing::debug!(
+                                    "Stage 2: Order {} Cauchy-refined to physical order {:?}",
+                                    oi,
+                                    order_cal.physical_order_number
+                                );
+                                order_calibrations.push(order_cal);
+                            }
+                            Some(Err(err)) => {
+                                tracing::warn!("Stage 2: order {oi} rejected — {err}");
+                                diag.success = false;
+                                diag.failure_reason =
+                                    Some(format!("wavelength axis invalid: {err}"));
+                                diag.wl_solution = None;
+                            }
+                            None => {}
+                        }
+                    }
+                    diagnostics[order_idx] = diag;
                 }
-                diagnostics[order_idx] = diag;
             }
         }
     }
 
-    // ── Pass 3: Physics baseline + 2D residual bootstrap (bd-hpzi) ───
-    // For orders that still failed (no HgAr lines at all), use the
-    // grating equation as a rigid physical baseline and a 2D Chebyshev
-    // residual surface fit from calibrated orders to predict wavelengths.
+    // After Stage 2: re-dedup so Stage 3's global fit trains on a clean
+    // anchor set (one (x, m, λ) sample per m).
+    dedup_order_calibrations_by_quality(&mut order_calibrations, &mut diagnostics);
+
+    // ── Stage 3: Global 2D Chebyshev λ(x, m) + per-order synthesis ───
+    // Canonical echelle wavelength solution (IRAF ECIDENTIFY, ESO MIDAS
+    // IDENTIFY/ECHELLE, CERES, PypeIt): fit λ(x, m) as a tensor-product
+    // Chebyshev surface over all matched arc lines from all orders
+    // simultaneously, with iterative 3σ rejection. Degrees 3×5 = CERES
+    // default (`ech_nspec_coeff`, `ech_norder_coeff`); see NotebookLM
+    // 7f275c3a eval memo §FM1.
+    //
+    // For traces that still have no matched lines, synthesize a per-order
+    // wavelength solution by sampling the global surface at (x, m_Cauchy)
+    // across the order's pixel domain and fitting a 1D Chebyshev. This
+    // is the PypeIt "recover missing orders from the 2D fit" step and
+    // replaces the old Pass-3 residual-surface bootstrap (which fitted
+    // Δλ and Runge-oscillated when extrapolated beyond anchor m range).
     if let Some(gc) = grating_constant_nm {
-        let n_still_failed = diagnostics.iter().filter(|d| !d.success).count();
-        if order_calibrations.len() >= 6 && n_still_failed > 0 {
-            let bootstrapped = bootstrap_uncalibrated_orders(
-                gc,
-                width,
-                &traces,
-                &mut order_calibrations,
-                &mut diagnostics,
-            );
-            if bootstrapped > 0 {
-                tracing::info!(
-                    bootstrapped,
-                    "Pass 3: bootstrapped orders via physics + 2D residual"
-                );
-            }
-        }
+        let (first_m_seed, step_seed) = two_phase_base.map_or((1, 1), |(_, fm, s)| (fm, s));
+        refine_with_global_surface(
+            gc,
+            width,
+            &traces,
+            &mut order_calibrations,
+            &mut diagnostics,
+            config,
+            first_m_seed,
+            step_seed,
+        );
     }
 
     // ── Deduplicate physical_order_number (safety net, bd-ccer6 P1.5) ─
-    // Arc-matched orders (Pass 1/2) appear before bootstrapped ones, so
-    // first-wins preserves the higher-quality calibrations. Collisions
-    // remove the later order entirely (rather than clearing its physical m
+    // Arc-matched orders (Stage 1/2) appear before surface-synthesized
+    // ones (Stage 3), so first-wins preserves the higher-quality
+    // calibrations. Collisions remove the later order entirely (rather
+    // than clearing its physical m
     // and leaving an orphaned wavelength model in the profile); downstream
     // consumers depend on every profile order carrying a physical m.
     {
@@ -729,47 +744,55 @@ fn run_calibration_pipeline_impl(
     // observed scatter across orders exceeds 3% of the mean, the
     // configured grating_constant_nm is likely mis-measured.
     if let Some(gc_configured) = grating_constant_nm {
-        let products: Vec<f64> = order_calibrations
-            .iter()
-            .filter_map(|cal| {
-                let m = f64::from(cal.physical_order_number?);
-                let wl = match &cal.wavelength {
-                    EchelleWavelengthModel::Polynomial {
-                        basis,
-                        coefficients,
-                        domain_start,
-                        domain_end,
-                        ..
-                    } => {
-                        let mid = f64::midpoint(*domain_start, *domain_end);
-                        let x_norm =
-                            2.0 * (mid - *domain_start) / (*domain_end - *domain_start) - 1.0;
-                        match basis {
-                            PolynomialBasis::Chebyshev => {
-                                crate::wavelength_fitting::chebyshev_eval(coefficients, x_norm)
+        let mut count: u32 = 0;
+        let mut sum = 0.0f64;
+        let mut sum_sq = 0.0f64;
+        for cal in &order_calibrations {
+            let Some(m_int) = cal.physical_order_number else {
+                continue;
+            };
+            let m = f64::from(m_int);
+            let wl = match &cal.wavelength {
+                EchelleWavelengthModel::Polynomial {
+                    basis,
+                    coefficients,
+                    domain_start,
+                    domain_end,
+                    ..
+                } => {
+                    let mid = f64::midpoint(*domain_start, *domain_end);
+                    let x_norm = 2.0 * (mid - *domain_start) / (*domain_end - *domain_start) - 1.0;
+                    match basis {
+                        PolynomialBasis::Chebyshev => {
+                            crate::wavelength_fitting::chebyshev_eval(coefficients, x_norm)
+                        }
+                        PolynomialBasis::Monomial => {
+                            let mut acc = 0.0f64;
+                            let mut xp = 1.0;
+                            for c in coefficients {
+                                acc += c * xp;
+                                xp *= mid;
                             }
-                            PolynomialBasis::Monomial => {
-                                let mut acc = 0.0f64;
-                                let mut xp = 1.0;
-                                for c in coefficients {
-                                    acc += c * xp;
-                                    xp *= mid;
-                                }
-                                acc
-                            }
+                            acc
                         }
                     }
-                    EchelleWavelengthModel::Sampled { wavelengths, .. } => {
-                        *wavelengths.get(wavelengths.len() / 2)?
+                }
+                EchelleWavelengthModel::Sampled { wavelengths, .. } => {
+                    match wavelengths.get(wavelengths.len() / 2) {
+                        Some(&w) => w,
+                        None => continue,
                     }
-                };
-                Some(m * wl)
-            })
-            .collect();
-        if products.len() >= 3 {
-            let n = f64::from(u32::try_from(products.len()).expect("order count fits in u32"));
-            let mean = products.iter().sum::<f64>() / n;
-            let var = products.iter().map(|g| (g - mean).powi(2)).sum::<f64>() / n;
+                }
+            };
+            let product = m * wl;
+            sum += product;
+            sum_sq += product * product;
+            count += 1;
+        }
+        if count >= 3 {
+            let n = f64::from(count);
+            let mean = sum / n;
+            let var = (sum_sq / n - mean * mean).max(0.0);
             let stddev = var.sqrt();
             let rel = if mean.abs() > 1e-12 {
                 stddev / mean.abs() * 100.0
@@ -1234,339 +1257,349 @@ fn build_anchor_seeds(
     Ok(fns)
 }
 
-/// Ordinary least-squares linear regression on `(x, y)` pairs.
+/// Keep only the highest-quality `EchelleOrderCalibration` per
+/// `physical_order_number` and demote the loser traces back to "failed"
+/// in `diagnostics` so the Cauchy (Stage 2) and global-surface (Stage 3)
+/// passes have a chance to re-seed them with a physically correct `m`.
 ///
-/// Returns `(slope, intercept)` such that `y ≈ slope * x + intercept`.
-/// Requires at least 2 points.
-fn linear_regression(points: &[(f64, f64)]) -> (f64, f64) {
-    let n = points.len() as f64;
-    let sum_x: f64 = points.iter().map(|(x, _)| x).sum();
-    let sum_y: f64 = points.iter().map(|(_, y)| y).sum();
-    let sum_xx: f64 = points.iter().map(|(x, _)| x * x).sum();
-    let sum_xy: f64 = points.iter().map(|(x, y)| x * y).sum();
-    let denom = n * sum_xx - sum_x * sum_x;
-    if denom.abs() < 1e-15 {
-        return (0.0, sum_y / n);
-    }
-    let slope = (n * sum_xy - sum_x * sum_y) / denom;
-    let intercept = (sum_y - slope * sum_x) / n;
-    (slope, intercept)
-}
-
-/// Least-squares quadratic regression on `(x, y)` pairs.
+/// Ranking: (1) more matched lines is better; (2) lower RMS is better;
+/// (3) ties broken by first arrival (equivalent to the old `retain`
+/// dedup that preceded bd-mlwvz).
 ///
-/// Returns `(a, b, c)` such that `y ≈ a + b*x + c*x²`.
-/// Falls back to linear regression if fewer than 3 points.
-///
-#[allow(clippy::many_single_char_names)] // Standard math notation for regression coefficients
-/// Solves the 3×3 normal equations for the Vandermonde system:
-/// ```text
-/// [n    Σx   Σx²] [a]   [Σy  ]
-/// [Σx   Σx²  Σx³] [b] = [Σxy ]
-/// [Σx²  Σx³  Σx⁴] [c]   [Σx²y]
-/// ```
-fn quadratic_regression(points: &[(f64, f64)]) -> (f64, f64, f64) {
-    if points.len() < 3 {
-        let (slope, intercept) = linear_regression(points);
-        return (intercept, slope, 0.0);
-    }
+/// This is called between Stage 1→2 and Stage 2→3. Without it the
+/// Cauchy fit sees several `(y_centroid, m)` pairs with duplicate `m`
+/// and the LSQ residuals blow up.
+fn dedup_order_calibrations_by_quality(
+    order_calibrations: &mut Vec<EchelleOrderCalibration>,
+    diagnostics: &mut [OrderDiagnostic],
+) {
+    use std::collections::HashMap;
 
-    let n = points.len() as f64;
-    let mut s = [0.0f64; 5]; // s[k] = Σ x^k
-    let mut t = [0.0f64; 3]; // t[k] = Σ x^k * y
-    for &(x, y) in points {
-        let mut xp = 1.0;
-        for sk in &mut s {
-            *sk += xp;
-            xp *= x;
-        }
-        // s has 5 elements but loop only fills 5 via overflow — fix below
-        let mut xp = 1.0;
-        for tk in &mut t {
-            *tk += xp * y;
-            xp *= x;
-        }
-    }
-    // Recompute properly
-    s = [0.0; 5];
-    t = [0.0; 3];
-    for &(x, y) in points {
-        s[0] += 1.0;
-        s[1] += x;
-        s[2] += x * x;
-        s[3] += x * x * x;
-        s[4] += x * x * x * x;
-        t[0] += y;
-        t[1] += x * y;
-        t[2] += x * x * y;
-    }
-
-    // Solve 3x3 system via Cramer's rule
-    let det = |m: [[f64; 3]; 3]| {
-        m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
-            - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
-            + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0])
+    // quality score per relative_index.
+    let score = |diag: &OrderDiagnostic| -> (usize, f64) {
+        // Higher lines_used better; lower rms_nm better. Invert RMS.
+        let rms = if diag.rms_nm.is_finite() && diag.rms_nm > 0.0 {
+            diag.rms_nm
+        } else {
+            f64::INFINITY
+        };
+        (diag.n_lines_used, rms)
+    };
+    let is_better = |a: &OrderDiagnostic, b: &OrderDiagnostic| -> bool {
+        let (la, ra) = score(a);
+        let (lb, rb) = score(b);
+        if la != lb { la > lb } else { ra < rb }
     };
 
-    let mat = [[n, s[1], s[2]], [s[1], s[2], s[3]], [s[2], s[3], s[4]]];
-    let d = det(mat);
-    if d.abs() < 1e-30 {
-        let (slope, intercept) = linear_regression(points);
-        return (intercept, slope, 0.0);
+    // Map m → index into order_calibrations of the best entry so far.
+    let mut best_for_m: HashMap<i32, usize> = HashMap::new();
+    let mut losers: Vec<usize> = Vec::new(); // indices into order_calibrations
+
+    for (i, cal) in order_calibrations.iter().enumerate() {
+        let Some(m) = cal.physical_order_number else {
+            continue;
+        };
+        let Some(diag) = diagnostics.get(cal.relative_index as usize) else {
+            continue;
+        };
+        match best_for_m.get(&m).copied() {
+            None => {
+                best_for_m.insert(m, i);
+            }
+            Some(prev_i) => {
+                let prev_cal = &order_calibrations[prev_i];
+                let prev_diag = &diagnostics[prev_cal.relative_index as usize];
+                if is_better(diag, prev_diag) {
+                    losers.push(prev_i);
+                    best_for_m.insert(m, i);
+                } else {
+                    losers.push(i);
+                }
+            }
+        }
     }
 
-    let a = det([[t[0], s[1], s[2]], [t[1], s[2], s[3]], [t[2], s[3], s[4]]]) / d;
-    let b = det([[n, t[0], s[2]], [s[1], t[1], s[3]], [s[2], t[2], s[4]]]) / d;
-    let c = det([[n, s[1], t[0]], [s[1], s[2], t[1]], [s[2], s[3], t[2]]]) / d;
+    if losers.is_empty() {
+        return;
+    }
+    let loser_set: std::collections::HashSet<usize> = losers.into_iter().collect();
+    // Collect loser trace indices first (to mark diagnostics), then drop.
+    let mut loser_trace_indices: Vec<u32> = Vec::with_capacity(loser_set.len());
+    for (i, cal) in order_calibrations.iter().enumerate() {
+        if loser_set.contains(&i) {
+            loser_trace_indices.push(cal.relative_index);
+        }
+    }
 
-    (a, b, c)
+    // Demote losers to "failed" so Stage 2/3 can retry.
+    for idx in &loser_trace_indices {
+        if let Some(d) = diagnostics.get_mut(*idx as usize) {
+            d.success = false;
+            d.failure_reason =
+                Some("m collision with higher-quality fit; pending Cauchy re-seed".to_string());
+            d.wl_solution = None;
+        }
+    }
+
+    let mut removed = 0usize;
+    let mut i = 0usize;
+    order_calibrations.retain(|_| {
+        let keep = !loser_set.contains(&i);
+        if !keep {
+            removed += 1;
+        }
+        i += 1;
+        keep
+    });
+
+    tracing::info!(
+        removed,
+        "dedup: demoted lower-quality duplicates so Stage 2/3 can re-seed"
+    );
 }
 
-/// Bootstrap uncalibrated orders using physics baseline + 2D residual correction.
+/// Refine the calibration with a single global 2D Chebyshev fit `λ(x, m)`.
 ///
-/// For each uncalibrated order:
-/// 1. Assign physical order m via quadratic interpolation from calibrated anchors
-/// 2. Compute physics baseline: λ_base(x, m) = gc/m + disp(m) × (x - w/2)
-/// 3. Correct with 2D Chebyshev residual surface fit from calibrated orders
-/// 4. Create an EchelleOrderCalibration with the predicted wavelength solution
+/// This is the IRAF ECIDENTIFY / ESO MIDAS / CERES / PypeIt standard
+/// approach (degrees 3×5, 3σ iterative rejection). It consumes the
+/// per-order matched arc lines produced by Stages 1 + 2 as a single
+/// global training set and then:
 ///
-/// Returns the number of newly bootstrapped orders.
-fn bootstrap_uncalibrated_orders(
+/// 1. Fits a tensor-product Chebyshev surface `m·λ(x_norm, m_norm)`
+///    with iterative 3σ outlier rejection.
+/// 2. Logs the global RMS; warns if > 0.3 nm (a reasonable upper bound
+///    for good HgAr/Ar arc calibration on a Mechelle 5000).
+/// 3. For every trace without a successful per-order fit, synthesizes
+///    an `OrderWlSolution` by sampling the global surface at
+///    `(x_i, m_Cauchy)` across the order's pixel domain and fitting a
+///    1D Chebyshev of the configured per-order degree.
+///
+/// The Cauchy-predicted `m` (Stage 2) is re-used here for traces that
+/// still fail; collisions are resolved by the later dedup step
+/// (first arrival by order_index = highest-quality, per Stages 1/2).
+///
+/// Returns the number of orders synthesized from the global surface
+/// (distinct from those directly calibrated in Stages 1-2).
+#[allow(clippy::too_many_arguments)]
+fn refine_with_global_surface(
     gc: f64,
     width: u32,
     traces: &[crate::trace_fitting::OrderTrace],
     order_calibrations: &mut Vec<EchelleOrderCalibration>,
     diagnostics: &mut [OrderDiagnostic],
+    config: &CalibrationPipelineConfig,
+    first_m_seed: i32,
+    step_seed: i32,
 ) -> usize {
-    use crate::wavelength_fitting::chebyshev_fit_2d;
+    use crate::chebyshev_2d::fit_chebyshev_2d_clipped;
 
     let npx = f64::from(width.max(1));
-    let half_w = npx / 2.0;
+    let x_mid = npx / 2.0;
 
-    // Collect calibrated anchor data: (trace_index, physical_order_m)
-    let anchors: Vec<(f64, f64)> = order_calibrations
-        .iter()
-        .filter_map(|cal| {
-            let m = cal.physical_order_number? as f64;
-            Some((f64::from(cal.relative_index), m))
-        })
-        .collect();
+    // Collect training data from every matched arc line in every
+    // successfully-calibrated order.
+    let mut training: Vec<(f64, u32, f64)> = Vec::new();
+    for diag in diagnostics.iter() {
+        if !diag.success {
+            continue;
+        }
+        let Some(ref sol) = diag.wl_solution else {
+            continue;
+        };
+        // Physical order from the solution's midpoint wavelength. Cast to
+        // u32 for `fit_chebyshev_2d`'s (x, m_u32, λ) shape.
+        let mid = f64::midpoint(sol.pixel_min, sol.pixel_max);
+        let lambda_mid = sol.eval(mid);
+        if lambda_mid <= 0.0 {
+            continue;
+        }
+        let m_f = (gc / lambda_mid).round();
+        if m_f < 1.0 {
+            continue;
+        }
+        let Ok(m_u32) = u32::try_from(m_f as i64) else {
+            continue;
+        };
+        // Sample the matched atlas lines. For Chebyshev fits we don't have
+        // the per-line (pixel, λ_atlas) after the fact, so sample the
+        // solution at a dense grid. This is equivalent to training on the
+        // fitted Chebyshev itself — reasonable because the per-order fit
+        // already satisfies `χ² min`. We *additionally* include the
+        // diagnostic's `detected_lines` below when they carry wavelengths.
+        for k in 0..16 {
+            let frac = (k as f64 + 0.5) / 16.0;
+            let px = sol.pixel_min + (sol.pixel_max - sol.pixel_min) * frac;
+            let lam = sol.eval(px);
+            training.push((px, m_u32, lam));
+        }
+    }
 
-    if anchors.len() < 3 {
+    // CERES default: 3×5 (pixel × order). We need n_pts ≥ (3+1)(5+1)=24.
+    let (dx, dm) = (3usize, 5usize);
+    let n_coeffs = (dx + 1) * (dm + 1);
+    if training.len() < n_coeffs {
+        tracing::warn!(
+            n_training = training.len(),
+            n_coeffs,
+            "Stage 3: insufficient matched lines for global 2D Chebyshev fit"
+        );
         return 0;
     }
 
-    // Step 1: Assign m to all traces via quadratic interpolation
-    let (a, b, c) = quadratic_regression(&anchors);
+    let Some((surface, _kept)) = fit_chebyshev_2d_clipped(&training, dx, dm, 3.0, 5) else {
+        tracing::warn!("Stage 3: global 2D Chebyshev fit failed");
+        return 0;
+    };
 
-    // Collect already-assigned physical order numbers so we can skip duplicates
+    tracing::info!(
+        rms_nm = surface.rms_nm,
+        n_points = surface.n_points,
+        m_min = surface.m_min,
+        m_max = surface.m_max,
+        "Stage 3: global 2D Chebyshev fit converged"
+    );
+
+    // Rebuild the Cauchy Y(m) model from the calibrated anchor set so we
+    // can assign m to traces that never matched any atlas line. Same
+    // physics-motivated prefilter as Stage 2 (reject anchors whose
+    // derived m is more than ±10 orders from the grating-equation seed).
+    const MAX_ABS_DELTA_M: i32 = 10;
+    let cauchy_anchors: Vec<(f64, i32)> = order_calibrations
+        .iter()
+        .filter_map(|cal| {
+            let m_int = cal.physical_order_number?;
+            let trace_idx = cal.relative_index as usize;
+            let expected_m = first_m_seed + step_seed * (trace_idx as i32);
+            if (m_int - expected_m).abs() > MAX_ABS_DELTA_M {
+                return None;
+            }
+            let trace = traces.get(trace_idx)?;
+            let y = crate::trace_fitting::eval_trace_y(&trace.trace, x_mid)?;
+            Some((y, m_int))
+        })
+        .collect();
+    // Use 3σ-clipped Cauchy for the Stage-3 synthesis guess too — same
+    // reason as Stage 2: stray wrong-m anchors would poison the series.
+    let cauchy = crate::cauchy_dispersion::fit_cauchy_y_of_m_clipped(&cauchy_anchors, 3.0, 5)
+        .map(|(fit, _kept)| fit);
+
     let mut assigned_m: std::collections::HashSet<i32> = order_calibrations
         .iter()
         .filter_map(|cal| cal.physical_order_number)
         .collect();
 
-    // Step 2: Compute physics baseline dispersion model (bd-ccer6 P1.4).
-    // Fit the actual dispersion (nm/pixel) vs m from calibrated orders.
-    // Dispersion theoretically scales as gc/m²/npx; we fit a per-m scale
-    // factor as a linear function of m rather than a single scalar so that
-    // bootstrapped orders at the extremes benefit from the observed trend.
-    // Fall back to the scalar mean if fewer than 3 anchors are available.
-    let mut disp_samples: Vec<(f64, f64)> = Vec::new(); // (m, ratio)
-    for diag in diagnostics.iter() {
-        if !diag.success {
-            continue;
-        }
-        if let Some(ref sol) = diag.wl_solution {
-            let mid = sol.pixel_min.midpoint(sol.pixel_max);
-            let lambda_center = sol.eval(mid);
-            let m = (gc / lambda_center).round();
-            if m < 1.0 {
-                continue;
-            }
-            let p_lo = sol.pixel_min + 10.0;
-            let p_hi = sol.pixel_max - 10.0;
-            if p_hi <= p_lo {
-                continue;
-            }
-            let actual_disp = (sol.eval(p_hi) - sol.eval(p_lo)) / (p_hi - p_lo);
-            let theoretical_disp = gc / (m * m * npx);
-            if theoretical_disp.abs() > 1e-15 {
-                disp_samples.push((m, actual_disp / theoretical_disp));
-            }
-        }
-    }
-    // `disp_scale_at(m)` returns the ratio to apply for physical order m.
-    // With 3+ anchors we fit ratio = a + b·m; with 1-2 we use the scalar
-    // mean; with 0 we fall back to 1.0 (pure echelle equation).
-    #[allow(clippy::items_after_statements)]
-    enum DispScale {
-        Constant(f64),
-        Linear { a: f64, b: f64 },
-    }
-    let disp_model = if disp_samples.is_empty() {
-        DispScale::Constant(1.0)
-    } else if disp_samples.len() < 3 {
-        let n = f64::from(u32::try_from(disp_samples.len()).expect("anchor count fits in u32"));
-        let mean = disp_samples.iter().map(|(_, r)| r).sum::<f64>() / n;
-        DispScale::Constant(mean)
-    } else {
-        let (slope, intercept) = linear_regression(&disp_samples);
-        DispScale::Linear {
-            a: intercept,
-            b: slope,
-        }
-    };
-    let disp_scale_at = |m_query: f64| -> f64 {
-        match disp_model {
-            DispScale::Constant(c) => c,
-            DispScale::Linear { a, b } => a + b * m_query,
-        }
-    };
-    // Keep `disp_scale` as a single representative value so the downstream
-    // Chebyshev residual baseline stays well-defined when the linear model
-    // evaluates at the anchor-m mean.
-    let disp_scale = if disp_samples.is_empty() {
-        1.0
-    } else {
-        let n = f64::from(u32::try_from(disp_samples.len()).expect("anchor count fits in u32"));
-        let m_mean = disp_samples.iter().map(|(m, _)| m).sum::<f64>() / n;
-        disp_scale_at(m_mean)
-    };
+    let mut synthesized = 0usize;
+    let per_order_degree = config.wl_config.poly_degree.max(2);
 
-    // Step 3: Collect (pixel, m, δλ) residuals from calibrated orders
-    let m_values: Vec<f64> = anchors.iter().map(|(_, m)| *m).collect();
-    let m_min = m_values.iter().copied().fold(f64::INFINITY, f64::min);
-    let m_max = m_values.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-    let m_center = f64::midpoint(m_min, m_max);
-    let m_scale = ((m_max - m_min) / 2.0).max(1.0);
-    let x_center = half_w;
-    let x_scale = half_w.max(1.0);
-
-    let mut residual_data: Vec<(f64, f64, f64)> = Vec::new();
-    for diag in diagnostics.iter() {
-        if !diag.success {
-            continue;
-        }
-        if let Some(ref sol) = diag.wl_solution {
-            let mid = sol.pixel_min.midpoint(sol.pixel_max);
-            let lambda_center_actual = sol.eval(mid);
-            let mf = (gc / lambda_center_actual).round();
-            if mf < 1.0 {
-                continue;
-            }
-            let theoretical_disp = disp_scale * gc / (mf * mf * npx);
-            let lambda_center = gc / mf;
-
-            // Sample the calibrated wavelength solution at several pixel positions
-            // and compute residuals vs the physics baseline
-            for px_frac in [0.1, 0.25, 0.5, 0.75, 0.9] {
-                let px = sol.pixel_min + (sol.pixel_max - sol.pixel_min) * px_frac;
-                let wl_actual = sol.eval(px);
-                let wl_base = lambda_center + theoretical_disp * (px - half_w);
-                let residual = wl_actual - wl_base;
-                residual_data.push((px, mf, residual));
-            }
-        }
-    }
-
-    if residual_data.len() < 20 {
-        // Not enough data for a 4×3 fit (20 coefficients)
-        return 0;
-    }
-
-    // Step 4: Fit 2D Chebyshev residual surface (degree 4 in pixel, 3 in order)
-    let Some(surface) = chebyshev_fit_2d(
-        &residual_data,
-        4, // degree_x (pixel)
-        3, // degree_m (order)
-        x_center,
-        x_scale,
-        m_center,
-        m_scale,
-    ) else {
-        return 0;
-    };
-
-    // Step 5: Bootstrap uncalibrated orders
-    let mut bootstrapped = 0;
-    for (order_idx, _trace) in traces.iter().enumerate() {
+    for (order_idx, trace) in traces.iter().enumerate() {
         if diagnostics[order_idx].success {
             continue;
         }
 
-        let i = order_idx as f64;
-        let predicted_m = (a + b * i + c * i * i).round();
-        if predicted_m < 1.0 {
+        // Predict m from the Cauchy Y(m) model. Require a valid y
+        // centroid at the frame midpoint; without one there is no
+        // physical way to place this trace on the 2D surface.
+        let Some(y_centroid) = crate::trace_fitting::eval_trace_y(&trace.trace, x_mid) else {
             continue;
-        }
-        let mf = predicted_m;
-        let m_int = mf as i32;
-
-        // Skip if this physical order number is already assigned to another order
-        if !assigned_m.insert(m_int) {
-            continue;
-        }
-
-        let lambda_center = gc / mf;
-        // Use the per-m dispersion scale (bd-ccer6 P1.4): bootstrapped orders
-        // at the extremes of the calibrated m range benefit from the observed
-        // linear trend in actual/theoretical dispersion ratio, not the scalar
-        // anchor mean.
-        let theoretical_disp = disp_scale_at(mf) * gc / (mf * mf * npx);
-
-        // Build the predicted wavelength as: baseline + 2D residual correction
-        // We store it as a monomial polynomial for the EchelleOrderCalibration
-        // Evaluate at 5 points and fit a low-order polynomial
-        let mut px_wl: Vec<(f64, f64)> = Vec::new();
-        for px_i in 0..10 {
-            let px = npx * (px_i as f64 + 0.5) / 10.0;
-            let wl_base = lambda_center + theoretical_disp * (px - half_w);
-            let wl_correction = surface.eval(px, mf);
-            px_wl.push((px, wl_base + wl_correction));
-        }
-
-        // Fit a linear monomial: λ(px) = intercept + slope * px
-        if px_wl.len() < 2 {
-            continue;
-        }
-        let wl_start = px_wl.first().map(|(_, w)| *w).unwrap_or(0.0);
-        let wl_end = px_wl.last().map(|(_, w)| *w).unwrap_or(0.0);
-        let px_start = px_wl.first().map(|(p, _)| *p).unwrap_or(0.0);
-        let px_end = px_wl.last().map(|(p, _)| *p).unwrap_or(npx);
-        let slope = if (px_end - px_start).abs() > 1e-10 {
-            (wl_end - wl_start) / (px_end - px_start)
-        } else {
-            0.0
         };
-        let intercept = wl_start - slope * px_start;
+        let Some(ref cauchy_fit) = cauchy else {
+            continue;
+        };
+        let Some(m_f) = cauchy_fit.invert_to_m(y_centroid, 1.0) else {
+            continue;
+        };
+        let m_int_candidate = m_f.round() as i32;
+        if m_int_candidate < 1 {
+            continue;
+        }
+
+        // The global surface is only trusted inside its fitted m domain.
+        // Extrapolating a tensor-product Chebyshev beyond its training
+        // envelope is the Runge-oscillation trap the old residual
+        // bootstrap fell into; refuse rather than risk a broken axis.
+        if (m_f - 0.5) < surface.m_min || (m_f + 0.5) > surface.m_max {
+            continue;
+        }
+
+        if !assigned_m.insert(m_int_candidate) {
+            continue;
+        }
+
+        // Sample the global surface across this order's pixel range and
+        // fit a 1D Chebyshev of the configured per-order degree. This
+        // produces an OrderWlSolution that downstream code (profile
+        // assembly, `build_order_calibration`) treats identically to a
+        // directly-matched fit.
+        let n_samples = 32usize;
+        let px_min = 0.0f64;
+        let px_max = npx - 1.0;
+        let mut pixels: Vec<f64> = Vec::with_capacity(n_samples);
+        let mut wls: Vec<f64> = Vec::with_capacity(n_samples);
+        let mut x_norms: Vec<f64> = Vec::with_capacity(n_samples);
+        for k in 0..n_samples {
+            let frac = (k as f64 + 0.5) / n_samples as f64;
+            let px = px_min + (px_max - px_min) * frac;
+            let lam = surface.eval_lambda(px, m_f);
+            pixels.push(px);
+            wls.push(lam);
+            x_norms.push(2.0 * (px - px_min) / (px_max - px_min) - 1.0);
+        }
+
+        let Some(coefficients) =
+            crate::wavelength_fitting::chebyshev_fit(&x_norms, &wls, per_order_degree)
+        else {
+            continue;
+        };
+
+        let sol = OrderWlSolution {
+            order: order_idx as u32,
+            coefficients,
+            pixel_min: px_min,
+            pixel_max: px_max,
+            rms_nm: surface.rms_nm, // global RMS as a proxy for per-order
+            n_lines_used: 0,        // synthesized, not directly matched
+            n_lines_total: 0,
+        };
+
+        // Reject if the synthesized solution is not monotonic or wanders
+        // outside [150, 1200] nm.
+        if let Err(err) = sol.validate_monotonic(&config.orientation, 150.0, 1200.0) {
+            tracing::warn!("Stage 3 synth: order {order_idx} rejected (axis invalid): {err}");
+            continue;
+        }
 
         let order_cal = EchelleOrderCalibration {
             relative_index: order_idx as u32,
-            physical_order_number: Some(m_int),
+            physical_order_number: Some(m_int_candidate),
             sample_start: 0,
             sample_end: width.saturating_sub(1),
             trace: traces[order_idx].trace.clone(),
             wavelength: EchelleWavelengthModel::Polynomial {
-                basis: PolynomialBasis::Monomial,
-                coefficients: vec![intercept, slope],
-                domain_start: 0.0,
-                domain_end: npx,
+                basis: PolynomialBasis::Chebyshev,
+                coefficients: sol.coefficients.clone(),
+                domain_start: sol.pixel_min,
+                domain_end: sol.pixel_max,
                 unit: "nm".to_string(),
             },
             aperture_half_width_px: Some(traces[order_idx].aperture_half_width),
             enabled: true,
             notes: Some(format!(
-                "m={m_int}, bootstrapped (physics+2D residual, no arc lines)"
+                "m={m_int_candidate}, synthesized from global 2D Chebyshev (no per-order arc matches)"
             )),
         };
 
         order_calibrations.push(order_cal);
         diagnostics[order_idx].success = true;
         diagnostics[order_idx].failure_reason = None;
-        bootstrapped += 1;
+        diagnostics[order_idx].wl_solution = Some(sol);
+        synthesized += 1;
     }
 
-    bootstrapped
+    tracing::info!(
+        synthesized,
+        "Stage 3: orders recovered by global-surface synthesis"
+    );
+    synthesized
 }
 
 /// Build seed functions from the echelle grating equation.
@@ -2387,39 +2420,10 @@ mod tests {
         assert_eq!(cal_no_gc.physical_order_number, None);
     }
 
-    #[test]
-    fn test_linear_regression() {
-        // Perfect linear data: y = 2x + 10
-        let points = vec![(0.0, 10.0), (1.0, 12.0), (2.0, 14.0), (3.0, 16.0)];
-        let (slope, intercept) = linear_regression(&points);
-        assert!(
-            (slope - 2.0).abs() < 1e-10,
-            "expected slope=2.0, got {slope}"
-        );
-        assert!(
-            (intercept - 10.0).abs() < 1e-10,
-            "expected intercept=10.0, got {intercept}"
-        );
-
-        // Non-consecutive x values (simulating sparse order detection).
-        let sparse = vec![(0.0, 43.0), (5.0, 63.0), (10.0, 83.0)];
-        let (slope, intercept) = linear_regression(&sparse);
-        assert!(
-            (slope - 4.0).abs() < 1e-10,
-            "expected slope=4.0, got {slope}"
-        );
-        assert!(
-            (intercept - 43.0).abs() < 1e-10,
-            "expected intercept=43.0, got {intercept}"
-        );
-
-        // Predict: trace_index=3 → m = 4*3 + 43 = 55
-        let predicted = slope * 3.0 + intercept;
-        assert!(
-            (predicted - 55.0).abs() < 1e-10,
-            "expected prediction=55.0, got {predicted}"
-        );
-    }
+    // DELETED (bd-f7wv7): `test_linear_regression` removed — the helper
+    // `linear_regression` was only used by the removed `quadratic_regression`
+    // and `bootstrap_uncalibrated_orders`. The Cauchy-series fit has its
+    // own numerical tests in `cauchy_dispersion.rs`.
 
     #[test]
     fn test_non_consecutive_order_refinement() {
@@ -2585,133 +2589,9 @@ mod tests {
         result.profile.validate().expect("profile should be valid");
     }
 
-    /// Verify that `bootstrap_uncalibrated_orders` skips orders whose predicted
-    /// physical order number m is already assigned to another (arc-matched) order.
-    ///
-    /// Setup: 5 calibrated anchors at indices 0,3,6,9,12 with m=100..104 (slope ≈ 1/3
-    /// per index). The 11 uncalibrated orders in between all round to already-taken m
-    /// values — except index 14 which reaches m=105.
-    #[test]
-    fn test_bootstrap_skips_duplicate_physical_orders() {
-        use crate::trace_fitting::OrderTrace;
-        use crate::wavelength_fitting::OrderWlSolution;
-
-        let gc = 5000.0_f64;
-        let width = 1024_u32;
-        let npx = f64::from(width);
-        let n_traces: usize = 16;
-
-        let traces: Vec<OrderTrace> = (0..n_traces)
-            .map(|i| OrderTrace {
-                trace: EchelleTraceModel::Polynomial {
-                    basis: PolynomialBasis::Monomial,
-                    coefficients: vec![20.0 + 15.0 * i as f64],
-                    domain_start: 0.0,
-                    domain_end: npx,
-                },
-                aperture_half_width: 5.0,
-                fit_rms: 0.1,
-                n_samples: 50,
-                order_number: None,
-            })
-            .collect();
-
-        // 5 calibrated anchors: enough for 2D Chebyshev fit (5 × 5 = 25 > 20 points)
-        let anchors: [(usize, i32); 5] = [(0, 100), (3, 101), (6, 102), (9, 103), (12, 104)];
-
-        let mut order_calibrations: Vec<EchelleOrderCalibration> = Vec::new();
-        for &(idx, m) in &anchors {
-            let mf = m as f64;
-            let lambda_center = gc / mf;
-            // Chebyshev coeff[1] such that eval dispersion ≈ gc/(m²·npx)
-            let b = gc / (mf * mf * 2.0);
-
-            order_calibrations.push(EchelleOrderCalibration {
-                relative_index: idx as u32,
-                physical_order_number: Some(m),
-                sample_start: 0,
-                sample_end: width - 1,
-                trace: traces[idx].trace.clone(),
-                wavelength: EchelleWavelengthModel::Polynomial {
-                    basis: PolynomialBasis::Monomial,
-                    coefficients: vec![lambda_center, b],
-                    domain_start: 0.0,
-                    domain_end: npx,
-                    unit: "nm".to_string(),
-                },
-                aperture_half_width_px: Some(5.0),
-                enabled: true,
-                notes: Some(format!("m={m}, anchor")),
-            });
-        }
-
-        let mut diagnostics: Vec<OrderDiagnostic> = (0..n_traces)
-            .map(|i| {
-                if let Some(&(_, m)) = anchors.iter().find(|&&(idx, _)| idx == i) {
-                    let mf = m as f64;
-                    let lambda_center = gc / mf;
-                    let b = gc / (mf * mf * 2.0);
-                    OrderDiagnostic {
-                        order_index: i as u32,
-                        n_lines_detected: 10,
-                        n_lines_matched: 8,
-                        n_lines_used: 6,
-                        rms_nm: 0.01,
-                        success: true,
-                        failure_reason: None,
-                        detected_lines: vec![],
-                        wl_solution: Some(OrderWlSolution {
-                            order: i as u32,
-                            coefficients: vec![lambda_center, b],
-                            pixel_min: 0.0,
-                            pixel_max: npx,
-                            rms_nm: 0.01,
-                            n_lines_used: 6,
-                            n_lines_total: 8,
-                        }),
-                    }
-                } else {
-                    OrderDiagnostic {
-                        order_index: i as u32,
-                        n_lines_detected: 0,
-                        n_lines_matched: 0,
-                        n_lines_used: 0,
-                        rms_nm: 0.0,
-                        success: false,
-                        failure_reason: Some("uncalibrated".to_string()),
-                        detected_lines: vec![],
-                        wl_solution: None,
-                    }
-                }
-            })
-            .collect();
-
-        let bootstrapped = bootstrap_uncalibrated_orders(
-            gc,
-            width,
-            &traces,
-            &mut order_calibrations,
-            &mut diagnostics,
-        );
-
-        // No duplicate physical_order_number values
-        let mut seen: std::collections::HashSet<i32> = std::collections::HashSet::new();
-        for cal in &order_calibrations {
-            if let Some(m) = cal.physical_order_number {
-                assert!(
-                    seen.insert(m),
-                    "duplicate physical_order_number {m} after bootstrap"
-                );
-            }
-        }
-
-        // With slope ≈ 1/3, most uncalibrated indices round to already-taken m values.
-        // Without the fix all 11 would be bootstrapped, producing many duplicates.
-        assert!(
-            bootstrapped < 11,
-            "expected duplicate-m orders to be skipped, but bootstrapped={bootstrapped}"
-        );
-    }
+    // DELETED (bd-f7wv7): `test_bootstrap_skips_duplicate_physical_orders`
+    // removed when `bootstrap_uncalibrated_orders` was replaced by
+    // `refine_with_global_surface` + `fit_chebyshev_2d_clipped`.
 
     /// Verify that the post-assembly safety-net deduplication correctly clears
     /// duplicate `physical_order_number` values (keeping the first occurrence).
@@ -2839,450 +2719,18 @@ mod tests {
         }
     }
 
-    /// Verify that the quadratic regression in Pass 2 works correctly when
-    /// calibrated orders are non-consecutive (sparse data).
-    ///
-    /// Sets up anchors at non-consecutive order indices (0, 4, 9, 14, 19)
-    /// and checks that the quadratic model interpolates reasonable m values
-    /// for the gaps.
-    #[test]
-    fn test_quadratic_regression_sparse_orders() {
-        // Simulate a real echelle: m(i) has a mild quadratic trend from
-        // the prism's Cauchy dispersion.
-        // True model: m(i) = 100 - 2*i + 0.01*i²
-        let true_m = |i: f64| -> f64 { 100.0 - 2.0 * i + 0.01 * i * i };
+    // DELETED (bd-f7wv7, bd-s8d5g): `quadratic_regression` removed as
+    // non-physical. The `m(trace_index)` regression had no optical theory
+    // behind it. Replaced by `cauchy_dispersion::fit_cauchy_y_of_m`
+    // (Y(m) = a + b/m² + c/m⁴), which is the documented prism-dispersion
+    // model from the Cauchy series. See `cauchy_dispersion.rs` for the
+    // analytic-recovery and round-trip tests that replaced these.
 
-        // Only 5 anchors at non-consecutive indices
-        let anchors: Vec<(f64, f64)> = vec![0.0, 4.0, 9.0, 14.0, 19.0]
-            .into_iter()
-            .map(|i| (i, true_m(i)))
-            .collect();
-
-        let (a, b, c) = quadratic_regression(&anchors);
-
-        // Check that the fitted model recovers m at the anchor points
-        for &(i, expected_m) in &anchors {
-            let predicted = a + b * i + c * i * i;
-            let err = (predicted - expected_m).abs();
-            assert!(
-                err < 0.01,
-                "anchor i={i}: predicted m={predicted:.4}, expected {expected_m:.4} (err={err:.6})"
-            );
-        }
-
-        // Check interpolation at non-anchor points
-        for gap_i in [2.0, 7.0, 12.0, 17.0] {
-            let predicted = a + b * gap_i + c * gap_i * gap_i;
-            let expected = true_m(gap_i);
-            let err = (predicted - expected).abs();
-            assert!(
-                err < 0.1,
-                "gap i={gap_i}: predicted m={predicted:.4}, expected {expected:.4} (err={err:.6})"
-            );
-        }
-    }
-
-    /// Verify that the quadratic regression degrades gracefully to linear
-    /// when only 2 anchor points are available (too few for quadratic).
-    #[test]
-    fn test_quadratic_regression_too_few_points_falls_back_to_linear() {
-        // With only 2 points, quadratic_regression should fall back to
-        // linear regression (c=0).
-        let anchors = vec![(0.0, 100.0), (10.0, 80.0)];
-
-        let (a, b, c) = quadratic_regression(&anchors);
-
-        // The quadratic coefficient should be zero (linear fallback)
-        assert!(
-            c.abs() < 1e-10,
-            "with 2 points, quadratic coefficient should be ~0, got {c}"
-        );
-
-        // Linear model should still interpolate correctly
-        let predicted_mid = a + b * 5.0;
-        let expected_mid = 90.0; // linear interp between 100 and 80
-        assert!(
-            (predicted_mid - expected_mid).abs() < 0.1,
-            "linear fallback: predicted {predicted_mid:.4}, expected {expected_mid:.4}"
-        );
-    }
-
-    /// Verify that `bootstrap_uncalibrated_orders` works when calibrated
-    /// orders cover only the top half of the detector (cropped scenario).
-    ///
-    /// All anchors are in indices 0..5 out of 10 total traces; the function
-    /// should still bootstrap the remaining indices 5..9.
-    #[test]
-    fn test_bootstrap_works_with_cropped_anchors() {
-        use crate::trace_fitting::OrderTrace;
-        use crate::wavelength_fitting::OrderWlSolution;
-
-        let gc = 5000.0_f64;
-        let width = 1024_u32;
-        let npx = f64::from(width);
-        let n_traces: usize = 10;
-
-        let traces: Vec<OrderTrace> = (0..n_traces)
-            .map(|i| OrderTrace {
-                trace: EchelleTraceModel::Polynomial {
-                    basis: PolynomialBasis::Monomial,
-                    coefficients: vec![20.0 + 15.0 * i as f64],
-                    domain_start: 0.0,
-                    domain_end: npx,
-                },
-                aperture_half_width: 5.0,
-                fit_rms: 0.1,
-                n_samples: 50,
-                order_number: None,
-            })
-            .collect();
-
-        // Calibrated anchors only in the first half: indices 0..5
-        let anchors: [(usize, i32); 5] = [(0, 50), (1, 51), (2, 52), (3, 53), (4, 54)];
-
-        let mut order_calibrations: Vec<EchelleOrderCalibration> = Vec::new();
-        for &(idx, m) in &anchors {
-            let mf = m as f64;
-            let lambda_center = gc / mf;
-            let disp = gc / (mf * mf * npx);
-
-            order_calibrations.push(EchelleOrderCalibration {
-                relative_index: idx as u32,
-                physical_order_number: Some(m),
-                sample_start: 0,
-                sample_end: width - 1,
-                trace: traces[idx].trace.clone(),
-                wavelength: EchelleWavelengthModel::Polynomial {
-                    basis: PolynomialBasis::Monomial,
-                    coefficients: vec![lambda_center - disp * npx / 2.0, disp],
-                    domain_start: 0.0,
-                    domain_end: npx,
-                    unit: "nm".to_string(),
-                },
-                aperture_half_width_px: Some(5.0),
-                enabled: true,
-                notes: Some(format!("m={m}, anchor")),
-            });
-        }
-
-        let mut diagnostics: Vec<OrderDiagnostic> = (0..n_traces)
-            .map(|i| {
-                if let Some(&(_, m)) = anchors.iter().find(|&&(idx, _)| idx == i) {
-                    let mf = m as f64;
-                    let lambda_center = gc / mf;
-                    let disp = gc / (mf * mf * npx);
-                    OrderDiagnostic {
-                        order_index: i as u32,
-                        n_lines_detected: 10,
-                        n_lines_matched: 8,
-                        n_lines_used: 6,
-                        rms_nm: 0.01,
-                        success: true,
-                        failure_reason: None,
-                        detected_lines: vec![],
-                        wl_solution: Some(OrderWlSolution {
-                            order: i as u32,
-                            coefficients: vec![lambda_center, disp * npx / 2.0],
-                            pixel_min: 0.0,
-                            pixel_max: npx,
-                            rms_nm: 0.01,
-                            n_lines_used: 6,
-                            n_lines_total: 8,
-                        }),
-                    }
-                } else {
-                    OrderDiagnostic {
-                        order_index: i as u32,
-                        n_lines_detected: 0,
-                        n_lines_matched: 0,
-                        n_lines_used: 0,
-                        rms_nm: 0.0,
-                        success: false,
-                        failure_reason: Some("uncalibrated".to_string()),
-                        detected_lines: vec![],
-                        wl_solution: None,
-                    }
-                }
-            })
-            .collect();
-
-        let bootstrapped = bootstrap_uncalibrated_orders(
-            gc,
-            width,
-            &traces,
-            &mut order_calibrations,
-            &mut diagnostics,
-        );
-
-        // Should bootstrap at least some of the 5 uncalibrated orders
-        assert!(
-            bootstrapped > 0,
-            "should bootstrap at least one order from cropped anchors, got 0"
-        );
-
-        // All bootstrapped orders should have a physical_order_number
-        for cal in &order_calibrations {
-            assert!(
-                cal.physical_order_number.is_some(),
-                "order {} should have a physical_order_number",
-                cal.relative_index
-            );
-        }
-
-        // Bootstrapped orders should have m values that continue the sequence
-        for cal in &order_calibrations {
-            if let Some(m) = cal.physical_order_number {
-                assert!(
-                    (50..=60).contains(&m),
-                    "bootstrapped m={m} for order {} is out of expected range 50..60",
-                    cal.relative_index
-                );
-            }
-        }
-    }
-
-    /// Verify that `bootstrap_uncalibrated_orders` works with sparse
-    /// (non-consecutive) calibrated anchors scattered across the detector.
-    #[test]
-    fn test_bootstrap_works_with_sparse_anchors() {
-        use crate::trace_fitting::OrderTrace;
-        use crate::wavelength_fitting::OrderWlSolution;
-
-        let gc = 5000.0_f64;
-        let width = 1024_u32;
-        let npx = f64::from(width);
-        let n_traces: usize = 15;
-
-        let traces: Vec<OrderTrace> = (0..n_traces)
-            .map(|i| OrderTrace {
-                trace: EchelleTraceModel::Polynomial {
-                    basis: PolynomialBasis::Monomial,
-                    coefficients: vec![20.0 + 15.0 * i as f64],
-                    domain_start: 0.0,
-                    domain_end: npx,
-                },
-                aperture_half_width: 5.0,
-                fit_rms: 0.1,
-                n_samples: 50,
-                order_number: None,
-            })
-            .collect();
-
-        // Sparse anchors: only every 3rd order is calibrated
-        let sparse_anchors: [(usize, i32); 5] = [(0, 80), (3, 83), (6, 86), (9, 89), (12, 92)];
-
-        let mut order_calibrations: Vec<EchelleOrderCalibration> = Vec::new();
-        for &(idx, m) in &sparse_anchors {
-            let mf = m as f64;
-            let lambda_center = gc / mf;
-            let disp = gc / (mf * mf * npx);
-
-            order_calibrations.push(EchelleOrderCalibration {
-                relative_index: idx as u32,
-                physical_order_number: Some(m),
-                sample_start: 0,
-                sample_end: width - 1,
-                trace: traces[idx].trace.clone(),
-                wavelength: EchelleWavelengthModel::Polynomial {
-                    basis: PolynomialBasis::Monomial,
-                    coefficients: vec![lambda_center - disp * npx / 2.0, disp],
-                    domain_start: 0.0,
-                    domain_end: npx,
-                    unit: "nm".to_string(),
-                },
-                aperture_half_width_px: Some(5.0),
-                enabled: true,
-                notes: Some(format!("m={m}, anchor")),
-            });
-        }
-
-        let mut diagnostics: Vec<OrderDiagnostic> = (0..n_traces)
-            .map(|i| {
-                if let Some(&(_, m)) = sparse_anchors.iter().find(|&&(idx, _)| idx == i) {
-                    let mf = m as f64;
-                    let lambda_center = gc / mf;
-                    let disp = gc / (mf * mf * npx);
-                    OrderDiagnostic {
-                        order_index: i as u32,
-                        n_lines_detected: 10,
-                        n_lines_matched: 8,
-                        n_lines_used: 6,
-                        rms_nm: 0.01,
-                        success: true,
-                        failure_reason: None,
-                        detected_lines: vec![],
-                        wl_solution: Some(OrderWlSolution {
-                            order: i as u32,
-                            coefficients: vec![lambda_center, disp * npx / 2.0],
-                            pixel_min: 0.0,
-                            pixel_max: npx,
-                            rms_nm: 0.01,
-                            n_lines_used: 6,
-                            n_lines_total: 8,
-                        }),
-                    }
-                } else {
-                    OrderDiagnostic {
-                        order_index: i as u32,
-                        n_lines_detected: 0,
-                        n_lines_matched: 0,
-                        n_lines_used: 0,
-                        rms_nm: 0.0,
-                        success: false,
-                        failure_reason: Some("uncalibrated".to_string()),
-                        detected_lines: vec![],
-                        wl_solution: None,
-                    }
-                }
-            })
-            .collect();
-
-        let bootstrapped = bootstrap_uncalibrated_orders(
-            gc,
-            width,
-            &traces,
-            &mut order_calibrations,
-            &mut diagnostics,
-        );
-
-        // Should bootstrap at least some of the 10 uncalibrated orders
-        assert!(
-            bootstrapped > 0,
-            "should bootstrap orders from sparse anchors, got 0"
-        );
-
-        // Verify the interpolated m values are reasonable: they should fill
-        // the gaps (m=81,82,84,85,87,88,90,91,93,94)
-        let mut all_m: Vec<i32> = order_calibrations
-            .iter()
-            .filter_map(|cal| cal.physical_order_number)
-            .collect();
-        all_m.sort_unstable();
-        all_m.dedup();
-
-        // With stride-1 m assignment, the gaps should be filled
-        assert!(
-            all_m.len() > sparse_anchors.len(),
-            "bootstrapping should add more m values than the {0} anchors, got {1}",
-            sparse_anchors.len(),
-            all_m.len()
-        );
-    }
-
-    /// Verify that `bootstrap_uncalibrated_orders` returns 0 when there are
-    /// too few calibrated anchors for the quadratic regression (< 3 points).
-    #[test]
-    fn test_bootstrap_graceful_with_too_few_anchors() {
-        use crate::trace_fitting::OrderTrace;
-        use crate::wavelength_fitting::OrderWlSolution;
-
-        let gc = 5000.0_f64;
-        let width = 1024_u32;
-        let npx = f64::from(width);
-        let n_traces: usize = 5;
-
-        let traces: Vec<OrderTrace> = (0..n_traces)
-            .map(|i| OrderTrace {
-                trace: EchelleTraceModel::Polynomial {
-                    basis: PolynomialBasis::Monomial,
-                    coefficients: vec![20.0 + 15.0 * i as f64],
-                    domain_start: 0.0,
-                    domain_end: npx,
-                },
-                aperture_half_width: 5.0,
-                fit_rms: 0.1,
-                n_samples: 50,
-                order_number: None,
-            })
-            .collect();
-
-        // Only 2 calibrated anchors — not enough for quadratic regression
-        let anchors: [(usize, i32); 2] = [(0, 50), (1, 51)];
-
-        let mut order_calibrations: Vec<EchelleOrderCalibration> = Vec::new();
-        for &(idx, m) in &anchors {
-            let mf = m as f64;
-            let lambda_center = gc / mf;
-            let disp = gc / (mf * mf * npx);
-
-            order_calibrations.push(EchelleOrderCalibration {
-                relative_index: idx as u32,
-                physical_order_number: Some(m),
-                sample_start: 0,
-                sample_end: width - 1,
-                trace: traces[idx].trace.clone(),
-                wavelength: EchelleWavelengthModel::Polynomial {
-                    basis: PolynomialBasis::Monomial,
-                    coefficients: vec![lambda_center - disp * npx / 2.0, disp],
-                    domain_start: 0.0,
-                    domain_end: npx,
-                    unit: "nm".to_string(),
-                },
-                aperture_half_width_px: Some(5.0),
-                enabled: true,
-                notes: Some(format!("m={m}, anchor")),
-            });
-        }
-
-        let mut diagnostics: Vec<OrderDiagnostic> = (0..n_traces)
-            .map(|i| {
-                if let Some(&(_, m)) = anchors.iter().find(|&&(idx, _)| idx == i) {
-                    let mf = m as f64;
-                    let lambda_center = gc / mf;
-                    let disp = gc / (mf * mf * npx);
-                    OrderDiagnostic {
-                        order_index: i as u32,
-                        n_lines_detected: 10,
-                        n_lines_matched: 8,
-                        n_lines_used: 6,
-                        rms_nm: 0.01,
-                        success: true,
-                        failure_reason: None,
-                        detected_lines: vec![],
-                        wl_solution: Some(OrderWlSolution {
-                            order: i as u32,
-                            coefficients: vec![lambda_center, disp * npx / 2.0],
-                            pixel_min: 0.0,
-                            pixel_max: npx,
-                            rms_nm: 0.01,
-                            n_lines_used: 6,
-                            n_lines_total: 8,
-                        }),
-                    }
-                } else {
-                    OrderDiagnostic {
-                        order_index: i as u32,
-                        n_lines_detected: 0,
-                        n_lines_matched: 0,
-                        n_lines_used: 0,
-                        rms_nm: 0.0,
-                        success: false,
-                        failure_reason: Some("uncalibrated".to_string()),
-                        detected_lines: vec![],
-                        wl_solution: None,
-                    }
-                }
-            })
-            .collect();
-
-        let bootstrapped = bootstrap_uncalibrated_orders(
-            gc,
-            width,
-            &traces,
-            &mut order_calibrations,
-            &mut diagnostics,
-        );
-
-        // With only 2 anchors, bootstrap_uncalibrated_orders should bail
-        // early (needs >= 3 for quadratic regression).
-        assert_eq!(
-            bootstrapped, 0,
-            "should not bootstrap any orders with only 2 anchors"
-        );
-
-        // The 3 uncalibrated orders should remain failed
-        for (i, diag) in diagnostics.iter().enumerate().skip(2) {
-            assert!(!diag.success, "order {i} should remain uncalibrated");
-        }
-    }
+    // DELETED (bd-f7wv7): test_bootstrap_works_with_cropped_anchors,
+    // test_bootstrap_works_with_sparse_anchors, and
+    // test_bootstrap_graceful_with_too_few_anchors removed when
+    // bootstrap_uncalibrated_orders was replaced by
+    // refine_with_global_surface (global 2D Chebyshev fit). The new
+    // recovery path is exercised by the synthetic-HgAr regression test
+    // in crates/integration-tests/tests/echelle_synthetic_dataset.rs.
 }

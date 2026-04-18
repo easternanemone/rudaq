@@ -66,6 +66,14 @@ impl Default for TraceFitConfig {
     }
 }
 
+/// Evaluate the cross-dispersion Y-centroid of a trace at pixel `x`.
+///
+/// Returns `None` when `x` is outside the trace's fitted domain.
+#[must_use]
+pub fn eval_trace_y(trace: &EchelleTraceModel, x: f64) -> Option<f64> {
+    eval_trace_model(trace, x)
+}
+
 /// A detected order trace with its polynomial fit.
 #[derive(Debug, Clone)]
 pub struct OrderTrace {

@@ -1,0 +1,196 @@
+🚀 rust-daq - Headless DAQ System
+Architecture: Headless-First + Scriptable (v5)
+DEBUG: Feature networking ENABLED
+SDK probe: DiscoveredSdks(none)
+
+Loaded 2560x2160 arc frame from debug/phase4/v2/hgar-stack5x30s-median.tiff
+Running calibration pipeline...
+[2m2026-04-18T02:30:00.414547Z[0m [32m INFO[0m [2mechelle::calibration_pipeline[0m[2m:[0m dedup: demoted lower-quality duplicates so Stage 2/3 can re-seed [3mremoved[0m[2m=[0m4
+[2m2026-04-18T02:30:00.415020Z[0m [32m INFO[0m [2mechelle::calibration_pipeline[0m[2m:[0m Stage 2: fitted Cauchy Y(m) series (3σ clipped) [3manchors_used[0m[2m=[0m16 [3manchors_supplied[0m[2m=[0m16 [3mrms_px[0m[2m=[0m42.72053750211823
+[2m2026-04-18T02:30:01.797732Z[0m [32m INFO[0m [2mechelle::calibration_pipeline[0m[2m:[0m dedup: demoted lower-quality duplicates so Stage 2/3 can re-seed [3mremoved[0m[2m=[0m11
+[2m2026-04-18T02:30:01.801074Z[0m [32m INFO[0m [2mechelle::calibration_pipeline[0m[2m:[0m Stage 3: global 2D Chebyshev fit converged [3mrms_nm[0m[2m=[0m1.307966882260823 [3mn_points[0m[2m=[0m263 [3mm_min[0m[2m=[0m26.0 [3mm_max[0m[2m=[0m80.0
+[2m2026-04-18T02:30:01.801377Z[0m [32m INFO[0m [2mechelle::calibration_pipeline[0m[2m:[0m Stage 3: orders recovered by global-surface synthesis [3msynthesized[0m[2m=[0m1
+
+=== Calibration Result ===
+Orders detected:    149
+Orders calibrated:  18
+Overall RMS:        0.0000 nm
+
+  Order   0: FAIL | lines: 48/4/0 (detected/matched/used) | RMS: 0.0000 nm | wavelength fitting failed
+  Order   1: FAIL | lines: 61/6/0 (detected/matched/used) | RMS: 0.0000 nm | wavelength fitting failed
+  Order   2:  OK  | lines: 57/2/2 (detected/matched/used) | RMS: 0.0000 nm
+  Order   3:  OK  | lines: 53/4/0 (detected/matched/used) | RMS: 0.0000 nm
+  Order   4: FAIL | lines: 53/2/2 (detected/matched/used) | RMS: 0.0000 nm | m collision with higher-quality fit; pending Cauchy re-seed
+  Order   5:  OK  | lines: 54/2/2 (detected/matched/used) | RMS: 0.0000 nm
+  Order   6: FAIL | lines: 58/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order   7: FAIL | lines: 61/1/1 (detected/matched/used) | RMS: 0.0000 nm | m collision with higher-quality fit; pending Cauchy re-seed
+  Order   8: FAIL | lines: 41/2/2 (detected/matched/used) | RMS: 0.0000 nm | m collision with higher-quality fit; pending Cauchy re-seed
+  Order   9: FAIL | lines: 58/2/2 (detected/matched/used) | RMS: 0.0000 nm | m collision with higher-quality fit; pending Cauchy re-seed
+  Order  10:  OK  | lines: 64/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  11:  OK  | lines: 49/2/2 (detected/matched/used) | RMS: 0.0000 nm
+  Order  12: FAIL | lines: 36/1/1 (detected/matched/used) | RMS: 0.0000 nm | m collision with higher-quality fit; pending Cauchy re-seed
+  Order  13:  OK  | lines: 42/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  14: FAIL | lines: 23/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  15: FAIL | lines: 28/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  16: FAIL | lines: 22/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  17: FAIL | lines: 28/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  18: FAIL | lines: 23/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  19: FAIL | lines: 27/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  20: FAIL | lines: 36/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  21: FAIL | lines: 44/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  22:  OK  | lines: 67/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  23: FAIL | lines: 47/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  24: FAIL | lines: 52/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  25:  OK  | lines: 55/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  26:  OK  | lines: 30/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  27: FAIL | lines: 23/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  28: FAIL | lines: 33/1/1 (detected/matched/used) | RMS: 0.0000 nm | m collision with higher-quality fit; pending Cauchy re-seed
+  Order  29: FAIL | lines: 34/1/1 (detected/matched/used) | RMS: 0.0000 nm | m collision with higher-quality fit; pending Cauchy re-seed
+  Order  30: FAIL | lines: 36/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  31:  OK  | lines: 49/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  32: FAIL | lines: 47/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  33: FAIL | lines: 56/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  34: FAIL | lines: 61/1/1 (detected/matched/used) | RMS: 0.0000 nm | m collision with higher-quality fit; pending Cauchy re-seed
+  Order  35: FAIL | lines: 44/1/1 (detected/matched/used) | RMS: 0.0000 nm | m collision with higher-quality fit; pending Cauchy re-seed
+  Order  36:  OK  | lines: 60/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  37: FAIL | lines: 57/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  38: FAIL | lines: 58/1/1 (detected/matched/used) | RMS: 0.0000 nm | m collision with higher-quality fit; pending Cauchy re-seed
+  Order  39: FAIL | lines: 55/1/1 (detected/matched/used) | RMS: 0.0000 nm | m collision with higher-quality fit; pending Cauchy re-seed
+  Order  40:  OK  | lines: 47/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  41:  OK  | lines: 35/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  42:  OK  | lines: 34/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  43:  OK  | lines: 4/2/2 (detected/matched/used) | RMS: 0.0000 nm
+  Order  44:  OK  | lines: 31/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  45: FAIL | lines: 41/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  46: FAIL | lines: 35/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  47: FAIL | lines: 28/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  48:  OK  | lines: 19/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  49: FAIL | lines: 38/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  50: FAIL | lines: 52/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  51: FAIL | lines: 49/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  52: FAIL | lines: 55/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  53: FAIL | lines: 50/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  54: FAIL | lines: 47/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  55:  OK  | lines: 14/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  56: FAIL | lines: 2/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  57: FAIL | lines: 38/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  58: FAIL | lines: 43/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  59: FAIL | lines: 46/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  60: FAIL | lines: 43/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  61: FAIL | lines: 46/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  62: FAIL | lines: 62/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  63: FAIL | lines: 56/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  64: FAIL | lines: 44/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  65: FAIL | lines: 53/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  66: FAIL | lines: 58/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  67: FAIL | lines: 49/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  68: FAIL | lines: 57/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  69: FAIL | lines: 51/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  70: FAIL | lines: 49/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  71: FAIL | lines: 53/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  72: FAIL | lines: 27/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  73: FAIL | lines: 4/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  74: FAIL | lines: 16/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  75: FAIL | lines: 45/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  76: FAIL | lines: 61/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  77: FAIL | lines: 26/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  78: FAIL | lines: 48/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  79: FAIL | lines: 26/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  80: FAIL | lines: 37/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  81: FAIL | lines: 50/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  82: FAIL | lines: 58/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  83: FAIL | lines: 46/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  84: FAIL | lines: 55/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  85: FAIL | lines: 57/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  86: FAIL | lines: 44/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  87: FAIL | lines: 48/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  88: FAIL | lines: 59/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  89: FAIL | lines: 49/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  90: FAIL | lines: 29/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  91: FAIL | lines: 46/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  92: FAIL | lines: 34/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  93: FAIL | lines: 44/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  94: FAIL | lines: 27/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  95: FAIL | lines: 32/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  96: FAIL | lines: 28/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  97: FAIL | lines: 45/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  98: FAIL | lines: 34/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  99: FAIL | lines: 41/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 100: FAIL | lines: 36/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 101: FAIL | lines: 13/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 102: FAIL | lines: 1/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 103: FAIL | lines: 27/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 104: FAIL | lines: 21/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 105: FAIL | lines: 54/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 106: FAIL | lines: 47/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 107: FAIL | lines: 46/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 108: FAIL | lines: 39/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 109: FAIL | lines: 51/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 110: FAIL | lines: 43/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 111: FAIL | lines: 47/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 112: FAIL | lines: 52/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 113: FAIL | lines: 33/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 114: FAIL | lines: 31/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 115: FAIL | lines: 41/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 116: FAIL | lines: 71/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 117: FAIL | lines: 49/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 118: FAIL | lines: 61/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 119: FAIL | lines: 56/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 120: FAIL | lines: 69/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 121: FAIL | lines: 64/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 122: FAIL | lines: 79/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 123: FAIL | lines: 64/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 124: FAIL | lines: 55/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 125: FAIL | lines: 59/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 126: FAIL | lines: 57/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 127: FAIL | lines: 61/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 128: FAIL | lines: 51/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 129: FAIL | lines: 79/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 130: FAIL | lines: 64/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 131: FAIL | lines: 65/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 132: FAIL | lines: 66/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 133: FAIL | lines: 82/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 134: FAIL | lines: 71/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 135: FAIL | lines: 72/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 136: FAIL | lines: 72/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 137: FAIL | lines: 59/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 138: FAIL | lines: 63/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 139: FAIL | lines: 66/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 140: FAIL | lines: 56/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 141: FAIL | lines: 66/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 142: FAIL | lines: 56/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 143: FAIL | lines: 73/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 144: FAIL | lines: 66/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 145: FAIL | lines: 66/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 146: FAIL | lines: 57/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 147: FAIL | lines: 68/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order 148: FAIL | lines: 35/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+
+=== --diagnose: per-order wavelength dump ===
+expected sign: λ INCREASES with pixel (ascending)
+  Order   2 m= 26 [mono sign rng] λ@(764.4,765.7,767.9,770.2,771.5)nm
+  Order   3 m= 27 [mono sign rng] λ@(738.7,741.5,748.3,757.7,764.6)nm
+  Order   5 m= 29 [mono sign rng] λ@(697.6,699.1,701.6,704.2,705.7)nm
+  Order  10 m= 34 [mono sign rng] λ@(580.8,583.4,587.7,592.1,594.7)nm
+  Order  11 m= 35 [mono sign rng] λ@(577.2,577.5,578.0,578.5,578.9)nm
+  Order  13 m= 37 [mono sign rng] λ@(540.1,542.3,545.9,549.6,551.8)nm
+  Order  22 m= 46 [mono sign rng] λ@(434.9,436.3,438.7,441.1,442.5)nm
+  Order  25 m= 49 [mono sign rng] λ@(405.4,406.6,408.7,410.8,412.1)nm
+  Order  26 m= 50 [mono sign rng] λ@(400.1,401.3,403.3,405.3,406.5)nm
+  Order  31 m= 55 [mono sign rng] λ@(362.5,363.5,365.2,366.8,367.8)nm
+  Order  36 m= 60 [mono sign rng] λ@(334.6,335.5,336.9,338.3,339.1)nm
+  Order  40 m= 64 [mono sign rng] λ@(311.1,311.9,313.1,314.3,315.1)nm
+  Order  41 m= 65 [mono sign rng] λ@(309.8,310.5,311.7,312.9,313.6)nm
+  Order  42 m= 66 [mono sign rng] λ@(302.0,302.7,303.9,305.0,305.7)nm
+  Order  43 m= 67 [mono sign rng] λ@(297.3,298.1,299.4,300.8,301.6)nm
+  Order  44 m= 68 [mono sign rng] λ@(294.2,294.9,296.0,297.1,297.7)nm
+  Order  48 m= 80 [mono sign rng] λ@(251.1,251.6,252.4,253.2,253.7)nm
+  Order  55 m= 79 [mono sign rng] λ@(252.6,253.1,253.9,254.7,255.2)nm
+
+=== --diagnose: summary ===
+orders with non-monotonic axis: 0
+orders with inverted sign:      0
+orders outside [150,1200] nm:   0
+grating constant (m·λ_center): mean=20132.8 nm  stddev=101.0 nm (0.50%)
+
+Profile written to: debug/phase4/v3/profile-gc20139.toml

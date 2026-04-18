@@ -1725,8 +1725,12 @@ pub(crate) fn chebyshev_eval(coeffs: &[f64], x: f64) -> f64 {
 ///
 /// Builds the Vandermonde matrix V[i,j] = T_j(x_i), then solves V^T*V*c = V^T*y
 /// using Gaussian elimination with partial pivoting.
+///
+/// Inputs must be normalized so that `x_norm ∈ [-1, 1]` (caller's
+/// responsibility). Returns the `(degree + 1)` Chebyshev coefficients, or
+/// `None` if the system is underdetermined or numerically singular.
 #[allow(clippy::many_single_char_names)] // Standard math notation for linear algebra
-fn chebyshev_fit(x_norm: &[f64], y_vals: &[f64], degree: usize) -> Option<Vec<f64>> {
+pub fn chebyshev_fit(x_norm: &[f64], y_vals: &[f64], degree: usize) -> Option<Vec<f64>> {
     let n_pts = x_norm.len();
     let n_coeffs = degree + 1;
 
@@ -1766,7 +1770,7 @@ fn chebyshev_fit(x_norm: &[f64], y_vals: &[f64], degree: usize) -> Option<Vec<f6
 /// Solve Ax = b via Gaussian elimination with partial pivoting.
 ///
 /// Modifies `a` and `b` in place. Returns the solution vector.
-fn solve_linear_system(mat: &mut [Vec<f64>], rhs: &mut [f64]) -> Option<Vec<f64>> {
+pub(crate) fn solve_linear_system(mat: &mut [Vec<f64>], rhs: &mut [f64]) -> Option<Vec<f64>> {
     let dim = rhs.len();
 
     // Forward elimination with partial pivoting.

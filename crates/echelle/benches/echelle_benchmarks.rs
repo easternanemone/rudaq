@@ -139,11 +139,11 @@ fn bench_scattered_light(c: &mut Criterion) {
             })
             .collect();
         let config = ScatteredLightConfig {
-            enabled: true,
             aperture_half_width: 8.0,
             block_size: 16,
             poly_degree_x: 3,
             poly_degree_y: 3,
+            ..ScatteredLightConfig::default()
         };
 
         group.bench_with_input(BenchmarkId::new("2d_chebyshev", size), &size, |b, _| {

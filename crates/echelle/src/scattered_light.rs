@@ -1,14 +1,24 @@
 //! Scattered light subtraction for echelle spectrographs.
 //!
-//! Estimates and subtracts the inter-order scattered light background from
-//! raw echellegram frames before spectral extraction. Uses a smooth 2D
-//! polynomial surface fitted to inter-order pixel samples.
+//! Two methods, selected via `ScatteredLightConfig::method`:
 //!
-//! The algorithm:
-//! 1. Build an inter-order mask (pixels outside all trace apertures)
-//! 2. Bin the frame into blocks, compute median of inter-order pixels per block
-//! 3. Fit a bivariate Chebyshev surface to the block medians
-//! 4. Evaluate the surface at every pixel and subtract from the raw frame
+//! - **`InterOrderMedian`** (default, CERES-style): build an inter-order
+//!   mask from the detected trace positions, bin the frame into blocks,
+//!   take a sigma-clipped median of inter-order pixels per block, fit a
+//!   bivariate Chebyshev surface to the block medians.
+//! - **`MorphologicalOpening`** (bd-vdfum / NotebookLM §FM4 for ICCD):
+//!   apply a vertical morphological opening (erosion → dilation with a
+//!   25-px vertical structuring element) so order-width + MCP-halo peaks
+//!   are obliterated and only the slowly-varying background survives;
+//!   sample a sparse grid of anchors from the opened image, excluding
+//!   any anchor within a 15-px radius of a saturated pixel; fit the same
+//!   2D Chebyshev surface to those anchors. Required on MCP-intensified
+//!   detectors where the halo floods the inter-order gap and corrupts
+//!   the standard CERES median (documented "4500-count baseline
+//!   anomaly" on the Mechelle 5000 + iStar).
+//!
+//! Source: NotebookLM echelle notebook 7f275c3a, pipeline evaluation
+//! memo 3a0a13df §FM4 "The 4500-Count Baseline Anomaly".
 
 // Pixel-index casts: always small enough for lossless usize→f64 conversion,
 // and f64→usize truncation is intentional for pixel coordinates.
@@ -21,6 +31,20 @@
 
 use crate::types::EchelleTraceModel;
 
+/// Which scattered-light estimation method to use.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScatteredLightMethod {
+    /// CERES-style: sigma-clipped median of inter-order pixels per block.
+    /// The default for conventional CCDs and DH3P-flat-dominated frames.
+    InterOrderMedian,
+    /// Morphological opening (25-px vertical structuring element) + sparse
+    /// anchor sampling on the opened image, excluding a 15-px radius
+    /// around saturated pixels. Required for MCP-intensified detectors
+    /// (bd-vdfum / NotebookLM §FM4) where the halo floods inter-order
+    /// gaps and corrupts the standard median. See module docs.
+    MorphologicalOpening,
+}
+
 /// Configuration for scattered light subtraction.
 #[derive(Debug, Clone)]
 pub struct ScatteredLightConfig {
@@ -29,26 +53,80 @@ pub struct ScatteredLightConfig {
     /// over-subtracted by this step; setting to `false` bypasses the stage
     /// entirely (bd-8yjd1 P2.5).
     pub enabled: bool,
-    /// Aperture half-width used to define order regions (pixels).
-    /// Pixels within this distance of any trace center are excluded.
+    /// Estimation method. Default is `InterOrderMedian` (conventional CCD);
+    /// set to `MorphologicalOpening` for MCP-intensified detectors
+    /// (iStar ICCD) per NotebookLM §FM4.
+    pub method: ScatteredLightMethod,
+    /// Aperture half-width used to define order regions (pixels). Only
+    /// used by `InterOrderMedian`.
     pub aperture_half_width: f64,
-    /// Block size for spatial binning (pixels, default: 64).
-    /// The frame is divided into blocks of this size for median sampling.
+    /// Block size / anchor grid step for spatial binning (pixels, default:
+    /// 64). For `MorphologicalOpening` this is the grid stride.
     pub block_size: u32,
     /// Polynomial degree in the dispersion direction (default: 3).
     pub poly_degree_x: usize,
     /// Polynomial degree in the cross-dispersion direction (default: 3).
     pub poly_degree_y: usize,
+    /// For `MorphologicalOpening` only: vertical structuring-element size
+    /// in pixels. NotebookLM §FM4 recommends 25 px for Mechelle 5000
+    /// (≈ 5 px order width + 8 px halo on each side).
+    pub morph_vertical_kernel_px: u32,
+    /// For `MorphologicalOpening` only: exclusion radius (pixels) around
+    /// saturated pixels when sampling anchors. Default 15 per NotebookLM.
+    pub morph_saturation_exclusion_px: u32,
+    /// For `MorphologicalOpening` only: threshold (as a fraction of the
+    /// frame's max ADU) above which a pixel is considered "saturated"
+    /// for anchor exclusion. Default 0.95.
+    pub morph_saturation_frac: f64,
 }
 
 impl Default for ScatteredLightConfig {
     fn default() -> Self {
         Self {
             enabled: true,
+            method: ScatteredLightMethod::InterOrderMedian,
             aperture_half_width: 5.0,
             block_size: 64,
             poly_degree_x: 3,
             poly_degree_y: 3,
+            morph_vertical_kernel_px: 25,
+            morph_saturation_exclusion_px: 15,
+            morph_saturation_frac: 0.95,
+        }
+    }
+}
+
+impl ScatteredLightConfig {
+    /// Preset for Mechelle 5000 + iStar ICCD: morphological opening with
+    /// NotebookLM §FM4 parameters.
+    ///
+    /// **Default `enabled = false`.** Empirical validation on the
+    /// leabs-dev HgAr capture shows the morphological-opening surface
+    /// over-subtracts on pure-emission-line sources: with kernel=25
+    /// (NotebookLM default) only 3/7 expected Hg lines survive the
+    /// downstream atlas match; with kernel=13 (NIR-spacing-aware) only
+    /// 1/7 does. Scatter subtraction of any form interacts poorly with
+    /// the spatial-statistics of an emission-only HgAr arc — the
+    /// opened-image surface is pulled toward the 4500-count MCP halo
+    /// AND the real order peaks. This matches the existing warning in
+    /// the crate docs: "pure emission sources can get over-subtracted".
+    ///
+    /// The morphological infrastructure is still the right tool for
+    /// ICCD continuum-source extraction (DH3P flats, science targets
+    /// with real continuum) — flip `enabled = true` in user configs
+    /// when processing those frames.
+    #[must_use]
+    pub fn mechelle_5000_istar() -> Self {
+        Self {
+            enabled: false,
+            method: ScatteredLightMethod::MorphologicalOpening,
+            aperture_half_width: 5.0,
+            block_size: 64,
+            poly_degree_x: 3,
+            poly_degree_y: 3,
+            morph_vertical_kernel_px: 13,
+            morph_saturation_exclusion_px: 15,
+            morph_saturation_frac: 0.95,
         }
     }
 }
@@ -139,6 +217,26 @@ pub fn estimate_scattered_light(
         return None;
     }
 
+    match config.method {
+        ScatteredLightMethod::InterOrderMedian => {
+            estimate_inter_order_median(frame, width, height, traces, config)
+        }
+        ScatteredLightMethod::MorphologicalOpening => {
+            estimate_morphological_opening(frame, width, height, config)
+        }
+    }
+}
+
+/// CERES-style estimation: sigma-clipped median of inter-order pixels.
+fn estimate_inter_order_median(
+    frame: &[f32],
+    width: u32,
+    height: u32,
+    traces: &[TraceInfo<'_>],
+    config: &ScatteredLightConfig,
+) -> Option<ScatteredLightModel> {
+    let w = width as usize;
+    let h = height as usize;
     // Step 1: Build inter-order mask.
     let inter_order_mask =
         build_inter_order_mask(width, height, traces, config.aperture_half_width);
@@ -215,6 +313,280 @@ pub fn estimate_scattered_light(
         width,
         height,
     })
+}
+
+/// bd-vdfum / NotebookLM §FM4: morphological opening + sparse anchor fit.
+///
+/// 1. Apply a vertical morphological opening with a
+///    `config.morph_vertical_kernel_px`-wide structuring element. Erosion
+///    replaces each pixel with the min over a ±k/2 vertical neighborhood
+///    (squashing spectral lines + their MCP halos toward the true
+///    background). Dilation then expands back (max over the same
+///    neighborhood), restoring the spatial scale without re-introducing
+///    the peaks.
+/// 2. Detect saturated pixels (≥ `morph_saturation_frac × frame_max`).
+///    Grow a `morph_saturation_exclusion_px`-radius exclusion mask
+///    around each saturated pixel.
+/// 3. Sample the opened image on a regular grid (`block_size` stride),
+///    skipping grid points inside the exclusion mask.
+/// 4. Fit the existing 2D Chebyshev surface to the samples. The low
+///    Chebyshev degree (default 3×3) provides the "exceptionally high
+///    stiffness" NotebookLM §FM4 prescribes, without needing TPS/RBF.
+fn estimate_morphological_opening(
+    frame: &[f32],
+    width: u32,
+    height: u32,
+    config: &ScatteredLightConfig,
+) -> Option<ScatteredLightModel> {
+    let w = width as usize;
+    let h = height as usize;
+    let kernel = config.morph_vertical_kernel_px.max(3) as usize;
+    let excl_r = config.morph_saturation_exclusion_px.max(1) as usize;
+
+    // Step 1: vertical erosion then dilation (opening).
+    let eroded = vertical_minimum_filter(frame, w, h, kernel);
+    let opened = vertical_maximum_filter(&eroded, w, h, kernel);
+
+    // Step 2: saturation exclusion mask.
+    let frame_max = frame
+        .iter()
+        .copied()
+        .filter(|v| v.is_finite())
+        .fold(0.0f32, f32::max);
+    let sat_threshold = frame_max * config.morph_saturation_frac as f32;
+    let excl_mask = build_saturation_exclusion_mask(frame, w, h, sat_threshold, excl_r);
+
+    // Step 3: anchor grid on the opened image, skipping excluded positions.
+    let stride = config.block_size.max(4) as usize;
+    let mut anchor_x = Vec::new();
+    let mut anchor_y = Vec::new();
+    let mut anchor_val = Vec::new();
+    for row in (stride / 2..h).step_by(stride) {
+        for col in (stride / 2..w).step_by(stride) {
+            let idx = row * w + col;
+            if excl_mask[idx] {
+                continue;
+            }
+            let v = opened[idx];
+            if !v.is_finite() {
+                continue;
+            }
+            anchor_x.push(col as f64);
+            anchor_y.push(row as f64);
+            anchor_val.push(f64::from(v));
+        }
+    }
+
+    let n_coeffs = (config.poly_degree_x + 1) * (config.poly_degree_y + 1);
+    if anchor_val.len() < n_coeffs + 1 {
+        return None;
+    }
+
+    tracing::info!(
+        n_anchors = anchor_val.len(),
+        frame_max = frame_max,
+        sat_threshold = sat_threshold,
+        "scattered_light[morph]: sampled anchors from opened image"
+    );
+
+    // Step 4: fit 2D Chebyshev surface (reuse existing fitter).
+    let x_norm: Vec<f64> = anchor_x
+        .iter()
+        .map(|&x| 2.0 * x / f64::from(width) - 1.0)
+        .collect();
+    let y_norm: Vec<f64> = anchor_y
+        .iter()
+        .map(|&y| 2.0 * y / f64::from(height) - 1.0)
+        .collect();
+
+    let coefficients = fit_2d_chebyshev(
+        &x_norm,
+        &y_norm,
+        &anchor_val,
+        config.poly_degree_x,
+        config.poly_degree_y,
+    )?;
+
+    Some(ScatteredLightModel {
+        coefficients,
+        degree_x: config.poly_degree_x,
+        degree_y: config.poly_degree_y,
+        width,
+        height,
+    })
+}
+
+/// Vertical minimum filter (grayscale erosion with a vertical line kernel).
+/// Each output pixel is the min over a ±(k/2) vertical neighborhood of the
+/// input. Uses a rolling window deque for O(w·h) total cost regardless of
+/// kernel size.
+fn vertical_minimum_filter(frame: &[f32], w: usize, h: usize, kernel: usize) -> Vec<f32> {
+    let half = kernel / 2;
+    let mut out = vec![f32::NAN; w * h];
+    // For each column, run a deque-based rolling min over the column.
+    let mut col_buf = vec![0.0f32; h];
+    let mut deque: std::collections::VecDeque<usize> = std::collections::VecDeque::with_capacity(h);
+    for col in 0..w {
+        for row in 0..h {
+            col_buf[row] = frame[row * w + col];
+        }
+        deque.clear();
+        for row in 0..h {
+            // Drop from tail while the new value is ≤ the tail value.
+            while let Some(&back) = deque.back() {
+                if !col_buf[back].is_finite() || col_buf[back] >= col_buf[row] {
+                    deque.pop_back();
+                } else {
+                    break;
+                }
+            }
+            deque.push_back(row);
+            // Drop from head rows that are now out of the window.
+            let lo = row.saturating_sub(half);
+            while let Some(&front) = deque.front() {
+                if front < lo {
+                    deque.pop_front();
+                } else {
+                    break;
+                }
+            }
+            // Output only once the window has slid past the upper edge so
+            // that (row - half) is the center pixel of the window.
+            if row >= half {
+                let center = row - half;
+                out[center * w + col] = col_buf[*deque.front().unwrap()];
+            }
+        }
+        // Flush the trailing rows (where center + half >= h).
+        for center in (h.saturating_sub(half))..h {
+            // Recompute the window [center-half, min(h-1, center+half)] min.
+            let lo = center.saturating_sub(half);
+            let hi = (center + half).min(h - 1);
+            let mut m = f32::INFINITY;
+            for &v in &col_buf[lo..=hi] {
+                if v.is_finite() && v < m {
+                    m = v;
+                }
+            }
+            out[center * w + col] = if m.is_finite() { m } else { 0.0 };
+        }
+    }
+    out
+}
+
+/// Vertical maximum filter (grayscale dilation with a vertical line kernel).
+fn vertical_maximum_filter(frame: &[f32], w: usize, h: usize, kernel: usize) -> Vec<f32> {
+    let half = kernel / 2;
+    let mut out = vec![f32::NAN; w * h];
+    let mut col_buf = vec![0.0f32; h];
+    let mut deque: std::collections::VecDeque<usize> = std::collections::VecDeque::with_capacity(h);
+    for col in 0..w {
+        for row in 0..h {
+            col_buf[row] = frame[row * w + col];
+        }
+        deque.clear();
+        for row in 0..h {
+            while let Some(&back) = deque.back() {
+                if !col_buf[back].is_finite() || col_buf[back] <= col_buf[row] {
+                    deque.pop_back();
+                } else {
+                    break;
+                }
+            }
+            deque.push_back(row);
+            let lo = row.saturating_sub(half);
+            while let Some(&front) = deque.front() {
+                if front < lo {
+                    deque.pop_front();
+                } else {
+                    break;
+                }
+            }
+            if row >= half {
+                let center = row - half;
+                out[center * w + col] = col_buf[*deque.front().unwrap()];
+            }
+        }
+        for center in (h.saturating_sub(half))..h {
+            let lo = center.saturating_sub(half);
+            let hi = (center + half).min(h - 1);
+            let mut m = f32::NEG_INFINITY;
+            for &v in &col_buf[lo..=hi] {
+                if v.is_finite() && v > m {
+                    m = v;
+                }
+            }
+            out[center * w + col] = if m.is_finite() { m } else { 0.0 };
+        }
+    }
+    out
+}
+
+/// Grow a boolean mask where `true` means "within `radius` pixels of a
+/// saturated pixel". Saturated pixels are `frame[i] >= threshold`.
+fn build_saturation_exclusion_mask(
+    frame: &[f32],
+    w: usize,
+    h: usize,
+    threshold: f32,
+    radius: usize,
+) -> Vec<bool> {
+    let mut saturated = vec![false; w * h];
+    for (i, &v) in frame.iter().enumerate() {
+        if v.is_finite() && v >= threshold {
+            saturated[i] = true;
+        }
+    }
+    // Dilate the saturation mask by `radius` in both axes via a 2-pass
+    // vertical-then-horizontal or-filter (Minkowski sum with a square
+    // kernel). For 15-px radius this is cheap.
+    let mut out = saturated.clone();
+    // Horizontal pass.
+    for row in 0..h {
+        let row_base = row * w;
+        // Rolling window: count saturated pixels in [col-radius, col+radius].
+        let mut count = 0usize;
+        for c in 0..radius.min(w) {
+            if saturated[row_base + c] {
+                count += 1;
+            }
+        }
+        for col in 0..w {
+            // Add the column that just entered the window (col + radius).
+            if col + radius < w && saturated[row_base + col + radius] {
+                count += 1;
+            }
+            // Remove the column that just left (col - radius - 1).
+            if col > radius && saturated[row_base + col - radius - 1] {
+                count -= 1;
+            }
+            if count > 0 {
+                out[row_base + col] = true;
+            }
+        }
+    }
+    let horiz = out.clone();
+    // Vertical pass on the horizontally-dilated mask.
+    for col in 0..w {
+        let mut count = 0usize;
+        for r in 0..radius.min(h) {
+            if horiz[r * w + col] {
+                count += 1;
+            }
+        }
+        for row in 0..h {
+            if row + radius < h && horiz[(row + radius) * w + col] {
+                count += 1;
+            }
+            if row > radius && horiz[(row - radius - 1) * w + col] {
+                count -= 1;
+            }
+            if count > 0 {
+                out[row * w + col] = true;
+            }
+        }
+    }
+    out
 }
 
 /// Build a mask where `true` means "inter-order pixel" (not covered by any trace).
@@ -323,52 +695,7 @@ fn fit_2d_chebyshev(
         rhs[j] = sum;
     }
 
-    solve_linear_system(&mut normal, &mut rhs)
-}
-
-/// Solve Ax = b via Gaussian elimination with partial pivoting.
-fn solve_linear_system(mat: &mut [Vec<f64>], rhs: &mut [f64]) -> Option<Vec<f64>> {
-    let dim = rhs.len();
-
-    for col in 0..dim {
-        // Find pivot.
-        let (max_row, max_val) = mat[col..]
-            .iter()
-            .enumerate()
-            .map(|(i, row)| (col + i, row[col].abs()))
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))?;
-
-        if max_val < 1e-15 {
-            return None;
-        }
-
-        if max_row != col {
-            mat.swap(col, max_row);
-            rhs.swap(col, max_row);
-        }
-
-        let pivot = mat[col][col];
-        let pivot_row: Vec<f64> = mat[col][col..dim].to_vec();
-        let pivot_rhs = rhs[col];
-        for row in col + 1..dim {
-            let factor = mat[row][col] / pivot;
-            for (dest, &src) in mat[row][col..dim].iter_mut().zip(&pivot_row) {
-                *dest -= factor * src;
-            }
-            rhs[row] -= factor * pivot_rhs;
-        }
-    }
-
-    let mut solution = vec![0.0; dim];
-    for col in (0..dim).rev() {
-        let mut sum = rhs[col];
-        for k in col + 1..dim {
-            sum -= mat[col][k] * solution[k];
-        }
-        solution[col] = sum / mat[col][col];
-    }
-
-    Some(solution)
+    crate::wavelength_fitting::solve_linear_system(&mut normal, &mut rhs)
 }
 
 /// Safely evaluate a trace model, returning None on errors.
@@ -661,6 +988,7 @@ mod tests {
             poly_degree_x: 1,
             poly_degree_y: 1,
             aperture_half_width: 3.0,
+            ..ScatteredLightConfig::default()
         };
 
         let (corrected, model) =
@@ -697,6 +1025,7 @@ mod tests {
             poly_degree_x: 2,
             poly_degree_y: 1,
             aperture_half_width: 3.0,
+            ..ScatteredLightConfig::default()
         };
 
         let (corrected, _model) =
@@ -743,6 +1072,7 @@ mod tests {
             poly_degree_x: 1,
             poly_degree_y: 1,
             aperture_half_width: aperture,
+            ..ScatteredLightConfig::default()
         };
 
         let (_corrected, model) =

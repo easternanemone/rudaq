@@ -1,0 +1,203 @@
+profile_id = "cal-20260418-193315-5"
+display_name = "Mechelle 5000 HgAr (leabs-dev)"
+
+[schema_version]
+major = 1
+minor = 0
+patch = 0
+
+[compatibility]
+sensor_width = 2560
+sensor_height = 2160
+frame_width = 2560
+frame_height = 2160
+roi_x = 0
+roi_y = 0
+binning_x = 1
+binning_y = 1
+bit_depth = 16
+
+[orientation]
+dispersion_axis = "x"
+cross_dispersion_axis = "y"
+order_number_increase_direction = "positive"
+wavelength_increase_with_dispersion_positive = true
+
+[extraction]
+summation_mode = "simple_sum"
+default_aperture_half_width_px = 4.0
+
+[[orders]]
+relative_index = 0
+physical_order_number = 24
+sample_start = 0
+sample_end = 2559
+aperture_half_width_px = 4.0
+enabled = true
+notes = "m=24, RMS=0.0000nm, 1/1 lines"
+
+[orders.trace]
+type = "polynomial"
+basis = "monomial"
+coefficients = [
+    200.0996508005034,
+    -0.0004868929894525926,
+    0.0000007913199548181499,
+    -0.0000000004945683439213611,
+    0.0000000000001005399515015765,
+]
+domain_start = 0.0
+domain_end = 2559.0
+
+[orders.wavelength]
+type = "polynomial"
+basis = "chebyshev"
+coefficients = [
+    840.1911656015584,
+    17.47494201660156,
+]
+domain_start = 0.0
+domain_end = 2559.0
+unit = "nm"
+
+[[orders]]
+relative_index = 1
+physical_order_number = 25
+sample_start = 0
+sample_end = 2559
+aperture_half_width_px = 4.0
+enabled = true
+notes = "m=25, RMS=0.0000nm, 1/1 lines"
+
+[orders.trace]
+type = "polynomial"
+basis = "monomial"
+coefficients = [
+    219.11644123766735,
+    -0.0004362739639497778,
+    0.0000007047373679018387,
+    -0.00000000045495262121191504,
+    0.00000000000009397161695121473,
+]
+domain_start = 0.0
+domain_end = 2559.0
+
+[orders.wavelength]
+type = "polynomial"
+basis = "chebyshev"
+coefficients = [
+    804.3682204276315,
+    16.104906562500002,
+]
+domain_start = 0.0
+domain_end = 2559.0
+unit = "nm"
+
+[[orders]]
+relative_index = 5
+physical_order_number = 29
+sample_start = 1173
+sample_end = 2301
+aperture_half_width_px = 4.0
+enabled = true
+notes = "m=29, RMS=0.0000nm, 2/2 lines"
+
+[orders.trace]
+type = "polynomial"
+basis = "monomial"
+coefficients = [
+    295.98930689698403,
+    -0.00019274631263816052,
+    0.0000004920618674985767,
+    -0.0000000003515284179832601,
+    0.00000000000007486637127199022,
+]
+domain_start = 0.0
+domain_end = 2559.0
+
+[orders.wavelength]
+type = "polynomial"
+basis = "chebyshev"
+coefficients = [
+    701.6324999999999,
+    5.089499999999987,
+]
+domain_start = 1172.7413793103449
+domain_end = 2301.8333333333335
+unit = "nm"
+
+[[orders]]
+relative_index = 11
+physical_order_number = 35
+sample_start = 1521
+sample_end = 2145
+aperture_half_width_px = 4.0
+enabled = true
+notes = "m=35, RMS=0.0000nm, 2/2 lines"
+
+[orders.trace]
+type = "polynomial"
+basis = "monomial"
+coefficients = [
+    440.0869698728225,
+    -0.00032294258674610797,
+    0.0000003519194722837661,
+    -0.00000000015419212655669773,
+    0.000000000000024650059977809857,
+]
+domain_start = 0.0
+domain_end = 2559.0
+
+[orders.wavelength]
+type = "polynomial"
+basis = "chebyshev"
+coefficients = [
+    578.013,
+    1.0529999999999973,
+]
+domain_start = 1520.3426138401753
+domain_end = 2145.18362922833
+unit = "nm"
+
+[[orders]]
+relative_index = 13
+physical_order_number = 37
+sample_start = 0
+sample_end = 2559
+aperture_half_width_px = 4.0
+enabled = true
+notes = "m=37, RMS=0.0000nm, 1/1 lines"
+
+[orders.trace]
+type = "polynomial"
+basis = "monomial"
+coefficients = [
+    465.0960137393859,
+    -0.0005932309934990156,
+    0.0000009513948231814999,
+    -0.0000000005574659966001266,
+    0.00000000000010744913557113215,
+]
+domain_start = 0.0
+domain_end = 2559.0
+
+[orders.wavelength]
+type = "polynomial"
+basis = "chebyshev"
+coefficients = [
+    545.3686125036468,
+    7.352495691426224,
+]
+domain_start = 0.0
+domain_end = 2559.0
+unit = "nm"
+
+[corrections]
+excluded_regions = []
+
+[provenance]
+creator_tool = "rust-daq echelle_calibration_pipeline"
+creator_version = "0.1.0"
+created_at_utc = "2026-04-18T19:33:15.161117223Z"
+source_frame_ids = []
+notes = "Calibrated 5/20 orders, overall RMS = 0.0000 nm"

@@ -171,14 +171,41 @@ impl CalibrateFileConfig {
         wl_config.seed_tolerance_nm = self.tuning.wl_seed_tolerance_nm;
         wl_config.max_fit_rms_nm = self.tuning.max_fit_rms_nm;
 
+        // bd-lpgyn: for Mechelle-class instruments, default the trace
+        // validation to the FM2 preset that rejects MCP-halo / prism-
+        // ghost traces. This is load-bearing for downstream Cauchy Y(m)
+        // fit quality — without it the fit sees edge-clipped ghosts and
+        // its RMS is dominated by outliers. Users can opt out by setting
+        // all trace_validation.* fields explicitly in a custom config.
+        // bd-vdfum / Phase B: enable morphological-opening scattered-light
+        // subtraction by default for Mechelle-class ICCD frames. MCP halos
+        // flood the inter-order gap on HgAr captures (NotebookLM §FM4 —
+        // "4500-count baseline anomaly"); the morphological opening
+        // squashes those halos before the background surface is fit.
+        // Users can override via a custom config that sets scatter_config
+        // = None to disable.
+        let scatter_config =
+            Some(echelle::scattered_light::ScatteredLightConfig::mechelle_5000_istar());
+        // bd-lf1bi / Phase D: ICCD variance model. NotebookLM §FM5 —
+        // the iStar MCP has an excess-noise factor F=1.6 (vs 1.0 for a
+        // standard CCD), and the standard-CCD variance model
+        // underestimates noise at the spatial-profile centre by ~2.56×.
+        // F=1.6 AND cr_sigma=5.0 (tightened threshold) are baked into
+        // `OptimalExtractionConfig::istar_iccd()`. Wiring it here means
+        // that whenever optimal extraction runs on a Mechelle frame
+        // (currently opt-in via the TOML `use_optimal_extraction` flag)
+        // it uses the correct ICCD variance model. For simple-sum
+        // boxcar the config is ignored — harmless.
+        let optimal_config = echelle::optimal_extraction::OptimalExtractionConfig::istar_iccd();
         CalibrationPipelineConfig {
             trace_config,
-            trace_validation: Default::default(),
+            trace_validation: echelle::trace_validation::TraceValidationConfig::mechelle_5000_istar(
+            ),
             arc_config,
             wl_config,
-            scatter_config: d.scatter_config,
+            scatter_config,
             rectify_config: d.rectify_config,
-            optimal_config: d.optimal_config,
+            optimal_config,
             use_optimal_extraction: self.tuning.use_optimal_extraction,
             atlas: match self.tuning.lamp.as_str() {
                 "hg" | "hg2" | "mercury" => load_hg_atlas(),

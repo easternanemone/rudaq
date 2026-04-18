@@ -241,7 +241,7 @@ pub fn fit_chebyshev_2d(
     }
 
     // Solve via Gaussian elimination with partial pivoting.
-    let coefficients = solve_linear_system(&mut normal, &mut rhs)?;
+    let coefficients = crate::wavelength_fitting::solve_linear_system(&mut normal, &mut rhs)?;
 
     // Compute global RMS in lambda (nm).
     let fit = Global2DChebyshevFit {
@@ -266,6 +266,118 @@ pub fn fit_chebyshev_2d(
 #[must_use]
 pub fn eval_chebyshev_2d(fit: &Global2DChebyshevFit, x: f64, m: u32) -> f64 {
     fit.eval_lambda(x, f64::from(m))
+}
+
+/// Fit a global 2D Chebyshev surface with iterative 3σ outlier rejection.
+///
+/// This is the literature-standard procedure used by IRAF ECIDENTIFY,
+/// ESO MIDAS IDENTIFY/ECHELLE, CERES, and PypeIt. On each iteration, the
+/// wavelength residual `|λ_atlas - λ_predicted|` is computed for every
+/// training point, the sample standard deviation is taken, and points
+/// whose residual exceeds `sigma_threshold` times that deviation are
+/// dropped from the fit. Convergence is declared when the kept set is
+/// unchanged from the previous iteration or `max_iters` is reached.
+///
+/// Returns `(fit, kept_mask)` where `kept_mask[i]` is `true` if the i-th
+/// training point survived all rejection passes. Returns `None` if the
+/// initial fit fails or fewer than `n_coeffs` points remain.
+#[must_use]
+pub fn fit_chebyshev_2d_clipped(
+    training_data: &[(f64, u32, f64)],
+    dx: usize,
+    dm: usize,
+    sigma_threshold: f64,
+    max_iters: usize,
+) -> Option<(Global2DChebyshevFit, Vec<bool>)> {
+    let nx = dx + 1;
+    let nm = dm + 1;
+    let n_coeffs = nx * nm;
+    let n_pts = training_data.len();
+
+    if n_pts < n_coeffs {
+        return None;
+    }
+
+    let mut kept: Vec<bool> = vec![true; n_pts];
+    let mut prev_kept_count = n_pts + 1; // force at least one iteration
+    let mut current_fit: Option<Global2DChebyshevFit> = None;
+
+    for _iter in 0..max_iters.max(1) {
+        let filtered: Vec<(f64, u32, f64)> = training_data
+            .iter()
+            .zip(kept.iter())
+            .filter_map(|(&pt, &k)| if k { Some(pt) } else { None })
+            .collect();
+
+        if filtered.len() < n_coeffs {
+            return None;
+        }
+
+        let fit = fit_chebyshev_2d(&filtered, dx, dm)?;
+
+        // Residuals only on currently-kept points.
+        let residuals: Vec<f64> = training_data
+            .iter()
+            .zip(kept.iter())
+            .map(|(&(x, m, lam), &k)| {
+                if !k {
+                    0.0
+                } else {
+                    lam - fit.eval_lambda(x, f64::from(m))
+                }
+            })
+            .collect();
+
+        let (sum, cnt) = residuals
+            .iter()
+            .zip(kept.iter())
+            .filter(|&(_, &k)| k)
+            .fold((0.0, 0usize), |(s, c), (&r, _)| (s + r, c + 1));
+        if cnt == 0 {
+            return None;
+        }
+        let mean = sum / cnt as f64;
+        let variance: f64 = residuals
+            .iter()
+            .zip(kept.iter())
+            .filter(|&(_, &k)| k)
+            .map(|(&r, _)| {
+                let d = r - mean;
+                d * d
+            })
+            .sum::<f64>()
+            / cnt as f64;
+        let sigma = variance.sqrt();
+        let threshold = sigma_threshold * sigma;
+
+        // Reject any currently-kept point whose residual magnitude exceeds threshold.
+        let mut new_kept = kept.clone();
+        let mut new_count = 0usize;
+        for (i, (&r, &k)) in residuals.iter().zip(kept.iter()).enumerate() {
+            if k {
+                if (r - mean).abs() > threshold && sigma > 0.0 {
+                    new_kept[i] = false;
+                } else {
+                    new_count += 1;
+                }
+            }
+        }
+
+        current_fit = Some(fit);
+        kept = new_kept;
+
+        if new_count == prev_kept_count {
+            break;
+        }
+        prev_kept_count = new_count;
+
+        if new_count < n_coeffs {
+            // Next iteration would fail; stop with last good fit.
+            break;
+        }
+    }
+
+    current_fit.map(|f| (f, kept))
 }
 
 /// Compute the global RMS of residuals between atlas wavelengths and the
@@ -293,58 +405,6 @@ pub fn compute_global_rms(
         .sum();
 
     (sum_sq / data.len() as f64).sqrt()
-}
-
-/// Solve `A * x = b` via Gaussian elimination with partial pivoting.
-///
-/// Modifies `mat` and `rhs` in place. Returns the solution vector,
-/// or `None` if the system is singular.
-fn solve_linear_system(mat: &mut [Vec<f64>], rhs: &mut [f64]) -> Option<Vec<f64>> {
-    let dim = rhs.len();
-
-    // Forward elimination with partial pivoting.
-    for col in 0..dim {
-        // Find pivot row.
-        let (max_row, max_val) = mat[col..]
-            .iter()
-            .enumerate()
-            .map(|(i, row)| (col + i, row[col].abs()))
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))?;
-
-        if max_val < 1e-15 {
-            return None; // Singular
-        }
-
-        // Swap rows.
-        if max_row != col {
-            mat.swap(col, max_row);
-            rhs.swap(col, max_row);
-        }
-
-        // Eliminate below pivot.
-        let pivot = mat[col][col];
-        let pivot_row: Vec<f64> = mat[col][col..dim].to_vec();
-        let pivot_rhs = rhs[col];
-        for row in col + 1..dim {
-            let factor = mat[row][col] / pivot;
-            for (dest, &src) in mat[row][col..dim].iter_mut().zip(&pivot_row) {
-                *dest -= factor * src;
-            }
-            rhs[row] -= factor * pivot_rhs;
-        }
-    }
-
-    // Back substitution.
-    let mut solution = vec![0.0; dim];
-    for col in (0..dim).rev() {
-        let mut sum = rhs[col];
-        for k in col + 1..dim {
-            sum -= mat[col][k] * solution[k];
-        }
-        solution[col] = sum / mat[col][col];
-    }
-
-    Some(solution)
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
