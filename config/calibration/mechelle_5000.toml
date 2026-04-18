@@ -19,12 +19,22 @@
 
 [instrument]
 name = "Mechelle 5000 HgAr (leabs-dev)"
-# Echelle grating constant: m × λ_center ≈ 36300 nm
-# Measured from HgAr arc data (2026-03-16)
-grating_constant_nm = 36300.0
-# Physical order m=43 is at top of frame (lowest Y, NIR ~844nm)
-# Orders increase downward: m=43 (top) → m=116+ (bottom, UV ~313nm)
-first_physical_order = 43
+# Echelle "Order Wavelength Constant": m × λ_center ≈ 20.139 μm = 20139 nm.
+# Official value from the Andor Mechelle User Guide v4.2 §4.5.1 p.39 for
+# the ME 5000 / DH334T (iStar sCMOS) combination. An Andor service
+# representative also recalled this constant as "~201xx" on-site (2026-04).
+# An earlier value of 36300 nm was in use pre-2026-04-18; it was
+# self-consistent (gc/m produced correct wavelengths locally) but assigned
+# physical orders ~1.8× higher than reality, inflating the prism-dispersion
+# slope b in the Cauchy-series Y(m) fit. Using the documented value drops
+# the Cauchy RMS from 56.6 px to 42.7 px and unlocks Stage-3 global-surface
+# synthesis on real hardware captures (bd-sw760 Phase A hardware validation).
+grating_constant_nm = 20139.0
+# Physical order at the top of the frame (lowest Y, NIR end). With
+# gc=20139 and the top of the detector at ~840 nm, NIR-most physical
+# order is m ≈ 20139/840 ≈ 24. The on-detector range with step=1 spans
+# m=24 → m≈80 (UV limit at 253 nm is m ≈ 20139/253 ≈ 80).
+first_physical_order = 24
 # order_step=1: detected order index increases with physical order number
 order_step = 1
 
