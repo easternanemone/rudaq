@@ -187,6 +187,17 @@ impl CalibrateFileConfig {
         let scatter_config = Some(
             echelle::scattered_light::ScatteredLightConfig::mechelle_5000_istar(),
         );
+        // bd-lf1bi / Phase D: ICCD variance model. NotebookLM §FM5 —
+        // the iStar MCP has an excess-noise factor F=1.6 (vs 1.0 for a
+        // standard CCD), and the standard-CCD variance model
+        // underestimates noise at the spatial-profile centre by ~2.56×.
+        // F=1.6 AND cr_sigma=5.0 (tightened threshold) are baked into
+        // `OptimalExtractionConfig::istar_iccd()`. Wiring it here means
+        // that whenever optimal extraction runs on a Mechelle frame
+        // (currently opt-in via the TOML `use_optimal_extraction` flag)
+        // it uses the correct ICCD variance model. For simple-sum
+        // boxcar the config is ignored — harmless.
+        let optimal_config = echelle::optimal_extraction::OptimalExtractionConfig::istar_iccd();
         CalibrationPipelineConfig {
             trace_config,
             trace_validation: echelle::trace_validation::TraceValidationConfig::mechelle_5000_istar(),
@@ -194,7 +205,7 @@ impl CalibrateFileConfig {
             wl_config,
             scatter_config,
             rectify_config: d.rectify_config,
-            optimal_config: d.optimal_config,
+            optimal_config,
             use_optimal_extraction: self.tuning.use_optimal_extraction,
             atlas: match self.tuning.lamp.as_str() {
                 "hg" | "hg2" | "mercury" => load_hg_atlas(),

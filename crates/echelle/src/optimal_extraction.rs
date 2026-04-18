@@ -61,16 +61,34 @@ impl Default for OptimalExtractionConfig {
 }
 
 impl OptimalExtractionConfig {
-    /// Preset for Andor iStar ICCD (Gen III filmless MCP).
+    /// Preset for Andor iStar ICCD (Gen II/III filmless MCP).
     ///
-    /// Uses F = 1.6 (manufacturer-reported excess noise factor for Gen III MCP),
-    /// read noise = 20 e⁻ (CCD after intensifier), and gain = 1.0 e⁻/ADU.
-    /// Adjust gain based on actual MCP gain setting.
+    /// Per NotebookLM 7f275c3a pipeline-eval memo §FM5 ("The ICCD Excess
+    /// Noise Factor"):
+    ///
+    /// - `excess_noise_factor = 1.6` — manufacturer-reported Fano factor
+    ///   for the Gen II/III image intensifier. Without this, the
+    ///   standard-CCD variance model (F=1) underestimates noise at the
+    ///   spatial-profile centre by ~2.56×, causing optimal extraction
+    ///   to over-weight bright pixels and fail to reject cosmic rays /
+    ///   MCP ion-feedback artifacts.
+    /// - `cr_sigma = 5.0` — NotebookLM prescribes tightening the CR
+    ///   rejection threshold from the default 10.0 / 6.0 to **5.0**
+    ///   *because* the F² factor now makes the variance estimate
+    ///   accurate; a tighter threshold can aggressively strip CRs
+    ///   without falsely rejecting the cores of bright emission lines.
+    /// - `read_noise = 20 e⁻` — placeholder; the MCP effectively renders
+    ///   the sCMOS read noise negligible, but leaving it non-zero is
+    ///   safer than relying purely on the shot-noise term when the
+    ///   signal model is zero at an empty-order pixel.
+    /// - `gain = 1.0` — adjust based on actual MCP gain setting.
+    #[must_use]
     pub fn istar_iccd() -> Self {
         Self {
             read_noise: 20.0,
             gain: 1.0,
             excess_noise_factor: 1.6,
+            cr_sigma: 5.0,
             ..Self::default()
         }
     }
@@ -479,6 +497,36 @@ mod tests {
     use super::*;
     use crate::rectification::{OrderSpec, RectifyConfig, rectify_order};
     use crate::types::PolynomialBasis;
+
+    /// bd-lf1bi / Phase D: the iStar preset must carry F=1.6 and
+    /// cr_sigma=5.0 per NotebookLM §FM5. Regression gate against any
+    /// future edit silently reverting either to the standard-CCD
+    /// defaults — those values would underestimate high-flux variance
+    /// by ~2.56× and re-admit cosmic rays at profile centres.
+    #[test]
+    fn test_istar_preset_has_excess_noise_and_tight_cr_sigma() {
+        let cfg = OptimalExtractionConfig::istar_iccd();
+        assert!(
+            (cfg.excess_noise_factor - 1.6).abs() < 1e-12,
+            "iStar excess_noise_factor must be 1.6 per NotebookLM §FM5, got {}",
+            cfg.excess_noise_factor
+        );
+        assert!(
+            (cfg.cr_sigma - 5.0).abs() < 1e-12,
+            "iStar cr_sigma must be 5.0 (NotebookLM §FM5 tightens from CCD 10.0 / 6.0 \
+             now that F=1.6 makes the variance accurate), got {}",
+            cfg.cr_sigma
+        );
+        assert!(cfg.gain > 0.0, "gain must be positive, got {}", cfg.gain);
+        // The F² multiplier in the variance numerator must inflate the
+        // shot-noise term by exactly 2.56× vs a standard CCD (F=1).
+        let f_sq = cfg.excess_noise_factor * cfg.excess_noise_factor;
+        assert!(
+            (f_sq - 2.56).abs() < 1e-12,
+            "F² for iStar ICCD must equal 2.56 (the documented variance \
+             inflation factor), got {f_sq}"
+        );
+    }
 
     fn flat_trace(center: f64) -> crate::types::EchelleTraceModel {
         crate::types::EchelleTraceModel::Polynomial {
