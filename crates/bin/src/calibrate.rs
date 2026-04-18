@@ -171,9 +171,15 @@ impl CalibrateFileConfig {
         wl_config.seed_tolerance_nm = self.tuning.wl_seed_tolerance_nm;
         wl_config.max_fit_rms_nm = self.tuning.max_fit_rms_nm;
 
+        // bd-lpgyn: for Mechelle-class instruments, default the trace
+        // validation to the FM2 preset that rejects MCP-halo / prism-
+        // ghost traces. This is load-bearing for downstream Cauchy Y(m)
+        // fit quality — without it the fit sees edge-clipped ghosts and
+        // its RMS is dominated by outliers. Users can opt out by setting
+        // all trace_validation.* fields explicitly in a custom config.
         CalibrationPipelineConfig {
             trace_config,
-            trace_validation: Default::default(),
+            trace_validation: echelle::trace_validation::TraceValidationConfig::mechelle_5000_istar(),
             arc_config,
             wl_config,
             scatter_config: d.scatter_config,
