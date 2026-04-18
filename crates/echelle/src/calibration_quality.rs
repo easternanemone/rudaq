@@ -482,7 +482,7 @@ pub fn compute_quality_report(
 /// Build a quality report from a `Global2DChebyshevFit` and training data.
 ///
 /// This is the preferred entry point when a 2D Chebyshev model is available
-/// (e.g., from the calibration pipeline's 3-pass fit). It uses the global
+/// (e.g., from the calibration pipeline's Stage-3 global fit). It uses the global
 /// model's RMS directly and delegates LOO to the existing `chebyshev_2d`
 /// module.
 #[must_use]

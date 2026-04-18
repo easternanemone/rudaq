@@ -446,7 +446,7 @@ fn run_calibration_pipeline_impl(
         WavelengthSeed::Anchors(_) => None,
     };
 
-    // Build two-phase match config for Pass 1 when using echelle equation seed.
+    // Build two-phase match config for Stage 1 when using echelle equation seed.
     let two_phase_base = match &config.seed {
         WavelengthSeed::EchelleEquation {
             grating_constant_nm: gc,
@@ -719,9 +719,10 @@ fn run_calibration_pipeline_impl(
     }
 
     // ── Deduplicate physical_order_number (safety net, bd-ccer6 P1.5) ─
-    // Arc-matched orders (Pass 1/2) appear before bootstrapped ones, so
-    // first-wins preserves the higher-quality calibrations. Collisions
-    // remove the later order entirely (rather than clearing its physical m
+    // Arc-matched orders (Stage 1/2) appear before surface-synthesized
+    // ones (Stage 3), so first-wins preserves the higher-quality
+    // calibrations. Collisions remove the later order entirely (rather
+    // than clearing its physical m
     // and leaving an orphaned wavelength model in the profile); downstream
     // consumers depend on every profile order carrying a physical m.
     {

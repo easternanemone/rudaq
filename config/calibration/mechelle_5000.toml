@@ -4,7 +4,8 @@
 # Location:   leabs-dev (10.0.0.40)
 # Lamp:       HgAr (Ocean Optics HG-2)
 #
-# Usage (3-pass pipeline with flat frame for trace detection):
+# Usage (literature-standard 3-stage pipeline; flat frame optional for
+# trace detection — arc alone also works on high-dynamic-range captures):
 #   rust-daq-daemon calibrate \
 #     --frame arc_hgar.tiff \
 #     --flat flat_dh3p.tiff \
@@ -71,10 +72,10 @@ trace_min_peak_distance = 10
 arc_sigdetect = 3.0
 # Wavelength fit: linear (degree 1) for initial calibration with sparse matches
 wl_poly_degree = 1
-# Atlas matching tolerance — 5nm accounts for echelle equation approximation (Pass 1)
+# Atlas matching tolerance — 5nm accounts for echelle equation approximation (Stage 1)
 wl_seed_tolerance_nm = 5.0
 # Minimum matched lines per order — 1 enables single-line fallback (bd-3hlp)
-# which anchors the echelle equation to a single matched line during Pass 1/2
+# which anchors the echelle equation to a single matched line during Stage 1/2
 min_lines_per_order = 1
 # Simple summation extraction (optimal extraction needs flat-field)
 use_optimal_extraction = false
@@ -90,21 +91,31 @@ use_optimal_extraction = false
 # merge_tol_px = 1.0
 # prefer_unsaturated = true
 
-# 3-Pass Pipeline Configuration (as of 2026-03-18)
+# Stage-based pipeline configuration (bd-sw760, as of 2026-04-18 after
+# literature-standard rewrite — see debug/phase4/v3/LITERATURE-VS-OURS.md
+# for the full audit against IRAF, PypeIt, CERES, REDUCE, ESO MIDAS).
 #
-# Pass 1: Echelle equation seed + atlas matching (5nm tolerance)
-#   - Estimates physical order m from trace index using grating_constant_nm
-#   - Matches arc lines within 5nm to HgAr atlas
-#   - Success: ~42 orders arc-matched
+# Stage 1: Echelle-equation-seeded atlas match (per-order)
+#   - For each trace at index i, seed with m = first_physical_order +
+#     order_step × i, dispersion = gc/(m²·npx).
+#   - Two-phase match: primary window seed_tolerance_nm ± 2 nm, then
+#     fallback_tolerance_nm=1 nm. Single-line fallback enabled via
+#     min_lines_per_order=1.
+#   - No candidate-m search window (non-canonical; collisions are
+#     resolved by Stage 2's physical Cauchy model instead).
 #
-# Pass 2: Quadratic regression re-seed
-#   - Fits m(i) = a + b*i + c*i² from Pass 1 successes
-#   - Re-attempts atlas matching with predicted m values
-#   - Improves coverage for marginal orders
+# Stage 2: Cauchy-series Y(m) = a + b/m² + c/m⁴ re-assignment
+#   - Fits the Cauchy dispersion series from Stage-1 anchors
+#     {(y_centroid, m)}, with 3σ-clipped iterative rejection.
+#   - Inverts for each uncalibrated trace's y-centroid to predict m
+#     physically; retries two-phase match with the predicted m.
+#   - Implementation: crates/echelle/src/cauchy_dispersion.rs.
 #
-# Pass 3: Physics bootstrap + 2D Chebyshev residual
-#   - For uncalibrated orders: assign m via quadratic interpolation
-#   - Compute baseline: λ_base(x,m) = gc/m + disp(m)*(x - w/2)
-#   - Fit 2D Chebyshev surface (degree 4×3) to residuals from calibrated orders
-#   - Predict wavelengths for remaining uncalibrated orders
-#   - Result: ~73 bootstrapped orders, full 230–844nm coverage
+# Stage 3: Global 2D Chebyshev fit λ(x, m) + per-order synthesis
+#   - Fits all matched arc lines across all orders simultaneously
+#     (degrees 3×5, CERES default; 3σ iterative rejection).
+#   - For traces still without per-order matches, synthesizes an
+#     OrderWlSolution by sampling the surface at (x, m_Cauchy) and
+#     fitting a 1D Chebyshev to the samples (PypeIt-style recovery).
+#   - Implementation: crates/echelle/src/chebyshev_2d.rs +
+#     calibration_pipeline::refine_with_global_surface.
