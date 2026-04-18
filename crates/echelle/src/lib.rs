@@ -18,6 +18,7 @@
 //!     surface on their pixel domain at their Cauchy-predicted `m`
 //! - **Simulation** - Synthetic echelleogram generation for pipeline development
 
+pub mod blaze;
 pub mod calibration_pipeline;
 pub mod calibration_quality;
 pub mod cauchy_dispersion;
