@@ -268,6 +268,118 @@ pub fn eval_chebyshev_2d(fit: &Global2DChebyshevFit, x: f64, m: u32) -> f64 {
     fit.eval_lambda(x, f64::from(m))
 }
 
+/// Fit a global 2D Chebyshev surface with iterative 3σ outlier rejection.
+///
+/// This is the literature-standard procedure used by IRAF ECIDENTIFY,
+/// ESO MIDAS IDENTIFY/ECHELLE, CERES, and PypeIt. On each iteration, the
+/// wavelength residual `|λ_atlas - λ_predicted|` is computed for every
+/// training point, the sample standard deviation is taken, and points
+/// whose residual exceeds `sigma_threshold` times that deviation are
+/// dropped from the fit. Convergence is declared when the kept set is
+/// unchanged from the previous iteration or `max_iters` is reached.
+///
+/// Returns `(fit, kept_mask)` where `kept_mask[i]` is `true` if the i-th
+/// training point survived all rejection passes. Returns `None` if the
+/// initial fit fails or fewer than `n_coeffs` points remain.
+#[must_use]
+pub fn fit_chebyshev_2d_clipped(
+    training_data: &[(f64, u32, f64)],
+    dx: usize,
+    dm: usize,
+    sigma_threshold: f64,
+    max_iters: usize,
+) -> Option<(Global2DChebyshevFit, Vec<bool>)> {
+    let nx = dx + 1;
+    let nm = dm + 1;
+    let n_coeffs = nx * nm;
+    let n_pts = training_data.len();
+
+    if n_pts < n_coeffs {
+        return None;
+    }
+
+    let mut kept: Vec<bool> = vec![true; n_pts];
+    let mut prev_kept_count = n_pts + 1; // force at least one iteration
+    let mut current_fit: Option<Global2DChebyshevFit> = None;
+
+    for _iter in 0..max_iters.max(1) {
+        let filtered: Vec<(f64, u32, f64)> = training_data
+            .iter()
+            .zip(kept.iter())
+            .filter_map(|(&pt, &k)| if k { Some(pt) } else { None })
+            .collect();
+
+        if filtered.len() < n_coeffs {
+            return None;
+        }
+
+        let fit = fit_chebyshev_2d(&filtered, dx, dm)?;
+
+        // Residuals only on currently-kept points.
+        let residuals: Vec<f64> = training_data
+            .iter()
+            .zip(kept.iter())
+            .map(|(&(x, m, lam), &k)| {
+                if !k {
+                    0.0
+                } else {
+                    lam - fit.eval_lambda(x, f64::from(m))
+                }
+            })
+            .collect();
+
+        let (sum, cnt) = residuals
+            .iter()
+            .zip(kept.iter())
+            .filter(|&(_, &k)| k)
+            .fold((0.0, 0usize), |(s, c), (&r, _)| (s + r, c + 1));
+        if cnt == 0 {
+            return None;
+        }
+        let mean = sum / cnt as f64;
+        let variance: f64 = residuals
+            .iter()
+            .zip(kept.iter())
+            .filter(|&(_, &k)| k)
+            .map(|(&r, _)| {
+                let d = r - mean;
+                d * d
+            })
+            .sum::<f64>()
+            / cnt as f64;
+        let sigma = variance.sqrt();
+        let threshold = sigma_threshold * sigma;
+
+        // Reject any currently-kept point whose residual magnitude exceeds threshold.
+        let mut new_kept = kept.clone();
+        let mut new_count = 0usize;
+        for (i, (&r, &k)) in residuals.iter().zip(kept.iter()).enumerate() {
+            if k {
+                if (r - mean).abs() > threshold && sigma > 0.0 {
+                    new_kept[i] = false;
+                } else {
+                    new_count += 1;
+                }
+            }
+        }
+
+        current_fit = Some(fit);
+        kept = new_kept;
+
+        if new_count == prev_kept_count {
+            break;
+        }
+        prev_kept_count = new_count;
+
+        if new_count < n_coeffs {
+            // Next iteration would fail; stop with last good fit.
+            break;
+        }
+    }
+
+    current_fit.map(|f| (f, kept))
+}
+
 /// Compute the global RMS of residuals between atlas wavelengths and the
 /// Chebyshev model predictions.
 ///
