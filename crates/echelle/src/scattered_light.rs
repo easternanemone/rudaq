@@ -463,8 +463,7 @@ fn vertical_minimum_filter(frame: &[f32], w: usize, h: usize, kernel: usize) -> 
             let lo = center.saturating_sub(half);
             let hi = (center + half).min(h - 1);
             let mut m = f32::INFINITY;
-            for r in lo..=hi {
-                let v = col_buf[r];
+            for &v in &col_buf[lo..=hi] {
                 if v.is_finite() && v < m {
                     m = v;
                 }
@@ -512,8 +511,7 @@ fn vertical_maximum_filter(frame: &[f32], w: usize, h: usize, kernel: usize) -> 
             let lo = center.saturating_sub(half);
             let hi = (center + half).min(h - 1);
             let mut m = f32::NEG_INFINITY;
-            for r in lo..=hi {
-                let v = col_buf[r];
+            for &v in &col_buf[lo..=hi] {
                 if v.is_finite() && v > m {
                     m = v;
                 }
@@ -697,52 +695,7 @@ fn fit_2d_chebyshev(
         rhs[j] = sum;
     }
 
-    solve_linear_system(&mut normal, &mut rhs)
-}
-
-/// Solve Ax = b via Gaussian elimination with partial pivoting.
-fn solve_linear_system(mat: &mut [Vec<f64>], rhs: &mut [f64]) -> Option<Vec<f64>> {
-    let dim = rhs.len();
-
-    for col in 0..dim {
-        // Find pivot.
-        let (max_row, max_val) = mat[col..]
-            .iter()
-            .enumerate()
-            .map(|(i, row)| (col + i, row[col].abs()))
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))?;
-
-        if max_val < 1e-15 {
-            return None;
-        }
-
-        if max_row != col {
-            mat.swap(col, max_row);
-            rhs.swap(col, max_row);
-        }
-
-        let pivot = mat[col][col];
-        let pivot_row: Vec<f64> = mat[col][col..dim].to_vec();
-        let pivot_rhs = rhs[col];
-        for row in col + 1..dim {
-            let factor = mat[row][col] / pivot;
-            for (dest, &src) in mat[row][col..dim].iter_mut().zip(&pivot_row) {
-                *dest -= factor * src;
-            }
-            rhs[row] -= factor * pivot_rhs;
-        }
-    }
-
-    let mut solution = vec![0.0; dim];
-    for col in (0..dim).rev() {
-        let mut sum = rhs[col];
-        for k in col + 1..dim {
-            sum -= mat[col][k] * solution[k];
-        }
-        solution[col] = sum / mat[col][col];
-    }
-
-    Some(solution)
+    crate::wavelength_fitting::solve_linear_system(&mut normal, &mut rhs)
 }
 
 /// Safely evaluate a trace model, returning None on errors.

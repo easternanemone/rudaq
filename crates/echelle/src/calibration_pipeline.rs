@@ -744,47 +744,55 @@ fn run_calibration_pipeline_impl(
     // observed scatter across orders exceeds 3% of the mean, the
     // configured grating_constant_nm is likely mis-measured.
     if let Some(gc_configured) = grating_constant_nm {
-        let products: Vec<f64> = order_calibrations
-            .iter()
-            .filter_map(|cal| {
-                let m = f64::from(cal.physical_order_number?);
-                let wl = match &cal.wavelength {
-                    EchelleWavelengthModel::Polynomial {
-                        basis,
-                        coefficients,
-                        domain_start,
-                        domain_end,
-                        ..
-                    } => {
-                        let mid = f64::midpoint(*domain_start, *domain_end);
-                        let x_norm =
-                            2.0 * (mid - *domain_start) / (*domain_end - *domain_start) - 1.0;
-                        match basis {
-                            PolynomialBasis::Chebyshev => {
-                                crate::wavelength_fitting::chebyshev_eval(coefficients, x_norm)
+        let mut count: u32 = 0;
+        let mut sum = 0.0f64;
+        let mut sum_sq = 0.0f64;
+        for cal in &order_calibrations {
+            let Some(m_int) = cal.physical_order_number else {
+                continue;
+            };
+            let m = f64::from(m_int);
+            let wl = match &cal.wavelength {
+                EchelleWavelengthModel::Polynomial {
+                    basis,
+                    coefficients,
+                    domain_start,
+                    domain_end,
+                    ..
+                } => {
+                    let mid = f64::midpoint(*domain_start, *domain_end);
+                    let x_norm = 2.0 * (mid - *domain_start) / (*domain_end - *domain_start) - 1.0;
+                    match basis {
+                        PolynomialBasis::Chebyshev => {
+                            crate::wavelength_fitting::chebyshev_eval(coefficients, x_norm)
+                        }
+                        PolynomialBasis::Monomial => {
+                            let mut acc = 0.0f64;
+                            let mut xp = 1.0;
+                            for c in coefficients {
+                                acc += c * xp;
+                                xp *= mid;
                             }
-                            PolynomialBasis::Monomial => {
-                                let mut acc = 0.0f64;
-                                let mut xp = 1.0;
-                                for c in coefficients {
-                                    acc += c * xp;
-                                    xp *= mid;
-                                }
-                                acc
-                            }
+                            acc
                         }
                     }
-                    EchelleWavelengthModel::Sampled { wavelengths, .. } => {
-                        *wavelengths.get(wavelengths.len() / 2)?
+                }
+                EchelleWavelengthModel::Sampled { wavelengths, .. } => {
+                    match wavelengths.get(wavelengths.len() / 2) {
+                        Some(&w) => w,
+                        None => continue,
                     }
-                };
-                Some(m * wl)
-            })
-            .collect();
-        if products.len() >= 3 {
-            let n = f64::from(u32::try_from(products.len()).expect("order count fits in u32"));
-            let mean = products.iter().sum::<f64>() / n;
-            let var = products.iter().map(|g| (g - mean).powi(2)).sum::<f64>() / n;
+                }
+            };
+            let product = m * wl;
+            sum += product;
+            sum_sq += product * product;
+            count += 1;
+        }
+        if count >= 3 {
+            let n = f64::from(count);
+            let mean = sum / n;
+            let var = (sum_sq / n - mean * mean).max(0.0);
             let stddev = var.sqrt();
             let rel = if mean.abs() > 1e-12 {
                 stddev / mean.abs() * 100.0
@@ -1372,6 +1380,7 @@ fn dedup_order_calibrations_by_quality(
 ///
 /// Returns the number of orders synthesized from the global surface
 /// (distinct from those directly calibrated in Stages 1-2).
+#[allow(clippy::too_many_arguments)]
 fn refine_with_global_surface(
     gc: f64,
     width: u32,

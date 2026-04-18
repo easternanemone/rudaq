@@ -41,7 +41,10 @@
     clippy::cast_precision_loss,
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
-    clippy::cast_possible_wrap
+    clippy::cast_possible_wrap,
+    // Mathematical derivations: single-letter names (a, b, c, u, y, r, d, s, t)
+    // mirror the written equations in the module docs and literature refs.
+    clippy::many_single_char_names
 )]
 
 /// Fitted Cauchy dispersion series `y(m) = a + b/m² + c/m⁴`.

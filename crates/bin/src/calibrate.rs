@@ -184,9 +184,8 @@ impl CalibrateFileConfig {
         // squashes those halos before the background surface is fit.
         // Users can override via a custom config that sets scatter_config
         // = None to disable.
-        let scatter_config = Some(
-            echelle::scattered_light::ScatteredLightConfig::mechelle_5000_istar(),
-        );
+        let scatter_config =
+            Some(echelle::scattered_light::ScatteredLightConfig::mechelle_5000_istar());
         // bd-lf1bi / Phase D: ICCD variance model. NotebookLM §FM5 —
         // the iStar MCP has an excess-noise factor F=1.6 (vs 1.0 for a
         // standard CCD), and the standard-CCD variance model
@@ -200,7 +199,8 @@ impl CalibrateFileConfig {
         let optimal_config = echelle::optimal_extraction::OptimalExtractionConfig::istar_iccd();
         CalibrationPipelineConfig {
             trace_config,
-            trace_validation: echelle::trace_validation::TraceValidationConfig::mechelle_5000_istar(),
+            trace_validation: echelle::trace_validation::TraceValidationConfig::mechelle_5000_istar(
+            ),
             arc_config,
             wl_config,
             scatter_config,

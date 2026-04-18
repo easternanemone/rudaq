@@ -128,7 +128,7 @@ impl TraceValidationConfig {
             && self.max_order_count.is_none()
             && self.max_fwhm_excess_fraction.is_none()
             && self.min_continuity_fraction.is_none()
-            && self.enforce_monotonic_spacing.unwrap_or(false) == false
+            && !self.enforce_monotonic_spacing.unwrap_or(false)
     }
 
     /// Preset for the Mechelle 5000 + iStar ICCD combination — enables
@@ -597,11 +597,7 @@ fn apply_continuity_filter(
 /// any Δy that is smaller than its predecessor by more than `tol_frac` ×
 /// median Δy signals that one of the two traces is a ghost order. We
 /// drop the trace whose removal *restores* monotonicity.
-fn apply_monotonic_dy_filter(
-    measurements: &[TraceMeasurement],
-    keep: &mut [bool],
-    tol_frac: f64,
-) {
+fn apply_monotonic_dy_filter(measurements: &[TraceMeasurement], keep: &mut [bool], tol_frac: f64) {
     // Indices of currently-surviving traces, sorted by center_y.
     let mut alive: Vec<usize> = keep
         .iter()

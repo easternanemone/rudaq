@@ -58,6 +58,16 @@
     clippy::cast_sign_loss
 )]
 
+/// Wavelength sanity window (nm) for DH3P sample intake.
+///
+/// Why: the echelle wavelength solution occasionally emits pathological
+/// values (e.g. near-zero or >2 μm) for degenerate orders that we still
+/// want to tolerate without blowing up the continuum fit. The Mechelle's
+/// physical bandpass is 200–975 nm; the generous window accepts mild
+/// extrapolation at the edges while rejecting nonsense.
+const SAMPLE_WAVELENGTH_MIN_NM: f64 = 100.0;
+const SAMPLE_WAVELENGTH_MAX_NM: f64 = 2000.0;
+
 /// Sample point from the assembled DH3P flat, used by the continuum fit.
 #[derive(Debug, Clone, Copy)]
 struct FlatSample {
@@ -134,10 +144,6 @@ pub struct Dh3pContinuumConfig {
     pub sigma_threshold: f64,
     /// Maximum sigma-clip iterations.
     pub max_iters: usize,
-    /// Rolling-max window width (fraction of the full wavelength range)
-    /// used to build the upper-envelope approximation before fitting.
-    /// 0.005 = 0.5 % of the bandpass ≈ 4 nm on 200-975 nm.
-    pub upper_envelope_window_frac: f64,
 }
 
 impl Default for Dh3pContinuumConfig {
@@ -146,7 +152,6 @@ impl Default for Dh3pContinuumConfig {
             n_knots: 64,
             sigma_threshold: 3.0,
             max_iters: 5,
-            upper_envelope_window_frac: 0.005,
         }
     }
 }
@@ -176,11 +181,10 @@ impl Default for Dh3pContinuumConfig {
 /// separates in-illumination pixels from background.
 ///
 /// This precondition was identified during real-hardware validation on
-/// the March 18 2026 leabs-dev DH3P flat (see
-/// `debug/phase5/validate_phase_e.py`) — the first run without the
-/// illumination mask produced a C_lamp fit sitting at the noise floor
-/// rather than the lamp continuum level, with peak blaze efficiencies
-/// inflated by 10–100×.
+/// a leabs-dev DH3P flat (see `debug/phase5/validate_phase_e.py`): the
+/// first run without the illumination mask produced a C_lamp fit
+/// sitting at the noise floor rather than the lamp continuum level,
+/// with peak blaze efficiencies inflated by 10–100×.
 #[must_use]
 pub fn fit_dh3p_continuum(
     orders_flat: &[(&[f64], &[f64])],
@@ -192,10 +196,17 @@ pub fn fit_dh3p_continuum(
             continue;
         }
         for (&w, &f) in wl.iter().zip(fx.iter()) {
-            if !w.is_finite() || !f.is_finite() || f <= 0.0 || w < 100.0 || w > 2000.0 {
+            if !w.is_finite()
+                || !f.is_finite()
+                || f <= 0.0
+                || !(SAMPLE_WAVELENGTH_MIN_NM..=SAMPLE_WAVELENGTH_MAX_NM).contains(&w)
+            {
                 continue;
             }
-            samples.push(FlatSample { wavelength: w, flux: f });
+            samples.push(FlatSample {
+                wavelength: w,
+                flux: f,
+            });
         }
     }
     if samples.len() < config.n_knots * 2 {
@@ -209,17 +220,12 @@ pub fn fit_dh3p_continuum(
         return None;
     }
 
-    // Previously we applied an "upper envelope" q75 rolling-window
-    // prefilter, but it rejects everything on a monotonically rising
-    // or falling continuum (the window's top-quartile value *is* the
-    // sample itself, so the `>= q75` test becomes tautological or
-    // strictly fails). The sigma-clipping loop below already handles
-    // positive outliers (emission lines, CRs) cleanly on its own; the
-    // envelope step was redundant and fragile.
-    let upper_env: Vec<FlatSample> = samples.clone();
-
-    // Lay out knots uniformly in wavelength (not log — lamp SED
-    // correlation is smooth in linear λ over the Mechelle bandpass).
+    // No upper-envelope prefilter: the sigma-clip loop below already rejects
+    // positive outliers (emission lines, CRs) and the q75 prefilter was
+    // tautological on monotonic regions of the SED.
+    //
+    // Lay out knots uniformly in wavelength (not log — lamp SED correlation
+    // is smooth in linear λ over the Mechelle bandpass).
     let knot_wavelengths: Vec<f64> = (0..config.n_knots)
         .map(|i| {
             let t = i as f64 / (config.n_knots - 1) as f64;
@@ -228,11 +234,11 @@ pub fn fit_dh3p_continuum(
         .collect();
 
     // Iterative sigma-clipped fit.
-    let mut kept_mask: Vec<bool> = vec![true; upper_env.len()];
+    let mut kept_mask: Vec<bool> = vec![true; samples.len()];
     let mut knot_fluxes = vec![0.0; config.n_knots];
     let mut rms = 0.0;
     for _iter in 0..config.max_iters.max(1) {
-        knot_fluxes = compute_knot_fluxes(&upper_env, &kept_mask, &knot_wavelengths);
+        knot_fluxes = compute_knot_fluxes(&samples, &kept_mask, &knot_wavelengths);
         // Residuals of kept points against the piecewise-linear fit.
         let fit = Dh3pContinuum {
             knot_wavelengths: knot_wavelengths.clone(),
@@ -241,14 +247,14 @@ pub fn fit_dh3p_continuum(
             n_samples_kept: 0,
             n_samples_rejected: 0,
         };
-        let (mean, std) = residual_stats(&upper_env, &kept_mask, &fit);
+        let (mean, std) = residual_stats(&samples, &kept_mask, &fit);
         if std <= 0.0 {
             rms = 0.0;
             break;
         }
         let threshold = config.sigma_threshold * std;
         let mut any_rejected = false;
-        for (i, sample) in upper_env.iter().enumerate() {
+        for (i, sample) in samples.iter().enumerate() {
             if !kept_mask[i] {
                 continue;
             }
@@ -269,7 +275,7 @@ pub fn fit_dh3p_continuum(
     }
 
     let n_kept = kept_mask.iter().filter(|&&b| b).count();
-    let n_rejected = upper_env.len() - n_kept;
+    let n_rejected = samples.len() - n_kept;
     if n_kept < config.n_knots {
         return None;
     }
@@ -327,7 +333,11 @@ pub fn compute_blaze_from_dh3p_flat(
     for i in 0..n {
         let f = flat_flux[i];
         let c = continuum.eval(wavelengths[i]);
-        blaze_raw[i] = if c > 1e-12 && f.is_finite() { f / c } else { 0.0 };
+        blaze_raw[i] = if c > 1e-12 && f.is_finite() {
+            f / c
+        } else {
+            0.0
+        };
     }
 
     // Per-order peak normalisation.
@@ -487,46 +497,9 @@ pub fn variance_weighted_merge(
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-/// Extract the upper envelope of a sorted series of flat samples by
-/// keeping, within a rolling wavelength window, only points within the
-/// top 25 % of flux values in that window.
-fn upper_envelope_samples(sorted: &[FlatSample], window_width: f64) -> Vec<FlatSample> {
-    if sorted.is_empty() || window_width <= 0.0 {
-        return sorted.to_vec();
-    }
-    let mut out = Vec::new();
-    let mut lo_idx = 0usize;
-    let mut hi_idx = 0usize;
-    for (i, s) in sorted.iter().enumerate() {
-        while lo_idx < sorted.len() && sorted[lo_idx].wavelength < s.wavelength - window_width {
-            lo_idx += 1;
-        }
-        while hi_idx < sorted.len() && sorted[hi_idx].wavelength <= s.wavelength + window_width {
-            hi_idx += 1;
-        }
-        if hi_idx <= lo_idx {
-            continue;
-        }
-        // Compute the 75th-percentile flux in the window.
-        let mut window_flux: Vec<f64> = sorted[lo_idx..hi_idx].iter().map(|x| x.flux).collect();
-        window_flux.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        let q75_idx = (window_flux.len() * 3) / 4;
-        let q75 = window_flux[q75_idx.min(window_flux.len() - 1)];
-        if s.flux >= q75 && !out.last().is_some_and(|l: &FlatSample| (l.wavelength - s.wavelength).abs() < window_width * 0.5) {
-            out.push(*s);
-        }
-        let _ = i;
-    }
-    out
-}
-
 /// Compute continuum knot fluxes as the median of retained samples in a
 /// symmetric window around each knot wavelength.
-fn compute_knot_fluxes(
-    samples: &[FlatSample],
-    kept: &[bool],
-    knots: &[f64],
-) -> Vec<f64> {
+fn compute_knot_fluxes(samples: &[FlatSample], kept: &[bool], knots: &[f64]) -> Vec<f64> {
     let n_knots = knots.len();
     if n_knots == 0 || samples.is_empty() {
         return vec![0.0; n_knots];
@@ -536,6 +509,9 @@ fn compute_knot_fluxes(
     } else {
         1.0
     };
+    // 1.5× overlap: neighbouring knot windows cover ≥50 % of each other,
+    // so a knot retains ≥3 samples even in sparsely-sampled regions at
+    // the bandpass edges.
     let window = knot_spacing * 1.5;
     let mut out = vec![0.0; n_knots];
     for (ki, &kw) in knots.iter().enumerate() {
@@ -552,16 +528,17 @@ fn compute_knot_fluxes(
             .collect();
         if window_vals.is_empty() {
             // Fallback: use the nearest retained sample regardless of window.
-            let nearest = samples
-                .iter()
-                .zip(kept.iter())
-                .filter(|&(_, &k)| k)
-                .min_by(|(a, _), (b, _)| {
-                    (a.wavelength - kw)
-                        .abs()
-                        .partial_cmp(&(b.wavelength - kw).abs())
-                        .unwrap()
-                });
+            let nearest =
+                samples
+                    .iter()
+                    .zip(kept.iter())
+                    .filter(|&(_, &k)| k)
+                    .min_by(|(a, _), (b, _)| {
+                        (a.wavelength - kw)
+                            .abs()
+                            .partial_cmp(&(b.wavelength - kw).abs())
+                            .unwrap()
+                    });
             if let Some((s, _)) = nearest {
                 out[ki] = s.flux;
             }
@@ -598,6 +575,7 @@ fn residual_stats(samples: &[FlatSample], kept: &[bool], fit: &Dh3pContinuum) ->
 }
 
 #[cfg(test)]
+#[allow(clippy::cast_lossless)] // test-only i32 iterator indices → f64
 mod tests {
     use super::*;
 
@@ -626,8 +604,10 @@ mod tests {
                 .collect();
             orders.push((wl, flux));
         }
-        let refs: Vec<(&[f64], &[f64])> =
-            orders.iter().map(|(w, f)| (w.as_slice(), f.as_slice())).collect();
+        let refs: Vec<(&[f64], &[f64])> = orders
+            .iter()
+            .map(|(w, f)| (w.as_slice(), f.as_slice()))
+            .collect();
         let cfg = Dh3pContinuumConfig {
             n_knots: 24,
             ..Default::default()
@@ -694,14 +674,20 @@ mod tests {
         // fits 2× within the order so edges reach sinc²<0.15 (past the
         // first sinc null at |w - center| = FSR).
         let n = 256;
-        let wl: Vec<f64> = (0..n).map(|i| 400.0 + 20.0 * (i as f64) / (n - 1) as f64).collect();
+        let wl: Vec<f64> = (0..n)
+            .map(|i| 400.0 + 20.0 * (i as f64) / (n - 1) as f64)
+            .collect();
         let order_center = 410.0;
         let fsr = 8.0;
         let flux: Vec<f64> = wl
             .iter()
             .map(|&w| {
                 let x = std::f64::consts::PI * (w - order_center) / fsr;
-                let sinc2 = if x.abs() < 1e-12 { 1.0 } else { (x.sin() / x).powi(2) };
+                let sinc2 = if x.abs() < 1e-12 {
+                    1.0
+                } else {
+                    (x.sin() / x).powi(2)
+                };
                 synth_dh3p(w) * sinc2
             })
             .collect();
@@ -728,7 +714,10 @@ mod tests {
             "order centre must be in usable_mask"
         );
         let edge_masked = !blaze.usable_mask[0] || !blaze.usable_mask[n - 1];
-        assert!(edge_masked, "at least one edge should fall below 15% threshold");
+        assert!(
+            edge_masked,
+            "at least one edge should fall below 15% threshold"
+        );
     }
 
     #[test]

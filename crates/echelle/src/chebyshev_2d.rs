@@ -241,7 +241,7 @@ pub fn fit_chebyshev_2d(
     }
 
     // Solve via Gaussian elimination with partial pivoting.
-    let coefficients = solve_linear_system(&mut normal, &mut rhs)?;
+    let coefficients = crate::wavelength_fitting::solve_linear_system(&mut normal, &mut rhs)?;
 
     // Compute global RMS in lambda (nm).
     let fit = Global2DChebyshevFit {
@@ -405,58 +405,6 @@ pub fn compute_global_rms(
         .sum();
 
     (sum_sq / data.len() as f64).sqrt()
-}
-
-/// Solve `A * x = b` via Gaussian elimination with partial pivoting.
-///
-/// Modifies `mat` and `rhs` in place. Returns the solution vector,
-/// or `None` if the system is singular.
-fn solve_linear_system(mat: &mut [Vec<f64>], rhs: &mut [f64]) -> Option<Vec<f64>> {
-    let dim = rhs.len();
-
-    // Forward elimination with partial pivoting.
-    for col in 0..dim {
-        // Find pivot row.
-        let (max_row, max_val) = mat[col..]
-            .iter()
-            .enumerate()
-            .map(|(i, row)| (col + i, row[col].abs()))
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))?;
-
-        if max_val < 1e-15 {
-            return None; // Singular
-        }
-
-        // Swap rows.
-        if max_row != col {
-            mat.swap(col, max_row);
-            rhs.swap(col, max_row);
-        }
-
-        // Eliminate below pivot.
-        let pivot = mat[col][col];
-        let pivot_row: Vec<f64> = mat[col][col..dim].to_vec();
-        let pivot_rhs = rhs[col];
-        for row in col + 1..dim {
-            let factor = mat[row][col] / pivot;
-            for (dest, &src) in mat[row][col..dim].iter_mut().zip(&pivot_row) {
-                *dest -= factor * src;
-            }
-            rhs[row] -= factor * pivot_rhs;
-        }
-    }
-
-    // Back substitution.
-    let mut solution = vec![0.0; dim];
-    for col in (0..dim).rev() {
-        let mut sum = rhs[col];
-        for k in col + 1..dim {
-            sum -= mat[col][k] * solution[k];
-        }
-        solution[col] = sum / mat[col][col];
-    }
-
-    Some(solution)
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────

@@ -1770,7 +1770,7 @@ pub fn chebyshev_fit(x_norm: &[f64], y_vals: &[f64], degree: usize) -> Option<Ve
 /// Solve Ax = b via Gaussian elimination with partial pivoting.
 ///
 /// Modifies `a` and `b` in place. Returns the solution vector.
-fn solve_linear_system(mat: &mut [Vec<f64>], rhs: &mut [f64]) -> Option<Vec<f64>> {
+pub(crate) fn solve_linear_system(mat: &mut [Vec<f64>], rhs: &mut [f64]) -> Option<Vec<f64>> {
     let dim = rhs.len();
 
     // Forward elimination with partial pivoting.
