@@ -1,0 +1,434 @@
+profile_id = "cal-20260418-193347-12"
+display_name = "Mechelle 5000 HgAr (leabs-dev)"
+
+[schema_version]
+major = 1
+minor = 0
+patch = 0
+
+[compatibility]
+sensor_width = 2560
+sensor_height = 2160
+frame_width = 2560
+frame_height = 2160
+roi_x = 0
+roi_y = 0
+binning_x = 1
+binning_y = 1
+bit_depth = 16
+
+[orientation]
+dispersion_axis = "x"
+cross_dispersion_axis = "y"
+order_number_increase_direction = "positive"
+wavelength_increase_with_dispersion_positive = true
+
+[extraction]
+summation_mode = "simple_sum"
+default_aperture_half_width_px = 4.0
+
+[[orders]]
+relative_index = 2
+physical_order_number = 26
+sample_start = 202
+sample_end = 821
+aperture_half_width_px = 4.0
+enabled = true
+notes = "m=26, RMS=0.0000nm, 2/2 lines"
+
+[orders.trace]
+type = "polynomial"
+basis = "monomial"
+coefficients = [
+    29.999683268218558,
+    0.0000008982814182179047,
+    0.0000000010828581549266134,
+    -0.00000000000041497817213873185,
+    -0.0000000000000001117133098264132,
+]
+domain_start = 0.0
+domain_end = 2559.0
+
+[orders.wavelength]
+type = "polynomial"
+basis = "chebyshev"
+coefficients = [
+    767.9435,
+    4.4325000000000045,
+]
+domain_start = 201.26688015518434
+domain_end = 821.506407702337
+unit = "nm"
+
+[[orders]]
+relative_index = 5
+physical_order_number = 29
+sample_start = 1696
+sample_end = 2107
+aperture_half_width_px = 4.0
+enabled = true
+notes = "m=29, RMS=0.0000nm, 2/2 lines"
+
+[orders.trace]
+type = "polynomial"
+basis = "monomial"
+coefficients = [
+    70.99976922157344,
+    -0.0000032149415155548577,
+    0.00000001163144695000648,
+    -0.00000000000868582838843471,
+    0.000000000000001799886304353678,
+]
+domain_start = 0.0
+domain_end = 2559.0
+
+[orders.wavelength]
+type = "polynomial"
+basis = "chebyshev"
+coefficients = [
+    701.6324999999999,
+    5.089499999999987,
+]
+domain_start = 1695.3297872340424
+domain_end = 2107.8870967741937
+unit = "nm"
+
+[[orders]]
+relative_index = 11
+physical_order_number = 35
+sample_start = 1525
+sample_end = 1700
+aperture_half_width_px = 4.0
+enabled = true
+notes = "m=35, RMS=0.0000nm, 2/2 lines"
+
+[orders.trace]
+type = "polynomial"
+basis = "monomial"
+coefficients = [
+    151.00114981449414,
+    -0.000008520245009985773,
+    0.00000002630161575058982,
+    -0.000000000017826619810958607,
+    0.0000000000000034320762750475204,
+]
+domain_start = 0.0
+domain_end = 2559.0
+
+[orders.wavelength]
+type = "polynomial"
+basis = "chebyshev"
+coefficients = [
+    578.013,
+    1.0529999999999973,
+]
+domain_start = 1524.1043956043957
+domain_end = 1700.82
+unit = "nm"
+
+[[orders]]
+relative_index = 22
+physical_order_number = 46
+sample_start = 0
+sample_end = 2559
+aperture_half_width_px = 4.0
+enabled = true
+notes = "m=46, RMS=0.0000nm, 1/1 lines"
+
+[orders.trace]
+type = "polynomial"
+basis = "monomial"
+coefficients = [
+    366.0123558124063,
+    -0.0000634325317944964,
+    0.00000016679418394002619,
+    -0.00000000011171823136905631,
+    0.00000000000002193264582348989,
+]
+domain_start = 0.0
+domain_end = 2559.0
+
+[orders.wavelength]
+type = "polynomial"
+basis = "chebyshev"
+coefficients = [
+    436.1915094613519,
+    4.75688402720345,
+]
+domain_start = 0.0
+domain_end = 2559.0
+unit = "nm"
+
+[[orders]]
+relative_index = 25
+physical_order_number = 49
+sample_start = 0
+sample_end = 2559
+aperture_half_width_px = 4.0
+enabled = true
+notes = "m=49, RMS=0.0000nm, 1/1 lines"
+
+[orders.trace]
+type = "polynomial"
+basis = "monomial"
+coefficients = [
+    419.9817291606566,
+    0.00017872224056944238,
+    -0.00000021967178951099133,
+    0.0000000001208980727832529,
+    -0.000000000000024526441187674794,
+]
+domain_start = 0.0
+domain_end = 2559.0
+
+[orders.wavelength]
+type = "polynomial"
+basis = "chebyshev"
+coefficients = [
+    407.70753111712,
+    4.192239317602041,
+]
+domain_start = 0.0
+domain_end = 2559.0
+unit = "nm"
+
+[[orders]]
+relative_index = 26
+physical_order_number = 50
+sample_start = 0
+sample_end = 2559
+aperture_half_width_px = 4.0
+enabled = true
+notes = "m=50, RMS=0.0000nm, 1/1 lines"
+
+[orders.trace]
+type = "polynomial"
+basis = "monomial"
+coefficients = [
+    433.0006448993165,
+    0.00002416206569814296,
+    0.000000013128556752763079,
+    -0.00000000003020320368485318,
+    0.000000000000008522273992766493,
+]
+domain_start = 0.0
+domain_end = 2559.0
+
+[orders.wavelength]
+type = "polynomial"
+basis = "chebyshev"
+coefficients = [
+    401.93557440476974,
+    4.0262266406250005,
+]
+domain_start = 0.0
+domain_end = 2559.0
+unit = "nm"
+
+[[orders]]
+relative_index = 31
+physical_order_number = 55
+sample_start = 0
+sample_end = 2559
+aperture_half_width_px = 4.0
+enabled = true
+notes = "m=55, RMS=0.0000nm, 1/1 lines"
+
+[orders.trace]
+type = "polynomial"
+basis = "monomial"
+coefficients = [
+    532.0051270134803,
+    -0.000010550511879941672,
+    0.000000043633716448700504,
+    -0.00000000003634274040376343,
+    0.000000000000008171215499130482,
+]
+domain_start = 0.0
+domain_end = 2559.0
+
+[orders.wavelength]
+type = "polynomial"
+basis = "chebyshev"
+coefficients = [
+    365.19668515398854,
+    3.32746003357438,
+]
+domain_start = 0.0
+domain_end = 2559.0
+unit = "nm"
+
+[[orders]]
+relative_index = 36
+physical_order_number = 60
+sample_start = 0
+sample_end = 2559
+aperture_half_width_px = 4.0
+enabled = true
+notes = "m=60, RMS=0.0000nm, 1/1 lines"
+
+[orders.trace]
+type = "polynomial"
+basis = "monomial"
+coefficients = [
+    624.9935622364956,
+    0.0000003937704873839716,
+    -0.00000007985124183090298,
+    0.00000000006350040029240805,
+    -0.000000000000012309671013374368,
+]
+domain_start = 0.0
+domain_end = 2559.0
+
+[orders.wavelength]
+type = "polynomial"
+basis = "chebyshev"
+coefficients = [
+    334.2258234365795,
+    2.79599072265625,
+]
+domain_start = 0.0
+domain_end = 2559.0
+unit = "nm"
+
+[[orders]]
+relative_index = 40
+physical_order_number = 64
+sample_start = 0
+sample_end = 2559
+aperture_half_width_px = 4.0
+enabled = true
+notes = "m=64, RMS=0.0000nm, 1/1 lines"
+
+[orders.trace]
+type = "polynomial"
+basis = "monomial"
+coefficients = [
+    728.9637810848088,
+    0.00018170237677467776,
+    -0.0000003264399121715016,
+    0.00000000018676871789677359,
+    -0.00000000000003332854369939198,
+]
+domain_start = 0.0
+domain_end = 2559.0
+
+[orders.wavelength]
+type = "polynomial"
+basis = "chebyshev"
+coefficients = [
+    313.0868351942151,
+    2.457413721084595,
+]
+domain_start = 0.0
+domain_end = 2559.0
+unit = "nm"
+
+[[orders]]
+relative_index = 42
+physical_order_number = 66
+sample_start = 0
+sample_end = 2559
+aperture_half_width_px = 4.0
+enabled = true
+notes = "m=66, RMS=0.0000nm, 1/1 lines"
+
+[orders.trace]
+type = "polynomial"
+basis = "monomial"
+coefficients = [
+    785.989878723019,
+    -0.000008978222662753965,
+    0.00000010811791401330074,
+    -0.00000000008403324743605031,
+    0.000000000000017237801186484587,
+]
+domain_start = 0.0
+domain_end = 2559.0
+
+[orders.wavelength]
+type = "polynomial"
+basis = "chebyshev"
+coefficients = [
+    303.16568503752006,
+    2.310736134426653,
+]
+domain_start = 0.0
+domain_end = 2559.0
+unit = "nm"
+
+[[orders]]
+relative_index = 44
+physical_order_number = 68
+sample_start = 0
+sample_end = 2559
+aperture_half_width_px = 4.0
+enabled = true
+notes = "m=68, RMS=0.0000nm, 1/1 lines"
+
+[orders.trace]
+type = "polynomial"
+basis = "monomial"
+coefficients = [
+    886.0037597631568,
+    -0.000051975088892833994,
+    0.00000004669191543271856,
+    -0.000000000014862614620735093,
+    0.0000000000000016792100018765488,
+]
+domain_start = 0.0
+domain_end = 2559.0
+
+[orders.wavelength]
+type = "polynomial"
+basis = "chebyshev"
+coefficients = [
+    296.2275859017526,
+    2.17680938615106,
+]
+domain_start = 0.0
+domain_end = 2559.0
+unit = "nm"
+
+[[orders]]
+relative_index = 12
+physical_order_number = 37
+sample_start = 0
+sample_end = 2559
+aperture_half_width_px = 4.0
+enabled = true
+notes = "m=37, RMS=0.0000nm, 1/1 lines"
+
+[orders.trace]
+type = "polynomial"
+basis = "monomial"
+coefficients = [
+    162.9975417029708,
+    0.000009648859125074914,
+    0.00000002300352597157325,
+    -0.000000000021984475661764833,
+    0.000000000000004539243214606114,
+]
+domain_start = 0.0
+domain_end = 2559.0
+
+[orders.wavelength]
+type = "polynomial"
+basis = "chebyshev"
+coefficients = [
+    542.658404447568,
+    7.352495691426224,
+]
+domain_start = 0.0
+domain_end = 2559.0
+unit = "nm"
+
+[corrections]
+excluded_regions = []
+
+[provenance]
+creator_tool = "rust-daq echelle_calibration_pipeline"
+creator_version = "0.1.0"
+created_at_utc = "2026-04-18T19:33:47.062283285Z"
+source_frame_ids = []
+notes = "Calibrated 12/107 orders, overall RMS = 0.0000 nm"

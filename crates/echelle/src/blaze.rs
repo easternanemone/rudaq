@@ -157,6 +157,30 @@ impl Default for Dh3pContinuumConfig {
 /// `orders_flat` — one entry per order: `(wavelengths_nm, extracted_flux)`.
 /// Wavelengths do not need to be globally sorted; the function assembles
 /// all samples into a single sorted series internally.
+///
+/// # Precondition — in-illumination samples only
+///
+/// **The caller is responsible for passing ONLY flat-flux samples from
+/// pixels where the echelle order is actually illuminated on the
+/// detector.** The profile's per-order `sample_start..sample_end` range
+/// for synthesized orders spans the full detector width, but the order
+/// only occupies a narrow illuminated strip within that range. Off-
+/// strip pixels aperture-sum to the near-zero inter-order background;
+/// if those samples are passed to this fit, the median-per-knot
+/// continuum estimator is dominated by the noise floor rather than the
+/// real lamp continuum.
+///
+/// Recommended filtering at the caller: for each order's flat flux
+/// `F_i(x)`, include only pixels where `F_i(x) > 10 × p10(F_i)` (ten
+/// times the 10th-percentile flux for that order), which reliably
+/// separates in-illumination pixels from background.
+///
+/// This precondition was identified during real-hardware validation on
+/// the March 18 2026 leabs-dev DH3P flat (see
+/// `debug/phase5/validate_phase_e.py`) — the first run without the
+/// illumination mask produced a C_lamp fit sitting at the noise floor
+/// rather than the lamp continuum level, with peak blaze efficiencies
+/// inflated by 10–100×.
 #[must_use]
 pub fn fit_dh3p_continuum(
     orders_flat: &[(&[f64], &[f64])],

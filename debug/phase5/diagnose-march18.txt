@@ -1,0 +1,56 @@
+🚀 rust-daq - Headless DAQ System
+Architecture: Headless-First + Scriptable (v5)
+DEBUG: Feature networking ENABLED
+SDK probe: DiscoveredSdks(none)
+
+Loaded 2560x2160 arc frame from debug/phase5/flats/hgar_arc_5s_g500_acc10.tiff
+Loaded 2560x2160 flat frame from debug/phase5/flats/dh3p_flat_5s_g2000_acc10.tiff
+Running calibration pipeline...
+[2m2026-04-18T19:33:15.050594Z[0m [32m INFO[0m [2mechelle::trace_validation[0m[2m:[0m trace_validation[FWHM band] [3mn_before[0m[2m=[0m20 [3mn_after[0m[2m=[0m20
+[2m2026-04-18T19:33:15.050644Z[0m [32m INFO[0m [2mechelle::trace_validation[0m[2m:[0m trace_validation[continuity] [3mn_before[0m[2m=[0m20 [3mn_after[0m[2m=[0m20
+[2m2026-04-18T19:33:15.050653Z[0m [32m INFO[0m [2mechelle::calibration_pipeline[0m[2m:[0m trace validation: 20 → 20 traces
+[2m2026-04-18T19:33:15.113612Z[0m [32m INFO[0m [2mechelle::calibration_pipeline[0m[2m:[0m Stage 2: fitted Cauchy Y(m) series (3σ clipped) [3manchors_used[0m[2m=[0m5 [3manchors_supplied[0m[2m=[0m5 [3mrms_px[0m[2m=[0m4.8577713231998505
+[2m2026-04-18T19:33:15.161069Z[0m [32m INFO[0m [2mechelle::calibration_pipeline[0m[2m:[0m Stage 3: global 2D Chebyshev fit converged [3mrms_nm[0m[2m=[0m8.038996363642296e-10 [3mn_points[0m[2m=[0m69 [3mm_min[0m[2m=[0m24.0 [3mm_max[0m[2m=[0m37.0
+[2m2026-04-18T19:33:15.161105Z[0m [32m INFO[0m [2mechelle::calibration_pipeline[0m[2m:[0m Stage 3: orders recovered by global-surface synthesis [3msynthesized[0m[2m=[0m0
+
+=== Calibration Result ===
+Orders detected:    20
+Orders calibrated:  5
+Overall RMS:        0.0000 nm
+
+  Order   0:  OK  | lines: 3/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order   1:  OK  | lines: 1/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order   2: FAIL | lines: 0/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few arc lines detected (0, need 1)
+  Order   3: FAIL | lines: 1/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order   4: FAIL | lines: 0/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few arc lines detected (0, need 1)
+  Order   5:  OK  | lines: 2/2/2 (detected/matched/used) | RMS: 0.0000 nm
+  Order   6: FAIL | lines: 12/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order   7: FAIL | lines: 17/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order   8: FAIL | lines: 14/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order   9: FAIL | lines: 11/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  10: FAIL | lines: 3/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  11:  OK  | lines: 10/2/2 (detected/matched/used) | RMS: 0.0000 nm
+  Order  12: FAIL | lines: 3/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  13:  OK  | lines: 12/1/1 (detected/matched/used) | RMS: 0.0000 nm
+  Order  14: FAIL | lines: 15/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  15: FAIL | lines: 20/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  16: FAIL | lines: 24/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  17: FAIL | lines: 22/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  18: FAIL | lines: 11/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few atlas matches (0, need 1)
+  Order  19: FAIL | lines: 0/0/0 (detected/matched/used) | RMS: 0.0000 nm | too few arc lines detected (0, need 1)
+
+=== --diagnose: per-order wavelength dump ===
+expected sign: λ INCREASES with pixel (ascending)
+  Order   0 m= 24 [mono sign rng] λ@(826.2,831.5,840.2,848.9,854.2)nm
+  Order   1 m= 25 [mono sign rng] λ@(791.5,796.3,804.4,812.4,817.3)nm
+  Order   5 m= 29 [mono sign rng] λ@(697.6,699.1,701.6,704.2,705.7)nm
+  Order  11 m= 35 [mono sign rng] λ@(577.2,577.5,578.0,578.5,578.9)nm
+  Order  13 m= 37 [mono sign rng] λ@(539.5,541.7,545.4,549.0,551.3)nm
+
+=== --diagnose: summary ===
+orders with non-monotonic axis: 0
+orders with inverted sign:      0
+orders outside [150,1200] nm:   0
+grating constant (m·λ_center): mean=20206.0 nm  stddev=80.5 nm (0.40%)
+
+Profile written to: debug/phase5/profile-march18.toml
