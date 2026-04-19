@@ -26,28 +26,28 @@ terminator = "\r\n"
 # ==============================================================================
 # Response Definitions
 # ==============================================================================
-# All IPG responses have "CMD: value" format. Use regex_extract to isolate the
+# All IPG responses have "CMD: value" format. Use format(...) to extract the
 # value portion after the colon, then parse appropriately.
 
 [responses.ipg_float]
 # Extracts the value after "CMD: " and parses as float.
 # e.g. "RCS: 100.00" -> 100.0, "RRR: 250.680" -> 250.68
-transform = ["regex_extract('^\\w+:\\s+(.*)', 1)", "trim", "to_float"]
+transform = ["format('{cmd}: {value}', 'value')", "trim", "to_float"]
 
 [responses.ipg_integer]
 # Extracts the value after "CMD: " and parses as integer.
 # e.g. "STA: 8256" -> 8256
-transform = ["regex_extract('^\\w+:\\s+(.*)', 1)", "trim", "to_int"]
+transform = ["format('{cmd}: {value}', 'value')", "trim", "to_int"]
 
 [responses.ipg_string]
 # Extracts the value after "CMD: " as a string.
 # e.g. "REM: Off" -> "Off", "REF: 0x00000000" -> "0x00000000"
-transform = ["regex_extract('^\\w+:\\s+(.*)', 1)", "trim"]
+transform = ["format('{cmd}: {value}', 'value')", "trim"]
 
 [responses.ipg_power]
 # Power reads return a float when emitting, or "Off" when idle.
 # "ROP: 12.5" -> 12.5, "ROP: Off" -> 0.0
-transform = ["regex_extract('^\\w+:\\s+(.*)', 1)", "trim", "map('Off', '0.0')", "to_float"]
+transform = ["format('{cmd}: {value}', 'value')", "trim", "map('Off', '0.0')", "to_float"]
 
 # ==============================================================================
 # Command Definitions
