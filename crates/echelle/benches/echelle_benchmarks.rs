@@ -151,6 +151,25 @@ fn bench_scattered_light(c: &mut Criterion) {
                 subtract_scattered_light(black_box(&frame), size, size, &trace_infos, &config)
             });
         });
+
+        // bd-gn016: isolate the hot path (subtract_from) by pre-fitting the
+        // model once and timing only the per-pixel subtraction. This is where
+        // the cached Chebyshev basis delivers its speedup, independent of the
+        // fit cost.
+        let (_corrected, model) =
+            subtract_scattered_light(&frame, size, size, &trace_infos, &config)
+                .expect("pre-fit for bench");
+        let frame_clone = frame.clone();
+        group.bench_with_input(BenchmarkId::new("subtract_only", size), &size, |b, _| {
+            b.iter_batched(
+                || frame_clone.clone(),
+                |mut working| {
+                    model.subtract_from(black_box(&mut working), size);
+                    working
+                },
+                criterion::BatchSize::LargeInput,
+            );
+        });
     }
 
     group.finish();
