@@ -80,6 +80,18 @@ pub struct ScatteredLightConfig {
     /// frame's max ADU) above which a pixel is considered "saturated"
     /// for anchor exclusion. Default 0.95.
     pub morph_saturation_frac: f64,
+    /// For `InterOrderMedian` only: when `Some(p)`, aggregate each block's
+    /// inter-order pixels via the `p`-th percentile (p ∈ (0,1)) instead of
+    /// the sigma-clipped median. Set this on MCP-intensified detectors
+    /// (iStar ICCD), where the inter-order-pixel distribution is bimodal —
+    /// true scatter at the low end, MCP-halo counts at the high end —
+    /// and the sigma-clipped median lands between the two modes, biasing
+    /// the fit high. A lower percentile (e.g. 0.25) rejects the halo mode
+    /// and anchors the Chebyshev surface on the true scatter baseline.
+    /// See debug/phase5/memo-sc2d-alternative.md for derivation
+    /// (Howk & Sembach 2000 / bd-g22gu.2.1). Default `None` (sigma-clipped
+    /// median, preserving pre-bd-g22gu.2.1 behavior on conventional CCDs).
+    pub halo_percentile: Option<f64>,
 }
 
 impl Default for ScatteredLightConfig {
@@ -93,6 +105,7 @@ impl Default for ScatteredLightConfig {
             morph_vertical_kernel_px: 25,
             morph_saturation_exclusion_px: 15,
             morph_saturation_frac: 0.95,
+            halo_percentile: None,
         }
     }
 }
@@ -126,6 +139,38 @@ impl ScatteredLightConfig {
             morph_vertical_kernel_px: 13,
             morph_saturation_exclusion_px: 15,
             morph_saturation_frac: 0.95,
+            halo_percentile: None,
+        }
+    }
+}
+
+impl ScatteredLightConfig {
+    /// Preset for continuum sources on MCP-intensified detectors (iStar
+    /// ICCD) using the `InterOrderMedian` method (bd-g22gu.2.1).
+    ///
+    /// Differs from `mechelle_5000_istar_flat` (morphological opening)
+    /// in the estimation method: InterOrderMedian walks between the
+    /// detected traces to sample the background surface directly, but
+    /// on the iStar the MCP halo makes the inter-order-pixel distribution
+    /// bimodal. Using `halo_percentile = 0.25` rejects the halo mode
+    /// and keeps the fit anchored on the low-flux true scatter baseline.
+    ///
+    /// Use this preset when you want a CERES-style (not morphological)
+    /// scatter correction on a Mechelle-class frame — for instance, if
+    /// morphological opening is over-fitting continuum features in a
+    /// specific capture.
+    #[must_use]
+    pub fn mechelle_5000_istar_interorder() -> Self {
+        Self {
+            method: ScatteredLightMethod::InterOrderMedian,
+            aperture_half_width: 5.0,
+            block_size: 64,
+            poly_degree_x: 3,
+            poly_degree_y: 3,
+            morph_vertical_kernel_px: 13,
+            morph_saturation_exclusion_px: 15,
+            morph_saturation_frac: 0.95,
+            halo_percentile: Some(0.25),
         }
     }
 }
@@ -321,12 +366,27 @@ fn estimate_inter_order_median(
             }
 
             if scratch.len() >= 3 {
-                // Sigma-clipped median (bd-8yjd1 P2.5): a single cosmic-ray
-                // hit inside an inter-order block used to corrupt the block
-                // median, which then distorted the 2D Chebyshev background
-                // fit. Clip values > 5σ from the current median for up to 3
-                // passes before taking the final median.
-                let robust = sigma_clipped_median(&mut scratch, 5.0, 3);
+                // Block aggregation depends on detector class:
+                //
+                // - Conventional CCD: sigma-clipped median (bd-8yjd1 P2.5).
+                //   A single cosmic-ray hit inside an inter-order block
+                //   used to corrupt the block median and distort the 2D
+                //   Chebyshev background fit. Clip values > 5σ from the
+                //   current median for up to 3 passes before the final
+                //   median. This is the default (halo_percentile = None).
+                //
+                // - MCP-intensified (iStar ICCD): lower-percentile
+                //   (bd-g22gu.2.1 / Howk & Sembach 2000). The inter-order
+                //   pixel distribution is bimodal — true scatter at the
+                //   low end, MCP halo counts at the high end. The median
+                //   lands between modes; a lower percentile (e.g. 0.25)
+                //   rejects the halo mode and keeps the Chebyshev surface
+                //   anchored on the true scatter baseline.
+                let robust = if let Some(p) = config.halo_percentile {
+                    percentile(&mut scratch, p)
+                } else {
+                    sigma_clipped_median(&mut scratch, 5.0, 3)
+                };
                 block_x.push(x_start.midpoint(x_end) as f64);
                 block_y.push(y_start.midpoint(y_end) as f64);
                 block_val.push(robust);
@@ -938,6 +998,29 @@ fn is_inter_order(col: f64, row: f64, traces: &[TraceInfo<'_>], aperture_half_wi
 /// |x − median| > `clip_sigma · σ`, and re-sorts. Returns early when a pass
 /// removes nothing. If the input has fewer than 3 samples it falls back to
 /// the plain median. `values` is sorted in place.
+/// Return the `p`-th percentile of `values` (p ∈ [0, 1]) using nearest-rank
+/// selection on a sorted copy — no interpolation. Sorts `values` in place.
+///
+/// bd-g22gu.2.1: used instead of sigma-clipped median when the block's
+/// inter-order pixel distribution is bimodal (MCP halo on top of true
+/// scatter). A lower p (e.g. 0.25) samples below the halo mode, giving
+/// an unbiased estimate of the true scatter baseline that a median would
+/// average with the halo.
+fn percentile(values: &mut [f64], p: f64) -> f64 {
+    if values.is_empty() {
+        return 0.0;
+    }
+    values.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let p_clamped = p.clamp(0.0, 1.0);
+    #[allow(
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss
+    )]
+    let idx = ((values.len() - 1) as f64 * p_clamped).round() as usize;
+    values[idx]
+}
+
 fn sigma_clipped_median(values: &mut Vec<f64>, clip_sigma: f64, max_iters: usize) -> f64 {
     if values.is_empty() {
         return 0.0;
@@ -976,6 +1059,53 @@ mod tests {
             domain_start: 0.0,
             domain_end: 1000.0,
         }
+    }
+
+    #[test]
+    fn test_percentile_rejects_mcp_halo_bimodal_mode() {
+        // bd-g22gu.2.1: synthetic inter-order-pixel block from an iStar
+        // frame. 80 pixels of true scatter at ADU ~10 (low mode, with
+        // noise); 20 pixels of MCP halo at ADU ~4500 (high mode). This
+        // is the empirical 4500-count baseline anomaly from NotebookLM
+        // §FM4 at realistic halo:scatter count ratios.
+        //
+        // sigma-clipped median gets pulled toward the halo mode because
+        // MAD-based σ sees a bimodal distribution as "wide" and fails to
+        // clip the halo; the 25th percentile lands firmly in the low mode.
+        let mut vals: Vec<f64> = Vec::with_capacity(100);
+        for i in 0..80_i32 {
+            vals.push(10.0 + f64::from(i) * 0.02); // 10.0 .. 11.58
+        }
+        for i in 0..20_i32 {
+            vals.push(4500.0 + f64::from(i) * 3.0); // 4500 .. 4557
+        }
+        // deterministic "random" shuffle so sort ordering is the same
+        // path percentile/sigma_clipped see in production.
+        vals.sort_by(|a, b| b.partial_cmp(a).unwrap());
+
+        let mut vals_median = vals.clone();
+        let clipped = super::sigma_clipped_median(&mut vals_median, 5.0, 3);
+        let mut vals_pct = vals.clone();
+        let p25 = super::percentile(&mut vals_pct, 0.25);
+
+        // The 25th percentile lands inside the true-scatter mode.
+        assert!(
+            (10.0..=12.0).contains(&p25),
+            "25th-percentile {p25} outside true-scatter mode [10, 12]"
+        );
+        // And strictly below whatever the sigma-clipped median returned.
+        assert!(
+            p25 < clipped,
+            "halo-aware percentile {p25} should be below sigma-clipped median {clipped}"
+        );
+    }
+
+    #[test]
+    fn test_percentile_matches_median_on_unimodal_data() {
+        // Uniform distribution — the 0.5 percentile should equal the median.
+        let mut vals: Vec<f64> = (0..=100_i32).map(f64::from).collect();
+        let p50 = super::percentile(&mut vals, 0.5);
+        assert!((p50 - 50.0).abs() < 1e-12);
     }
 
     #[test]
