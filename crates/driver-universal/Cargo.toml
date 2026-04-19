@@ -37,3 +37,7 @@ emulator = []  # Manifest-driven device emulator for mock mode
 
 [lints]
 workspace = true
+
+[[bin]]
+name = "manifest-check"
+path = "src/bin/manifest_check.rs"
