@@ -46,13 +46,15 @@ pub enum ScatteredLightMethod {
 }
 
 /// Configuration for scattered light subtraction.
+///
+/// Presence or absence of scatter subtraction is controlled at the CALL SITE
+/// rather than by a field on this struct: `CalibrationPipelineConfig` carries
+/// separate `arc_scatter: Option<ScatteredLightConfig>` and
+/// `flat_scatter: Option<ScatteredLightConfig>` fields. A `None` means "skip
+/// this stage for that frame type" (bd-g22gu.3). This replaced the previous
+/// single `scatter_config: Option<_>` + redundant `enabled: bool` field.
 #[derive(Debug, Clone)]
 pub struct ScatteredLightConfig {
-    /// Whether to estimate and subtract a scattered-light background at all.
-    /// Pure emission sources (HgAr, ThAr) with zero true continuum can get
-    /// over-subtracted by this step; setting to `false` bypasses the stage
-    /// entirely (bd-8yjd1 P2.5).
-    pub enabled: bool,
     /// Estimation method. Default is `InterOrderMedian` (conventional CCD);
     /// set to `MorphologicalOpening` for MCP-intensified detectors
     /// (iStar ICCD) per NotebookLM §FM4.
@@ -83,7 +85,6 @@ pub struct ScatteredLightConfig {
 impl Default for ScatteredLightConfig {
     fn default() -> Self {
         Self {
-            enabled: true,
             method: ScatteredLightMethod::InterOrderMedian,
             aperture_half_width: 5.0,
             block_size: 64,
@@ -97,28 +98,26 @@ impl Default for ScatteredLightConfig {
 }
 
 impl ScatteredLightConfig {
-    /// Preset for Mechelle 5000 + iStar ICCD: morphological opening with
-    /// NotebookLM §FM4 parameters.
+    /// Preset for DH3P / continuum flats captured on the Mechelle 5000 +
+    /// iStar ICCD (bd-g22gu.3): morphological opening with the NotebookLM
+    /// §FM4 parameters tuned for the NIR-order 9-px inter-order gap.
     ///
-    /// **Default `enabled = false`.** Empirical validation on the
-    /// leabs-dev HgAr capture shows the morphological-opening surface
-    /// over-subtracts on pure-emission-line sources: with kernel=25
-    /// (NotebookLM default) only 3/7 expected Hg lines survive the
-    /// downstream atlas match; with kernel=13 (NIR-spacing-aware) only
-    /// 1/7 does. Scatter subtraction of any form interacts poorly with
-    /// the spatial-statistics of an emission-only HgAr arc — the
-    /// opened-image surface is pulled toward the 4500-count MCP halo
-    /// AND the real order peaks. This matches the existing warning in
-    /// the crate docs: "pure emission sources can get over-subtracted".
+    /// This is the **default for `CalibrationPipelineConfig::flat_scatter`**
+    /// on ME5000 configs. The opened-surface subtraction removes the
+    /// 4500-count MCP halo baseline from the flat before trace detection
+    /// and blaze extraction, recovering inter-element intensity ratios for
+    /// downstream LIBS science (bd-3yb8).
     ///
-    /// The morphological infrastructure is still the right tool for
-    /// ICCD continuum-source extraction (DH3P flats, science targets
-    /// with real continuum) — flip `enabled = true` in user configs
-    /// when processing those frames.
+    /// **Do NOT use this preset for arc frames** (HgAr, ThAr) — empirical
+    /// validation on the leabs-dev HgAr capture shows that morphological
+    /// opening over-subtracts on pure-emission-line sources: with kernel=25
+    /// only 3/7 expected Hg lines survive the downstream atlas match; with
+    /// kernel=13 only 1/7 does. The call-site split in
+    /// `CalibrationPipelineConfig` (`arc_scatter` vs `flat_scatter`) means
+    /// this preset can only land on the flat by construction.
     #[must_use]
-    pub fn mechelle_5000_istar() -> Self {
+    pub fn mechelle_5000_istar_flat() -> Self {
         Self {
-            enabled: false,
             method: ScatteredLightMethod::MorphologicalOpening,
             aperture_half_width: 5.0,
             block_size: 64,
@@ -263,9 +262,6 @@ pub fn estimate_scattered_light(
     traces: &[TraceInfo<'_>],
     config: &ScatteredLightConfig,
 ) -> Option<ScatteredLightModel> {
-    if !config.enabled {
-        return None;
-    }
     let w = width as usize;
     let h = height as usize;
     if frame.len() < w * h || w < 2 || h < 2 {
@@ -1042,7 +1038,6 @@ mod tests {
         let frame = vec![background; width as usize * height as usize];
 
         let config = ScatteredLightConfig {
-            enabled: true,
             block_size: 32,
             poly_degree_x: 1,
             poly_degree_y: 1,
@@ -1203,7 +1198,6 @@ mod tests {
         }
 
         let config = ScatteredLightConfig {
-            enabled: true,
             block_size: 32,
             poly_degree_x: 2,
             poly_degree_y: 1,
@@ -1250,7 +1244,6 @@ mod tests {
         }];
 
         let config = ScatteredLightConfig {
-            enabled: true,
             block_size: 32,
             poly_degree_x: 1,
             poly_degree_y: 1,

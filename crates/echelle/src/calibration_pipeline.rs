@@ -110,8 +110,23 @@ pub struct CalibrationPipelineConfig {
     pub arc_config: ArcDetectConfig,
     /// Wavelength fitting parameters.
     pub wl_config: WlFitConfig,
-    /// Scattered light subtraction (None = skip).
-    pub scatter_config: Option<ScatteredLightConfig>,
+    /// Scatter policy applied to the arc frame before line detection.
+    ///
+    /// `None` (the default) skips scatter subtraction for the arc — correct
+    /// for pure-emission lamps (HgAr, ThAr) where morphological opening
+    /// over-subtracts the line cores. ME5000 callers should leave this as
+    /// `None`. A future non-MCP detector might set this to an
+    /// `InterOrderMedian` preset if an arc baseline is warranted.
+    pub arc_scatter: Option<ScatteredLightConfig>,
+    /// Scatter policy applied to the flat frame before trace detection and
+    /// before downstream blaze extraction.
+    ///
+    /// `None` skips scatter subtraction for the flat. For DH3P / continuum
+    /// sources on MCP-intensified detectors (iStar ICCD), set this to
+    /// `Some(ScatteredLightConfig::mechelle_5000_istar_flat())` to remove
+    /// the 4500-count MCP halo baseline from the flat prior to blaze
+    /// computation. See bd-g22gu.3 for context.
+    pub flat_scatter: Option<ScatteredLightConfig>,
     /// Order rectification parameters.
     pub rectify_config: RectifyConfig,
     /// Whether to use Horne optimal extraction (true) or simple summation (false).
@@ -149,7 +164,8 @@ impl Default for CalibrationPipelineConfig {
             trace_validation: crate::trace_validation::TraceValidationConfig::default(),
             arc_config: ArcDetectConfig::default(),
             wl_config: WlFitConfig::default(),
-            scatter_config: None,
+            arc_scatter: None,
+            flat_scatter: None,
             rectify_config: RectifyConfig::default(),
             use_optimal_extraction: false,
             optimal_config: OptimalExtractionConfig::default(),
@@ -315,12 +331,13 @@ fn run_calibration_pipeline_impl(
         }
     }
 
-    // ── Stage 1: Scattered light subtraction (optional) ──────────────
-    // When scatter subtraction is enabled, build trace geometry once on the primary
-    // arc and reuse it for the primary and every HDR extra so all line-detection
-    // sources see consistently corrected (or consistently raw) data.
-    let preliminary_traces_for_scatter: Option<Vec<OrderTrace>> = if config.scatter_config.is_some()
-    {
+    // ── Stage 1a: Arc-frame scatter subtraction (optional, bd-g22gu.3) ──
+    // Policy lives on `config.arc_scatter` — for ME5000 HgAr captures this
+    // is `None` by default (pure emission sources over-subtract under
+    // morphological opening). When enabled, build preliminary trace geometry
+    // from the raw arc and reuse it across the primary arc and every HDR
+    // extra so all line-detection sources see consistently corrected data.
+    let preliminary_arc_traces: Option<Vec<OrderTrace>> = if config.arc_scatter.is_some() {
         Some(detect_orders(
             arc_frame,
             width,
@@ -331,9 +348,8 @@ fn run_calibration_pipeline_impl(
         None
     };
 
-    let trace_infos_for_scatter: Option<Vec<TraceInfo<'_>>> = preliminary_traces_for_scatter
-        .as_ref()
-        .map(|preliminary_traces| {
+    let trace_infos_for_arc_scatter: Option<Vec<TraceInfo<'_>>> =
+        preliminary_arc_traces.as_ref().map(|preliminary_traces| {
             preliminary_traces
                 .iter()
                 .map(|t| TraceInfo {
@@ -344,15 +360,15 @@ fn run_calibration_pipeline_impl(
                 .collect()
         });
 
-    let (working_frame, scatter_correction_active): (Vec<f32>, bool) =
-        match (&config.scatter_config, trace_infos_for_scatter.as_ref()) {
+    let (working_frame, arc_scatter_active): (Vec<f32>, bool) =
+        match (&config.arc_scatter, trace_infos_for_arc_scatter.as_ref()) {
             (Some(scatter_cfg), Some(trace_infos)) => {
                 if let Some((corrected, _model)) =
                     subtract_scattered_light(arc_frame, width, height, trace_infos, scatter_cfg)
                 {
                     (corrected, true)
                 } else {
-                    // Scattered light subtraction failed (not enough inter-order pixels);
+                    // Scatter subtraction failed (not enough inter-order pixels);
                     // proceed with the raw frame.
                     (arc_frame.to_vec(), false)
                 }
@@ -361,12 +377,13 @@ fn run_calibration_pipeline_impl(
         };
     let frame_ref: &[f32] = working_frame.as_slice();
 
-    // HDR extras after scatter correction: build owned corrected frames in one pass, then
-    // take slices (avoids overlapping &mut vs & across `arc_line_sources` growth).
+    // HDR extras after arc scatter correction: build owned corrected frames
+    // in one pass, then take slices (avoids overlapping &mut vs & across
+    // `arc_line_sources` growth).
     let hdr_after_scatter: Vec<Option<Vec<f32>>> = match (
-        scatter_correction_active,
-        trace_infos_for_scatter.as_ref(),
-        config.scatter_config.as_ref(),
+        arc_scatter_active,
+        trace_infos_for_arc_scatter.as_ref(),
+        config.arc_scatter.as_ref(),
     ) {
         (true, Some(trace_infos), Some(scatter_cfg)) => config
             .hdr_extra_arc_frames
@@ -378,6 +395,31 @@ fn run_calibration_pipeline_impl(
             })
             .collect(),
         _ => vec![None; config.hdr_extra_arc_frames.len()],
+    };
+
+    // ── Stage 1b: Flat-frame scatter subtraction (optional, bd-g22gu.3) ──
+    // Policy lives on `config.flat_scatter`. For ME5000 DH3P flats this is
+    // `Some(mechelle_5000_istar_flat())` by default — the MCP halo baseline
+    // biases trace detection and inflates blaze floors downstream. Applied
+    // before trace detection so the detector sees a clean flat.
+    let flat_scatter_corrected: Option<Vec<f32>> = match (flat_frame, &config.flat_scatter) {
+        (Some(flat), Some(scatter_cfg)) => {
+            // Preliminary trace detection on the RAW flat for the geometry
+            // the InterOrderMedian path needs (ignored by MorphologicalOpening,
+            // but passing it is harmless and keeps the call uniform).
+            let prelim_flat_traces = detect_orders(flat, width, height, &config.trace_config);
+            let flat_trace_infos: Vec<TraceInfo<'_>> = prelim_flat_traces
+                .iter()
+                .map(|t| TraceInfo {
+                    trace: &t.trace,
+                    disp_start: 0,
+                    disp_end: width.saturating_sub(1),
+                })
+                .collect();
+            subtract_scattered_light(flat, width, height, &flat_trace_infos, scatter_cfg)
+                .map(|(corrected, _model)| corrected)
+        }
+        _ => None,
     };
 
     let mut arc_line_sources: Vec<&[f32]> =
@@ -399,7 +441,12 @@ fn run_calibration_pipeline_impl(
     // ── Stage 2: Order trace detection ───────────────────────────────
     // Use flat frame for trace detection if provided (broadband source
     // illuminates all orders); otherwise detect from the arc frame.
-    let trace_source = flat_frame.unwrap_or(frame_ref);
+    // Prefer the scatter-corrected flat when Stage 1b produced one.
+    let trace_source: &[f32] = match (flat_frame, flat_scatter_corrected.as_deref()) {
+        (_, Some(corrected_flat)) => corrected_flat,
+        (Some(raw_flat), None) => raw_flat,
+        (None, _) => frame_ref,
+    };
     let raw_traces = detect_orders(trace_source, width, height, &config.trace_config);
     if raw_traces.is_empty() {
         return Err(if flat_frame.is_some() {
