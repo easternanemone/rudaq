@@ -9,11 +9,11 @@ use crate::config::raw::{
 };
 use crate::config::validated::{
     BaudRate, CapabilitySet, CommandConfig, CommandRef, ConnectionConfig, ConversionRef,
-    DeviceInfo, DeviceManifest, EmissionControlConfig, InitCommand, ManifestParameterMeta,
-    MethodConfig, MovableConfig, ReadableConfig, ResponseParser, ResponseRef, ScpiResponseType,
-    SerialConfig, SerialFlowControl, SerialParity, SettableConfig, ShutterControlConfig,
-    SpectrumReadableConfig, Timeout, ValidatedFormat, ValidatedFormula, ValidatedRegex,
-    ValidatedTemplate, WaitSettledConfig, WavelengthTunableConfig,
+    DeviceInfo, DeviceManifest, EmissionControlConfig, FormatVariant, InitCommand,
+    ManifestParameterMeta, MethodConfig, MovableConfig, ReadableConfig, ResponseParser,
+    ResponseRef, ScpiResponseType, SerialConfig, SerialFlowControl, SerialParity, SettableConfig,
+    ShutterControlConfig, SpectrumReadableConfig, Timeout, ValidatedFormat, ValidatedFormula,
+    ValidatedRegex, ValidatedTemplate, WaitSettledConfig, WavelengthTunableConfig,
 };
 use crate::format_parser;
 use crate::template;
@@ -516,38 +516,90 @@ fn validate_responses(
     let mut responses = HashMap::new();
 
     for (name, resp) in &raw.responses {
-        // Reject responses that define multiple parser tiers
         let has_format = resp.format.is_some();
+        let has_variants = resp.variants.is_some();
         let has_transform = resp.transform.is_some();
-        let has_regex = resp.regex.is_some() || resp.pattern.is_some();
-        let tier_count = [has_format, has_transform, has_regex]
+        let has_top_regex = resp.regex.is_some() || resp.pattern.is_some();
+        let has_advanced_regex = resp
+            .advanced
+            .as_ref()
+            .and_then(|a| a.regex.as_ref())
+            .is_some();
+        let has_regex = has_top_regex || has_advanced_regex;
+
+        // `format` and `variants` are mutually exclusive (pick one)
+        if has_format && has_variants {
+            errors.push(ConfigError::Other(format!(
+                "response '{name}' sets both `format` and `variants` — pick one. \
+                 `variants = [single_format]` is equivalent to `format = single_format`."
+            )));
+            continue;
+        }
+
+        // At most one parsing tier overall (format/variants vs transform vs regex)
+        let tier_count = [has_format || has_variants, has_transform, has_regex]
             .iter()
             .filter(|b| **b)
             .count();
         if tier_count > 1 {
             errors.push(ConfigError::Other(format!(
-                "response '{name}' must define exactly one of: format, transform, or regex"
+                "response '{name}' must define exactly one of: \
+                 format/variants, transform, or regex"
             )));
             continue;
         }
 
-        // Determine which tier this response uses
-        if let Some(ref fmt_str) = resp.format {
-            // Tier 1: Format string
-            match format_parser::parse_format(fmt_str) {
-                Ok(segments) => {
-                    responses.insert(
-                        name.clone(),
-                        ResponseParser::Format(ValidatedFormat {
-                            source: fmt_str.clone(),
-                            segments,
-                        }),
-                    );
+        // Deprecation warning: top-level `regex`/`pattern` without `[advanced]`
+        if has_top_regex && !has_advanced_regex {
+            tracing::warn!(
+                response = %name,
+                "response '{name}': top-level `regex`/`pattern` is deprecated; \
+                 prefer `variants = [...]` for multi-shape responses, or move to \
+                 `[responses.{name}.advanced]` with `regex = \"...\"` to acknowledge \
+                 the escape hatch and silence this warning"
+            );
+        }
+
+        // Branch on which tier
+        if has_variants || has_format {
+            let sources: Vec<String> = if let Some(v) = &resp.variants {
+                v.clone()
+            } else {
+                vec![
+                    resp.format
+                        .clone()
+                        .expect("has_format implies format is Some"),
+                ]
+            };
+
+            if sources.is_empty() {
+                errors.push(ConfigError::Other(format!(
+                    "response '{name}': `variants` must list at least one format string"
+                )));
+                continue;
+            }
+
+            let mut variants: Vec<FormatVariant> = Vec::with_capacity(sources.len());
+            let mut any_err = false;
+            for src in &sources {
+                match format_parser::parse_format(src) {
+                    Ok(segments) => variants.push(FormatVariant {
+                        source: src.clone(),
+                        segments,
+                    }),
+                    Err(e) => {
+                        errors.push(e);
+                        any_err = true;
+                    }
                 }
-                Err(e) => errors.push(e),
+            }
+            if !any_err {
+                responses.insert(
+                    name.clone(),
+                    ResponseParser::Format(ValidatedFormat { variants }),
+                );
             }
         } else if let Some(ref transform_list) = resp.transform {
-            // Tier 2: Transform pipeline
             match TransformPipeline::from_shorthand(transform_list) {
                 Ok(pipeline) => {
                     responses.insert(name.clone(), ResponseParser::Transform(pipeline));
@@ -558,8 +610,16 @@ fn validate_responses(
                     )));
                 }
             }
-        } else if let Some(regex_str) = resp.regex.as_ref().or(resp.pattern.as_ref()) {
-            // LEGACY: Tier 3 also accepts v1 `pattern` field as alias for `regex`. See deprecation-plan.md 3.2.
+        } else if has_regex {
+            // Priority: advanced.regex > top-level regex > v1 pattern
+            let regex_str: String = resp
+                .advanced
+                .as_ref()
+                .and_then(|a| a.regex.clone())
+                .or_else(|| resp.regex.clone())
+                .or_else(|| resp.pattern.clone())
+                .expect("has_regex implies at least one regex source is present");
+
             const MAX_REGEX_LENGTH: usize = 1024;
             if regex_str.len() > MAX_REGEX_LENGTH {
                 errors.push(ConfigError::Other(format!(
@@ -568,7 +628,7 @@ fn validate_responses(
                 )));
                 continue;
             }
-            match regex::RegexBuilder::new(regex_str)
+            match regex::RegexBuilder::new(&regex_str)
                 .size_limit(1 << 20)
                 .build()
             {
@@ -576,21 +636,21 @@ fn validate_responses(
                     responses.insert(
                         name.clone(),
                         ResponseParser::Regex(ValidatedRegex {
-                            source: regex_str.clone(),
+                            source: regex_str,
                             regex,
                         }),
                     );
                 }
                 Err(e) => {
                     errors.push(ConfigError::InvalidRegex {
-                        pattern: regex_str.clone(),
+                        pattern: regex_str,
                         source: e,
                     });
                 }
             }
         } else {
             errors.push(ConfigError::MissingField(format!(
-                "response '{name}' must have one of: format, transform, or regex"
+                "response '{name}' must have one of: format, variants, transform, or regex"
             )));
         }
     }
@@ -1404,6 +1464,234 @@ read = { command = "read_val" }
             manifest.responses.get("val"),
             Some(ResponseParser::Regex(_))
         ));
+    }
+
+    #[test]
+    fn accept_variants_response_single() {
+        // `variants = [one]` is equivalent to `format = one` — single-variant path.
+        let toml_str = r#"
+schema_version = 3
+
+[device]
+name = "Test"
+capabilities = ["Readable"]
+
+[connection]
+type = "serial"
+baud_rate = 9600
+
+[commands.read_pos]
+template = "{{ addr }}PO?"
+response = "pos"
+
+[responses.pos]
+variants = ["{addr:1}PO{pulses:hex8}"]
+
+[capabilities.readable]
+read = { command = "read_pos" }
+"#;
+        let raw: RawManifest = toml::from_str(toml_str).unwrap();
+        let manifest = parse_manifest(raw).expect("should parse single-variant response");
+        let Some(ResponseParser::Format(fmt)) = manifest.responses.get("pos") else {
+            panic!("expected Format parser");
+        };
+        assert_eq!(fmt.variants.len(), 1);
+        assert_eq!(fmt.first_source(), "{addr:1}PO{pulses:hex8}");
+    }
+
+    #[test]
+    fn accept_variants_response_multi() {
+        // F1 acceptance criterion: ELL14-style 30/33-byte device_info via variants.
+        // Variants differ only in the travel-field width (5 vs 8 hex chars).
+        let toml_str = r#"
+schema_version = 3
+
+[device]
+name = "Thorlabs ELL14"
+capabilities = ["Movable"]
+
+[connection]
+type = "serial"
+baud_rate = 9600
+
+[commands.info]
+template = "{{ addr }}IN"
+response = "device_info"
+
+[responses.device_info]
+variants = [
+  "{addr:1}IN{dev_type:hex2}{serial:8}{year:4}{firmware:2}{hw:1}{travel:5}{pulses:hex8}",
+  "{addr:1}IN{dev_type:hex2}{serial:8}{year:4}{firmware:2}{hw:1}{travel:8}{pulses:hex8}",
+]
+"#;
+        let raw: RawManifest = toml::from_str(toml_str).unwrap();
+        let manifest = parse_manifest(raw).expect("should parse multi-variant response");
+        let Some(ResponseParser::Format(fmt)) = manifest.responses.get("device_info") else {
+            panic!("expected Format parser");
+        };
+        assert_eq!(fmt.variants.len(), 2);
+        // Variant order is preserved (declaration order = try order)
+        assert!(fmt.variants[0].source.contains("{travel:5}"));
+        assert!(fmt.variants[1].source.contains("{travel:8}"));
+
+        // End-to-end: 33-char short form parses via variant 0 (travel:5).
+        // Widths: 1 + 2(IN) + 2 + 8 + 4 + 2 + 1 + 5 + 8 = 33
+        //         addr  IN  dev serial year fw hw travel pulses
+        let short = "2IN0E1140051720231701016800023000";
+        assert_eq!(short.len(), 33);
+        let parsed_short = crate::response::parse_with_format(short, fmt)
+            .expect("33-char short form should match first variant");
+        assert_eq!(parsed_short["travel"].as_str(), Some("10168"));
+        assert_eq!(parsed_short["pulses"].as_i64(), Some(0x0002_3000));
+
+        // 36-char long form parses via variant 1 (travel:8).
+        // Widths: 1 + 2 + 2 + 8 + 4 + 2 + 1 + 8 + 8 = 36
+        // Variant 0 rejects (trailing input after consuming 33 chars),
+        // variant 1 succeeds — demonstrating first-match-wins with fallback.
+        let long = "2IN0E1140051720231701234567800023000";
+        assert_eq!(long.len(), 36);
+        let parsed_long = crate::response::parse_with_format(long, fmt)
+            .expect("36-char long form should match second variant");
+        assert_eq!(parsed_long["travel"].as_str(), Some("12345678"));
+        assert_eq!(parsed_long["pulses"].as_i64(), Some(0x0002_3000));
+    }
+
+    #[test]
+    fn accept_advanced_regex_response() {
+        // Authors who genuinely need regex can put it under [advanced] to
+        // acknowledge the escape hatch. Validator accepts it without warning.
+        let toml_str = r#"
+schema_version = 3
+
+[device]
+name = "Regex Device"
+capabilities = ["Readable"]
+
+[connection]
+type = "tcp"
+host = "10.0.0.1"
+port = 5000
+
+[commands.read_val]
+template = "READ?"
+response = "val"
+
+[responses.val.advanced]
+regex = "(?P<value>\\d+\\.\\d+)\\s+(?P<unit>\\w+)"
+
+[capabilities.readable]
+read = { command = "read_val" }
+"#;
+        let raw: RawManifest = toml::from_str(toml_str).unwrap();
+        let manifest = parse_manifest(raw).expect("should accept [advanced] regex");
+        assert!(matches!(
+            manifest.responses.get("val"),
+            Some(ResponseParser::Regex(_))
+        ));
+    }
+
+    #[test]
+    fn rejects_format_and_variants_together() {
+        let toml_str = r#"
+schema_version = 3
+
+[device]
+name = "Test"
+capabilities = []
+
+[connection]
+type = "serial"
+baud_rate = 9600
+
+[responses.bad]
+format = "{x:1}"
+variants = ["{x:1}"]
+"#;
+        let raw: RawManifest = toml::from_str(toml_str).unwrap();
+        let errs = parse_manifest(raw).unwrap_err();
+        assert!(
+            errs.iter()
+                .any(|e| e.to_string().contains("both `format` and `variants`")),
+            "expected mutual-exclusion error for format+variants, got: {errs:?}"
+        );
+    }
+
+    #[test]
+    fn rejects_variants_and_transform_together() {
+        let toml_str = r#"
+schema_version = 3
+
+[device]
+name = "Test"
+capabilities = []
+
+[connection]
+type = "serial"
+baud_rate = 9600
+
+[responses.bad]
+variants = ["{v:2}"]
+transform = ["trim", "to_float"]
+"#;
+        let raw: RawManifest = toml::from_str(toml_str).unwrap();
+        let errs = parse_manifest(raw).unwrap_err();
+        assert!(
+            errs.iter().any(|e| e.to_string().contains("exactly one")),
+            "expected cross-tier exclusion error, got: {errs:?}"
+        );
+    }
+
+    #[test]
+    fn rejects_empty_variants_list() {
+        let toml_str = r#"
+schema_version = 3
+
+[device]
+name = "Test"
+capabilities = []
+
+[connection]
+type = "serial"
+baud_rate = 9600
+
+[responses.bad]
+variants = []
+"#;
+        let raw: RawManifest = toml::from_str(toml_str).unwrap();
+        let errs = parse_manifest(raw).unwrap_err();
+        assert!(
+            errs.iter().any(|e| e.to_string().contains("at least one")),
+            "expected empty-variants error, got: {errs:?}"
+        );
+    }
+
+    #[test]
+    fn advanced_regex_wins_over_top_level_regex() {
+        // When both are present (transitional manifests), the canonical
+        // [advanced] location wins and no warning is emitted.
+        let toml_str = r#"
+schema_version = 3
+
+[device]
+name = "Test"
+capabilities = []
+
+[connection]
+type = "serial"
+baud_rate = 9600
+
+[responses.val]
+regex = "SHOULD_NOT_WIN"
+
+[responses.val.advanced]
+regex = "(?P<v>\\d+)"
+"#;
+        let raw: RawManifest = toml::from_str(toml_str).unwrap();
+        let manifest = parse_manifest(raw).expect("advanced regex should win");
+        let Some(ResponseParser::Regex(r)) = manifest.responses.get("val") else {
+            panic!("expected Regex parser");
+        };
+        assert_eq!(r.source, "(?P<v>\\d+)");
     }
 
     #[test]

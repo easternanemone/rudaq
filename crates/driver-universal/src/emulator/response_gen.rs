@@ -138,6 +138,18 @@ fn format_hex(value: i64, width: usize) -> String {
     format!("{masked:0>width$X}")
 }
 
+/// Fallback placeholder when the emulator has no state for a non-target
+/// field inside a `FormatExtract` template.
+fn filler_for(kind: &FieldKind) -> String {
+    match kind {
+        FieldKind::Greedy => String::new(),
+        FieldKind::FixedWidth(n) => "0".repeat(*n),
+        FieldKind::Hex(n) => "0".repeat(*n),
+        FieldKind::Int => "0".to_string(),
+        FieldKind::Float => "0.0".to_string(),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tier 2: Transform pipeline inversion
 // ---------------------------------------------------------------------------
@@ -204,6 +216,44 @@ fn generate_transform_inverse(
                 }
             }
             TransformOp::SplitComma { .. } => current, // Can't meaningfully invert
+            TransformOp::MatchOneOf { .. } => current, // Validator — passthrough
+            TransformOp::FormatExtract {
+                template,
+                field,
+                compiled,
+            } => {
+                // Walk the parsed segments, emitting literals verbatim, our
+                // target field as `current`, and best-effort fillers for any
+                // other fields (so the generated string round-trips through
+                // the format parser).
+                let owned;
+                let segments: &[FormatSegment] = match compiled {
+                    Some(s) => s.as_slice(),
+                    None => match crate::format_parser::parse_format(template) {
+                        Ok(s) => {
+                            owned = s;
+                            owned.as_slice()
+                        }
+                        Err(_) => return current,
+                    },
+                };
+                let mut out = String::new();
+                for seg in segments {
+                    match seg {
+                        FormatSegment::Literal(lit) => out.push_str(lit),
+                        FormatSegment::Field(spec) => {
+                            if spec.name == *field {
+                                out.push_str(&current);
+                            } else if spec.name == "cmd" {
+                                out.push_str(cmd_prefix);
+                            } else {
+                                out.push_str(&filler_for(&spec.kind));
+                            }
+                        }
+                    }
+                }
+                out
+            }
         };
     }
 

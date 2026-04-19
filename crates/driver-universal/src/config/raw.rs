@@ -230,17 +230,33 @@ fn default_true() -> bool {
 /// A response format definition with tiered parsing options.
 #[derive(Debug, Deserialize)]
 pub struct RawResponseConfig {
-    /// Tier 1: Format string for structured parsing.
+    /// Single-variant format string (equivalent to `variants = ["..."]`).
     #[serde(default)]
     pub format: Option<String>,
 
-    /// Tier 2: Transform pipeline (list of shorthand operations).
+    /// Multi-variant format strings, tried in order. First match wins.
+    /// Use this for devices that emit different response shapes (firmware
+    /// variation, optional fields). Covers cases that historically required
+    /// regex alternation.
+    #[serde(default)]
+    pub variants: Option<Vec<String>>,
+
+    /// Transform pipeline (list of shorthand operations).
     #[serde(default)]
     pub transform: Option<Vec<String>>,
 
-    /// Tier 3: Regex with named capture groups (v3) or `pattern` (v1 legacy).
+    /// Regex with named capture groups.
+    ///
+    /// DEPRECATED at top level. Prefer `variants` for multi-shape responses.
+    /// If regex is genuinely required, move it into `[responses.X.advanced]`
+    /// to acknowledge the escape hatch and suppress the load-time warning.
     #[serde(default)]
     pub regex: Option<String>,
+
+    /// Escape-hatch options. Regex placed here silences the deprecation
+    /// warning emitted by a top-level `regex = "..."`.
+    #[serde(default)]
+    pub advanced: Option<RawAdvancedResponse>,
 
     // LEGACY: v1 regex alias. See deprecation-plan.md 3.2.
     /// v1 regex pattern (alias for `regex`).
@@ -251,6 +267,17 @@ pub struct RawResponseConfig {
     /// Field type declarations for regex captures (v1 legacy, ignored in v3).
     #[serde(default)]
     pub fields: Option<HashMap<String, toml::Value>>,
+}
+
+/// `[responses.X.advanced]` — escape-hatch parsing options.
+///
+/// Authors who reach for these features implicitly opt into the "I know what
+/// I'm doing" tier; the validator stops nagging about them.
+#[derive(Debug, Deserialize)]
+pub struct RawAdvancedResponse {
+    /// Regex with named capture groups (canonical location for regex).
+    #[serde(default)]
+    pub regex: Option<String>,
 }
 
 /// A conversion formula definition.
