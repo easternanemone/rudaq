@@ -16,7 +16,9 @@ serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 toml.workspace = true
 figment = { version = "0.10", features = ["toml", "env"] }
-http = "0.2"
+http = "1.1"
+http-body = "1.0"
+http-body-util = "0.1"
 jsonwebtoken = "9.3"
 dirs = "4.0"
 anyhow.workspace = true
@@ -42,9 +44,8 @@ tokio-stream = { version = "0.1", features = ["sync"] }
 sha2 = "0.10"
 tower-layer = { version = "0.3", optional = true }
 tower-service = { version = "0.3", optional = true }
-tower-http = { version = "0.4", features = ["cors", "trace", "fs"], optional = true }
-http-body = "0.4"
-tonic-web = { version = "0.10", optional = true }
+tower-http = { version = "0.6", features = ["cors", "trace", "fs"], optional = true }
+tonic-web = { version = "0.12", optional = true }
 sysinfo = "0.37.2"
 bincode = "1.3"
 rerun = { version = "0.27.3", features = ["server"], optional = true }
@@ -55,7 +56,8 @@ dashmap = "6.1"
 
 # Metrics and monitoring (bd-v299)
 prometheus = { version = "0.14", optional = true }
-hyper = { version = "0.14", features = ["server", "http1", "tcp"], optional = true }
+hyper = { version = "1.6", features = ["server", "http1"], optional = true }
+hyper-util = { version = "0.1", features = ["tokio"], optional = true }
 
 [features]
 # Simplified feature flags (bd-0aqw)
@@ -72,7 +74,7 @@ modules_scripting = ["modules", "daq-modules/scripting"]
 comedi = ["dep:driver-comedi"]         # NI DAQ — used directly by ni_daq_service
 comedi_hardware = ["comedi", "driver-comedi/hardware"]
 rerun_sink = ["dep:rerun"]             # Rerun visualization sink
-metrics = ["dep:prometheus", "dep:hyper", "storage/metrics"]  # Prometheus + metrics forwarding
+metrics = ["dep:prometheus", "dep:hyper", "dep:hyper-util", "storage/metrics"]  # Prometheus + metrics forwarding
 
 # ============================================================================
 # PASS-THROUGH (forwarded to downstream crates, no cfg usage in server itself)

@@ -13,6 +13,10 @@ use tonic::Status;
 use tonic::body::BoxBody;
 
 /// Wrapper that maps `io::Error` body errors to `tonic::Status` for BoxBody compatibility.
+///
+/// http-body 1.0 unified the data-vs-trailers split into a single
+/// `poll_frame(cx) -> Option<Result<Frame<Data>, Error>>` method; we forward
+/// to the inner body's frames and remap each frame's error to `Status`.
 pub(super) struct IoToStatusBody<B>(B);
 
 impl<B> http_body::Body for IoToStatusBody<B>
@@ -22,24 +26,13 @@ where
     type Data = prost::bytes::Bytes;
     type Error = Status;
 
-    fn poll_data(
+    fn poll_frame(
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Result<Self::Data, Self::Error>>> {
-        std::pin::Pin::new(&mut self.0).poll_data(cx).map(
-            |opt: Option<Result<prost::bytes::Bytes, std::io::Error>>| {
-                opt.map(|res| res.map_err(|e| Status::internal(format!("file error: {e}"))))
-            },
-        )
-    }
-
-    fn poll_trailers(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Result<Option<http::HeaderMap>, Self::Error>> {
+    ) -> std::task::Poll<Option<Result<http_body::Frame<Self::Data>, Self::Error>>> {
         std::pin::Pin::new(&mut self.0)
-            .poll_trailers(cx)
-            .map_err(|e| Status::internal(format!("file error: {e}")))
+            .poll_frame(cx)
+            .map(|opt| opt.map(|res| res.map_err(|e| Status::internal(format!("file error: {e}")))))
     }
 
     fn is_end_stream(&self) -> bool {

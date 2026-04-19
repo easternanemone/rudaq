@@ -336,7 +336,7 @@ mod camera_integration_tests {
             match timeout(frame_timeout, stream.next()).await {
                 Ok(Some(Ok(frame))) => {
                     first_frame = false;
-                    last_metrics = frame.metrics.clone();
+                    last_metrics = frame.metrics;
                     frames.push(frame);
                 }
                 Ok(Some(Err(err))) => panic!("stream error: {err}"),
@@ -402,7 +402,7 @@ mod camera_integration_tests {
         while start.elapsed() < Duration::from_secs(60) {
             match timeout(Duration::from_millis(500), stream.next()).await {
                 Ok(Some(Ok(frame))) => {
-                    last_metrics = frame.metrics.clone();
+                    last_metrics = frame.metrics;
                     frames_received = frames_received.saturating_add(1);
                 }
                 Ok(Some(Err(err))) => panic!("stream error: {err}"),

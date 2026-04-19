@@ -30,7 +30,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"
 wasm-bindgen = { version = "0.2" }
 wasm-bindgen-futures = "0.4"
 getrandom = { version = "0.2", features = ["js"] }
-tonic-web-wasm-client = "0.5"
+tonic-web-wasm-client = "0.6"
 tonic = { workspace = true, default-features = false, features = ["prost", "codegen"] }
 protocol = { path = "../protocol" }
 
