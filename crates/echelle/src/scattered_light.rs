@@ -616,6 +616,12 @@ fn build_inter_order_mask(
 }
 
 /// Evaluate a 2D Chebyshev polynomial: sum_{i,j} c_{ij} * T_i(x) * T_j(y).
+///
+/// Layout: `coeffs[iy * nx + ix]` — y is the outer (slower-varying) index,
+/// x is the inner (faster-varying) index. This is the opposite layout from
+/// `wavelength_fitting::chebyshev_eval_2d` / `chebyshev_2d::eval_chebyshev_2d_surface`,
+/// which both store x outer. The shared helper handles either by taking the
+/// outer/inner dimensions in call order.
 fn eval_2d_chebyshev(
     coeffs: &[f64],
     degree_x: usize,
@@ -623,34 +629,7 @@ fn eval_2d_chebyshev(
     x_norm: f64,
     y_norm: f64,
 ) -> f64 {
-    let nx = degree_x + 1;
-    let ny = degree_y + 1;
-
-    // Precompute T_i(x) and T_j(y).
-    let tx = chebyshev_basis(x_norm, degree_x);
-    let ty = chebyshev_basis(y_norm, degree_y);
-
-    let mut result = 0.0;
-    for iy in 0..ny {
-        for ix in 0..nx {
-            result += coeffs[iy * nx + ix] * tx[ix] * ty[iy];
-        }
-    }
-    result
-}
-
-/// Compute Chebyshev basis values T_0(x) through T_degree(x).
-fn chebyshev_basis(x: f64, degree: usize) -> Vec<f64> {
-    let mut t = Vec::with_capacity(degree + 1);
-    t.push(1.0); // T_0
-    if degree >= 1 {
-        t.push(x); // T_1
-    }
-    for i in 2..=degree {
-        let val = 2.0 * x * t[i - 1] - t[i - 2];
-        t.push(val);
-    }
-    t
+    crate::chebyshev_common::eval_2d(coeffs, degree_y + 1, degree_x + 1, y_norm, x_norm)
 }
 
 /// Fit 2D Chebyshev coefficients via least-squares normal equations.
@@ -673,8 +652,8 @@ fn fit_2d_chebyshev(
     // Build Vandermonde matrix V[i, iy*nx + ix] = T_ix(x_i) * T_iy(y_i).
     let mut vander = vec![vec![0.0; n_coeffs]; n_pts];
     for ((&xn, &yn), row) in x_norm.iter().zip(y_norm).zip(vander.iter_mut()) {
-        let tx = chebyshev_basis(xn, degree_x);
-        let ty = chebyshev_basis(yn, degree_y);
+        let tx = crate::chebyshev_common::chebyshev_basis(xn, nx);
+        let ty = crate::chebyshev_common::chebyshev_basis(yn, ny);
         for iy in 0..ny {
             for ix in 0..nx {
                 row[iy * nx + ix] = tx[ix] * ty[iy];

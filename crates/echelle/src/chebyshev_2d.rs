@@ -108,37 +108,8 @@ fn eval_chebyshev_2d_surface(
     x_norm: f64,
     m_norm: f64,
 ) -> f64 {
-    let nx = dx + 1;
-    let nm = dm + 1;
-
-    // Precompute Chebyshev basis values via recurrence.
-    let tx = chebyshev_basis_vec(x_norm, nx);
-    let tm = chebyshev_basis_vec(m_norm, nm);
-
-    let mut result = 0.0;
-    for i in 0..nx {
-        for j in 0..nm {
-            result += coeffs[i * nm + j] * tx[i] * tm[j];
-        }
-    }
-    result
-}
-
-/// Compute Chebyshev basis values `[T_0(x), T_1(x), ..., T_{n-1}(x)]`.
-fn chebyshev_basis_vec(x: f64, n: usize) -> Vec<f64> {
-    let mut t = vec![0.0; n];
-    if n == 0 {
-        return t;
-    }
-    t[0] = 1.0;
-    if n == 1 {
-        return t;
-    }
-    t[1] = x;
-    for k in 2..n {
-        t[k] = 2.0 * x * t[k - 1] - t[k - 2];
-    }
-    t
+    // Layout: coeffs[i_x * nm + j_m] (x outer, m inner).
+    crate::chebyshev_common::eval_2d(coeffs, dx + 1, dm + 1, x_norm, m_norm)
 }
 
 /// Fit a global 2D Chebyshev surface to matched arc line data.
@@ -209,8 +180,8 @@ pub fn fit_chebyshev_2d(
         let m_range = m_max - m_min;
         let m_norm = 2.0 * (m - m_min) / m_range - 1.0;
 
-        let tx = chebyshev_basis_vec(x_norm, nx);
-        let tm = chebyshev_basis_vec(m_norm, nm);
+        let tx = crate::chebyshev_common::chebyshev_basis(x_norm, nx);
+        let tm = crate::chebyshev_common::chebyshev_basis(m_norm, nm);
 
         for i in 0..nx {
             for j in 0..nm {
