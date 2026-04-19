@@ -725,32 +725,21 @@ fn fit_2d_chebyshev(
         return None;
     }
 
-    // Build Vandermonde matrix V[i, iy*nx + ix] = T_ix(x_i) * T_iy(y_i).
-    let mut vander = vec![vec![0.0; n_coeffs]; n_pts];
-    for ((&xn, &yn), row) in x_norm.iter().zip(y_norm).zip(vander.iter_mut()) {
+    // Flat row-major Vandermonde: V[row, iy*nx + ix] = T_ix(x_row) * T_iy(y_row).
+    let mut vander = vec![0.0_f64; n_pts * n_coeffs];
+    for (row, (&xn, &yn)) in x_norm.iter().zip(y_norm).enumerate() {
         let tx = crate::chebyshev_common::chebyshev_basis(xn, nx);
         let ty = crate::chebyshev_common::chebyshev_basis(yn, ny);
+        let row_base = row * n_coeffs;
         for iy in 0..ny {
             for ix in 0..nx {
-                row[iy * nx + ix] = tx[ix] * ty[iy];
+                vander[row_base + iy * nx + ix] = tx[ix] * ty[iy];
             }
         }
     }
 
-    // Normal equations: A = V^T * V, b = V^T * values.
-    let mut normal = vec![vec![0.0; n_coeffs]; n_coeffs];
-    let mut rhs = vec![0.0; n_coeffs];
-
-    for j in 0..n_coeffs {
-        for k in 0..n_coeffs {
-            let sum: f64 = vander.iter().map(|row| row[j] * row[k]).sum();
-            normal[j][k] = sum;
-        }
-        let sum: f64 = vander.iter().zip(values).map(|(row, &v)| row[j] * v).sum();
-        rhs[j] = sum;
-    }
-
-    crate::wavelength_fitting::solve_linear_system(&mut normal, &mut rhs)
+    // V^T V c = V^T y via the shared helper (bd-g22gu.1.1).
+    crate::chebyshev_common::solve_least_squares_flat(&vander, n_pts, n_coeffs, values)
 }
 
 /// Safely evaluate a trace model, returning None on errors.
