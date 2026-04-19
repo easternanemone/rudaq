@@ -191,28 +191,9 @@ pub fn fit_chebyshev_2d(
         y_vals[row] = m * lambda; // Fit m*lambda, not lambda
     }
 
-    // Form normal equations: A = V^T * V, rhs = V^T * y
-    let mut normal = vec![vec![0.0; n_coeffs]; n_coeffs];
-    let mut rhs = vec![0.0; n_coeffs];
-
-    for c1 in 0..n_coeffs {
-        for c2 in c1..n_coeffs {
-            let mut sum = 0.0;
-            for row in 0..n_pts {
-                sum += vandermonde[row * n_coeffs + c1] * vandermonde[row * n_coeffs + c2];
-            }
-            normal[c1][c2] = sum;
-            normal[c2][c1] = sum; // Symmetric
-        }
-        let mut sum = 0.0;
-        for row in 0..n_pts {
-            sum += vandermonde[row * n_coeffs + c1] * y_vals[row];
-        }
-        rhs[c1] = sum;
-    }
-
-    // Solve via Gaussian elimination with partial pivoting.
-    let coefficients = crate::wavelength_fitting::solve_linear_system(&mut normal, &mut rhs)?;
+    // V^T V c = V^T y via the shared helper (bd-g22gu.1.1).
+    let coefficients =
+        crate::chebyshev_common::solve_least_squares_flat(&vandermonde, n_pts, n_coeffs, &y_vals)?;
 
     // Compute global RMS in lambda (nm).
     let fit = Global2DChebyshevFit {

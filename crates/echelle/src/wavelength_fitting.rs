@@ -1897,7 +1897,8 @@ pub fn chebyshev_fit_2d(
     }
 
     // Build Vandermonde-like matrix: V[row, i*nm+j] = T_i(x_norm) * T_j(m_norm)
-    let mut vandermonde = vec![vec![0.0; n_coeffs]; n_pts];
+    // Flat row-major Vandermonde: V[row, i*nm + j] = T_i(x_norm) * T_j(m_norm).
+    let mut vandermonde = vec![0.0_f64; n_pts * n_coeffs];
     let mut y_vals = vec![0.0; n_pts];
 
     for (row, &(x, m, val)) in data.iter().enumerate() {
@@ -1905,33 +1906,18 @@ pub fn chebyshev_fit_2d(
         let m_norm = (m - m_center) / m_scale;
         let tx = crate::chebyshev_common::chebyshev_basis(x_norm, nx);
         let tm = crate::chebyshev_common::chebyshev_basis(m_norm, nm);
-
+        let row_base = row * n_coeffs;
         for i in 0..nx {
             for j in 0..nm {
-                vandermonde[row][i * nm + j] = tx[i] * tm[j];
+                vandermonde[row_base + i * nm + j] = tx[i] * tm[j];
             }
         }
         y_vals[row] = val;
     }
 
-    // Form normal equations: A = V^T × V, rhs = V^T × y
-    let mut normal = vec![vec![0.0; n_coeffs]; n_coeffs];
-    let mut rhs = vec![0.0; n_coeffs];
-
-    for c1 in 0..n_coeffs {
-        for c2 in 0..n_coeffs {
-            let sum: f64 = vandermonde.iter().map(|row| row[c1] * row[c2]).sum();
-            normal[c1][c2] = sum;
-        }
-        let sum: f64 = vandermonde
-            .iter()
-            .zip(&y_vals)
-            .map(|(row, &y)| row[c1] * y)
-            .sum();
-        rhs[c1] = sum;
-    }
-
-    let coefficients = solve_linear_system(&mut normal, &mut rhs)?;
+    // V^T V c = V^T y via the shared helper (bd-g22gu.1.1).
+    let coefficients =
+        crate::chebyshev_common::solve_least_squares_flat(&vandermonde, n_pts, n_coeffs, &y_vals)?;
 
     Some(Chebyshev2DSurface {
         coefficients,

@@ -80,6 +80,56 @@ pub(crate) fn eval_2d(
     result
 }
 
+/// Solve a least-squares problem `V c ≈ y` via normal equations
+/// `(V^T V) c = V^T y` with Gaussian elimination (partial pivoting).
+///
+/// `vandermonde` is a flat row-major matrix of shape `n_pts × n_coeffs`
+/// (i.e. `V[row, col] = vandermonde[row * n_coeffs + col]`). `y` is the
+/// target vector of length `n_pts`. Returns the fitted coefficient vector
+/// of length `n_coeffs`, or `None` if the normal equations are singular.
+///
+/// The inner loop exploits the symmetry of `V^T V` by only computing the
+/// upper triangle and mirroring it to the lower — half the arithmetic of
+/// a naïve `c2 ∈ [0, n_coeffs)` loop.
+///
+/// Pre-bd-g22gu.1.1 the crate had three near-identical implementations
+/// of this step (in `chebyshev_2d::fit_chebyshev_2d`,
+/// `wavelength_fitting::chebyshev_fit_2d`, and
+/// `scattered_light::fit_2d_chebyshev`). They differed only in
+/// Vandermonde storage (flat vs nested) and whether they exploited
+/// symmetry. This helper standardises on flat storage + symmetric
+/// accumulation (matching the chebyshev_2d variant byte-exactly).
+pub(crate) fn solve_least_squares_flat(
+    vandermonde: &[f64],
+    n_pts: usize,
+    n_coeffs: usize,
+    y: &[f64],
+) -> Option<Vec<f64>> {
+    debug_assert_eq!(vandermonde.len(), n_pts * n_coeffs);
+    debug_assert_eq!(y.len(), n_pts);
+
+    let mut normal = vec![vec![0.0; n_coeffs]; n_coeffs];
+    let mut rhs = vec![0.0; n_coeffs];
+
+    for c1 in 0..n_coeffs {
+        for c2 in c1..n_coeffs {
+            let mut sum = 0.0;
+            for row in 0..n_pts {
+                sum += vandermonde[row * n_coeffs + c1] * vandermonde[row * n_coeffs + c2];
+            }
+            normal[c1][c2] = sum;
+            normal[c2][c1] = sum;
+        }
+        let mut sum = 0.0;
+        for row in 0..n_pts {
+            sum += vandermonde[row * n_coeffs + c1] * y[row];
+        }
+        rhs[c1] = sum;
+    }
+
+    crate::wavelength_fitting::solve_linear_system(&mut normal, &mut rhs)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
