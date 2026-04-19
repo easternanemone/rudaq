@@ -17,9 +17,11 @@
 //! assert_eq!(result.as_f64().unwrap(), 25.5);
 //! ```
 
+use crate::format_parser::{self, FormatSegment};
 use anyhow::{Context, Result, anyhow};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 /// A single transformation operation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -32,6 +34,9 @@ pub enum TransformOp {
     /// Remove a suffix if present.
     RemoveSuffix { suffix: String },
     /// Extract a regex capture group (pre-compiled).
+    ///
+    /// DEPRECATED in favor of `FormatExtract` / `Map` / `MatchOneOf`. Still
+    /// works but emits a deprecation warning when parsed from shorthand.
     RegexExtract {
         pattern: String,
         group: usize,
@@ -51,20 +56,45 @@ pub enum TransformOp {
     SplitComma { index: usize },
     /// Map a specific string value to a replacement (e.g. "Off" -> "0.0").
     Map { from: String, to: String },
+    /// Validate that the input is one of an allowed set of strings (passthrough).
+    ///
+    /// Used to reject unexpected device responses early. Equivalent to regex
+    /// alternation `^(Off|Low|High)$` but undergrad-readable.
+    MatchOneOf { allowed: Vec<String> },
+    /// Parse the input against a format template and extract a single named field.
+    ///
+    /// Replaces most `regex_extract` use cases. `format('{cmd}: {value}', 'value')`
+    /// parses `"FOO: 12.3"` and yields the string `"12.3"`.
+    FormatExtract {
+        template: String,
+        field: String,
+        /// Pre-parsed template segments (populated by `compile()` or `from_shorthand()`).
+        #[serde(skip)]
+        compiled: Option<Vec<FormatSegment>>,
+    },
 }
 
 impl TransformOp {
-    /// Pre-compile any regex patterns in this operation.
+    /// Pre-compile any regex patterns or format templates in this operation.
     ///
     /// Returns an error if the pattern is invalid, so callers can surface
     /// compilation failures rather than silently falling back to runtime compilation.
     pub fn compile(&mut self) -> Result<()> {
-        if let TransformOp::RegexExtract {
-            pattern, compiled, ..
-        } = self
-            && compiled.is_none()
-        {
-            *compiled = Some(Regex::new(pattern).context("Failed to compile regex pattern")?);
+        match self {
+            TransformOp::RegexExtract {
+                pattern, compiled, ..
+            } if compiled.is_none() => {
+                *compiled = Some(Regex::new(pattern).context("Failed to compile regex pattern")?);
+            }
+            TransformOp::FormatExtract {
+                template, compiled, ..
+            } if compiled.is_none() => {
+                *compiled = Some(
+                    format_parser::parse_format(template)
+                        .map_err(|e| anyhow!("Failed to compile format template: {e}"))?,
+                );
+            }
+            _ => {}
         }
         Ok(())
     }
@@ -167,6 +197,43 @@ impl TransformOp {
                 TransformValue::String(s) if s == *from => Ok(TransformValue::String(to.clone())),
                 other => Ok(other),
             },
+            TransformOp::MatchOneOf { allowed } => match input {
+                TransformValue::String(s) => {
+                    if allowed.iter().any(|a| a == &s) {
+                        Ok(TransformValue::String(s))
+                    } else {
+                        Err(anyhow!(
+                            "value '{s}' is not one of the allowed values {allowed:?}"
+                        ))
+                    }
+                }
+                _ => Err(anyhow!("MatchOneOf can only be applied to strings")),
+            },
+            TransformOp::FormatExtract {
+                template,
+                field,
+                compiled,
+            } => match input {
+                TransformValue::String(s) => {
+                    let owned;
+                    let segments = match compiled {
+                        Some(segs) => segs.as_slice(),
+                        None => {
+                            owned = format_parser::parse_format(template)
+                                .map_err(|e| anyhow!("Failed to compile format template: {e}"))?;
+                            owned.as_slice()
+                        }
+                    };
+                    let map = format_parser::parse_response(segments, &s).with_context(|| {
+                        format!("format template '{template}' did not match input")
+                    })?;
+                    let value = map
+                        .get(field)
+                        .ok_or_else(|| anyhow!("field '{field}' not found in format template"))?;
+                    Ok(value_to_transform_value(value, field)?)
+                }
+                _ => Err(anyhow!("FormatExtract can only be applied to strings")),
+            },
         }
     }
 
@@ -215,6 +282,11 @@ impl TransformOp {
                 .ok_or_else(|| anyhow!("Missing closing parenthesis"))?;
             let (pattern, group) = parse_regex_extract_args(arg)?;
             let compiled = Regex::new(&pattern).context("Failed to compile regex pattern")?;
+            tracing::warn!(
+                pattern = %pattern,
+                "transform op `regex_extract` is deprecated; prefer `format('<template>', '<field>')` \
+                 or `map('from','to')`. Regex pipelines are retained only as an escape hatch."
+            );
             return Ok(TransformOp::RegexExtract {
                 pattern,
                 group,
@@ -260,19 +332,89 @@ impl TransformOp {
                 .strip_suffix(')')
                 .ok_or_else(|| anyhow!("Missing closing parenthesis"))?;
             // Parse two comma-separated string arguments: map('from', 'to')
-            let parts: Vec<&str> = arg.splitn(2, ',').collect();
+            let parts = split_args_quote_aware(arg)?;
             if parts.len() != 2 {
                 return Err(anyhow!(
                     "map() requires exactly 2 arguments: map('from', 'to')"
                 ));
             }
-            let from = parse_string_arg(parts[0].trim())?;
-            let to = parse_string_arg(parts[1].trim())?;
+            let from = parse_string_arg(&parts[0])?;
+            let to = parse_string_arg(&parts[1])?;
             return Ok(TransformOp::Map { from, to });
+        }
+
+        if let Some(rest) = s.strip_prefix("match_one_of(") {
+            let arg = rest
+                .strip_suffix(')')
+                .ok_or_else(|| anyhow!("Missing closing parenthesis"))?;
+            let allowed = parse_match_one_of_args(arg)?;
+            if allowed.is_empty() {
+                return Err(anyhow!(
+                    "match_one_of() requires at least one allowed value"
+                ));
+            }
+            return Ok(TransformOp::MatchOneOf { allowed });
+        }
+
+        if let Some(rest) = s.strip_prefix("format(") {
+            let arg = rest
+                .strip_suffix(')')
+                .ok_or_else(|| anyhow!("Missing closing parenthesis"))?;
+            let parts = split_args_quote_aware(arg)?;
+            if parts.len() != 2 {
+                return Err(anyhow!(
+                    "format() requires exactly 2 arguments: format('<template>', '<field>')"
+                ));
+            }
+            let template = parse_string_arg(&parts[0])?;
+            let field = parse_string_arg(&parts[1])?;
+            // Pre-compile the template eagerly so authoring errors surface at load time.
+            let compiled = format_parser::parse_format(&template)
+                .map_err(|e| anyhow!("Failed to compile format template: {e}"))?;
+            return Ok(TransformOp::FormatExtract {
+                template,
+                field,
+                compiled: Some(compiled),
+            });
         }
 
         Err(anyhow!("Unknown transform operation: {s}"))
     }
+}
+
+/// Convert a `serde_json::Value` produced by the format parser into a `TransformValue`.
+fn value_to_transform_value(value: &Value, field: &str) -> Result<TransformValue> {
+    match value {
+        Value::String(s) => Ok(TransformValue::String(s.clone())),
+        Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                Ok(TransformValue::Int(i))
+            } else if let Some(f) = n.as_f64() {
+                Ok(TransformValue::Float(f))
+            } else {
+                Err(anyhow!(
+                    "field '{field}' produced a numeric value that is neither i64 nor f64"
+                ))
+            }
+        }
+        Value::Bool(b) => Ok(TransformValue::String(b.to_string())),
+        other => Err(anyhow!(
+            "field '{field}' produced unsupported value type: {other:?}"
+        )),
+    }
+}
+
+/// Parse a `match_one_of(['a', 'b', 'c'])` argument list.
+fn parse_match_one_of_args(s: &str) -> Result<Vec<String>> {
+    let s = s.trim();
+    let inner = s
+        .strip_prefix('[')
+        .ok_or_else(|| anyhow!("match_one_of expects an array literal: match_one_of(['a','b'])"))?;
+    let inner = inner
+        .strip_suffix(']')
+        .ok_or_else(|| anyhow!("match_one_of array must end with ']'"))?;
+    let parts = split_args_quote_aware(inner)?;
+    parts.iter().map(|p| parse_string_arg(p)).collect()
 }
 
 fn parse_string_arg(s: &str) -> Result<String> {
@@ -669,6 +811,132 @@ mod tests {
             compiled: None,
         };
         let result = op.apply(TransformValue::String("CURRENT 5".to_string()));
+        assert!(result.is_err());
+    }
+
+    // --- F2: Map / MatchOneOf / FormatExtract ---
+
+    #[test]
+    fn test_map_matches() {
+        let op = TransformOp::Map {
+            from: "Off".to_string(),
+            to: "0.0".to_string(),
+        };
+        let result = op.apply(TransformValue::String("Off".to_string())).unwrap();
+        assert_eq!(result, TransformValue::String("0.0".to_string()));
+    }
+
+    #[test]
+    fn test_map_passes_through_non_match() {
+        let op = TransformOp::Map {
+            from: "Off".to_string(),
+            to: "0.0".to_string(),
+        };
+        let result = op
+            .apply(TransformValue::String("High".to_string()))
+            .unwrap();
+        assert_eq!(result, TransformValue::String("High".to_string()));
+    }
+
+    #[test]
+    fn test_shorthand_map() {
+        let op = TransformOp::from_shorthand("map('Off', '0.0')").unwrap();
+        match op {
+            TransformOp::Map { from, to } => {
+                assert_eq!(from, "Off");
+                assert_eq!(to, "0.0");
+            }
+            _ => panic!("Wrong variant"),
+        }
+    }
+
+    #[test]
+    fn test_match_one_of_allows() {
+        let op = TransformOp::MatchOneOf {
+            allowed: vec!["Off".into(), "Low".into(), "High".into()],
+        };
+        let result = op.apply(TransformValue::String("Low".to_string())).unwrap();
+        assert_eq!(result, TransformValue::String("Low".to_string()));
+    }
+
+    #[test]
+    fn test_match_one_of_rejects() {
+        let op = TransformOp::MatchOneOf {
+            allowed: vec!["Off".into(), "Low".into(), "High".into()],
+        };
+        let result = op.apply(TransformValue::String("Bogus".to_string()));
+        assert!(result.is_err(), "unknown value should error");
+    }
+
+    #[test]
+    fn test_shorthand_match_one_of() {
+        let op = TransformOp::from_shorthand("match_one_of(['Off', 'Low', 'High'])").unwrap();
+        match op {
+            TransformOp::MatchOneOf { allowed } => {
+                assert_eq!(allowed, vec!["Off", "Low", "High"]);
+            }
+            _ => panic!("Wrong variant"),
+        }
+    }
+
+    #[test]
+    fn test_shorthand_match_one_of_empty_rejected() {
+        let result = TransformOp::from_shorthand("match_one_of([])");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_format_extract_string() {
+        let op = TransformOp::from_shorthand("format('{cmd}: {value}', 'value')").unwrap();
+        let result = op
+            .apply(TransformValue::String("CURR: 12.34".to_string()))
+            .unwrap();
+        assert_eq!(result, TransformValue::String("12.34".to_string()));
+    }
+
+    #[test]
+    fn test_format_extract_unknown_field() {
+        let op = TransformOp::from_shorthand("format('{cmd}: {value}', 'missing')").unwrap();
+        let result = op.apply(TransformValue::String("CURR: 12.34".to_string()));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_format_extract_no_match() {
+        // Template expects 'cmd: value' but input is missing colon
+        let op = TransformOp::from_shorthand("format('{cmd}: {value}', 'value')").unwrap();
+        let result = op.apply(TransformValue::String("no colon here".to_string()));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_format_extract_pipeline() {
+        // Replaces `regex_extract('^\w+:\s+(.*)', 1)` with format('{cmd}: {value}', 'value').
+        let pipeline = TransformPipeline::from_shorthand(&[
+            "format('{cmd}: {value}', 'value')".to_string(),
+            "to_float".to_string(),
+            "scale(1000.0)".to_string(),
+        ])
+        .unwrap();
+        let result = pipeline.execute("POWER: 2.5").unwrap();
+        assert_eq!(result.as_f64().unwrap(), 2500.0);
+    }
+
+    #[test]
+    fn test_format_extract_numeric_field() {
+        // hex fields come back as integers -> should map to TransformValue::Int
+        let op = TransformOp::from_shorthand("format('PULSES {n:hex4}', 'n')").unwrap();
+        let result = op
+            .apply(TransformValue::String("PULSES 00FF".to_string()))
+            .unwrap();
+        assert_eq!(result, TransformValue::Int(255));
+    }
+
+    #[test]
+    fn test_format_extract_bad_template_rejected_at_load() {
+        // Unclosed brace in the template should fail at shorthand parse time,
+        // not at runtime.
+        let result = TransformOp::from_shorthand("format('{unclosed', 'unclosed')");
         assert!(result.is_err());
     }
 }
