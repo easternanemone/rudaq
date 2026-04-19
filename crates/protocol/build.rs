@@ -42,7 +42,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build_client(true)
         .build_transport(!is_wasm)
         .type_attribute(".", "#[allow(missing_docs)]")
-        .compile(&proto_files, &[proto_dir])?;
+        .compile_protos(&proto_files, &[proto_dir])?;
 
     Ok(())
 }

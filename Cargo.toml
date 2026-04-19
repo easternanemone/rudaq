@@ -58,8 +58,8 @@ thiserror = "2.0"
 tracing = "0.1"
 
 # gRPC and protobuf
-tonic = { version = "0.10", default-features = false }
-prost = "0.12"
+tonic = { version = "0.12", default-features = false }
+prost = "0.13"
 
 # Storage
 hdf5 = { package = "hdf5-metno", version = "0.12.4" }
