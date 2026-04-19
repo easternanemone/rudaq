@@ -465,82 +465,103 @@ fn run_calibration_pipeline_impl(
     // candidate-m search was non-canonical (IRAF ECIDENTIFY, CERES,
     // PypeIt all assign m once from the physical grating equation) and
     // produced derived-m collisions (bd-mlwvz).
-    let mut diagnostics = Vec::with_capacity(n_orders);
-    let mut order_calibrations: Vec<EchelleOrderCalibration> = Vec::new();
     let npx = f64::from(width.max(1));
 
-    for (order_idx, trace) in traces.iter().enumerate() {
-        let oi = order_idx as u32;
+    // bd-ongmw: Stage-1 work per order is pure wrt the captured references
+    // (arc_line_sources, seed_fns, traces, config). Each order produces
+    // (diagnostic, Option<calibration>) independently, so we par_iter across
+    // traces and collect in deterministic order before merging.
+    use rayon::prelude::*;
+    let stage1_results: Vec<(OrderDiagnostic, Option<EchelleOrderCalibration>)> = traces
+        .par_iter()
+        .enumerate()
+        .map(|(order_idx, trace)| {
+            let oi = order_idx as u32;
 
-        let lines =
-            match extract_and_detect_lines(&arc_line_sources, width, height, trace, oi, config) {
-                Ok(l) => l,
-                Err(e) => {
-                    diagnostics.push(OrderDiagnostic {
-                        order_index: oi,
-                        n_lines_detected: 0,
-                        n_lines_matched: 0,
-                        n_lines_used: 0,
-                        rms_nm: 0.0,
-                        success: false,
-                        failure_reason: Some(e),
-                        detected_lines: Vec::new(),
-                        wl_solution: None,
-                    });
-                    continue;
-                }
+            let lines =
+                match extract_and_detect_lines(&arc_line_sources, width, height, trace, oi, config)
+                {
+                    Ok(l) => l,
+                    Err(e) => {
+                        return (
+                            OrderDiagnostic {
+                                order_index: oi,
+                                n_lines_detected: 0,
+                                n_lines_matched: 0,
+                                n_lines_used: 0,
+                                rms_nm: 0.0,
+                                success: false,
+                                failure_reason: Some(e),
+                                detected_lines: Vec::new(),
+                                wl_solution: None,
+                            },
+                            None,
+                        );
+                    }
+                };
+
+            let mut final_diag = if let Some((gc, first_m, step)) = two_phase_base {
+                let expected_m = (first_m + step * (order_idx as i32)).max(1);
+                let physical_order = f64::from(expected_m);
+                let lambda_center = gc / physical_order;
+                let fsr = gc / (physical_order * physical_order);
+                let dispersion = fsr / npx;
+                let lambda_start = lambda_center - dispersion * (npx / 2.0);
+                let seed_fn = move |pixel: f64| -> f64 { lambda_start + dispersion * pixel };
+                let tp_config = TwoPhaseMatchConfig {
+                    primary_window_nm: 2.0,
+                    final_tolerance_nm: config.wl_config.seed_tolerance_nm,
+                    fallback_tolerance_nm: 1.0,
+                    grating_constant_nm: gc,
+                    gc_tolerance: 0.01,
+                    min_primary_matches: 0,
+                    physical_order,
+                };
+                match_and_fit(&lines, oi, config, &seed_fn, Some(&tp_config))
+            } else {
+                match_and_fit(&lines, oi, config, &seed_fns[order_idx], None)
             };
 
-        let mut final_diag = if let Some((gc, first_m, step)) = two_phase_base {
-            let expected_m = (first_m + step * (order_idx as i32)).max(1);
-            let physical_order = f64::from(expected_m);
-            let lambda_center = gc / physical_order;
-            let fsr = gc / (physical_order * physical_order);
-            let dispersion = fsr / npx;
-            let lambda_start = lambda_center - dispersion * (npx / 2.0);
-            let seed_fn = move |pixel: f64| -> f64 { lambda_start + dispersion * pixel };
-            let tp_config = TwoPhaseMatchConfig {
-                primary_window_nm: 2.0,
-                final_tolerance_nm: config.wl_config.seed_tolerance_nm,
-                fallback_tolerance_nm: 1.0,
-                grating_constant_nm: gc,
-                gc_tolerance: 0.01,
-                min_primary_matches: 0,
-                physical_order,
-            };
-            match_and_fit(&lines, oi, config, &seed_fn, Some(&tp_config))
-        } else {
-            match_and_fit(&lines, oi, config, &seed_fns[order_idx], None)
-        };
-
-        if final_diag.success {
-            let validation = final_diag
-                .wl_solution
-                .as_ref()
-                .map(|sol| sol.validate_monotonic(&config.orientation, 150.0, 1200.0));
-            match validation {
-                Some(Ok(())) => {
-                    let sol = final_diag.wl_solution.as_ref().expect("checked above");
-                    let order_cal =
-                        build_order_calibration(trace, sol, oi, width, grating_constant_nm);
-                    tracing::debug!(
-                        "Stage 1: Order {} matched physical order {:?}",
-                        oi,
-                        order_cal.physical_order_number
-                    );
-                    order_calibrations.push(order_cal);
+            let mut order_cal: Option<EchelleOrderCalibration> = None;
+            if final_diag.success {
+                let validation = final_diag
+                    .wl_solution
+                    .as_ref()
+                    .map(|sol| sol.validate_monotonic(&config.orientation, 150.0, 1200.0));
+                match validation {
+                    Some(Ok(())) => {
+                        let sol = final_diag.wl_solution.as_ref().expect("checked above");
+                        let cal =
+                            build_order_calibration(trace, sol, oi, width, grating_constant_nm);
+                        tracing::debug!(
+                            "Stage 1: Order {} matched physical order {:?}",
+                            oi,
+                            cal.physical_order_number
+                        );
+                        order_cal = Some(cal);
+                    }
+                    Some(Err(err)) => {
+                        tracing::warn!("Stage 1: order {oi} rejected — {err}");
+                        final_diag.success = false;
+                        final_diag.failure_reason = Some(format!("wavelength axis invalid: {err}"));
+                        final_diag.wl_solution = None;
+                    }
+                    None => {}
                 }
-                Some(Err(err)) => {
-                    tracing::warn!("Stage 1: order {oi} rejected — {err}");
-                    final_diag.success = false;
-                    final_diag.failure_reason = Some(format!("wavelength axis invalid: {err}"));
-                    final_diag.wl_solution = None;
-                }
-                None => {}
             }
-        }
+            (final_diag, order_cal)
+        })
+        .collect();
 
-        diagnostics.push(final_diag);
+    // par_iter().collect() preserves iterator order, so diagnostics and
+    // order_calibrations come out deterministically indexed by order_idx.
+    let mut diagnostics = Vec::with_capacity(n_orders);
+    let mut order_calibrations: Vec<EchelleOrderCalibration> = Vec::new();
+    for (diag, cal) in stage1_results {
+        diagnostics.push(diag);
+        if let Some(c) = cal {
+            order_calibrations.push(c);
+        }
     }
 
     // ── Dedup by quality after Stage 1 ───────────────────────────────
@@ -608,77 +629,99 @@ fn run_calibration_pipeline_impl(
                 let first_m_i32 = two_phase_base.map_or(1, |(_, fm, _)| fm);
                 let step_i32 = two_phase_base.map_or(1, |(_, _, s)| s);
 
-                for (order_idx, trace) in traces.iter().enumerate() {
-                    if diagnostics[order_idx].success {
-                        continue;
-                    }
-                    let Some(y_centroid) = crate::trace_fitting::eval_trace_y(&trace.trace, x_mid)
-                    else {
-                        continue;
-                    };
-                    let guess_m = f64::from((first_m_i32 + step_i32 * (order_idx as i32)).max(1));
-                    let Some(m_f) = cauchy.invert_to_m(y_centroid, guess_m) else {
-                        continue;
-                    };
-                    let predicted_m = m_f.round();
-                    if predicted_m < 1.0 {
-                        continue;
-                    }
-
-                    let lambda_center = gc / predicted_m;
-                    let fsr = gc / (predicted_m * predicted_m);
-                    let dispersion = fsr / npx;
-                    let lambda_start = lambda_center - dispersion * (npx / 2.0);
-                    let refined_seed =
-                        move |pixel: f64| -> f64 { lambda_start + dispersion * pixel };
-
-                    let oi = order_idx as u32;
-                    let tp_config_s2 = TwoPhaseMatchConfig {
-                        primary_window_nm: 2.0,
-                        final_tolerance_nm: config.wl_config.seed_tolerance_nm,
-                        fallback_tolerance_nm: 1.0,
-                        grating_constant_nm: gc,
-                        gc_tolerance: 0.01,
-                        min_primary_matches: 0,
-                        physical_order: predicted_m,
-                    };
-                    let mut diag = process_single_order(
-                        &arc_line_sources,
-                        width,
-                        height,
-                        trace,
-                        oi,
-                        config,
-                        &refined_seed,
-                        Some(&tp_config_s2),
-                    );
-
-                    if diag.success {
-                        let validation = diag
-                            .wl_solution
-                            .as_ref()
-                            .map(|sol| sol.validate_monotonic(&config.orientation, 150.0, 1200.0));
-                        match validation {
-                            Some(Ok(())) => {
-                                let sol = diag.wl_solution.as_ref().expect("checked above");
-                                let order_cal =
-                                    build_order_calibration(trace, sol, oi, width, Some(gc));
-                                tracing::debug!(
-                                    "Stage 2: Order {} Cauchy-refined to physical order {:?}",
-                                    oi,
-                                    order_cal.physical_order_number
-                                );
-                                order_calibrations.push(order_cal);
+                // bd-ongmw: parallelize Stage 2's per-failed-order Cauchy
+                // refinement. Read-only inputs (traces, config, arc_line_sources,
+                // cauchy, diagnostics-success flags) are captured by shared
+                // reference; par_iter produces a deterministic Vec of updates
+                // that a sequential post-pass applies to diagnostics and
+                // order_calibrations.
+                let stage2_updates: Vec<(usize, OrderDiagnostic, Option<EchelleOrderCalibration>)> =
+                    traces
+                        .par_iter()
+                        .enumerate()
+                        .filter(|(idx, _)| !diagnostics[*idx].success)
+                        .filter_map(|(order_idx, trace)| {
+                            let y_centroid =
+                                crate::trace_fitting::eval_trace_y(&trace.trace, x_mid)?;
+                            let guess_m =
+                                f64::from((first_m_i32 + step_i32 * (order_idx as i32)).max(1));
+                            let m_f = cauchy.invert_to_m(y_centroid, guess_m)?;
+                            let predicted_m = m_f.round();
+                            if predicted_m < 1.0 {
+                                return None;
                             }
-                            Some(Err(err)) => {
-                                tracing::warn!("Stage 2: order {oi} rejected — {err}");
-                                diag.success = false;
-                                diag.failure_reason =
-                                    Some(format!("wavelength axis invalid: {err}"));
-                                diag.wl_solution = None;
+
+                            let lambda_center = gc / predicted_m;
+                            let fsr = gc / (predicted_m * predicted_m);
+                            let dispersion = fsr / npx;
+                            let lambda_start = lambda_center - dispersion * (npx / 2.0);
+                            let refined_seed =
+                                move |pixel: f64| -> f64 { lambda_start + dispersion * pixel };
+
+                            let oi = order_idx as u32;
+                            let tp_config_s2 = TwoPhaseMatchConfig {
+                                primary_window_nm: 2.0,
+                                final_tolerance_nm: config.wl_config.seed_tolerance_nm,
+                                fallback_tolerance_nm: 1.0,
+                                grating_constant_nm: gc,
+                                gc_tolerance: 0.01,
+                                min_primary_matches: 0,
+                                physical_order: predicted_m,
+                            };
+                            let mut diag = process_single_order(
+                                &arc_line_sources,
+                                width,
+                                height,
+                                trace,
+                                oi,
+                                config,
+                                &refined_seed,
+                                Some(&tp_config_s2),
+                            );
+
+                            let mut order_cal: Option<EchelleOrderCalibration> = None;
+                            if diag.success {
+                                let validation = diag.wl_solution.as_ref().map(|sol| {
+                                    sol.validate_monotonic(&config.orientation, 150.0, 1200.0)
+                                });
+                                match validation {
+                                    Some(Ok(())) => {
+                                        let sol =
+                                            diag.wl_solution.as_ref().expect("checked above");
+                                        let cal = build_order_calibration(
+                                            trace,
+                                            sol,
+                                            oi,
+                                            width,
+                                            Some(gc),
+                                        );
+                                        tracing::debug!(
+                                            "Stage 2: Order {} Cauchy-refined to physical order {:?}",
+                                            oi,
+                                            cal.physical_order_number
+                                        );
+                                        order_cal = Some(cal);
+                                    }
+                                    Some(Err(err)) => {
+                                        tracing::warn!("Stage 2: order {oi} rejected — {err}");
+                                        diag.success = false;
+                                        diag.failure_reason =
+                                            Some(format!("wavelength axis invalid: {err}"));
+                                        diag.wl_solution = None;
+                                    }
+                                    None => {}
+                                }
                             }
-                            None => {}
-                        }
+                            Some((order_idx, diag, order_cal))
+                        })
+                        .collect();
+
+                // par_iter preserves iterator order, so updates here land in
+                // ascending order_idx — exactly matching the pre-bd-ongmw
+                // sequential push/assign order.
+                for (order_idx, diag, cal) in stage2_updates {
+                    if let Some(c) = cal {
+                        order_calibrations.push(c);
                     }
                     diagnostics[order_idx] = diag;
                 }
@@ -1135,7 +1178,11 @@ fn simple_sum_extract(rect: &crate::rectification::RectifiedOrder) -> Vec<f64> {
 // ─── Seed wavelength functions ───────────────────────────────────────────────
 
 /// A boxed seed function mapping pixel position → approximate wavelength in nm.
-type SeedFn = Box<dyn Fn(f64) -> f64>;
+///
+/// `Send + Sync` is required so Stage 1 / Stage 2 can dispatch seed evaluations
+/// across rayon threads (bd-ongmw). Existing builders capture only `f64`
+/// primitives, which are trivially `Send + Sync`.
+type SeedFn = Box<dyn Fn(f64) -> f64 + Send + Sync>;
 
 /// Build per-order seed wavelength functions from the seed configuration.
 ///
@@ -1613,8 +1660,8 @@ fn build_echelle_seeds(
     order_step: i32,
     n_orders: usize,
     n_pixels: u32,
-) -> Vec<Box<dyn Fn(f64) -> f64>> {
-    let mut fns: Vec<Box<dyn Fn(f64) -> f64>> = Vec::with_capacity(n_orders);
+) -> Vec<SeedFn> {
+    let mut fns: Vec<SeedFn> = Vec::with_capacity(n_orders);
     let npx = f64::from(n_pixels.max(1));
 
     for i in 0..n_orders {
