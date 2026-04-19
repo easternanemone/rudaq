@@ -1864,37 +1864,8 @@ fn chebyshev_eval_2d(
     x_norm: f64,
     m_norm: f64,
 ) -> f64 {
-    let nx = degree_x + 1;
-    let nm = degree_m + 1;
-
-    // Precompute T_i(x) and T_j(m) via recurrence
-    let tx = chebyshev_basis(x_norm, nx);
-    let tm = chebyshev_basis(m_norm, nm);
-
-    let mut result = 0.0;
-    for i in 0..nx {
-        for j in 0..nm {
-            result += coeffs[i * nm + j] * tx[i] * tm[j];
-        }
-    }
-    result
-}
-
-/// Compute Chebyshev basis values T_0(x)..T_n-1(x) via the recurrence relation.
-fn chebyshev_basis(x: f64, n: usize) -> Vec<f64> {
-    let mut t = vec![0.0; n];
-    if n == 0 {
-        return t;
-    }
-    t[0] = 1.0; // T_0
-    if n == 1 {
-        return t;
-    }
-    t[1] = x; // T_1
-    for k in 2..n {
-        t[k] = 2.0 * x * t[k - 1] - t[k - 2];
-    }
-    t
+    // Layout: coeffs[i_x * nm + j_m] (x outer, m inner).
+    crate::chebyshev_common::eval_2d(coeffs, degree_x + 1, degree_m + 1, x_norm, m_norm)
 }
 
 /// Fit a 2D Chebyshev tensor-product surface to scattered data points.
@@ -1932,8 +1903,8 @@ pub fn chebyshev_fit_2d(
     for (row, &(x, m, val)) in data.iter().enumerate() {
         let x_norm = (x - x_center) / x_scale;
         let m_norm = (m - m_center) / m_scale;
-        let tx = chebyshev_basis(x_norm, nx);
-        let tm = chebyshev_basis(m_norm, nm);
+        let tx = crate::chebyshev_common::chebyshev_basis(x_norm, nx);
+        let tm = crate::chebyshev_common::chebyshev_basis(m_norm, nm);
 
         for i in 0..nx {
             for j in 0..nm {

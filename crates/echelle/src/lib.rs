@@ -23,6 +23,7 @@ pub mod calibration_pipeline;
 pub mod calibration_quality;
 pub mod cauchy_dispersion;
 pub mod chebyshev_2d;
+pub(crate) mod chebyshev_common;
 pub mod optimal_extraction;
 pub mod radiance_calibration;
 pub mod rectification;
