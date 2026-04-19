@@ -9,8 +9,8 @@ use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 
 use protocol::daq::{
-    SetExposureRequest, StartStreamRequest, StopStreamRequest, StreamFramesRequest, StreamQuality,
-    hardware_service_client::HardwareServiceClient,
+    SetExposureRequest, SetParameterRequest, StartStreamRequest, StopStreamRequest,
+    StreamFramesRequest, StreamQuality, hardware_service_client::HardwareServiceClient,
 };
 
 /// Maximum gRPC message size (64 MB, matches server config).
@@ -28,10 +28,18 @@ pub enum SnapshotFormat {
 }
 
 /// Capture a single frame from a camera device on a running daemon.
+///
+/// `set_params` lets the caller configure arbitrary device parameters
+/// (e.g. `mcp_gain`, `gate_mode`, `trigger_mode`) via the generic
+/// `SetParameter` RPC before the exposure is set and the stream starts.
+/// Each entry is `(parameter_name, value_as_string)` — the driver parses
+/// the value according to the registered parameter's descriptor.
 pub async fn handle_snapshot(
     device_id: String,
     output: PathBuf,
     exposure_ms: Option<f64>,
+    set_params: Vec<(String, String)>,
+    after_set_params: Vec<(String, String)>,
     format: SnapshotFormat,
     addr: String,
 ) -> Result<()> {
@@ -44,6 +52,32 @@ pub async fn handle_snapshot(
 
     let mut client =
         HardwareServiceClient::new(channel).max_decoding_message_size(MAX_MESSAGE_SIZE);
+
+    // Apply arbitrary parameter sets first — these can include MCP gain,
+    // gate mode, trigger mode, etc. Required for MCP-intensified captures
+    // where gate mode must be "CW On" and mcp_gain must be > 0 for any
+    // amplification to reach the detector (bd-g22gu.2.2.1 fixture capture).
+    for (name, value) in &set_params {
+        println!("Setting {name} = {value}...");
+        let response = client
+            .set_parameter(SetParameterRequest {
+                device_id: device_id.clone(),
+                parameter_name: name.clone(),
+                value: value.clone(),
+            })
+            .await
+            .with_context(|| format!("Failed to set parameter {name}"))?;
+        let inner = response.into_inner();
+        if !inner.success {
+            anyhow::bail!(
+                "SetParameter({name}={value}) failed: {}",
+                inner.error_message
+            );
+        }
+        if !inner.actual_value.is_empty() && inner.actual_value != *value {
+            println!("  (driver accepted as {})", inner.actual_value);
+        }
+    }
 
     // Optionally set exposure before capture via ExposureControl RPC
     if let Some(ms) = exposure_ms {
@@ -126,6 +160,35 @@ pub async fn handle_snapshot(
         frame.bit_depth,
         output.display()
     );
+
+    // Apply after-capture parameters BEFORE returning, so the reset
+    // happens whether the frame was written OK or not. Critical for
+    // MCP-intensified captures (bd-g22gu.2.2.1): MCP must be driven
+    // back to 0 immediately after each frame so no frame lingers above
+    // the safety threshold between captures. Errors here are logged to
+    // stderr but do NOT fail the capture — the primary save succeeded.
+    for (name, value) in &after_set_params {
+        eprintln!("After-set: {name} = {value}...");
+        match client
+            .set_parameter(SetParameterRequest {
+                device_id: device_id.clone(),
+                parameter_name: name.clone(),
+                value: value.clone(),
+            })
+            .await
+        {
+            Ok(resp) => {
+                let inner = resp.into_inner();
+                if !inner.success {
+                    eprintln!(
+                        "WARNING: after-set {name}={value} reported failure: {}",
+                        inner.error_message
+                    );
+                }
+            }
+            Err(e) => eprintln!("WARNING: after-set {name}={value} RPC error: {e}"),
+        }
+    }
 
     Ok(())
 }

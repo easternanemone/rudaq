@@ -177,6 +177,22 @@ enum Commands {
         #[arg(long)]
         exposure_ms: Option<f64>,
 
+        /// Device parameter to set before capture, format `name=value`.
+        /// Repeatable. Applied via the generic SetParameter RPC in order.
+        /// Useful for MCP gain, gate mode, trigger mode, etc.
+        /// Example: --set mcp_gain=50 --set "gate_mode=CW On"
+        #[arg(long = "set", value_parser = parse_snapshot_set)]
+        set_params: Vec<(String, String)>,
+
+        /// Device parameter to set AFTER capture, format `name=value`.
+        /// Repeatable. Applied immediately after the frame is written,
+        /// before the process exits. Used for atomic MCP-gain-reset
+        /// semantics on ICCD captures so no frame lingers above the
+        /// safety threshold between matrix entries (bd-g22gu.2.2.1).
+        /// Example: --after-set mcp_gain=0
+        #[arg(long = "after-set", value_parser = parse_snapshot_set)]
+        after_set_params: Vec<(String, String)>,
+
         /// Output format
         #[arg(long, value_enum, default_value = "tiff")]
         format: snapshot::SnapshotFormat,
@@ -407,6 +423,19 @@ enum ClientCommands {
 /// daemon panics, the heartbeat thread stops toggling the Comedi DIO line and
 /// the external interlock should fire — operators need a timestamped record of
 /// the panic that preceded that event.
+/// Clap value parser for `--set name=value` snapshot-subcommand args.
+/// Splits on the first `=`; value may contain further `=` characters.
+#[cfg(feature = "networking")]
+fn parse_snapshot_set(s: &str) -> Result<(String, String), String> {
+    let (name, value) = s
+        .split_once('=')
+        .ok_or_else(|| format!("expected `name=value`, got `{s}`"))?;
+    if name.is_empty() {
+        return Err(format!("empty parameter name in `{s}`"));
+    }
+    Ok((name.to_string(), value.to_string()))
+}
+
 fn install_safety_panic_hook() {
     let prior = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
@@ -531,9 +560,22 @@ async fn main() -> Result<()> {
             device_id,
             output,
             exposure_ms,
+            set_params,
+            after_set_params,
             format,
             addr,
-        } => snapshot::handle_snapshot(device_id, output, exposure_ms, format, addr).await,
+        } => {
+            snapshot::handle_snapshot(
+                device_id,
+                output,
+                exposure_ms,
+                set_params,
+                after_set_params,
+                format,
+                addr,
+            )
+            .await
+        }
         Commands::Calibrate {
             frame,
             flat,
