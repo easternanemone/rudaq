@@ -464,7 +464,7 @@ fn build_response_gen(
         && let Some(parser) = manifest.responses.get(&resp_ref.0)
     {
         return Ok(Some(match parser {
-            ResponseParser::Format(fmt) => ResponseGen::FormatString(fmt.segments.clone()),
+            ResponseParser::Format(fmt) => ResponseGen::FormatString(fmt.first_segments().to_vec()),
             ResponseParser::Transform(pipeline) => ResponseGen::TransformInverse {
                 ops: pipeline.ops().to_vec(),
                 cmd_prefix: extract_cmd_prefix(&cmd.template.source),
@@ -490,7 +490,7 @@ fn init_default_state(
         if let Some(parser) = manifest.responses.get(&resp_ref.0) {
             match parser {
                 ResponseParser::Format(fmt) => {
-                    for seg in &fmt.segments {
+                    for seg in fmt.first_segments() {
                         if let FormatSegment::Field(spec) = seg {
                             let default = match spec.name.as_str() {
                                 "addr" | "address" => Value::String(address.to_string()),

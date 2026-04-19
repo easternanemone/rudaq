@@ -321,12 +321,39 @@ pub enum ResponseParser {
     Regex(ValidatedRegex),
 }
 
-/// A validated format string, pre-parsed into segments.
+/// A validated format-string response parser.
+///
+/// Holds one or more variants, each pre-parsed into segments. Parsing tries
+/// each variant in declaration order; the first one that matches the input
+/// wins. A manifest that declares `format = "..."` (single variant) and one
+/// that declares `variants = [...]` (multi) both land here — downstream
+/// code sees a uniform structure.
 #[derive(Debug)]
 pub struct ValidatedFormat {
-    /// The original format string.
+    /// One or more format variants. Invariant: at least one, enforced at
+    /// construction time.
+    pub variants: Vec<FormatVariant>,
+}
+
+impl ValidatedFormat {
+    /// First variant's pre-parsed segments. Used by the emulator's inverse
+    /// path, which synthesizes one representative response per command.
+    pub fn first_segments(&self) -> &[FormatSegment] {
+        &self.variants[0].segments
+    }
+
+    /// First variant's source string (for diagnostics).
+    pub fn first_source(&self) -> &str {
+        &self.variants[0].source
+    }
+}
+
+/// A single format-string variant: source text + pre-parsed segments.
+#[derive(Debug)]
+pub struct FormatVariant {
+    /// The original format string as written in the manifest.
     pub source: String,
-    /// Pre-parsed segments.
+    /// Pre-parsed segments, ready to feed `format_parser::parse_response`.
     pub segments: Vec<FormatSegment>,
 }
 

@@ -1,14 +1,18 @@
 //! Tiered response parsing.
 //!
-//! Supports four tiers of response parsing, in priority order:
+//! Four parsing tiers, in priority order:
 //!
-//! - **Tier 0: SCPI auto-parse** - When a command has `response_type`, trim
+//! - **Tier 0: SCPI auto-parse** — when a command has `response_type`, trim
 //!   whitespace and parse as the specified type.
-//! - **Tier 1: Format strings** - Structured field extraction using format
-//!   patterns like `"{addr:1}PO{pulses:hex8}"`.
-//! - **Tier 2: Transform pipeline** - Sequential string transformations
-//!   (trim, regex extract, to_float, scale, etc.).
-//! - **Tier 3: Regex** - Named capture groups from a regex pattern.
+//! - **Tier 1: Format strings (with variants)** — structured field extraction
+//!   using format patterns like `"{addr:1}PO{pulses:hex8}"`. When multiple
+//!   variants are declared (`variants = [...]`), they are tried in order and
+//!   the first match wins — covering devices with firmware-dependent response
+//!   shapes without regex alternation.
+//! - **Tier 2: Transform pipeline** — sequential string transformations
+//!   (trim, remove prefix, to_float, scale, etc.).
+//! - **Tier 3 (escape hatch): Regex** — named capture groups from a regex
+//!   pattern. Deprecated at top level; prefer variants.
 
 use crate::config::validated::{ResponseParser, ScpiResponseType, ValidatedFormat, ValidatedRegex};
 use crate::format_parser;
@@ -69,9 +73,22 @@ pub fn parse_scpi(input: &str, response_type: &ScpiResponseType) -> Result<Value
     }
 }
 
-/// Parse a response using a validated format string (Tier 1).
+/// Parse a response using a validated format (Tier 1).
+///
+/// Tries each variant in declaration order; first success wins. Single-format
+/// responses have a 1-element variant list, so this is the common path too.
 pub fn parse_with_format(input: &str, format: &ValidatedFormat) -> Result<HashMap<String, Value>> {
-    format_parser::parse_response(&format.segments, input)
+    let mut attempts: Vec<String> = Vec::with_capacity(format.variants.len());
+    for variant in &format.variants {
+        match format_parser::parse_response(&variant.segments, input) {
+            Ok(map) => return Ok(map),
+            Err(e) => attempts.push(format!("  - '{}': {e}", variant.source)),
+        }
+    }
+    Err(anyhow!(
+        "no format variant matched input '{input}':\n{}",
+        attempts.join("\n")
+    ))
 }
 
 /// Parse a response using a transform pipeline (Tier 2).
@@ -134,7 +151,7 @@ fn transform_value_to_json(value: &crate::transform::TransformValue) -> Result<V
 #[allow(clippy::float_cmp)]
 mod tests {
     use super::*;
-    use crate::config::validated::ValidatedFormat;
+    use crate::config::validated::{FormatVariant, ValidatedFormat};
     use crate::format_parser::parse_format;
     use crate::transform::{TransformOp, TransformPipeline};
 
@@ -231,14 +248,65 @@ mod tests {
 
     #[test]
     fn tier1_format_parsing() {
-        let segments = parse_format("{addr:1}PO{pulses:hex8}").unwrap();
         let fmt = ValidatedFormat {
-            source: "{addr:1}PO{pulses:hex8}".to_string(),
-            segments,
+            variants: vec![FormatVariant {
+                source: "{addr:1}PO{pulses:hex8}".to_string(),
+                segments: parse_format("{addr:1}PO{pulses:hex8}").unwrap(),
+            }],
         };
         let result = parse_with_format("2PO0000A1B3", &fmt).unwrap();
         assert_eq!(result["addr"], Value::String("2".to_string()));
         assert_eq!(result["pulses"], Value::Number(0xA1B3.into()));
+    }
+
+    #[test]
+    fn tier1_variants_first_match_wins() {
+        // Two variants differ by travel-field width: 5 chars vs 8 chars.
+        // First variant (travel:5) should match short input.
+        let fmt = ValidatedFormat {
+            variants: vec![
+                FormatVariant {
+                    source: "{addr:1}IN{travel:5}{pulses:hex8}".to_string(),
+                    segments: parse_format("{addr:1}IN{travel:5}{pulses:hex8}").unwrap(),
+                },
+                FormatVariant {
+                    source: "{addr:1}IN{travel:8}{pulses:hex8}".to_string(),
+                    segments: parse_format("{addr:1}IN{travel:8}{pulses:hex8}").unwrap(),
+                },
+            ],
+        };
+        // Short: 1 + 2 + 5 + 8 = 16 chars. "T_____" is 5-char travel.
+        let result_short = parse_with_format("2INT____00000400", &fmt).unwrap();
+        assert_eq!(result_short["travel"], Value::String("T____".to_string()));
+        assert_eq!(result_short["pulses"], Value::Number(0x400.into()));
+
+        // Long: 1 + 2 + 8 + 8 = 19 chars. Short variant rejects trailing input,
+        // second variant wins.
+        let result_long = parse_with_format("2INT_______00000400", &fmt).unwrap();
+        assert_eq!(result_long["travel"], Value::String("T_______".to_string()));
+        assert_eq!(result_long["pulses"], Value::Number(0x400.into()));
+    }
+
+    #[test]
+    fn tier1_variants_all_fail_reports_each_attempt() {
+        let fmt = ValidatedFormat {
+            variants: vec![
+                FormatVariant {
+                    source: "OK{v:3}".to_string(),
+                    segments: parse_format("OK{v:3}").unwrap(),
+                },
+                FormatVariant {
+                    source: "YES{v:3}".to_string(),
+                    segments: parse_format("YES{v:3}").unwrap(),
+                },
+            ],
+        };
+        let err = parse_with_format("NO000", &fmt).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("OK{v:3}") && msg.contains("YES{v:3}"),
+            "error should list all attempted variants, got: {msg}"
+        );
     }
 
     // ---- Tier 2: Transform pipeline ----
@@ -285,10 +353,11 @@ mod tests {
 
     #[test]
     fn dispatch_format_parser() {
-        let segments = parse_format("OK{code:2}").unwrap();
         let parser = ResponseParser::Format(ValidatedFormat {
-            source: "OK{code:2}".to_string(),
-            segments,
+            variants: vec![FormatVariant {
+                source: "OK{code:2}".to_string(),
+                segments: parse_format("OK{code:2}").unwrap(),
+            }],
         });
         let result = parse_with_parser("OK42", &parser).unwrap();
         assert_eq!(result["code"], Value::String("42".to_string()));
