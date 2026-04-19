@@ -471,14 +471,65 @@ fn estimate_morphological_opening(
     })
 }
 
-/// Vertical minimum filter (grayscale erosion with a vertical line kernel).
-/// Each output pixel is the min over a ±(k/2) vertical neighborhood of the
-/// input. Uses a rolling window deque for O(w·h) total cost regardless of
-/// kernel size.
-fn vertical_minimum_filter(frame: &[f32], w: usize, h: usize, kernel: usize) -> Vec<f32> {
+/// Compile-time selector for the vertical extremum filter direction
+/// (bd-xhqdo). Pre-bd-xhqdo the crate shipped two ~95%-duplicated deque
+/// implementations of the rolling-window min/max along the cross-dispersion
+/// axis; unifying them with a zero-sized trait parameter collapses both
+/// paths into a single body that monomorphizes to the exact old code.
+trait VerticalExtremum {
+    /// Return `true` when the back element of the deque is dominated by the
+    /// new candidate and should be dropped (strict-better plus non-finite).
+    /// For a min filter this is `back >= new`; for a max filter `back <= new`.
+    fn should_pop_back(back: f32, new: f32) -> bool;
+
+    /// Neutral initial value used by the tail-flush naive scan when the
+    /// window straddles the far edge of the column. `+∞` for min, `-∞` for max.
+    const FLUSH_INIT: f32;
+
+    /// True when `candidate` improves on `current_best` in the flush scan.
+    fn is_better(candidate: f32, current_best: f32) -> bool;
+}
+
+struct Min;
+impl VerticalExtremum for Min {
+    #[inline]
+    fn should_pop_back(back: f32, new: f32) -> bool {
+        !back.is_finite() || back >= new
+    }
+    const FLUSH_INIT: f32 = f32::INFINITY;
+    #[inline]
+    fn is_better(candidate: f32, current_best: f32) -> bool {
+        candidate < current_best
+    }
+}
+
+struct Max;
+impl VerticalExtremum for Max {
+    #[inline]
+    fn should_pop_back(back: f32, new: f32) -> bool {
+        !back.is_finite() || back <= new
+    }
+    const FLUSH_INIT: f32 = f32::NEG_INFINITY;
+    #[inline]
+    fn is_better(candidate: f32, current_best: f32) -> bool {
+        candidate > current_best
+    }
+}
+
+/// Deque-based O(w·h) rolling-window extremum filter along the cross-dispersion
+/// (y / row) axis. Each output pixel is the min or max — as determined by the
+/// `E` type parameter — over a ±(kernel/2) vertical neighborhood of the input.
+///
+/// Instantiated as `::<Min>` for erosion and `::<Max>` for dilation; both
+/// monomorphize to byte-equivalent code with the pre-bd-xhqdo implementations.
+fn vertical_extremum_filter<E: VerticalExtremum>(
+    frame: &[f32],
+    w: usize,
+    h: usize,
+    kernel: usize,
+) -> Vec<f32> {
     let half = kernel / 2;
     let mut out = vec![f32::NAN; w * h];
-    // For each column, run a deque-based rolling min over the column.
     let mut col_buf = vec![0.0f32; h];
     let mut deque: std::collections::VecDeque<usize> = std::collections::VecDeque::with_capacity(h);
     for col in 0..w {
@@ -487,17 +538,25 @@ fn vertical_minimum_filter(frame: &[f32], w: usize, h: usize, kernel: usize) -> 
         }
         deque.clear();
         for row in 0..h {
-            // Drop from tail while the new value is ≤ the tail value.
+            // Drop from tail while the new value dominates the tail (min:
+            // ≥, max: ≤, plus non-finite). Monomorphized: const-folded to
+            // the concrete comparator per instantiation.
             while let Some(&back) = deque.back() {
-                if !col_buf[back].is_finite() || col_buf[back] >= col_buf[row] {
+                if E::should_pop_back(col_buf[back], col_buf[row]) {
                     deque.pop_back();
                 } else {
                     break;
                 }
             }
             deque.push_back(row);
-            // Drop from head rows that are now out of the window.
-            let lo = row.saturating_sub(half);
+            // Drop from head rows that are now outside the symmetric ±half
+            // window centered at `center = row - half`. The valid window is
+            // [center - half, center + half] = [row - 2·half, row], so drop
+            // rows with index < row - 2·half. Pre-bd-xhqdo the code used
+            // `row - half` here, which effectively emitted the min/max over
+            // the asymmetric upper half [center, center + half] only — a
+            // pre-existing bug filed and fixed in this PR (bd-g22gu.1.2).
+            let lo = row.saturating_sub(2 * half);
             while let Some(&front) = deque.front() {
                 if front < lo {
                     deque.pop_front();
@@ -505,21 +564,21 @@ fn vertical_minimum_filter(frame: &[f32], w: usize, h: usize, kernel: usize) -> 
                     break;
                 }
             }
-            // Output only once the window has slid past the upper edge so
-            // that (row - half) is the center pixel of the window.
+            // Emit once the window has slid past the upper edge so that
+            // (row - half) is the center pixel of the kernel.
             if row >= half {
                 let center = row - half;
                 out[center * w + col] = col_buf[*deque.front().unwrap()];
             }
         }
-        // Flush the trailing rows (where center + half >= h).
+        // Flush the trailing rows (where center + half ≥ h) with a naive
+        // scan of the truncated window.
         for center in (h.saturating_sub(half))..h {
-            // Recompute the window [center-half, min(h-1, center+half)] min.
             let lo = center.saturating_sub(half);
             let hi = (center + half).min(h - 1);
-            let mut m = f32::INFINITY;
+            let mut m = E::FLUSH_INIT;
             for &v in &col_buf[lo..=hi] {
-                if v.is_finite() && v < m {
+                if v.is_finite() && E::is_better(v, m) {
                     m = v;
                 }
             }
@@ -529,52 +588,18 @@ fn vertical_minimum_filter(frame: &[f32], w: usize, h: usize, kernel: usize) -> 
     out
 }
 
+/// Vertical minimum filter (grayscale erosion with a vertical line kernel).
+/// Each output pixel is the min over a ±(k/2) vertical neighborhood of the
+/// input. Uses a rolling window deque for O(w·h) total cost regardless of
+/// kernel size. See [`vertical_extremum_filter`].
+fn vertical_minimum_filter(frame: &[f32], w: usize, h: usize, kernel: usize) -> Vec<f32> {
+    vertical_extremum_filter::<Min>(frame, w, h, kernel)
+}
+
 /// Vertical maximum filter (grayscale dilation with a vertical line kernel).
+/// See [`vertical_extremum_filter`].
 fn vertical_maximum_filter(frame: &[f32], w: usize, h: usize, kernel: usize) -> Vec<f32> {
-    let half = kernel / 2;
-    let mut out = vec![f32::NAN; w * h];
-    let mut col_buf = vec![0.0f32; h];
-    let mut deque: std::collections::VecDeque<usize> = std::collections::VecDeque::with_capacity(h);
-    for col in 0..w {
-        for row in 0..h {
-            col_buf[row] = frame[row * w + col];
-        }
-        deque.clear();
-        for row in 0..h {
-            while let Some(&back) = deque.back() {
-                if !col_buf[back].is_finite() || col_buf[back] <= col_buf[row] {
-                    deque.pop_back();
-                } else {
-                    break;
-                }
-            }
-            deque.push_back(row);
-            let lo = row.saturating_sub(half);
-            while let Some(&front) = deque.front() {
-                if front < lo {
-                    deque.pop_front();
-                } else {
-                    break;
-                }
-            }
-            if row >= half {
-                let center = row - half;
-                out[center * w + col] = col_buf[*deque.front().unwrap()];
-            }
-        }
-        for center in (h.saturating_sub(half))..h {
-            let lo = center.saturating_sub(half);
-            let hi = (center + half).min(h - 1);
-            let mut m = f32::NEG_INFINITY;
-            for &v in &col_buf[lo..=hi] {
-                if v.is_finite() && v > m {
-                    m = v;
-                }
-            }
-            out[center * w + col] = if m.is_finite() { m } else { 0.0 };
-        }
-    }
-    out
+    vertical_extremum_filter::<Max>(frame, w, h, kernel)
 }
 
 /// Grow a boolean mask where `true` means "within `radius` pixels of a
@@ -1039,6 +1064,66 @@ mod tests {
             (center_val - f64::from(background)).abs() < 2.0,
             "model center: {center_val}, expected ~{background}"
         );
+    }
+
+    #[test]
+    fn test_vertical_extremum_matches_pre_refactor_behavior() {
+        // bd-xhqdo: lock the vertical min/max filter behavior so the Min/Max
+        // zero-sized-type generic in vertical_extremum_filter cannot silently
+        // drift from the pre-bd-xhqdo hand-written twins.
+        //
+        // With the symmetric ±half window (post-fix), kernel=3 (half=1):
+        //   row:  0   1   2   3   4   5   6
+        //   val: 10   2   8   1   9   3   7
+        //
+        // MIN over [c-1, c+1] intersected with [0, 6]:
+        //   c=0: min(10, 2)             = 2
+        //   c=1: min(10, 2, 8)          = 2
+        //   c=2: min(2,  8, 1)          = 1
+        //   c=3: min(8,  1, 9)          = 1
+        //   c=4: min(1,  9, 3)          = 1
+        //   c=5: min(9,  3, 7)          = 3
+        //   c=6: min(3,  7)             = 3
+        let frame: Vec<f32> = vec![10.0, 2.0, 8.0, 1.0, 9.0, 3.0, 7.0];
+        let w = 1;
+        let h = 7;
+        let kernel = 3;
+
+        let min_out = super::vertical_minimum_filter(&frame, w, h, kernel);
+        let expected_min: [f32; 7] = [2.0, 2.0, 1.0, 1.0, 1.0, 3.0, 3.0];
+        assert_eq!(min_out, expected_min, "vertical_minimum_filter");
+
+        // MAX over [c-1, c+1] intersected with [0, 6]:
+        //   c=0: max(10, 2)    = 10
+        //   c=1: max(10, 2, 8) = 10
+        //   c=2: max(2,  8, 1) = 8
+        //   c=3: max(8,  1, 9) = 9
+        //   c=4: max(1,  9, 3) = 9
+        //   c=5: max(9,  3, 7) = 9
+        //   c=6: max(3,  7)    = 7
+        let max_out = super::vertical_maximum_filter(&frame, w, h, kernel);
+        let expected_max: [f32; 7] = [10.0, 10.0, 8.0, 9.0, 9.0, 9.0, 7.0];
+        assert_eq!(max_out, expected_max, "vertical_maximum_filter");
+    }
+
+    #[test]
+    fn test_vertical_extremum_handles_nans_in_column() {
+        // Non-finite values at the tail make the deque pop (the impl treats
+        // !is_finite as "pop-eligible"); in the flush scan they are skipped.
+        // Symmetric ±half window:
+        //   row:  0     1      2    3    4
+        //   val:  5     NaN    2    8    NaN
+        //
+        //   c=0 over [0,1]  = min(5, NaN)       = 5
+        //   c=1 over [0,2]  = min(5, NaN, 2)    = 2
+        //   c=2 over [1,3]  = min(NaN, 2, 8)    = 2
+        //   c=3 over [2,4]  = min(2, 8, NaN)    = 2
+        //   c=4 over [3,4]  = min(8, NaN)       = 8
+        let frame: Vec<f32> = vec![5.0, f32::NAN, 2.0, 8.0, f32::NAN];
+        let w = 1;
+        let h = 5;
+        let min_out = super::vertical_minimum_filter(&frame, w, h, 3);
+        assert_eq!(min_out, vec![5.0, 2.0, 2.0, 2.0, 8.0]);
     }
 
     #[test]
