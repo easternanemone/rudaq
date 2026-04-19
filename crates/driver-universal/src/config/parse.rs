@@ -60,9 +60,10 @@ pub fn parse_manifest(raw: RawManifest) -> Result<DeviceManifest, Vec<ConfigErro
         if let Some(ref resp_name) = cmd_cfg.response
             && !raw.responses.contains_key(resp_name)
         {
-            errors.push(ConfigError::UnknownResponse(format!(
-                "command '{cmd_name}' references unknown response '{resp_name}'"
-            )));
+            errors.push(ConfigError::UnknownResponse {
+                command: cmd_name.clone(),
+                name: resp_name.clone(),
+            });
         }
         // Validate response_type if present
         if let Some(ref rt_str) = cmd_cfg.response_type
@@ -1367,8 +1368,8 @@ response = "nonexistent_response"
         let errs = parse_manifest(raw).unwrap_err();
         assert!(errs.iter().any(|e| matches!(
             e,
-            ConfigError::UnknownResponse(msg)
-            if msg.contains("nonexistent_response")
+            ConfigError::UnknownResponse { name, .. }
+            if name == "nonexistent_response"
         )));
     }
 

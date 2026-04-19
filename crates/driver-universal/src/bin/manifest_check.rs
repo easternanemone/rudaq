@@ -2,7 +2,7 @@
 //!
 //! Reads a manifest, runs the full validation pipeline, and pretty-prints
 //! every error (collecting all of them, not just the first) with "did you
-//! mean?" suggestions where the error context makes that cheap.
+//! mean?" suggestions where the error carries enough structural info.
 //!
 //! Exit codes:
 //!   0 — manifest is valid
@@ -16,14 +16,13 @@
 //! OK  config/devices/ipg_laser.toml — 8 commands, 7 responses, 5 parameters
 //!
 //! $ manifest-check bogus.toml
-//! ERR bogus.toml — 2 errors:
-//!   • unknown response reference: 'positon'
-//!     hint: did you mean 'position'?
+//! ERR bogus.toml — 1 error:
 //!   • command 'get_pos' references unknown response 'positon'
-//!     hint: did you mean response 'position'?
+//!     hint: did you mean 'position'?
 //! ```
 
 use driver_universal::config::{ConfigError, RawManifest, parse_manifest};
+use driver_universal::string_utils::closest_within_threshold;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -78,7 +77,7 @@ fn main() -> ExitCode {
                 if count == 1 { "" } else { "s" }
             );
             for err in &errors {
-                eprintln!("  • {}", display_error(err));
+                eprintln!("  • {err}");
                 if let Some(hint) = suggest(err, &known_responses) {
                     eprintln!("    hint: {hint}");
                 }
@@ -88,73 +87,19 @@ fn main() -> ExitCode {
     }
 }
 
-/// Format a `ConfigError` for CLI output, unwrapping the double-quoted
-/// `unknown response reference: '<sentence>'` shape that the cross-validator
-/// currently produces — otherwise the full sentence appears nested inside
-/// the variant's `{0}` display, which is hard to read.
-fn display_error(err: &ConfigError) -> String {
-    if let ConfigError::UnknownResponse(inner) = err
-        && inner.contains("references unknown response")
-    {
-        return inner.clone();
-    }
-    err.to_string()
-}
-
 /// Attempt to produce a "did you mean?" hint for an error.
 ///
-/// The `UnknownResponse` variant from `parse_manifest` currently carries
-/// either a bare name or a full `"command 'X' references unknown response 'Y'"`
-/// sentence; handle both shapes. `Other` can also carry the sentence.
+/// Currently only fires on `UnknownResponse`. If other "referenced X not
+/// found" variants appear, extend this match — the structured error
+/// fields give us the typo'd name directly, no sentence parsing needed.
 fn suggest(err: &ConfigError, known_responses: &[String]) -> Option<String> {
-    let payload = match err {
-        ConfigError::UnknownResponse(s) | ConfigError::Other(s) => s.as_str(),
-        _ => return None,
-    };
-    let name = extract_unknown_response_name(payload).unwrap_or(payload);
-    closest(name, known_responses).map(|s| format!("did you mean '{s}'?"))
-}
-
-/// Pull the `NAME` out of `"... references unknown response 'NAME'"` if present.
-fn extract_unknown_response_name(msg: &str) -> Option<&str> {
-    let tail = msg.split("references unknown response '").nth(1)?;
-    // strip the single trailing quote
-    tail.strip_suffix('\'').or(Some(tail))
-}
-
-/// Return the candidate within edit distance `max(3, target_len / 3)` of `target`.
-/// Ties broken by shortest distance; returns `None` if no candidate qualifies.
-fn closest(target: &str, candidates: &[String]) -> Option<String> {
-    let threshold = 3usize.max(target.chars().count() / 3);
-    candidates
-        .iter()
-        .map(|c| (c, edit_distance(target, c)))
-        .filter(|(_, d)| *d <= threshold)
-        .min_by_key(|(_, d)| *d)
-        .map(|(c, _)| c.clone())
-}
-
-/// Classic Levenshtein edit distance (insertions, deletions, substitutions all cost 1).
-fn edit_distance(a: &str, b: &str) -> usize {
-    let a: Vec<char> = a.chars().collect();
-    let b: Vec<char> = b.chars().collect();
-    if a.is_empty() {
-        return b.len();
-    }
-    if b.is_empty() {
-        return a.len();
-    }
-    let mut prev: Vec<usize> = (0..=b.len()).collect();
-    let mut curr = vec![0usize; b.len() + 1];
-    for i in 1..=a.len() {
-        curr[0] = i;
-        for j in 1..=b.len() {
-            let cost = usize::from(a[i - 1] != b[j - 1]);
-            curr[j] = (prev[j] + 1).min(curr[j - 1] + 1).min(prev[j - 1] + cost);
+    match err {
+        ConfigError::UnknownResponse { name, .. } => {
+            closest_within_threshold(name, known_responses.iter().map(String::as_str))
+                .map(|s| format!("did you mean '{s}'?"))
         }
-        std::mem::swap(&mut prev, &mut curr);
+        _ => None,
     }
-    prev[b.len()]
 }
 
 #[cfg(test)]
@@ -162,56 +107,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn edit_distance_identical() {
-        assert_eq!(edit_distance("position", "position"), 0);
-    }
-
-    #[test]
-    fn edit_distance_single_substitution() {
-        assert_eq!(edit_distance("positon", "position"), 1);
-    }
-
-    #[test]
-    fn edit_distance_empty() {
-        assert_eq!(edit_distance("", "abc"), 3);
-        assert_eq!(edit_distance("abc", ""), 3);
-        assert_eq!(edit_distance("", ""), 0);
-    }
-
-    #[test]
-    fn closest_picks_nearest_within_threshold() {
-        let cands = vec![
-            "position".to_string(),
-            "status".to_string(),
-            "velocity".to_string(),
-        ];
-        assert_eq!(closest("positon", &cands).as_deref(), Some("position"));
-        assert_eq!(closest("stauts", &cands).as_deref(), Some("status"));
-    }
-
-    #[test]
-    fn closest_returns_none_when_far() {
+    fn suggest_hints_for_typo_in_unknown_response() {
         let cands = vec!["position".to_string(), "status".to_string()];
-        // 'xyzzy' is too far from either candidate.
-        assert_eq!(closest("xyzzy", &cands), None);
-    }
-
-    #[test]
-    fn suggest_reads_embedded_sentence_form() {
-        let cands = vec!["position".to_string(), "status".to_string()];
-        let err = ConfigError::UnknownResponse(
-            "command 'get_pos' references unknown response 'positon'".into(),
-        );
-        assert_eq!(
-            suggest(&err, &cands),
-            Some("did you mean 'position'?".to_string())
-        );
-    }
-
-    #[test]
-    fn suggest_reads_bare_name_form() {
-        let cands = vec!["position".to_string()];
-        let err = ConfigError::UnknownResponse("positon".into());
+        let err = ConfigError::UnknownResponse {
+            command: "get_pos".into(),
+            name: "positon".into(),
+        };
         assert_eq!(
             suggest(&err, &cands),
             Some("did you mean 'position'?".to_string())
@@ -226,19 +127,12 @@ mod tests {
     }
 
     #[test]
-    fn display_error_unwraps_embedded_sentence() {
-        let err = ConfigError::UnknownResponse(
-            "command 'get_pos' references unknown response 'positon'".into(),
-        );
-        assert_eq!(
-            display_error(&err),
-            "command 'get_pos' references unknown response 'positon'"
-        );
-    }
-
-    #[test]
-    fn display_error_bare_name_uses_variant_display() {
-        let err = ConfigError::UnknownResponse("positon".into());
-        assert_eq!(display_error(&err), "unknown response reference: 'positon'");
+    fn suggest_returns_none_when_name_is_far_from_all() {
+        let cands = vec!["position".to_string(), "status".to_string()];
+        let err = ConfigError::UnknownResponse {
+            command: "get_pos".into(),
+            name: "xyzzy".into(),
+        };
+        assert_eq!(suggest(&err, &cands), None);
     }
 }

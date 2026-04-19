@@ -5,8 +5,8 @@ use thiserror::Error;
 /// Errors that can occur during configuration parsing and validation.
 #[derive(Debug, Error)]
 pub enum ConfigError {
-    #[error("unknown response reference: '{0}'")]
-    UnknownResponse(String),
+    #[error("command '{command}' references unknown response '{name}'")]
+    UnknownResponse { command: String, name: String },
 
     #[error("invalid regex pattern '{pattern}': {source}")]
     InvalidRegex {
@@ -62,8 +62,13 @@ mod tests {
 
     #[test]
     fn error_display_messages() {
-        let err = ConfigError::UnknownResponse("position_data".into());
-        assert!(err.to_string().contains("position_data"));
+        let err = ConfigError::UnknownResponse {
+            command: "get_pos".into(),
+            name: "position_data".into(),
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("position_data"));
+        assert!(msg.contains("get_pos"));
 
         let err = ConfigError::InvalidBaudRate(0);
         assert!(err.to_string().contains('0'));
