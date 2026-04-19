@@ -163,13 +163,68 @@ impl ScatteredLightModel {
     }
 
     /// Subtract scattered light from a frame in-place.
+    ///
+    /// Fast path: precompute per-column `T_ix(x_norm)` and per-row `T_iy(y_norm)`
+    /// basis tables once, then factor the 2D evaluation into an outer sum over
+    /// `iy` (computed once per row) and an inner sum over `ix` (computed once
+    /// per pixel). This replaces 2·W·H short-lived `Vec<f64>` allocations and
+    /// a per-pixel `O(nx·ny)` inner loop with zero allocations and an
+    /// `O(nx)` inner loop (bd-gn016).
+    ///
+    /// Bit-equivalent to `eval(col, row)` per pixel up to floating-point
+    /// summation order (differences are sub-ULP and absorbed by downstream
+    /// tolerances).
     pub fn subtract_from(&self, frame: &mut [f32], width: u32) {
         let w = width as usize;
-        for (idx, pixel) in frame.iter_mut().enumerate() {
-            let col = idx % w;
-            let row = idx / w;
-            let scatter = self.eval(col as f64, row as f64);
-            *pixel = (f64::from(*pixel) - scatter).max(0.0) as f32;
+        if w == 0 {
+            return;
+        }
+        let h = frame.len() / w;
+        let nx = self.degree_x + 1;
+        let ny = self.degree_y + 1;
+        let w_norm = f64::from(self.width.max(1));
+        let h_norm = f64::from(self.height.max(1));
+
+        // Per-column basis table: tx_table[col * nx + i] = T_i(x_norm(col)).
+        // Sizing: w * nx * 8 bytes ≤ 2560 * 8 * 8 ≈ 160 KB for ME5000 + nx≤8.
+        let mut tx_table = vec![0.0_f64; w * nx];
+        for col in 0..w {
+            let x_norm = 2.0 * (col as f64) / w_norm - 1.0;
+            crate::chebyshev_common::chebyshev_basis_into(
+                x_norm,
+                &mut tx_table[col * nx..(col + 1) * nx],
+            );
+        }
+
+        // Per-row scratch: ty[iy] = T_iy(y_norm) for the current row.
+        // row_contrib[ix] = sum_iy c[iy*nx + ix] * ty[iy] — folds out y so the
+        // inner per-pixel loop is just a dot product of tx·row_contrib.
+        let mut ty = vec![0.0_f64; ny];
+        let mut row_contrib = vec![0.0_f64; nx];
+
+        for row in 0..h {
+            let y_norm = 2.0 * (row as f64) / h_norm - 1.0;
+            crate::chebyshev_common::chebyshev_basis_into(y_norm, &mut ty);
+
+            // Layout: coeffs[iy * nx + ix] (y-outer, x-inner).
+            for (ix, contrib) in row_contrib.iter_mut().enumerate() {
+                let mut s = 0.0_f64;
+                for (iy, &ty_val) in ty.iter().enumerate() {
+                    s += self.coefficients[iy * nx + ix] * ty_val;
+                }
+                *contrib = s;
+            }
+
+            let row_base = row * w;
+            for col in 0..w {
+                let tx = &tx_table[col * nx..(col + 1) * nx];
+                let mut scatter = 0.0_f64;
+                for (tx_val, contrib) in tx.iter().zip(row_contrib.iter()) {
+                    scatter += tx_val * contrib;
+                }
+                let pixel = &mut frame[row_base + col];
+                *pixel = (f64::from(*pixel) - scatter).max(0.0) as f32;
+            }
         }
     }
 }
@@ -983,6 +1038,70 @@ mod tests {
         assert!(
             (center_val - f64::from(background)).abs() < 2.0,
             "model center: {center_val}, expected ~{background}"
+        );
+    }
+
+    #[test]
+    fn test_subtract_from_matches_naive_eval_per_pixel() {
+        // bd-gn016: the cached `subtract_from` hot path must produce the same
+        // per-pixel scatter value as a naive `for each px: model.eval(col,row)`
+        // loop. Sub-ULP summation-order differences are expected and bounded
+        // to a few ULPs per pixel against the signal.
+        let width: u32 = 384;
+        let height: u32 = 256;
+        let model = ScatteredLightModel {
+            // Pick non-trivial coefficients across the full (nx=3, ny=3) table
+            // so every c_{iy,ix} term contributes and rounding drifts are
+            // exercised rather than masked.
+            coefficients: vec![
+                100.0, 5.0, -0.5, // iy = 0
+                20.0, -3.0, 0.25, // iy = 1
+                -10.0, 2.5, 0.125, // iy = 2
+            ],
+            degree_x: 2,
+            degree_y: 2,
+            width,
+            height,
+        };
+
+        // Start from a constant baseline so the corrected-pixel value isolates
+        // (baseline − scatter) for straightforward comparison.
+        let baseline = 1000.0_f32;
+        let mut fast = vec![baseline; width as usize * height as usize];
+        let mut naive = fast.clone();
+
+        // Fast path (cached).
+        model.subtract_from(&mut fast, width);
+
+        // Naive reference.
+        let w = width as usize;
+        for (idx, pixel) in naive.iter_mut().enumerate() {
+            let col = idx % w;
+            let row = idx / w;
+            let scatter = model.eval(col as f64, row as f64);
+            *pixel = (f64::from(*pixel) - scatter).max(0.0) as f32;
+        }
+
+        let peak = naive.iter().copied().fold(0.0_f32, f32::max);
+        // Tolerance: a few ULPs at f32 precision of the peak value, scaled
+        // by the number of terms per sum (nx·ny = 9). 1e-4 relative comfortably
+        // covers it while still catching any real algorithmic drift.
+        let abs_tol = peak * 1e-4;
+        let mut worst = 0.0_f32;
+        for (i, (&f, &n)) in fast.iter().zip(naive.iter()).enumerate() {
+            let d = (f - n).abs();
+            worst = worst.max(d);
+            assert!(
+                d <= abs_tol,
+                "pixel {i}: fast={f} naive={n} diff={d} tol={abs_tol}"
+            );
+        }
+        // Assert the implementation is in fact close to bit-equal, not just
+        // within the looser 1e-4 guard — drift larger than ~1e-8 · peak would
+        // hint at a real algorithm change hiding behind a forgiving tolerance.
+        assert!(
+            worst < peak * 1e-6,
+            "fast/naive diverged by {worst} on peak={peak} — stricter than expected tolerance"
         );
     }
 
