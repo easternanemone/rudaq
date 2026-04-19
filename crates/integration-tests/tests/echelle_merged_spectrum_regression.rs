@@ -210,10 +210,13 @@ fn build_pipeline_config(
         trace_validation: echelle::trace_validation::TraceValidationConfig::mechelle_5000_istar(),
         arc_config,
         wl_config,
-        // ME5000 preset ships enabled=false for pure-emission HgAr (bd-g22gu.3);
-        // leaving it in place means Phase B short-circuits on arcs but can
-        // still activate on the flat via preliminary trace detection.
-        scatter_config: Some(echelle::scattered_light::ScatteredLightConfig::mechelle_5000_istar()),
+        // bd-g22gu.3: per-call-site scatter policy. Arc OFF (HgAr emission
+        // over-subtracts under morph opening); flat ON (DH3P continuum needs
+        // MCP halo removal for blaze correctness).
+        arc_scatter: None,
+        flat_scatter: Some(
+            echelle::scattered_light::ScatteredLightConfig::mechelle_5000_istar_flat(),
+        ),
         rectify_config: RectifyConfig::default(),
         use_optimal_extraction: false,
         optimal_config: echelle::optimal_extraction::OptimalExtractionConfig::istar_iccd(),

@@ -177,15 +177,16 @@ impl CalibrateFileConfig {
         // fit quality — without it the fit sees edge-clipped ghosts and
         // its RMS is dominated by outliers. Users can opt out by setting
         // all trace_validation.* fields explicitly in a custom config.
-        // bd-vdfum / Phase B: enable morphological-opening scattered-light
-        // subtraction by default for Mechelle-class ICCD frames. MCP halos
-        // flood the inter-order gap on HgAr captures (NotebookLM §FM4 —
-        // "4500-count baseline anomaly"); the morphological opening
-        // squashes those halos before the background surface is fit.
-        // Users can override via a custom config that sets scatter_config
-        // = None to disable.
-        let scatter_config =
-            Some(echelle::scattered_light::ScatteredLightConfig::mechelle_5000_istar());
+        // bd-g22gu.3: per-call-site scatter policy. Arc scatter stays OFF for
+        // ME5000 HgAr — morphological opening over-subtracts pure emission
+        // lines (kernel=13 nukes 6/7 Hg lines, kernel=25 nukes 3/7). Flat
+        // scatter stays ON so the DH3P continuum gets the 4500-count MCP
+        // halo baseline removed before trace detection + blaze extraction
+        // (bd-vdfum / NotebookLM §FM4). Users can override either field in
+        // a custom config.
+        let arc_scatter = None;
+        let flat_scatter =
+            Some(echelle::scattered_light::ScatteredLightConfig::mechelle_5000_istar_flat());
         // bd-lf1bi / Phase D: ICCD variance model. NotebookLM §FM5 —
         // the iStar MCP has an excess-noise factor F=1.6 (vs 1.0 for a
         // standard CCD), and the standard-CCD variance model
@@ -203,7 +204,8 @@ impl CalibrateFileConfig {
             ),
             arc_config,
             wl_config,
-            scatter_config,
+            arc_scatter,
+            flat_scatter,
             rectify_config: d.rectify_config,
             optimal_config,
             use_optimal_extraction: self.tuning.use_optimal_extraction,
