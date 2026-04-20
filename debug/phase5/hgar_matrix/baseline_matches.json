@@ -6,191 +6,191 @@
     "pipeline_ok": true,
     "pipeline_error": null,
     "n_orders_detected": 20,
-    "n_orders_calibrated": 10,
-    "overall_rms_nm": 1.5025411080733877,
+    "n_orders_calibrated": 2,
+    "overall_rms_nm": 0.6065344629505888,
     "total_lines_detected": 524,
-    "total_lines_matched": 25,
-    "median_rms_nm": 4.0194366942304644e-14,
+    "total_lines_matched": 308,
+    "median_rms_nm": 0.608095837140046,
     "per_order": [
       {
         "order_index": 0,
         "lines_detected": 20,
-        "lines_matched": 4,
-        "lines_used": 4,
-        "rms_nm": 1.6323829508502612,
-        "success": true,
-        "failure_reason": null
+        "lines_matched": 7,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 1,
         "lines_detected": 24,
-        "lines_matched": 5,
-        "lines_used": 5,
-        "rms_nm": 2.113692455700974,
-        "success": true,
-        "failure_reason": null
+        "lines_matched": 15,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 2,
         "lines_detected": 18,
-        "lines_matched": 2,
-        "lines_used": 2,
+        "lines_matched": 8,
+        "lines_used": 0,
         "rms_nm": 0.0,
-        "success": true,
-        "failure_reason": null
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 3,
         "lines_detected": 26,
-        "lines_matched": 3,
-        "lines_used": 3,
-        "rms_nm": 2.2365225755351115,
-        "success": true,
-        "failure_reason": null
+        "lines_matched": 15,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 4,
         "lines_detected": 23,
-        "lines_matched": 3,
-        "lines_used": 3,
-        "rms_nm": 1.4352513929427808,
-        "success": true,
-        "failure_reason": null
+        "lines_matched": 16,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 5,
         "lines_detected": 31,
-        "lines_matched": 2,
-        "lines_used": 2,
-        "rms_nm": 8.038873388460929e-14,
-        "success": true,
-        "failure_reason": null
+        "lines_matched": 18,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 6,
         "lines_detected": 28,
-        "lines_matched": 0,
+        "lines_matched": 20,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 7,
         "lines_detected": 28,
-        "lines_matched": 0,
+        "lines_matched": 13,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 8,
         "lines_detected": 31,
-        "lines_matched": 0,
+        "lines_matched": 16,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 9,
         "lines_detected": 30,
-        "lines_matched": 0,
+        "lines_matched": 27,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 10,
         "lines_detected": 19,
-        "lines_matched": 1,
-        "lines_used": 1,
-        "rms_nm": 0.0,
+        "lines_matched": 19,
+        "lines_used": 19,
+        "rms_nm": 0.5971543212553364,
         "success": true,
         "failure_reason": null
       },
       {
         "order_index": 11,
         "lines_detected": 20,
-        "lines_matched": 2,
-        "lines_used": 2,
+        "lines_matched": 17,
+        "lines_used": 0,
         "rms_nm": 0.0,
-        "success": true,
-        "failure_reason": null
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 12,
         "lines_detected": 21,
-        "lines_matched": 1,
-        "lines_used": 1,
+        "lines_matched": 21,
+        "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "m collision with higher-quality fit; pending Cauchy re-seed"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 13,
         "lines_detected": 29,
-        "lines_matched": 1,
-        "lines_used": 1,
+        "lines_matched": 23,
+        "lines_used": 0,
         "rms_nm": 0.0,
-        "success": true,
-        "failure_reason": null
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 14,
         "lines_detected": 27,
-        "lines_matched": 0,
+        "lines_matched": 12,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 15,
         "lines_detected": 25,
-        "lines_matched": 0,
+        "lines_matched": 19,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 16,
         "lines_detected": 30,
-        "lines_matched": 0,
-        "lines_used": 0,
-        "rms_nm": 0.0,
-        "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
-      },
-      {
-        "order_index": 17,
-        "lines_detected": 35,
-        "lines_matched": 0,
-        "lines_used": 0,
-        "rms_nm": 0.0,
-        "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
-      },
-      {
-        "order_index": 18,
-        "lines_detected": 31,
-        "lines_matched": 1,
-        "lines_used": 1,
-        "rms_nm": 0.0,
+        "lines_matched": 15,
+        "lines_used": 14,
+        "rms_nm": 0.6190373530247556,
         "success": true,
         "failure_reason": null
       },
       {
-        "order_index": 19,
-        "lines_detected": 28,
-        "lines_matched": 0,
+        "order_index": 17,
+        "lines_detected": 35,
+        "lines_matched": 11,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
+      },
+      {
+        "order_index": 18,
+        "lines_detected": 31,
+        "lines_matched": 8,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
+      },
+      {
+        "order_index": 19,
+        "lines_detected": 28,
+        "lines_matched": 8,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       }
     ]
   },
@@ -201,191 +201,191 @@
     "pipeline_ok": true,
     "pipeline_error": null,
     "n_orders_detected": 20,
-    "n_orders_calibrated": 8,
-    "overall_rms_nm": 1.56132251686361,
+    "n_orders_calibrated": 1,
+    "overall_rms_nm": 0.6823889828890647,
     "total_lines_detected": 788,
-    "total_lines_matched": 23,
-    "median_rms_nm": 0.6338480992093113,
+    "total_lines_matched": 350,
+    "median_rms_nm": 0.6823889828890647,
     "per_order": [
       {
         "order_index": 0,
         "lines_detected": 26,
-        "lines_matched": 4,
-        "lines_used": 4,
-        "rms_nm": 1.9764059115101975,
-        "success": true,
-        "failure_reason": null
+        "lines_matched": 8,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 1,
         "lines_detected": 32,
-        "lines_matched": 5,
-        "lines_used": 5,
-        "rms_nm": 2.227139675964146,
-        "success": true,
-        "failure_reason": null
+        "lines_matched": 16,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 2,
         "lines_detected": 28,
-        "lines_matched": 2,
-        "lines_used": 2,
+        "lines_matched": 12,
+        "lines_used": 0,
         "rms_nm": 0.0,
-        "success": true,
-        "failure_reason": null
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 3,
         "lines_detected": 26,
-        "lines_matched": 3,
-        "lines_used": 3,
-        "rms_nm": 1.2676961984185422,
-        "success": true,
-        "failure_reason": null
+        "lines_matched": 16,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 4,
         "lines_detected": 42,
-        "lines_matched": 3,
-        "lines_used": 3,
-        "rms_nm": 1.6716636516460968,
-        "success": true,
-        "failure_reason": null
+        "lines_matched": 19,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 5,
         "lines_detected": 40,
-        "lines_matched": 2,
-        "lines_used": 2,
-        "rms_nm": 8.038873388460929e-14,
-        "success": true,
-        "failure_reason": null
+        "lines_matched": 18,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 6,
         "lines_detected": 53,
-        "lines_matched": 0,
+        "lines_matched": 24,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 7,
         "lines_detected": 44,
-        "lines_matched": 0,
+        "lines_matched": 14,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 8,
         "lines_detected": 50,
-        "lines_matched": 0,
+        "lines_matched": 16,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 9,
         "lines_detected": 54,
-        "lines_matched": 0,
-        "lines_used": 0,
-        "rms_nm": 0.0,
-        "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "lines_matched": 33,
+        "lines_used": 31,
+        "rms_nm": 0.6823889828890647,
+        "success": true,
+        "failure_reason": null
       },
       {
         "order_index": 10,
         "lines_detected": 27,
-        "lines_matched": 0,
+        "lines_matched": 24,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 11,
         "lines_detected": 31,
-        "lines_matched": 2,
-        "lines_used": 2,
+        "lines_matched": 19,
+        "lines_used": 0,
         "rms_nm": 0.0,
-        "success": true,
-        "failure_reason": null
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 12,
         "lines_detected": 38,
-        "lines_matched": 1,
-        "lines_used": 1,
+        "lines_matched": 27,
+        "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "m collision with higher-quality fit; pending Cauchy re-seed"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 13,
         "lines_detected": 44,
-        "lines_matched": 1,
-        "lines_used": 1,
+        "lines_matched": 23,
+        "lines_used": 0,
         "rms_nm": 0.0,
-        "success": true,
-        "failure_reason": null
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 14,
         "lines_detected": 38,
-        "lines_matched": 0,
+        "lines_matched": 13,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 15,
         "lines_detected": 44,
-        "lines_matched": 0,
+        "lines_matched": 22,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 16,
         "lines_detected": 40,
-        "lines_matched": 0,
+        "lines_matched": 16,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 17,
         "lines_detected": 42,
-        "lines_matched": 0,
+        "lines_matched": 11,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 18,
         "lines_detected": 49,
-        "lines_matched": 0,
+        "lines_matched": 11,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 19,
         "lines_detected": 40,
-        "lines_matched": 0,
+        "lines_matched": 8,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       }
     ]
   },
@@ -396,191 +396,191 @@
     "pipeline_ok": true,
     "pipeline_error": null,
     "n_orders_detected": 20,
-    "n_orders_calibrated": 8,
-    "overall_rms_nm": 1.9541117453120929,
+    "n_orders_calibrated": 1,
+    "overall_rms_nm": 0.23972610763664698,
     "total_lines_detected": 789,
-    "total_lines_matched": 24,
-    "median_rms_nm": 0.5693993776662569,
+    "total_lines_matched": 353,
+    "median_rms_nm": 0.23972610763664698,
     "per_order": [
       {
         "order_index": 0,
         "lines_detected": 27,
-        "lines_matched": 4,
-        "lines_used": 4,
-        "rms_nm": 1.1387987553324335,
-        "success": true,
-        "failure_reason": null
+        "lines_matched": 8,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 1,
         "lines_detected": 28,
-        "lines_matched": 5,
-        "lines_used": 5,
-        "rms_nm": 2.229176511520924,
-        "success": true,
-        "failure_reason": null
+        "lines_matched": 15,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 2,
         "lines_detected": 27,
-        "lines_matched": 2,
-        "lines_used": 2,
+        "lines_matched": 12,
+        "lines_used": 0,
         "rms_nm": 0.0,
-        "success": true,
-        "failure_reason": null
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 3,
         "lines_detected": 27,
-        "lines_matched": 4,
-        "lines_used": 4,
-        "rms_nm": 3.5140386258557474,
-        "success": true,
-        "failure_reason": null
+        "lines_matched": 19,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 4,
         "lines_detected": 40,
-        "lines_matched": 3,
-        "lines_used": 3,
-        "rms_nm": 1.6732456014822534,
-        "success": true,
-        "failure_reason": null
+        "lines_matched": 19,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 5,
         "lines_detected": 53,
-        "lines_matched": 2,
-        "lines_used": 2,
-        "rms_nm": 8.038873388460929e-14,
-        "success": true,
-        "failure_reason": null
+        "lines_matched": 19,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 6,
         "lines_detected": 46,
-        "lines_matched": 0,
+        "lines_matched": 24,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 7,
         "lines_detected": 44,
-        "lines_matched": 0,
+        "lines_matched": 15,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 8,
         "lines_detected": 45,
-        "lines_matched": 0,
+        "lines_matched": 16,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 9,
         "lines_detected": 52,
-        "lines_matched": 0,
+        "lines_matched": 32,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 10,
         "lines_detected": 23,
-        "lines_matched": 0,
+        "lines_matched": 23,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 11,
         "lines_detected": 24,
-        "lines_matched": 2,
-        "lines_used": 2,
+        "lines_matched": 18,
+        "lines_used": 0,
         "rms_nm": 0.0,
-        "success": true,
-        "failure_reason": null
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 12,
         "lines_detected": 37,
-        "lines_matched": 1,
-        "lines_used": 1,
+        "lines_matched": 28,
+        "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "m collision with higher-quality fit; pending Cauchy re-seed"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 13,
         "lines_detected": 45,
-        "lines_matched": 1,
-        "lines_used": 1,
+        "lines_matched": 23,
+        "lines_used": 0,
         "rms_nm": 0.0,
-        "success": true,
-        "failure_reason": null
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 14,
         "lines_detected": 41,
-        "lines_matched": 0,
+        "lines_matched": 14,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 15,
         "lines_detected": 50,
-        "lines_matched": 0,
+        "lines_matched": 23,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 16,
         "lines_detected": 51,
-        "lines_matched": 0,
-        "lines_used": 0,
-        "rms_nm": 0.0,
-        "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "lines_matched": 15,
+        "lines_used": 13,
+        "rms_nm": 0.23972610763664698,
+        "success": true,
+        "failure_reason": null
       },
       {
         "order_index": 17,
         "lines_detected": 47,
-        "lines_matched": 0,
+        "lines_matched": 11,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 18,
         "lines_detected": 44,
-        "lines_matched": 0,
+        "lines_matched": 11,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 19,
         "lines_detected": 38,
-        "lines_matched": 0,
+        "lines_matched": 8,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       }
     ]
   },
@@ -591,191 +591,191 @@
     "pipeline_ok": true,
     "pipeline_error": null,
     "n_orders_detected": 20,
-    "n_orders_calibrated": 8,
-    "overall_rms_nm": 1.4759622426821963,
+    "n_orders_calibrated": 1,
+    "overall_rms_nm": 0.38188376489762155,
     "total_lines_detected": 734,
-    "total_lines_matched": 23,
-    "median_rms_nm": 0.5499713635336143,
+    "total_lines_matched": 336,
+    "median_rms_nm": 0.38188376489762155,
     "per_order": [
       {
         "order_index": 0,
         "lines_detected": 16,
-        "lines_matched": 4,
-        "lines_used": 4,
-        "rms_nm": 1.0999427270671482,
-        "success": true,
-        "failure_reason": null
+        "lines_matched": 7,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 1,
         "lines_detected": 19,
-        "lines_matched": 5,
-        "lines_used": 5,
-        "rms_nm": 2.3348567330689036,
-        "success": true,
-        "failure_reason": null
+        "lines_matched": 14,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 2,
         "lines_detected": 24,
-        "lines_matched": 2,
-        "lines_used": 2,
+        "lines_matched": 12,
+        "lines_used": 0,
         "rms_nm": 0.0,
-        "success": true,
-        "failure_reason": null
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 3,
         "lines_detected": 30,
-        "lines_matched": 3,
-        "lines_used": 3,
-        "rms_nm": 1.5146761703720315,
-        "success": true,
-        "failure_reason": null
+        "lines_matched": 18,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 4,
         "lines_detected": 41,
-        "lines_matched": 3,
-        "lines_used": 3,
-        "rms_nm": 1.7268673357402424,
-        "success": true,
-        "failure_reason": null
+        "lines_matched": 17,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 5,
         "lines_detected": 48,
-        "lines_matched": 2,
-        "lines_used": 2,
-        "rms_nm": 8.038873388460929e-14,
-        "success": true,
-        "failure_reason": null
+        "lines_matched": 19,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 6,
         "lines_detected": 52,
-        "lines_matched": 0,
+        "lines_matched": 24,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 7,
         "lines_detected": 33,
-        "lines_matched": 0,
+        "lines_matched": 14,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 8,
         "lines_detected": 45,
-        "lines_matched": 0,
+        "lines_matched": 16,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 9,
         "lines_detected": 49,
-        "lines_matched": 0,
+        "lines_matched": 32,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 10,
         "lines_detected": 15,
-        "lines_matched": 0,
+        "lines_matched": 15,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 11,
         "lines_detected": 25,
-        "lines_matched": 2,
-        "lines_used": 2,
+        "lines_matched": 18,
+        "lines_used": 0,
         "rms_nm": 0.0,
-        "success": true,
-        "failure_reason": null
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 12,
         "lines_detected": 40,
-        "lines_matched": 1,
-        "lines_used": 1,
+        "lines_matched": 27,
+        "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "m collision with higher-quality fit; pending Cauchy re-seed"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 13,
         "lines_detected": 48,
-        "lines_matched": 1,
-        "lines_used": 1,
-        "rms_nm": 0.0,
+        "lines_matched": 23,
+        "lines_used": 20,
+        "rms_nm": 0.38188376489762155,
         "success": true,
         "failure_reason": null
       },
       {
         "order_index": 14,
         "lines_detected": 36,
-        "lines_matched": 0,
+        "lines_matched": 13,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 15,
         "lines_detected": 44,
-        "lines_matched": 0,
+        "lines_matched": 22,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 16,
         "lines_detected": 45,
-        "lines_matched": 0,
+        "lines_matched": 16,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 17,
         "lines_detected": 42,
-        "lines_matched": 0,
+        "lines_matched": 11,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 18,
         "lines_detected": 48,
-        "lines_matched": 0,
+        "lines_matched": 10,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 19,
         "lines_detected": 34,
-        "lines_matched": 0,
+        "lines_matched": 8,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       }
     ]
   },
@@ -786,191 +786,191 @@
     "pipeline_ok": true,
     "pipeline_error": null,
     "n_orders_detected": 20,
-    "n_orders_calibrated": 8,
-    "overall_rms_nm": 1.6060003634956368,
+    "n_orders_calibrated": 1,
+    "overall_rms_nm": 0.6244075892438119,
     "total_lines_detected": 527,
-    "total_lines_matched": 23,
-    "median_rms_nm": 0.2942782908634198,
+    "total_lines_matched": 313,
+    "median_rms_nm": 0.6244075892438119,
     "per_order": [
       {
         "order_index": 0,
         "lines_detected": 19,
-        "lines_matched": 4,
-        "lines_used": 4,
-        "rms_nm": 1.7608456972964706,
-        "success": true,
-        "failure_reason": null
+        "lines_matched": 7,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 1,
         "lines_detected": 15,
-        "lines_matched": 5,
-        "lines_used": 5,
-        "rms_nm": 2.23025348838851,
-        "success": true,
-        "failure_reason": null
+        "lines_matched": 14,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 2,
         "lines_detected": 21,
-        "lines_matched": 2,
-        "lines_used": 2,
+        "lines_matched": 11,
+        "lines_used": 0,
         "rms_nm": 0.0,
-        "success": true,
-        "failure_reason": null
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 3,
         "lines_detected": 19,
-        "lines_matched": 3,
-        "lines_used": 3,
-        "rms_nm": 2.4786796044992294,
-        "success": true,
-        "failure_reason": null
+        "lines_matched": 13,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 4,
         "lines_detected": 26,
-        "lines_matched": 3,
-        "lines_used": 3,
-        "rms_nm": 0.5885565817267592,
-        "success": true,
-        "failure_reason": null
+        "lines_matched": 15,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 5,
         "lines_detected": 42,
-        "lines_matched": 2,
-        "lines_used": 2,
-        "rms_nm": 8.038873388460929e-14,
-        "success": true,
-        "failure_reason": null
+        "lines_matched": 19,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 6,
         "lines_detected": 31,
-        "lines_matched": 0,
+        "lines_matched": 20,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 7,
         "lines_detected": 25,
-        "lines_matched": 0,
+        "lines_matched": 12,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 8,
         "lines_detected": 33,
-        "lines_matched": 0,
+        "lines_matched": 16,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 9,
         "lines_detected": 35,
-        "lines_matched": 0,
+        "lines_matched": 29,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 10,
         "lines_detected": 16,
-        "lines_matched": 0,
+        "lines_matched": 16,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 11,
         "lines_detected": 33,
-        "lines_matched": 2,
-        "lines_used": 2,
+        "lines_matched": 20,
+        "lines_used": 0,
         "rms_nm": 0.0,
-        "success": true,
-        "failure_reason": null
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 12,
         "lines_detected": 22,
-        "lines_matched": 1,
-        "lines_used": 1,
+        "lines_matched": 22,
+        "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "m collision with higher-quality fit; pending Cauchy re-seed"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 13,
         "lines_detected": 25,
-        "lines_matched": 1,
-        "lines_used": 1,
+        "lines_matched": 23,
+        "lines_used": 0,
         "rms_nm": 0.0,
-        "success": true,
-        "failure_reason": null
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 14,
         "lines_detected": 16,
-        "lines_matched": 0,
+        "lines_matched": 12,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 15,
         "lines_detected": 34,
-        "lines_matched": 0,
+        "lines_matched": 20,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 16,
         "lines_detected": 20,
-        "lines_matched": 0,
-        "lines_used": 0,
-        "rms_nm": 0.0,
-        "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "lines_matched": 15,
+        "lines_used": 14,
+        "rms_nm": 0.6244075892438119,
+        "success": true,
+        "failure_reason": null
       },
       {
         "order_index": 17,
         "lines_detected": 32,
-        "lines_matched": 0,
+        "lines_matched": 11,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 18,
         "lines_detected": 29,
-        "lines_matched": 0,
+        "lines_matched": 10,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 19,
         "lines_detected": 34,
-        "lines_matched": 0,
+        "lines_matched": 8,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       }
     ]
   },
@@ -981,191 +981,191 @@
     "pipeline_ok": true,
     "pipeline_error": null,
     "n_orders_detected": 20,
-    "n_orders_calibrated": 8,
-    "overall_rms_nm": 1.7158818832548772,
+    "n_orders_calibrated": 6,
+    "overall_rms_nm": 0.4638969565124679,
     "total_lines_detected": 200,
-    "total_lines_matched": 22,
-    "median_rms_nm": 8.038873388460929e-14,
+    "total_lines_matched": 168,
+    "median_rms_nm": 0.41129444704219953,
     "per_order": [
       {
         "order_index": 0,
         "lines_detected": 13,
-        "lines_matched": 4,
-        "lines_used": 4,
-        "rms_nm": 1.9768681666009051,
-        "success": true,
-        "failure_reason": null
+        "lines_matched": 6,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 1,
         "lines_detected": 9,
-        "lines_matched": 5,
-        "lines_used": 5,
-        "rms_nm": 3.01442465733916,
-        "success": true,
-        "failure_reason": null
+        "lines_matched": 9,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 2,
         "lines_detected": 13,
-        "lines_matched": 2,
-        "lines_used": 2,
+        "lines_matched": 9,
+        "lines_used": 0,
         "rms_nm": 0.0,
-        "success": true,
-        "failure_reason": null
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 3,
         "lines_detected": 14,
-        "lines_matched": 3,
-        "lines_used": 3,
-        "rms_nm": 0.504464176652393,
-        "success": true,
-        "failure_reason": null
+        "lines_matched": 14,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 4,
         "lines_detected": 6,
-        "lines_matched": 2,
-        "lines_used": 2,
-        "rms_nm": 8.038873388460929e-14,
-        "success": true,
-        "failure_reason": null
+        "lines_matched": 6,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 5,
         "lines_detected": 8,
-        "lines_matched": 2,
-        "lines_used": 2,
-        "rms_nm": 8.038873388460929e-14,
-        "success": true,
-        "failure_reason": null
+        "lines_matched": 8,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 6,
         "lines_detected": 6,
-        "lines_matched": 0,
-        "lines_used": 0,
-        "rms_nm": 0.0,
-        "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "lines_matched": 6,
+        "lines_used": 6,
+        "rms_nm": 0.5638319181608554,
+        "success": true,
+        "failure_reason": null
       },
       {
         "order_index": 7,
         "lines_detected": 7,
-        "lines_matched": 0,
+        "lines_matched": 5,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 8,
         "lines_detected": 11,
-        "lines_matched": 0,
+        "lines_matched": 11,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 9,
         "lines_detected": 7,
-        "lines_matched": 0,
-        "lines_used": 0,
-        "rms_nm": 0.0,
-        "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "lines_matched": 7,
+        "lines_used": 7,
+        "rms_nm": 0.39132024281899097,
+        "success": true,
+        "failure_reason": null
       },
       {
         "order_index": 10,
         "lines_detected": 7,
-        "lines_matched": 0,
-        "lines_used": 0,
-        "rms_nm": 0.0,
-        "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "lines_matched": 7,
+        "lines_used": 7,
+        "rms_nm": 0.43126865126540803,
+        "success": true,
+        "failure_reason": null
       },
       {
         "order_index": 11,
         "lines_detected": 17,
-        "lines_matched": 2,
-        "lines_used": 2,
+        "lines_matched": 16,
+        "lines_used": 0,
         "rms_nm": 0.0,
-        "success": true,
-        "failure_reason": null
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 12,
         "lines_detected": 9,
-        "lines_matched": 1,
-        "lines_used": 1,
-        "rms_nm": 0.0,
-        "success": false,
-        "failure_reason": "m collision with higher-quality fit; pending Cauchy re-seed"
-      },
-      {
-        "order_index": 13,
-        "lines_detected": 9,
-        "lines_matched": 1,
-        "lines_used": 1,
-        "rms_nm": 0.0,
+        "lines_matched": 9,
+        "lines_used": 9,
+        "rms_nm": 0.33986255041122126,
         "success": true,
         "failure_reason": null
       },
       {
-        "order_index": 14,
-        "lines_detected": 7,
-        "lines_matched": 0,
+        "order_index": 13,
+        "lines_detected": 9,
+        "lines_matched": 9,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
+      },
+      {
+        "order_index": 14,
+        "lines_detected": 7,
+        "lines_matched": 7,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 15,
         "lines_detected": 11,
-        "lines_matched": 0,
-        "lines_used": 0,
-        "rms_nm": 0.0,
-        "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "lines_matched": 11,
+        "lines_used": 11,
+        "rms_nm": 0.5967973112914541,
+        "success": true,
+        "failure_reason": null
       },
       {
         "order_index": 16,
         "lines_detected": 9,
-        "lines_matched": 0,
+        "lines_matched": 9,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 17,
         "lines_detected": 5,
-        "lines_matched": 0,
-        "lines_used": 0,
-        "rms_nm": 0.0,
-        "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "lines_matched": 5,
+        "lines_used": 5,
+        "rms_nm": 0.2984336439337271,
+        "success": true,
+        "failure_reason": null
       },
       {
         "order_index": 18,
         "lines_detected": 12,
-        "lines_matched": 0,
+        "lines_matched": 6,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 19,
         "lines_detected": 20,
-        "lines_matched": 0,
+        "lines_matched": 8,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       }
     ]
   },
@@ -1176,191 +1176,191 @@
     "pipeline_ok": true,
     "pipeline_error": null,
     "n_orders_detected": 20,
-    "n_orders_calibrated": 10,
-    "overall_rms_nm": 1.7735316159258672,
+    "n_orders_calibrated": 1,
+    "overall_rms_nm": 0.6127891329802511,
     "total_lines_detected": 418,
-    "total_lines_matched": 25,
-    "median_rms_nm": 4.0194366942304644e-14,
+    "total_lines_matched": 285,
+    "median_rms_nm": 0.6127891329802511,
     "per_order": [
       {
         "order_index": 0,
         "lines_detected": 12,
-        "lines_matched": 4,
-        "lines_used": 4,
-        "rms_nm": 3.0015655422329846,
-        "success": true,
-        "failure_reason": null
+        "lines_matched": 7,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 1,
         "lines_detected": 19,
-        "lines_matched": 5,
-        "lines_used": 5,
-        "rms_nm": 1.8312548206651007,
-        "success": true,
-        "failure_reason": null
+        "lines_matched": 14,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 2,
         "lines_detected": 13,
-        "lines_matched": 2,
-        "lines_used": 2,
+        "lines_matched": 9,
+        "lines_used": 0,
         "rms_nm": 0.0,
-        "success": true,
-        "failure_reason": null
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 3,
         "lines_detected": 22,
-        "lines_matched": 4,
-        "lines_used": 4,
-        "rms_nm": 2.3814329465785624,
-        "success": true,
-        "failure_reason": null
+        "lines_matched": 15,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 4,
         "lines_detected": 15,
-        "lines_matched": 2,
-        "lines_used": 2,
-        "rms_nm": 8.038873388460929e-14,
-        "success": true,
-        "failure_reason": null
+        "lines_matched": 9,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 5,
         "lines_detected": 27,
-        "lines_matched": 2,
-        "lines_used": 2,
-        "rms_nm": 8.038873388460929e-14,
-        "success": true,
-        "failure_reason": null
+        "lines_matched": 18,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 6,
         "lines_detected": 29,
-        "lines_matched": 0,
+        "lines_matched": 21,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 7,
         "lines_detected": 24,
-        "lines_matched": 0,
+        "lines_matched": 12,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 8,
         "lines_detected": 18,
-        "lines_matched": 0,
+        "lines_matched": 13,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 9,
         "lines_detected": 26,
-        "lines_matched": 0,
+        "lines_matched": 24,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 10,
         "lines_detected": 22,
-        "lines_matched": 1,
-        "lines_used": 1,
+        "lines_matched": 22,
+        "lines_used": 0,
         "rms_nm": 0.0,
-        "success": true,
-        "failure_reason": null
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 11,
         "lines_detected": 10,
-        "lines_matched": 2,
-        "lines_used": 2,
+        "lines_matched": 10,
+        "lines_used": 0,
         "rms_nm": 0.0,
-        "success": true,
-        "failure_reason": null
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 12,
         "lines_detected": 22,
-        "lines_matched": 1,
-        "lines_used": 1,
-        "rms_nm": 0.0,
-        "success": false,
-        "failure_reason": "m collision with higher-quality fit; pending Cauchy re-seed"
+        "lines_matched": 22,
+        "lines_used": 22,
+        "rms_nm": 0.6127891329802511,
+        "success": true,
+        "failure_reason": null
       },
       {
         "order_index": 13,
         "lines_detected": 21,
-        "lines_matched": 1,
-        "lines_used": 1,
+        "lines_matched": 18,
+        "lines_used": 0,
         "rms_nm": 0.0,
-        "success": true,
-        "failure_reason": null
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 14,
         "lines_detected": 21,
-        "lines_matched": 0,
+        "lines_matched": 11,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 15,
         "lines_detected": 21,
-        "lines_matched": 0,
+        "lines_matched": 19,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 16,
         "lines_detected": 20,
-        "lines_matched": 0,
+        "lines_matched": 14,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 17,
         "lines_detected": 22,
-        "lines_matched": 0,
+        "lines_matched": 10,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 18,
         "lines_detected": 28,
-        "lines_matched": 1,
-        "lines_used": 1,
+        "lines_matched": 9,
+        "lines_used": 0,
         "rms_nm": 0.0,
-        "success": true,
-        "failure_reason": null
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 19,
         "lines_detected": 26,
-        "lines_matched": 0,
+        "lines_matched": 8,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       }
     ]
   },
@@ -1371,63 +1371,63 @@
     "pipeline_ok": true,
     "pipeline_error": null,
     "n_orders_detected": 20,
-    "n_orders_calibrated": 8,
-    "overall_rms_nm": 1.8017899252202307,
+    "n_orders_calibrated": 9,
+    "overall_rms_nm": 0.4839713606372733,
     "total_lines_detected": 117,
-    "total_lines_matched": 21,
-    "median_rms_nm": 4.0194366942304644e-14,
+    "total_lines_matched": 102,
+    "median_rms_nm": 0.3788420033205033,
     "per_order": [
       {
         "order_index": 0,
         "lines_detected": 10,
-        "lines_matched": 4,
-        "lines_used": 4,
-        "rms_nm": 2.0149483927649916,
-        "success": true,
-        "failure_reason": null
+        "lines_matched": 6,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 1,
         "lines_detected": 10,
-        "lines_matched": 5,
-        "lines_used": 5,
-        "rms_nm": 3.0394389508148314,
-        "success": true,
-        "failure_reason": null
+        "lines_matched": 9,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 2,
         "lines_detected": 7,
-        "lines_matched": 2,
-        "lines_used": 2,
+        "lines_matched": 7,
+        "lines_used": 0,
         "rms_nm": 0.0,
-        "success": true,
-        "failure_reason": null
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 3,
         "lines_detected": 6,
-        "lines_matched": 3,
-        "lines_used": 3,
-        "rms_nm": 0.9124919929924128,
-        "success": true,
-        "failure_reason": null
+        "lines_matched": 6,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 4,
         "lines_detected": 4,
-        "lines_matched": 2,
-        "lines_used": 2,
-        "rms_nm": 8.038873388460929e-14,
-        "success": true,
-        "failure_reason": null
+        "lines_matched": 4,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 5,
         "lines_detected": 7,
-        "lines_matched": 1,
-        "lines_used": 1,
-        "rms_nm": 0.0,
+        "lines_matched": 7,
+        "lines_used": 7,
+        "rms_nm": 0.40794003791134226,
         "success": true,
         "failure_reason": null
       },
@@ -1443,42 +1443,87 @@
       {
         "order_index": 7,
         "lines_detected": 4,
-        "lines_matched": 0,
-        "lines_used": 0,
-        "rms_nm": 0.0,
-        "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "lines_matched": 4,
+        "lines_used": 4,
+        "rms_nm": 0.6129857650007153,
+        "success": true,
+        "failure_reason": null
       },
       {
         "order_index": 8,
         "lines_detected": 4,
-        "lines_matched": 0,
+        "lines_matched": 4,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 9,
         "lines_detected": 4,
-        "lines_matched": 0,
-        "lines_used": 0,
-        "rms_nm": 0.0,
-        "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "lines_matched": 4,
+        "lines_used": 4,
+        "rms_nm": 0.10335225621746937,
+        "success": true,
+        "failure_reason": null
       },
       {
         "order_index": 10,
         "lines_detected": 4,
-        "lines_matched": 0,
-        "lines_used": 0,
-        "rms_nm": 0.0,
-        "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "lines_matched": 4,
+        "lines_used": 4,
+        "rms_nm": 0.3788420033205033,
+        "success": true,
+        "failure_reason": null
       },
       {
         "order_index": 11,
         "lines_detected": 7,
+        "lines_matched": 7,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
+      },
+      {
+        "order_index": 12,
+        "lines_detected": 8,
+        "lines_matched": 8,
+        "lines_used": 8,
+        "rms_nm": 0.5974091439239672,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 13,
+        "lines_detected": 8,
+        "lines_matched": 8,
+        "lines_used": 8,
+        "rms_nm": 0.6564036545042188,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 14,
+        "lines_detected": 6,
+        "lines_matched": 6,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
+      },
+      {
+        "order_index": 15,
+        "lines_detected": 3,
+        "lines_matched": 3,
+        "lines_used": 3,
+        "rms_nm": 0.0742256200261895,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 16,
+        "lines_detected": 2,
         "lines_matched": 2,
         "lines_used": 2,
         "rms_nm": 0.0,
@@ -1486,17 +1531,8 @@
         "failure_reason": null
       },
       {
-        "order_index": 12,
-        "lines_detected": 8,
-        "lines_matched": 1,
-        "lines_used": 1,
-        "rms_nm": 0.0,
-        "success": false,
-        "failure_reason": "m collision with higher-quality fit; pending Cauchy re-seed"
-      },
-      {
-        "order_index": 13,
-        "lines_detected": 8,
+        "order_index": 17,
+        "lines_detected": 1,
         "lines_matched": 1,
         "lines_used": 1,
         "rms_nm": 0.0,
@@ -1504,58 +1540,22 @@
         "failure_reason": null
       },
       {
-        "order_index": 14,
-        "lines_detected": 6,
-        "lines_matched": 0,
-        "lines_used": 0,
-        "rms_nm": 0.0,
-        "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
-      },
-      {
-        "order_index": 15,
-        "lines_detected": 3,
-        "lines_matched": 0,
-        "lines_used": 0,
-        "rms_nm": 0.0,
-        "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
-      },
-      {
-        "order_index": 16,
-        "lines_detected": 2,
-        "lines_matched": 0,
-        "lines_used": 0,
-        "rms_nm": 0.0,
-        "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
-      },
-      {
-        "order_index": 17,
-        "lines_detected": 1,
-        "lines_matched": 0,
-        "lines_used": 0,
-        "rms_nm": 0.0,
-        "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
-      },
-      {
         "order_index": 18,
         "lines_detected": 5,
-        "lines_matched": 0,
+        "lines_matched": 4,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 19,
         "lines_detected": 17,
-        "lines_matched": 0,
+        "lines_matched": 8,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       }
     ]
   },
@@ -1566,191 +1566,191 @@
     "pipeline_ok": true,
     "pipeline_error": null,
     "n_orders_detected": 20,
-    "n_orders_calibrated": 8,
-    "overall_rms_nm": 1.9783893224776017,
+    "n_orders_calibrated": 4,
+    "overall_rms_nm": 0.4646520585882933,
     "total_lines_detected": 213,
-    "total_lines_matched": 22,
-    "median_rms_nm": 8.038873388460929e-14,
+    "total_lines_matched": 176,
+    "median_rms_nm": 0.4462145148399096,
     "per_order": [
       {
         "order_index": 0,
         "lines_detected": 12,
-        "lines_matched": 4,
-        "lines_used": 4,
-        "rms_nm": 2.0674105951419928,
-        "success": true,
-        "failure_reason": null
+        "lines_matched": 6,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 1,
         "lines_detected": 6,
-        "lines_matched": 5,
-        "lines_used": 5,
-        "rms_nm": 3.2002588794497537,
-        "success": true,
-        "failure_reason": null
+        "lines_matched": 6,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 2,
         "lines_detected": 11,
-        "lines_matched": 2,
-        "lines_used": 2,
+        "lines_matched": 9,
+        "lines_used": 0,
         "rms_nm": 0.0,
-        "success": true,
-        "failure_reason": null
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 3,
         "lines_detected": 19,
-        "lines_matched": 3,
-        "lines_used": 3,
-        "rms_nm": 2.1517031846155903,
-        "success": true,
-        "failure_reason": null
+        "lines_matched": 13,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 4,
         "lines_detected": 10,
-        "lines_matched": 2,
-        "lines_used": 2,
-        "rms_nm": 8.038873388460929e-14,
-        "success": true,
-        "failure_reason": null
+        "lines_matched": 8,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 5,
         "lines_detected": 11,
-        "lines_matched": 2,
-        "lines_used": 2,
-        "rms_nm": 8.038873388460929e-14,
-        "success": true,
-        "failure_reason": null
+        "lines_matched": 11,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 6,
         "lines_detected": 4,
-        "lines_matched": 0,
-        "lines_used": 0,
-        "rms_nm": 0.0,
-        "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
-      },
-      {
-        "order_index": 7,
-        "lines_detected": 8,
-        "lines_matched": 0,
-        "lines_used": 0,
-        "rms_nm": 0.0,
-        "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
-      },
-      {
-        "order_index": 8,
-        "lines_detected": 4,
-        "lines_matched": 0,
-        "lines_used": 0,
-        "rms_nm": 0.0,
-        "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
-      },
-      {
-        "order_index": 9,
-        "lines_detected": 15,
-        "lines_matched": 0,
-        "lines_used": 0,
-        "rms_nm": 0.0,
-        "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
-      },
-      {
-        "order_index": 10,
-        "lines_detected": 5,
-        "lines_matched": 0,
-        "lines_used": 0,
-        "rms_nm": 0.0,
-        "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
-      },
-      {
-        "order_index": 11,
-        "lines_detected": 18,
-        "lines_matched": 2,
-        "lines_used": 2,
-        "rms_nm": 0.0,
+        "lines_matched": 4,
+        "lines_used": 4,
+        "rms_nm": 0.14446266527455426,
         "success": true,
         "failure_reason": null
       },
       {
-        "order_index": 12,
-        "lines_detected": 7,
-        "lines_matched": 1,
-        "lines_used": 1,
+        "order_index": 7,
+        "lines_detected": 8,
+        "lines_matched": 8,
+        "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "m collision with higher-quality fit; pending Cauchy re-seed"
+        "failure_reason": "wavelength fitting failed"
+      },
+      {
+        "order_index": 8,
+        "lines_detected": 4,
+        "lines_matched": 4,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
+      },
+      {
+        "order_index": 9,
+        "lines_detected": 15,
+        "lines_matched": 15,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
+      },
+      {
+        "order_index": 10,
+        "lines_detected": 5,
+        "lines_matched": 5,
+        "lines_used": 5,
+        "rms_nm": 0.49426940851660367,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 11,
+        "lines_detected": 18,
+        "lines_matched": 18,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "wavelength fitting failed"
+      },
+      {
+        "order_index": 12,
+        "lines_detected": 7,
+        "lines_matched": 7,
+        "lines_used": 7,
+        "rms_nm": 0.39815962116321546,
+        "success": true,
+        "failure_reason": null
       },
       {
         "order_index": 13,
         "lines_detected": 10,
-        "lines_matched": 1,
-        "lines_used": 1,
-        "rms_nm": 0.0,
+        "lines_matched": 10,
+        "lines_used": 10,
+        "rms_nm": 0.5655734478584795,
         "success": true,
         "failure_reason": null
       },
       {
         "order_index": 14,
         "lines_detected": 9,
-        "lines_matched": 0,
+        "lines_matched": 9,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 15,
         "lines_detected": 9,
-        "lines_matched": 0,
+        "lines_matched": 9,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 16,
         "lines_detected": 6,
-        "lines_matched": 0,
+        "lines_matched": 6,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 17,
         "lines_detected": 11,
-        "lines_matched": 0,
+        "lines_matched": 10,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 18,
         "lines_detected": 10,
-        "lines_matched": 0,
+        "lines_matched": 6,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       },
       {
         "order_index": 19,
         "lines_detected": 28,
-        "lines_matched": 0,
+        "lines_matched": 12,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
-        "failure_reason": "too few atlas matches (0, need 1)"
+        "failure_reason": "wavelength fitting failed"
       }
     ]
   }
