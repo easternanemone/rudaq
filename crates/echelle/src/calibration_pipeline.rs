@@ -734,9 +734,20 @@ fn run_calibration_pipeline_impl(
                                 move |pixel: f64| -> f64 { lambda_start + dispersion * pixel };
 
                             let oi = order_idx as u32;
+                            // bd-3yb8.30.2 B2: Stage 2 uses tight
+                            // `final_tolerance_nm` = `primary_window_nm`
+                            // because the Cauchy-refined seed is physics-
+                            // verified. Stage 1's loose 5 nm fallback
+                            // exists to tolerate seed drift; Stage 2 has
+                            // already corrected for drift via Cauchy Y(m)
+                            // inversion, so a 5 nm window here would only
+                            // admit wrong-line matches from the expanded
+                            // NIST atlas. 2 nm rejects those while leaving
+                            // room for centroiding noise on detector-edge
+                            // lines.
                             let tp_config_s2 = TwoPhaseMatchConfig {
                                 primary_window_nm: 2.0,
-                                final_tolerance_nm: config.wl_config.seed_tolerance_nm,
+                                final_tolerance_nm: 2.0,
                                 fallback_tolerance_nm: 1.0,
                                 grating_constant_nm: gc,
                                 gc_tolerance: 0.01,

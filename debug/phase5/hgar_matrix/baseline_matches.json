@@ -981,11 +981,11 @@
     "pipeline_ok": true,
     "pipeline_error": null,
     "n_orders_detected": 20,
-    "n_orders_calibrated": 6,
-    "overall_rms_nm": 0.4638969565124679,
+    "n_orders_calibrated": 9,
+    "overall_rms_nm": 0.4892894435734168,
     "total_lines_detected": 200,
-    "total_lines_matched": 168,
-    "median_rms_nm": 0.41129444704219953,
+    "total_lines_matched": 152,
+    "median_rms_nm": 0.4638715166554373,
     "per_order": [
       {
         "order_index": 0,
@@ -1053,20 +1053,20 @@
       {
         "order_index": 7,
         "lines_detected": 7,
-        "lines_matched": 5,
-        "lines_used": 0,
-        "rms_nm": 0.0,
-        "success": false,
-        "failure_reason": "wavelength fitting failed"
+        "lines_matched": 4,
+        "lines_used": 4,
+        "rms_nm": 0.46957280339600427,
+        "success": true,
+        "failure_reason": null
       },
       {
         "order_index": 8,
         "lines_detected": 11,
-        "lines_matched": 11,
-        "lines_used": 0,
-        "rms_nm": 0.0,
-        "success": false,
-        "failure_reason": "wavelength fitting failed"
+        "lines_matched": 8,
+        "lines_used": 8,
+        "rms_nm": 0.6349595949752712,
+        "success": true,
+        "failure_reason": null
       },
       {
         "order_index": 9,
@@ -1089,7 +1089,7 @@
       {
         "order_index": 11,
         "lines_detected": 17,
-        "lines_matched": 16,
+        "lines_matched": 11,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
@@ -1107,7 +1107,7 @@
       {
         "order_index": 13,
         "lines_detected": 9,
-        "lines_matched": 9,
+        "lines_matched": 7,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
@@ -1134,7 +1134,7 @@
       {
         "order_index": 16,
         "lines_detected": 9,
-        "lines_matched": 9,
+        "lines_matched": 8,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
@@ -1153,15 +1153,15 @@
         "order_index": 18,
         "lines_detected": 12,
         "lines_matched": 6,
-        "lines_used": 0,
-        "rms_nm": 0.0,
-        "success": false,
-        "failure_reason": "wavelength fitting failed"
+        "lines_used": 6,
+        "rms_nm": 0.4638715166554373,
+        "success": true,
+        "failure_reason": null
       },
       {
         "order_index": 19,
         "lines_detected": 20,
-        "lines_matched": 8,
+        "lines_matched": 4,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
@@ -1371,11 +1371,11 @@
     "pipeline_ok": true,
     "pipeline_error": null,
     "n_orders_detected": 20,
-    "n_orders_calibrated": 9,
-    "overall_rms_nm": 0.4839713606372733,
+    "n_orders_calibrated": 10,
+    "overall_rms_nm": 0.4710570939341802,
     "total_lines_detected": 117,
-    "total_lines_matched": 102,
-    "median_rms_nm": 0.3788420033205033,
+    "total_lines_matched": 95,
+    "median_rms_nm": 0.30489508901704926,
     "per_order": [
       {
         "order_index": 0,
@@ -1452,11 +1452,11 @@
       {
         "order_index": 8,
         "lines_detected": 4,
-        "lines_matched": 4,
-        "lines_used": 0,
-        "rms_nm": 0.0,
-        "success": false,
-        "failure_reason": "wavelength fitting failed"
+        "lines_matched": 3,
+        "lines_used": 3,
+        "rms_nm": 0.23094817471359527,
+        "success": true,
+        "failure_reason": null
       },
       {
         "order_index": 9,
@@ -1479,7 +1479,7 @@
       {
         "order_index": 11,
         "lines_detected": 7,
-        "lines_matched": 7,
+        "lines_matched": 6,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
@@ -1542,7 +1542,7 @@
       {
         "order_index": 18,
         "lines_detected": 5,
-        "lines_matched": 4,
+        "lines_matched": 3,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
@@ -1551,7 +1551,7 @@
       {
         "order_index": 19,
         "lines_detected": 17,
-        "lines_matched": 8,
+        "lines_matched": 4,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
@@ -1566,11 +1566,11 @@
     "pipeline_ok": true,
     "pipeline_error": null,
     "n_orders_detected": 20,
-    "n_orders_calibrated": 4,
-    "overall_rms_nm": 0.4646520585882933,
+    "n_orders_calibrated": 7,
+    "overall_rms_nm": 0.46284950843558614,
     "total_lines_detected": 213,
-    "total_lines_matched": 176,
-    "median_rms_nm": 0.4462145148399096,
+    "total_lines_matched": 155,
+    "median_rms_nm": 0.39815962116321546,
     "per_order": [
       {
         "order_index": 0,
@@ -1620,7 +1620,7 @@
       {
         "order_index": 5,
         "lines_detected": 11,
-        "lines_matched": 11,
+        "lines_matched": 9,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
@@ -1638,7 +1638,7 @@
       {
         "order_index": 7,
         "lines_detected": 8,
-        "lines_matched": 8,
+        "lines_matched": 6,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
@@ -1647,16 +1647,16 @@
       {
         "order_index": 8,
         "lines_detected": 4,
-        "lines_matched": 4,
-        "lines_used": 0,
-        "rms_nm": 0.0,
-        "success": false,
-        "failure_reason": "wavelength fitting failed"
+        "lines_matched": 2,
+        "lines_used": 2,
+        "rms_nm": 8.038873388460929e-14,
+        "success": true,
+        "failure_reason": null
       },
       {
         "order_index": 9,
         "lines_detected": 15,
-        "lines_matched": 15,
+        "lines_matched": 13,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
@@ -1674,7 +1674,7 @@
       {
         "order_index": 11,
         "lines_detected": 18,
-        "lines_matched": 18,
+        "lines_matched": 14,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
@@ -1719,16 +1719,16 @@
       {
         "order_index": 16,
         "lines_detected": 6,
-        "lines_matched": 6,
-        "lines_used": 0,
-        "rms_nm": 0.0,
-        "success": false,
-        "failure_reason": "wavelength fitting failed"
+        "lines_matched": 5,
+        "lines_used": 5,
+        "rms_nm": 0.6475523246968284,
+        "success": true,
+        "failure_reason": null
       },
       {
         "order_index": 17,
         "lines_detected": 11,
-        "lines_matched": 10,
+        "lines_matched": 7,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
@@ -1737,16 +1737,16 @@
       {
         "order_index": 18,
         "lines_detected": 10,
-        "lines_matched": 6,
-        "lines_used": 0,
-        "rms_nm": 0.0,
-        "success": false,
-        "failure_reason": "wavelength fitting failed"
+        "lines_matched": 4,
+        "lines_used": 4,
+        "rms_nm": 0.23261432972584503,
+        "success": true,
+        "failure_reason": null
       },
       {
         "order_index": 19,
         "lines_detected": 28,
-        "lines_matched": 12,
+        "lines_matched": 9,
         "lines_used": 0,
         "rms_nm": 0.0,
         "success": false,
