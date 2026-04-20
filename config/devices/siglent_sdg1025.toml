@@ -250,7 +250,13 @@ transform = ["trim"]
 
 # SDG1025 BSWV? response format:
 # C1:BSWV WVTP,SINE,FRQ,100HZ,PERI,0.01S,AMP,2V,AMPVRMS,0.707Vrms,OFST,0V,HLEV,1V,LLEV,-1V,PHSE,0
-[responses.bswv_response]
+#
+# We only need the offset value, which appears mid-response in a sparse CSV
+# whose field ordering Siglent may reorder between firmware revisions. An
+# anchored `format = "..."` would need to enumerate every field and would
+# break on field reordering; the regex is the robust choice here. It lives
+# in the [advanced] escape hatch per the v4 schema.
+[responses.bswv_response.advanced]
 regex = "OFST,(?P<offset>[\\-\\.0-9eE]+)V"
 
 # ==============================================================================
