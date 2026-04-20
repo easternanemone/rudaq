@@ -347,7 +347,7 @@ impl UniversalDriver {
         variable_name: Option<&String>,
         value: f64,
     ) -> Result<f64> {
-        use evalexpr::*;
+        use evalexpr::{ContextWithMutableVariables, HashMapContext, Value, eval_with_context_mut};
         let mut context = HashMapContext::new();
 
         // Bind the value to its variable name
@@ -360,9 +360,6 @@ impl UniversalDriver {
             context.set_value(param_name.clone(), Value::Float(*param_val))?;
         }
 
-        // Install the curated helper palette (round/to_pulses/from_pulses/
-        // clamp/scale/offset). Raw evalexpr still works for escape-hatch
-        // formulas.
         crate::formula_helpers::install_helpers(&mut context)?;
 
         let result = eval_with_context_mut(&formula.source, &mut context)?;
