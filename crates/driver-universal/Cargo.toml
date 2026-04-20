@@ -41,3 +41,7 @@ workspace = true
 [[bin]]
 name = "manifest-check"
 path = "src/bin/manifest_check.rs"
+
+[[bin]]
+name = "export-manifest-schema"
+path = "src/bin/export_manifest_schema.rs"

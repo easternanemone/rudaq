@@ -1,0 +1,212 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://rust-daq.github.io/schemas/manifest.schema.json",
+  "title": "rust-daq universal device manifest",
+  "description": "Schema for TOML device manifests parsed by driver-universal.",
+  "type": "object",
+  "required": ["schema_version", "device", "connection"],
+  "properties": {
+    "schema_version": {
+      "description": "Manifest schema version. Current: 3.",
+      "type": "integer",
+      "const": 3
+    },
+    "extends": {
+      "description": "Optional path to a parent manifest this file inherits from.",
+      "type": "string"
+    },
+    "device": { "$ref": "#/$defs/device" },
+    "connection": { "$ref": "#/$defs/connection" },
+    "commands": {
+      "description": "Named command definitions. Key is the command name.",
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/command" }
+    },
+    "responses": {
+      "description": "Named response-parser definitions. Key is the response name referenced by commands.",
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/response" }
+    },
+    "conversions": {
+      "description": "Named evalexpr conversion formulas.",
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/conversion" }
+    },
+    "capabilities": { "$ref": "#/$defs/capabilities" },
+    "parameters": {
+      "description": "Device parameter metadata. Key is the parameter name.",
+      "type": "object"
+    },
+    "error_codes": { "type": "object" },
+    "init_sequence": { "type": "array" },
+    "default_retry": {},
+    "ui": {}
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "device": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string" },
+        "manufacturer": { "type": "string" },
+        "model": { "type": "string" },
+        "category": {
+          "type": "string",
+          "description": "Device category, e.g. 'stage', 'sensor', 'source', 'laser'."
+        },
+        "capabilities": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "connection": {
+      "oneOf": [
+        { "$ref": "#/$defs/connection_serial" },
+        { "$ref": "#/$defs/connection_tcp" },
+        { "$ref": "#/$defs/connection_udp" },
+        { "$ref": "#/$defs/connection_usbtmc" }
+      ]
+    },
+    "connection_serial": {
+      "type": "object",
+      "required": ["type", "baud_rate"],
+      "properties": {
+        "type": { "const": "serial" },
+        "baud_rate": { "type": "integer", "minimum": 300, "maximum": 921600 },
+        "timeout_ms": { "type": "integer", "minimum": 1, "maximum": 60000 },
+        "terminator": { "type": "string" },
+        "terminator_tx": { "type": "string" },
+        "terminator_rx": { "type": "string" },
+        "data_bits": { "type": "integer", "minimum": 5, "maximum": 8 },
+        "parity": { "enum": ["none", "odd", "even"] },
+        "stop_bits": { "type": "integer", "enum": [1, 2] },
+        "flow_control": { "enum": ["none", "software", "hardware"] },
+        "bus": {}
+      },
+      "additionalProperties": false
+    },
+    "connection_tcp": {
+      "type": "object",
+      "required": ["type", "host", "port"],
+      "properties": {
+        "type": { "const": "tcp" },
+        "host": { "type": "string" },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "timeout_ms": { "type": "integer", "minimum": 1, "maximum": 60000 },
+        "terminator": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "connection_udp": {
+      "type": "object",
+      "required": ["type", "host", "port"],
+      "properties": {
+        "type": { "const": "udp" },
+        "host": { "type": "string" },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "timeout_ms": { "type": "integer", "minimum": 1, "maximum": 60000 }
+      },
+      "additionalProperties": false
+    },
+    "connection_usbtmc": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": { "const": "usbtmc" },
+        "timeout_ms": { "type": "integer", "minimum": 1, "maximum": 60000 },
+        "terminator_tx": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "command": {
+      "type": "object",
+      "required": ["template"],
+      "properties": {
+        "template": {
+          "type": "string",
+          "description": "MiniJinja template for the outgoing command (e.g. 'MOVE {{ position }}')."
+        },
+        "parameters": {
+          "type": "object",
+          "description": "Expected parameter types, keyed by name.",
+          "additionalProperties": { "type": "string" }
+        },
+        "response": {
+          "type": "string",
+          "description": "Name of the response parser (from [responses.*]) to apply to the reply."
+        },
+        "response_type": {
+          "description": "SCPI auto-parse type; alternative to an explicit [responses.*] entry.",
+          "enum": ["float", "integer", "string", "boolean", "array_float"]
+        },
+        "conversion": {
+          "type": "string",
+          "description": "Name of a conversion formula to apply (from [conversions.*])."
+        },
+        "retry": {},
+        "timeout_ms": { "type": "integer", "minimum": 1, "maximum": 60000 }
+      }
+    },
+    "response": {
+      "type": "object",
+      "description": "A response-parser definition. Choose exactly one tier: format/variants (preferred), transform, or regex (escape hatch).",
+      "properties": {
+        "format": {
+          "type": "string",
+          "description": "Single format template, e.g. '{addr:hex1}PO{pulses:hex8}'. Equivalent to variants = [format]."
+        },
+        "variants": {
+          "type": "array",
+          "description": "Multiple format templates tried in order; first match wins.",
+          "items": { "type": "string" },
+          "minItems": 1
+        },
+        "transform": {
+          "type": "array",
+          "description": "Transform pipeline, shorthand strings like 'trim', 'to_float', 'format(\"{cmd}: {value}\", \"value\")'.",
+          "items": { "type": "string" }
+        },
+        "regex": {
+          "type": "string",
+          "description": "Regex with named capture groups. DEPRECATED at top level: prefer 'variants' or move under [responses.X.advanced]."
+        },
+        "pattern": {
+          "type": "string",
+          "description": "Legacy v1 alias for 'regex'."
+        },
+        "fields": {
+          "type": "object",
+          "description": "Legacy v1 field type declarations for regex captures (ignored in v3)."
+        },
+        "advanced": { "$ref": "#/$defs/response_advanced" }
+      },
+      "additionalProperties": false
+    },
+    "response_advanced": {
+      "type": "object",
+      "description": "Escape-hatch parsing options. Placing regex here silences the deprecation warning emitted by a top-level regex.",
+      "properties": {
+        "regex": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "conversion": {
+      "type": "object",
+      "required": ["formula"],
+      "properties": {
+        "formula": {
+          "type": "string",
+          "description": "evalexpr formula. Variables available: value, plus manifest-level constants."
+        }
+      },
+      "additionalProperties": false
+    },
+    "capabilities": {
+      "type": "object",
+      "description": "Capability → command wiring. Keys like 'movable', 'readable', 'settable', 'shutter_control', etc.",
+      "additionalProperties": true
+    }
+  }
+}
