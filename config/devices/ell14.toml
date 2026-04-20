@@ -245,10 +245,10 @@ format = "{addr:1}GS{code:hex2}"
 # ==============================================================================
 
 [conversions.degrees_to_pulses]
-formula = "round(degrees * pulses_per_degree)"
+formula = "to_pulses(degrees, pulses_per_degree)"
 
 [conversions.pulses_to_degrees]
-formula = "pulses / pulses_per_degree"
+formula = "from_pulses(pulses, pulses_per_degree)"
 
 # ==============================================================================
 # Error Code Mapping
