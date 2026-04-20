@@ -578,27 +578,29 @@ mod tests {
         assert_eq!(result, "42");
     }
 
-    // =========================================================================
-    // F5 acceptance: emulator generates samples from a format variant, and the
-    // parser round-trips them cleanly. Covers ELL14 device_info's two
-    // firmware-dependent widths (travel:5 vs travel:8).
-    // =========================================================================
+    // F5 acceptance: emulator generates a response for a format variant and
+    // the parser round-trips it. Each case covers one of ELL14 device_info's
+    // firmware-dependent travel widths.
+    fn assert_ell14_device_info_roundtrip(travel_width: usize, travel_value: &str) {
+        let fmt = format!(
+            "{{addr:hex1}}IN{{type:hex2}}{{serial:8}}{{year:4}}{{firmware:2}}\
+             {{hw:1}}{{travel:{travel_width}}}{{pulses:hex8}}"
+        );
+        let segments = format_parser::parse_format(&fmt).unwrap();
 
-    #[test]
-    fn format_variant_roundtrip_ell14_device_info_short() {
-        let fmt = "{addr:hex1}IN{type:hex2}{serial:8}{year:4}{firmware:2}\
-                   {hw:1}{travel:5}{pulses:hex8}";
-        let segments = format_parser::parse_format(fmt).unwrap();
-
-        let mut state = HashMap::new();
-        state.insert("addr".into(), json!(2_i64));
-        state.insert("type".into(), json!(0x0E_i64));
-        state.insert("serial".into(), json!("11400517"));
-        state.insert("year".into(), json!("2023"));
-        state.insert("firmware".into(), json!("17"));
-        state.insert("hw".into(), json!("0"));
-        state.insert("travel".into(), json!("10168"));
-        state.insert("pulses".into(), json!(0x23000_i64));
+        let state: HashMap<String, Value> = [
+            ("addr", json!(2_i64)),
+            ("type", json!(0x0E_i64)),
+            ("serial", json!("11400517")),
+            ("year", json!("2023")),
+            ("firmware", json!("17")),
+            ("hw", json!("0")),
+            ("travel", json!(travel_value)),
+            ("pulses", json!(0x23000_i64)),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v))
+        .collect();
 
         let generated = generate_format_string(&segments, &state);
         let parsed = format_parser::parse_response(&segments, &generated)
@@ -607,31 +609,17 @@ mod tests {
         assert_eq!(parsed.get("addr"), Some(&json!(2)));
         assert_eq!(parsed.get("type"), Some(&json!(0x0E)));
         assert_eq!(parsed.get("serial"), Some(&json!("11400517")));
-        assert_eq!(parsed.get("travel"), Some(&json!("10168")));
+        assert_eq!(parsed.get("travel"), Some(&json!(travel_value)));
         assert_eq!(parsed.get("pulses"), Some(&json!(0x23000)));
     }
 
     #[test]
+    fn format_variant_roundtrip_ell14_device_info_short() {
+        assert_ell14_device_info_roundtrip(5, "10168");
+    }
+
+    #[test]
     fn format_variant_roundtrip_ell14_device_info_long() {
-        let fmt = "{addr:hex1}IN{type:hex2}{serial:8}{year:4}{firmware:2}\
-                   {hw:1}{travel:8}{pulses:hex8}";
-        let segments = format_parser::parse_format(fmt).unwrap();
-
-        let mut state = HashMap::new();
-        state.insert("addr".into(), json!(2_i64));
-        state.insert("type".into(), json!(0x0E_i64));
-        state.insert("serial".into(), json!("11400517"));
-        state.insert("year".into(), json!("2023"));
-        state.insert("firmware".into(), json!("17"));
-        state.insert("hw".into(), json!("0"));
-        state.insert("travel".into(), json!("12345678"));
-        state.insert("pulses".into(), json!(0x23000_i64));
-
-        let generated = generate_format_string(&segments, &state);
-        let parsed = format_parser::parse_response(&segments, &generated)
-            .expect("generator output parses back");
-
-        assert_eq!(parsed.get("travel"), Some(&json!("12345678")));
-        assert_eq!(parsed.get("pulses"), Some(&json!(0x23000)));
+        assert_ell14_device_info_roundtrip(8, "12345678");
     }
 }
