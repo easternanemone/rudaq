@@ -1,0 +1,1757 @@
+[
+  {
+    "label": "hgar_g0_t10000ms",
+    "mcp_gain": 0,
+    "exposure_ms": 10000,
+    "pipeline_ok": true,
+    "pipeline_error": null,
+    "n_orders_detected": 20,
+    "n_orders_calibrated": 10,
+    "overall_rms_nm": 1.5025411080733877,
+    "total_lines_detected": 524,
+    "total_lines_matched": 25,
+    "median_rms_nm": 4.0194366942304644e-14,
+    "per_order": [
+      {
+        "order_index": 0,
+        "lines_detected": 20,
+        "lines_matched": 4,
+        "lines_used": 4,
+        "rms_nm": 1.6323829508502612,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 1,
+        "lines_detected": 24,
+        "lines_matched": 5,
+        "lines_used": 5,
+        "rms_nm": 2.113692455700974,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 2,
+        "lines_detected": 18,
+        "lines_matched": 2,
+        "lines_used": 2,
+        "rms_nm": 0.0,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 3,
+        "lines_detected": 26,
+        "lines_matched": 3,
+        "lines_used": 3,
+        "rms_nm": 2.2365225755351115,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 4,
+        "lines_detected": 23,
+        "lines_matched": 3,
+        "lines_used": 3,
+        "rms_nm": 1.4352513929427808,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 5,
+        "lines_detected": 31,
+        "lines_matched": 2,
+        "lines_used": 2,
+        "rms_nm": 8.038873388460929e-14,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 6,
+        "lines_detected": 28,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 7,
+        "lines_detected": 28,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 8,
+        "lines_detected": 31,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 9,
+        "lines_detected": 30,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 10,
+        "lines_detected": 19,
+        "lines_matched": 1,
+        "lines_used": 1,
+        "rms_nm": 0.0,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 11,
+        "lines_detected": 20,
+        "lines_matched": 2,
+        "lines_used": 2,
+        "rms_nm": 0.0,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 12,
+        "lines_detected": 21,
+        "lines_matched": 1,
+        "lines_used": 1,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "m collision with higher-quality fit; pending Cauchy re-seed"
+      },
+      {
+        "order_index": 13,
+        "lines_detected": 29,
+        "lines_matched": 1,
+        "lines_used": 1,
+        "rms_nm": 0.0,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 14,
+        "lines_detected": 27,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 15,
+        "lines_detected": 25,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 16,
+        "lines_detected": 30,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 17,
+        "lines_detected": 35,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 18,
+        "lines_detected": 31,
+        "lines_matched": 1,
+        "lines_used": 1,
+        "rms_nm": 0.0,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 19,
+        "lines_detected": 28,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      }
+    ]
+  },
+  {
+    "label": "hgar_g0_t30000ms",
+    "mcp_gain": 0,
+    "exposure_ms": 30000,
+    "pipeline_ok": true,
+    "pipeline_error": null,
+    "n_orders_detected": 20,
+    "n_orders_calibrated": 8,
+    "overall_rms_nm": 1.56132251686361,
+    "total_lines_detected": 788,
+    "total_lines_matched": 23,
+    "median_rms_nm": 0.6338480992093113,
+    "per_order": [
+      {
+        "order_index": 0,
+        "lines_detected": 26,
+        "lines_matched": 4,
+        "lines_used": 4,
+        "rms_nm": 1.9764059115101975,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 1,
+        "lines_detected": 32,
+        "lines_matched": 5,
+        "lines_used": 5,
+        "rms_nm": 2.227139675964146,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 2,
+        "lines_detected": 28,
+        "lines_matched": 2,
+        "lines_used": 2,
+        "rms_nm": 0.0,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 3,
+        "lines_detected": 26,
+        "lines_matched": 3,
+        "lines_used": 3,
+        "rms_nm": 1.2676961984185422,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 4,
+        "lines_detected": 42,
+        "lines_matched": 3,
+        "lines_used": 3,
+        "rms_nm": 1.6716636516460968,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 5,
+        "lines_detected": 40,
+        "lines_matched": 2,
+        "lines_used": 2,
+        "rms_nm": 8.038873388460929e-14,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 6,
+        "lines_detected": 53,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 7,
+        "lines_detected": 44,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 8,
+        "lines_detected": 50,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 9,
+        "lines_detected": 54,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 10,
+        "lines_detected": 27,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 11,
+        "lines_detected": 31,
+        "lines_matched": 2,
+        "lines_used": 2,
+        "rms_nm": 0.0,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 12,
+        "lines_detected": 38,
+        "lines_matched": 1,
+        "lines_used": 1,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "m collision with higher-quality fit; pending Cauchy re-seed"
+      },
+      {
+        "order_index": 13,
+        "lines_detected": 44,
+        "lines_matched": 1,
+        "lines_used": 1,
+        "rms_nm": 0.0,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 14,
+        "lines_detected": 38,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 15,
+        "lines_detected": 44,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 16,
+        "lines_detected": 40,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 17,
+        "lines_detected": 42,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 18,
+        "lines_detected": 49,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 19,
+        "lines_detected": 40,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      }
+    ]
+  },
+  {
+    "label": "hgar_g50_t30000ms",
+    "mcp_gain": 50,
+    "exposure_ms": 30000,
+    "pipeline_ok": true,
+    "pipeline_error": null,
+    "n_orders_detected": 20,
+    "n_orders_calibrated": 8,
+    "overall_rms_nm": 1.9541117453120929,
+    "total_lines_detected": 789,
+    "total_lines_matched": 24,
+    "median_rms_nm": 0.5693993776662569,
+    "per_order": [
+      {
+        "order_index": 0,
+        "lines_detected": 27,
+        "lines_matched": 4,
+        "lines_used": 4,
+        "rms_nm": 1.1387987553324335,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 1,
+        "lines_detected": 28,
+        "lines_matched": 5,
+        "lines_used": 5,
+        "rms_nm": 2.229176511520924,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 2,
+        "lines_detected": 27,
+        "lines_matched": 2,
+        "lines_used": 2,
+        "rms_nm": 0.0,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 3,
+        "lines_detected": 27,
+        "lines_matched": 4,
+        "lines_used": 4,
+        "rms_nm": 3.5140386258557474,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 4,
+        "lines_detected": 40,
+        "lines_matched": 3,
+        "lines_used": 3,
+        "rms_nm": 1.6732456014822534,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 5,
+        "lines_detected": 53,
+        "lines_matched": 2,
+        "lines_used": 2,
+        "rms_nm": 8.038873388460929e-14,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 6,
+        "lines_detected": 46,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 7,
+        "lines_detected": 44,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 8,
+        "lines_detected": 45,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 9,
+        "lines_detected": 52,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 10,
+        "lines_detected": 23,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 11,
+        "lines_detected": 24,
+        "lines_matched": 2,
+        "lines_used": 2,
+        "rms_nm": 0.0,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 12,
+        "lines_detected": 37,
+        "lines_matched": 1,
+        "lines_used": 1,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "m collision with higher-quality fit; pending Cauchy re-seed"
+      },
+      {
+        "order_index": 13,
+        "lines_detected": 45,
+        "lines_matched": 1,
+        "lines_used": 1,
+        "rms_nm": 0.0,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 14,
+        "lines_detected": 41,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 15,
+        "lines_detected": 50,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 16,
+        "lines_detected": 51,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 17,
+        "lines_detected": 47,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 18,
+        "lines_detected": 44,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 19,
+        "lines_detected": 38,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      }
+    ]
+  },
+  {
+    "label": "hgar_g100_t30000ms",
+    "mcp_gain": 100,
+    "exposure_ms": 30000,
+    "pipeline_ok": true,
+    "pipeline_error": null,
+    "n_orders_detected": 20,
+    "n_orders_calibrated": 8,
+    "overall_rms_nm": 1.4759622426821963,
+    "total_lines_detected": 734,
+    "total_lines_matched": 23,
+    "median_rms_nm": 0.5499713635336143,
+    "per_order": [
+      {
+        "order_index": 0,
+        "lines_detected": 16,
+        "lines_matched": 4,
+        "lines_used": 4,
+        "rms_nm": 1.0999427270671482,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 1,
+        "lines_detected": 19,
+        "lines_matched": 5,
+        "lines_used": 5,
+        "rms_nm": 2.3348567330689036,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 2,
+        "lines_detected": 24,
+        "lines_matched": 2,
+        "lines_used": 2,
+        "rms_nm": 0.0,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 3,
+        "lines_detected": 30,
+        "lines_matched": 3,
+        "lines_used": 3,
+        "rms_nm": 1.5146761703720315,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 4,
+        "lines_detected": 41,
+        "lines_matched": 3,
+        "lines_used": 3,
+        "rms_nm": 1.7268673357402424,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 5,
+        "lines_detected": 48,
+        "lines_matched": 2,
+        "lines_used": 2,
+        "rms_nm": 8.038873388460929e-14,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 6,
+        "lines_detected": 52,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 7,
+        "lines_detected": 33,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 8,
+        "lines_detected": 45,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 9,
+        "lines_detected": 49,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 10,
+        "lines_detected": 15,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 11,
+        "lines_detected": 25,
+        "lines_matched": 2,
+        "lines_used": 2,
+        "rms_nm": 0.0,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 12,
+        "lines_detected": 40,
+        "lines_matched": 1,
+        "lines_used": 1,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "m collision with higher-quality fit; pending Cauchy re-seed"
+      },
+      {
+        "order_index": 13,
+        "lines_detected": 48,
+        "lines_matched": 1,
+        "lines_used": 1,
+        "rms_nm": 0.0,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 14,
+        "lines_detected": 36,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 15,
+        "lines_detected": 44,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 16,
+        "lines_detected": 45,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 17,
+        "lines_detected": 42,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 18,
+        "lines_detected": 48,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 19,
+        "lines_detected": 34,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      }
+    ]
+  },
+  {
+    "label": "hgar_g200_t10000ms",
+    "mcp_gain": 200,
+    "exposure_ms": 10000,
+    "pipeline_ok": true,
+    "pipeline_error": null,
+    "n_orders_detected": 20,
+    "n_orders_calibrated": 8,
+    "overall_rms_nm": 1.6060003634956368,
+    "total_lines_detected": 527,
+    "total_lines_matched": 23,
+    "median_rms_nm": 0.2942782908634198,
+    "per_order": [
+      {
+        "order_index": 0,
+        "lines_detected": 19,
+        "lines_matched": 4,
+        "lines_used": 4,
+        "rms_nm": 1.7608456972964706,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 1,
+        "lines_detected": 15,
+        "lines_matched": 5,
+        "lines_used": 5,
+        "rms_nm": 2.23025348838851,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 2,
+        "lines_detected": 21,
+        "lines_matched": 2,
+        "lines_used": 2,
+        "rms_nm": 0.0,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 3,
+        "lines_detected": 19,
+        "lines_matched": 3,
+        "lines_used": 3,
+        "rms_nm": 2.4786796044992294,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 4,
+        "lines_detected": 26,
+        "lines_matched": 3,
+        "lines_used": 3,
+        "rms_nm": 0.5885565817267592,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 5,
+        "lines_detected": 42,
+        "lines_matched": 2,
+        "lines_used": 2,
+        "rms_nm": 8.038873388460929e-14,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 6,
+        "lines_detected": 31,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 7,
+        "lines_detected": 25,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 8,
+        "lines_detected": 33,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 9,
+        "lines_detected": 35,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 10,
+        "lines_detected": 16,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 11,
+        "lines_detected": 33,
+        "lines_matched": 2,
+        "lines_used": 2,
+        "rms_nm": 0.0,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 12,
+        "lines_detected": 22,
+        "lines_matched": 1,
+        "lines_used": 1,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "m collision with higher-quality fit; pending Cauchy re-seed"
+      },
+      {
+        "order_index": 13,
+        "lines_detected": 25,
+        "lines_matched": 1,
+        "lines_used": 1,
+        "rms_nm": 0.0,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 14,
+        "lines_detected": 16,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 15,
+        "lines_detected": 34,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 16,
+        "lines_detected": 20,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 17,
+        "lines_detected": 32,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 18,
+        "lines_detected": 29,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 19,
+        "lines_detected": 34,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      }
+    ]
+  },
+  {
+    "label": "hgar_g350_t3000ms",
+    "mcp_gain": 350,
+    "exposure_ms": 3000,
+    "pipeline_ok": true,
+    "pipeline_error": null,
+    "n_orders_detected": 20,
+    "n_orders_calibrated": 8,
+    "overall_rms_nm": 1.7158818832548772,
+    "total_lines_detected": 200,
+    "total_lines_matched": 22,
+    "median_rms_nm": 8.038873388460929e-14,
+    "per_order": [
+      {
+        "order_index": 0,
+        "lines_detected": 13,
+        "lines_matched": 4,
+        "lines_used": 4,
+        "rms_nm": 1.9768681666009051,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 1,
+        "lines_detected": 9,
+        "lines_matched": 5,
+        "lines_used": 5,
+        "rms_nm": 3.01442465733916,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 2,
+        "lines_detected": 13,
+        "lines_matched": 2,
+        "lines_used": 2,
+        "rms_nm": 0.0,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 3,
+        "lines_detected": 14,
+        "lines_matched": 3,
+        "lines_used": 3,
+        "rms_nm": 0.504464176652393,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 4,
+        "lines_detected": 6,
+        "lines_matched": 2,
+        "lines_used": 2,
+        "rms_nm": 8.038873388460929e-14,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 5,
+        "lines_detected": 8,
+        "lines_matched": 2,
+        "lines_used": 2,
+        "rms_nm": 8.038873388460929e-14,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 6,
+        "lines_detected": 6,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 7,
+        "lines_detected": 7,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 8,
+        "lines_detected": 11,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 9,
+        "lines_detected": 7,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 10,
+        "lines_detected": 7,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 11,
+        "lines_detected": 17,
+        "lines_matched": 2,
+        "lines_used": 2,
+        "rms_nm": 0.0,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 12,
+        "lines_detected": 9,
+        "lines_matched": 1,
+        "lines_used": 1,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "m collision with higher-quality fit; pending Cauchy re-seed"
+      },
+      {
+        "order_index": 13,
+        "lines_detected": 9,
+        "lines_matched": 1,
+        "lines_used": 1,
+        "rms_nm": 0.0,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 14,
+        "lines_detected": 7,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 15,
+        "lines_detected": 11,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 16,
+        "lines_detected": 9,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 17,
+        "lines_detected": 5,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 18,
+        "lines_detected": 12,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 19,
+        "lines_detected": 20,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      }
+    ]
+  },
+  {
+    "label": "hgar_g350_t10000ms",
+    "mcp_gain": 350,
+    "exposure_ms": 10000,
+    "pipeline_ok": true,
+    "pipeline_error": null,
+    "n_orders_detected": 20,
+    "n_orders_calibrated": 10,
+    "overall_rms_nm": 1.7735316159258672,
+    "total_lines_detected": 418,
+    "total_lines_matched": 25,
+    "median_rms_nm": 4.0194366942304644e-14,
+    "per_order": [
+      {
+        "order_index": 0,
+        "lines_detected": 12,
+        "lines_matched": 4,
+        "lines_used": 4,
+        "rms_nm": 3.0015655422329846,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 1,
+        "lines_detected": 19,
+        "lines_matched": 5,
+        "lines_used": 5,
+        "rms_nm": 1.8312548206651007,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 2,
+        "lines_detected": 13,
+        "lines_matched": 2,
+        "lines_used": 2,
+        "rms_nm": 0.0,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 3,
+        "lines_detected": 22,
+        "lines_matched": 4,
+        "lines_used": 4,
+        "rms_nm": 2.3814329465785624,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 4,
+        "lines_detected": 15,
+        "lines_matched": 2,
+        "lines_used": 2,
+        "rms_nm": 8.038873388460929e-14,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 5,
+        "lines_detected": 27,
+        "lines_matched": 2,
+        "lines_used": 2,
+        "rms_nm": 8.038873388460929e-14,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 6,
+        "lines_detected": 29,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 7,
+        "lines_detected": 24,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 8,
+        "lines_detected": 18,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 9,
+        "lines_detected": 26,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 10,
+        "lines_detected": 22,
+        "lines_matched": 1,
+        "lines_used": 1,
+        "rms_nm": 0.0,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 11,
+        "lines_detected": 10,
+        "lines_matched": 2,
+        "lines_used": 2,
+        "rms_nm": 0.0,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 12,
+        "lines_detected": 22,
+        "lines_matched": 1,
+        "lines_used": 1,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "m collision with higher-quality fit; pending Cauchy re-seed"
+      },
+      {
+        "order_index": 13,
+        "lines_detected": 21,
+        "lines_matched": 1,
+        "lines_used": 1,
+        "rms_nm": 0.0,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 14,
+        "lines_detected": 21,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 15,
+        "lines_detected": 21,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 16,
+        "lines_detected": 20,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 17,
+        "lines_detected": 22,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 18,
+        "lines_detected": 28,
+        "lines_matched": 1,
+        "lines_used": 1,
+        "rms_nm": 0.0,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 19,
+        "lines_detected": 26,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      }
+    ]
+  },
+  {
+    "label": "hgar_g500_t1000ms",
+    "mcp_gain": 500,
+    "exposure_ms": 1000,
+    "pipeline_ok": true,
+    "pipeline_error": null,
+    "n_orders_detected": 20,
+    "n_orders_calibrated": 8,
+    "overall_rms_nm": 1.8017899252202307,
+    "total_lines_detected": 117,
+    "total_lines_matched": 21,
+    "median_rms_nm": 4.0194366942304644e-14,
+    "per_order": [
+      {
+        "order_index": 0,
+        "lines_detected": 10,
+        "lines_matched": 4,
+        "lines_used": 4,
+        "rms_nm": 2.0149483927649916,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 1,
+        "lines_detected": 10,
+        "lines_matched": 5,
+        "lines_used": 5,
+        "rms_nm": 3.0394389508148314,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 2,
+        "lines_detected": 7,
+        "lines_matched": 2,
+        "lines_used": 2,
+        "rms_nm": 0.0,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 3,
+        "lines_detected": 6,
+        "lines_matched": 3,
+        "lines_used": 3,
+        "rms_nm": 0.9124919929924128,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 4,
+        "lines_detected": 4,
+        "lines_matched": 2,
+        "lines_used": 2,
+        "rms_nm": 8.038873388460929e-14,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 5,
+        "lines_detected": 7,
+        "lines_matched": 1,
+        "lines_used": 1,
+        "rms_nm": 0.0,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 6,
+        "lines_detected": 0,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few arc lines detected (0, need 1)"
+      },
+      {
+        "order_index": 7,
+        "lines_detected": 4,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 8,
+        "lines_detected": 4,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 9,
+        "lines_detected": 4,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 10,
+        "lines_detected": 4,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 11,
+        "lines_detected": 7,
+        "lines_matched": 2,
+        "lines_used": 2,
+        "rms_nm": 0.0,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 12,
+        "lines_detected": 8,
+        "lines_matched": 1,
+        "lines_used": 1,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "m collision with higher-quality fit; pending Cauchy re-seed"
+      },
+      {
+        "order_index": 13,
+        "lines_detected": 8,
+        "lines_matched": 1,
+        "lines_used": 1,
+        "rms_nm": 0.0,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 14,
+        "lines_detected": 6,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 15,
+        "lines_detected": 3,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 16,
+        "lines_detected": 2,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 17,
+        "lines_detected": 1,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 18,
+        "lines_detected": 5,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 19,
+        "lines_detected": 17,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      }
+    ]
+  },
+  {
+    "label": "hgar_g500_t3000ms",
+    "mcp_gain": 500,
+    "exposure_ms": 3000,
+    "pipeline_ok": true,
+    "pipeline_error": null,
+    "n_orders_detected": 20,
+    "n_orders_calibrated": 8,
+    "overall_rms_nm": 1.9783893224776017,
+    "total_lines_detected": 213,
+    "total_lines_matched": 22,
+    "median_rms_nm": 8.038873388460929e-14,
+    "per_order": [
+      {
+        "order_index": 0,
+        "lines_detected": 12,
+        "lines_matched": 4,
+        "lines_used": 4,
+        "rms_nm": 2.0674105951419928,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 1,
+        "lines_detected": 6,
+        "lines_matched": 5,
+        "lines_used": 5,
+        "rms_nm": 3.2002588794497537,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 2,
+        "lines_detected": 11,
+        "lines_matched": 2,
+        "lines_used": 2,
+        "rms_nm": 0.0,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 3,
+        "lines_detected": 19,
+        "lines_matched": 3,
+        "lines_used": 3,
+        "rms_nm": 2.1517031846155903,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 4,
+        "lines_detected": 10,
+        "lines_matched": 2,
+        "lines_used": 2,
+        "rms_nm": 8.038873388460929e-14,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 5,
+        "lines_detected": 11,
+        "lines_matched": 2,
+        "lines_used": 2,
+        "rms_nm": 8.038873388460929e-14,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 6,
+        "lines_detected": 4,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 7,
+        "lines_detected": 8,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 8,
+        "lines_detected": 4,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 9,
+        "lines_detected": 15,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 10,
+        "lines_detected": 5,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 11,
+        "lines_detected": 18,
+        "lines_matched": 2,
+        "lines_used": 2,
+        "rms_nm": 0.0,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 12,
+        "lines_detected": 7,
+        "lines_matched": 1,
+        "lines_used": 1,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "m collision with higher-quality fit; pending Cauchy re-seed"
+      },
+      {
+        "order_index": 13,
+        "lines_detected": 10,
+        "lines_matched": 1,
+        "lines_used": 1,
+        "rms_nm": 0.0,
+        "success": true,
+        "failure_reason": null
+      },
+      {
+        "order_index": 14,
+        "lines_detected": 9,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 15,
+        "lines_detected": 9,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 16,
+        "lines_detected": 6,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 17,
+        "lines_detected": 11,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 18,
+        "lines_detected": 10,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      },
+      {
+        "order_index": 19,
+        "lines_detected": 28,
+        "lines_matched": 0,
+        "lines_used": 0,
+        "rms_nm": 0.0,
+        "success": false,
+        "failure_reason": "too few atlas matches (0, need 1)"
+      }
+    ]
+  }
+]
