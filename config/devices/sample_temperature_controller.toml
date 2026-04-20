@@ -11,7 +11,7 @@
 # - Serial communication with terminators
 # - Multiple capability traits (Readable, Settable, Parameterized)
 # - Command templating with MiniJinja interpolation
-# - Response parsing with transform pipelines and regex patterns
+# - Response parsing with format strings and transform pipelines
 # - Unit conversions with evalexpr formulas
 # - Error code mapping with recovery actions
 # - Retry configuration with exponential backoff
@@ -277,40 +277,43 @@ delay_ms = 2000                       # Wait after command
 # ==============================================================================
 # SECTION 6: Response Definitions
 # ==============================================================================
-# Define how to parse responses using transform pipelines or regex.
-# Prefer transform pipelines for simple parsing, regex for complex patterns.
+# Define how to parse responses. Prefer `format` (literals + `{field:type}`
+# placeholders) — it is faster, self-documenting, and error messages point at
+# the specific field that failed. Drop down to `transform` pipelines for
+# extract/map/trim work, and `regex` (in an [advanced] block) only when the
+# shape genuinely requires it.
 
 # Temperature response: "TEMP 25.50"
 [responses.temperature]
-regex = "^TEMP\\s+(?P<value>[+-]?\\d+\\.?\\d*)$"
+format = "TEMP {value:float}"
 
 # Setpoint response: "SETP 30.00"
 [responses.setpoint]
-regex = "^SETP\\s+(?P<value>[+-]?\\d+\\.?\\d*)$"
+format = "SETP {value:float}"
 
 # PID response: "PID 10.0,0.5,2.0"
 [responses.pid_values]
-regex = "^PID\\s+(?P<p>\\d+\\.?\\d*),(?P<i>\\d+\\.?\\d*),(?P<d>\\d+\\.?\\d*)$"
+format = "PID {p:float},{i:float},{d:float}"
 
 # Mode response: "MODE PID"
 [responses.mode]
-regex = "^MODE\\s+(?P<mode>\\w+)$"
+format = "MODE {mode}"
 
-# Status response: "STAT 0x05" (bit flags as hex)
+# Status response: "STAT 0x05" (bit flags as hex string; convert in the driver)
 [responses.status]
-regex = "^STAT\\s+0x(?P<flags>[0-9A-Fa-f]+)$"
+format = "STAT 0x{flags}"
 
 # Heater power response: "HTR 45.2"
 [responses.heater_power]
-regex = "^HTR\\s+(?P<power>\\d+\\.?\\d*)$"
+format = "HTR {power:float}"
 
 # Alarm response: "ALARM HI:150.0 LO:0.0"
 [responses.alarms]
-regex = "^ALARM\\s+HI:(?P<high>[+-]?\\d+\\.?\\d*)\\s+LO:(?P<low>[+-]?\\d+\\.?\\d*)$"
+format = "ALARM HI:{high:float} LO:{low:float}"
 
 # Identity response: "ACME,TC-2000,SN12345,v1.2"
 [responses.identity]
-regex = "^(?P<manufacturer>\\w+),(?P<model>[\\w-]+),(?P<serial>\\w+),v(?P<version>[\\d.]+)$"
+format = "{manufacturer},{model},{serial},v{version}"
 
 # ==============================================================================
 # SECTION 7: Unit Conversions
