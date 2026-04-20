@@ -577,4 +577,61 @@ mod tests {
         let result = generate_scpi(&ScpiResponseType::Integer, &state);
         assert_eq!(result, "42");
     }
+
+    // =========================================================================
+    // F5 acceptance: emulator generates samples from a format variant, and the
+    // parser round-trips them cleanly. Covers ELL14 device_info's two
+    // firmware-dependent widths (travel:5 vs travel:8).
+    // =========================================================================
+
+    #[test]
+    fn format_variant_roundtrip_ell14_device_info_short() {
+        let fmt = "{addr:hex1}IN{type:hex2}{serial:8}{year:4}{firmware:2}\
+                   {hw:1}{travel:5}{pulses:hex8}";
+        let segments = format_parser::parse_format(fmt).unwrap();
+
+        let mut state = HashMap::new();
+        state.insert("addr".into(), json!(2_i64));
+        state.insert("type".into(), json!(0x0E_i64));
+        state.insert("serial".into(), json!("11400517"));
+        state.insert("year".into(), json!("2023"));
+        state.insert("firmware".into(), json!("17"));
+        state.insert("hw".into(), json!("0"));
+        state.insert("travel".into(), json!("10168"));
+        state.insert("pulses".into(), json!(0x23000_i64));
+
+        let generated = generate_format_string(&segments, &state);
+        let parsed = format_parser::parse_response(&segments, &generated)
+            .expect("generator output parses back");
+
+        assert_eq!(parsed.get("addr"), Some(&json!(2)));
+        assert_eq!(parsed.get("type"), Some(&json!(0x0E)));
+        assert_eq!(parsed.get("serial"), Some(&json!("11400517")));
+        assert_eq!(parsed.get("travel"), Some(&json!("10168")));
+        assert_eq!(parsed.get("pulses"), Some(&json!(0x23000)));
+    }
+
+    #[test]
+    fn format_variant_roundtrip_ell14_device_info_long() {
+        let fmt = "{addr:hex1}IN{type:hex2}{serial:8}{year:4}{firmware:2}\
+                   {hw:1}{travel:8}{pulses:hex8}";
+        let segments = format_parser::parse_format(fmt).unwrap();
+
+        let mut state = HashMap::new();
+        state.insert("addr".into(), json!(2_i64));
+        state.insert("type".into(), json!(0x0E_i64));
+        state.insert("serial".into(), json!("11400517"));
+        state.insert("year".into(), json!("2023"));
+        state.insert("firmware".into(), json!("17"));
+        state.insert("hw".into(), json!("0"));
+        state.insert("travel".into(), json!("12345678"));
+        state.insert("pulses".into(), json!(0x23000_i64));
+
+        let generated = generate_format_string(&segments, &state);
+        let parsed = format_parser::parse_response(&segments, &generated)
+            .expect("generator output parses back");
+
+        assert_eq!(parsed.get("travel"), Some(&json!("12345678")));
+        assert_eq!(parsed.get("pulses"), Some(&json!(0x23000)));
+    }
 }
