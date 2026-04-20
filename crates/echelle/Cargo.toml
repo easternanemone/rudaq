@@ -18,6 +18,9 @@ sha2 = "0.10"
 # Dependency on common for Measurement type
 common = { path = "../common" }
 
+# NIST ASD atomic-line inventory (generated from CF-LIBS-improved).
+atomic-reference = { path = "../atomic-reference" }
+
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 rayon.workspace = true
 

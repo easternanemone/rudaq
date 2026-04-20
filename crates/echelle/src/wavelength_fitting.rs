@@ -796,11 +796,31 @@ fn a(wavelength_nm: f64, species: &str, strength: f64) -> AtlasLine {
 
 /// Load the HgAr (Mercury-Argon) reference emission line atlas.
 ///
-/// Returns the ~30 strongest Hg I and Ar I lines in the 200-900nm range,
-/// suitable for calibrating with an HgAr hollow cathode lamp.
+/// Returns the full NIST ASD Hg I + Ar I inventory in the 200-975 nm
+/// Mechelle 5000 bandpass, sourced from the `atomic-reference` crate
+/// (generated from CF-LIBS-improved's curated database; see
+/// `docs/design/nist-asd-integration-decision.md`).
+///
 /// For the OceanInsight HG-2 (pure mercury), use [`load_hg_atlas`] instead.
 #[must_use]
 pub fn load_hgar_atlas() -> Vec<AtlasLine> {
+    atomic_reference::atlas::hgar()
+        .into_iter()
+        .map(|e| AtlasLine {
+            wavelength_nm: e.wavelength_nm,
+            species: e.species,
+            strength: e.strength,
+        })
+        .collect()
+}
+
+/// Legacy 29-line hand-curated HgAr atlas preserved for regression testing.
+///
+/// Prior to the atomic-reference crate expansion (bd-3yb8.30.1,
+/// 2026-04-20), this was the production atlas. Retained as a private
+/// fixture so unit tests can assert the new atlas is a strict superset.
+#[cfg(test)]
+fn legacy_hgar_atlas_subset() -> Vec<AtlasLine> {
     vec![
         // ── Mercury I lines ──────────────────────────────────────────
         AtlasLine {
@@ -1995,6 +2015,48 @@ pub fn leave_one_out_rms(points: &[(f64, f64, f64)], degree_x: usize, degree_y: 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ─── Atlas expansion regression (bd-3yb8.30.1) ─────────────────────────
+
+    /// Every line in the legacy 29-line hand-curated atlas must exist in
+    /// the new NIST-ASD-sourced atlas within 0.01 nm. This is the safety
+    /// net for the atomic-reference-backed expansion: we can add lines,
+    /// but we cannot silently drop ones downstream calibrations rely on.
+    #[test]
+    fn new_hgar_atlas_is_superset_of_legacy() {
+        let legacy = legacy_hgar_atlas_subset();
+        let new = load_hgar_atlas();
+        assert!(
+            new.len() >= 100,
+            "expanded atlas only has {} entries; expected ≥100",
+            new.len()
+        );
+        for legacy_line in &legacy {
+            let found = new
+                .iter()
+                .any(|n| (n.wavelength_nm - legacy_line.wavelength_nm).abs() < 0.01);
+            assert!(
+                found,
+                "legacy atlas line {:.3} nm ({}) not present in expanded atlas",
+                legacy_line.wavelength_nm, legacy_line.species
+            );
+        }
+    }
+
+    /// The atlas must be wavelength-sorted ascending — several matcher
+    /// code paths rely on this for binary-search or window scans.
+    #[test]
+    fn new_hgar_atlas_is_wavelength_sorted() {
+        let atlas = load_hgar_atlas();
+        for pair in atlas.windows(2) {
+            assert!(
+                pair[0].wavelength_nm <= pair[1].wavelength_nm,
+                "atlas not sorted at {} → {}",
+                pair[0].wavelength_nm,
+                pair[1].wavelength_nm
+            );
+        }
+    }
 
     // ─── validate_monotonic ────────────────────────────────────────────────
 

@@ -1,0 +1,14 @@
+[package]
+name = "atomic-reference"
+version = "0.1.0"
+edition = "2024"
+rust-version.workspace = true
+publish = false
+description = "NIST ASD atomic-line reference data for rust-daq spectroscopy, generated from CF-LIBS-improved/ASD_da."
+
+[lints]
+workspace = true
+
+[dependencies]
+# Intentionally empty: this crate is pure data + thin query helpers.
+# Keep it dep-free so downstream crates pay no compile-time cost.

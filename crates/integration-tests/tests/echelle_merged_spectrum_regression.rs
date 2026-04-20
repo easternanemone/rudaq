@@ -679,6 +679,13 @@ fn echelle_merged_spectrum_regression_dh3p_flat() {
         "only {} orders merged — trace detection or calibration regressed",
         out.n_orders_merged
     );
+    // TODO(bd-3yb8.30.2): tighten back to `< 0.3` after sub-epic B (matching
+    // discipline) lands progressive seed tolerances and per-order polynomial
+    // auto-degree. The current 1.0 nm gate matches the config's
+    // `max_fit_rms_nm = 0.3` (see config/calibration/mechelle_5000.toml:82);
+    // overall_rms aggregates per-order rms across ~8-10 successful orders
+    // with Stage-3 global refinement, so it can run 2-3× wider than the
+    // per-order gate.
     assert!(
         out.overall_rms_nm < 1.0,
         "overall calibration RMS {} nm > 1 nm — atlas match regressed",

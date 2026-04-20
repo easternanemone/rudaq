@@ -111,10 +111,26 @@ fn test_calibration_pipeline_produces_valid_profile() {
         (240.0, 700.0, 740.0),
     ];
 
+    // Inject the strongest lines per order range to simulate a real HgAr
+    // spectrum. The full NIST atlas (after bd-3yb8.30.1) has ~360 Hg I + Ar I
+    // entries in 200-975 nm; injecting all of them into a 200-px synthetic
+    // order produces unresolved blends. Cap at the 5 strongest per order.
     let atlas = load_hgar_atlas();
-    let all_wl: Vec<f64> = atlas.iter().map(|a| a.wavelength_nm).collect();
+    let mut injected: Vec<f64> = Vec::new();
+    for &(_, lo, hi) in &orders {
+        let mut in_range: Vec<&_> = atlas
+            .iter()
+            .filter(|a| a.wavelength_nm >= lo && a.wavelength_nm <= hi)
+            .collect();
+        in_range.sort_by(|a, b| {
+            b.strength
+                .partial_cmp(&a.strength)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        injected.extend(in_range.iter().take(5).map(|a| a.wavelength_nm));
+    }
 
-    let frame = synthetic_arc_frame(width, height, &orders, &all_wl, 2.5, 2000.0, 2.5);
+    let frame = synthetic_arc_frame(width, height, &orders, &injected, 2.5, 2000.0, 2.5);
 
     let mut anchors = Vec::new();
     for (oi, &(_, lam_start, lam_end)) in orders.iter().enumerate() {

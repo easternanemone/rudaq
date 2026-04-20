@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/atomic-reference",
     "crates/common",
     "crates/common-traits",
     "crates/echelle",

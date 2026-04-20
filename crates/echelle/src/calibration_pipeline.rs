@@ -35,6 +35,33 @@ use std::sync::Arc;
 
 use chrono::Utc;
 
+// Parallelism on native via rayon; sequential fallback shim on wasm32 where
+// rayon is cfg'd out at the workspace level (see `crates/echelle/Cargo.toml`'s
+// `[target.'cfg(not(target_arch = "wasm32"))'.dependencies]`).
+// The shim keeps the large per-order map closures below single-sourced rather
+// than duplicated per target.
+#[cfg(not(target_arch = "wasm32"))]
+use rayon::prelude::*;
+
+#[cfg(target_arch = "wasm32")]
+trait ParIterShim<T> {
+    fn par_iter(&self) -> core::slice::Iter<'_, T>;
+}
+
+#[cfg(target_arch = "wasm32")]
+impl<T> ParIterShim<T> for Vec<T> {
+    fn par_iter(&self) -> core::slice::Iter<'_, T> {
+        self.iter()
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl<T> ParIterShim<T> for [T] {
+    fn par_iter(&self) -> core::slice::Iter<'_, T> {
+        self.iter()
+    }
+}
+
 use crate::optimal_extraction::OptimalExtractionConfig;
 use crate::rectification::{OrderSpec, RectifyConfig, rectify_order};
 use crate::scattered_light::{ScatteredLightConfig, TraceInfo, subtract_scattered_light};
@@ -517,8 +544,9 @@ fn run_calibration_pipeline_impl(
     // bd-ongmw: Stage-1 work per order is pure wrt the captured references
     // (arc_line_sources, seed_fns, traces, config). Each order produces
     // (diagnostic, Option<calibration>) independently, so we par_iter across
-    // traces and collect in deterministic order before merging.
-    use rayon::prelude::*;
+    // traces and collect in deterministic order before merging. On wasm32
+    // the `ParIterShim` at the top of this file transparently degrades
+    // `.par_iter()` to sequential iteration.
     let stage1_results: Vec<(OrderDiagnostic, Option<EchelleOrderCalibration>)> = traces
         .par_iter()
         .enumerate()
@@ -1947,16 +1975,28 @@ mod tests {
             (240.0, 700.0, 740.0),
         ];
 
-        // Inject lines from the HgAr atlas that fall within these ranges.
+        // Inject the strongest lines per order range to simulate a real HgAr
+        // spectrum. The full atlas (NIST-backed after bd-3yb8.30.1) has
+        // ~360 Hg I + Ar I entries; injecting all of them into a 200-px
+        // synthetic order produces unresolved blends. Cap at the 5
+        // strongest per order, which is close to what a real iStar detects.
         let atlas = load_hgar_atlas();
-        let all_wavelengths: Vec<f64> = atlas.iter().map(|a| a.wavelength_nm).collect();
+        let mut injected: Vec<f64> = Vec::new();
+        for &(_, lo, hi) in &orders {
+            let mut in_range: Vec<&AtlasLine> = atlas
+                .iter()
+                .filter(|a| a.wavelength_nm >= lo && a.wavelength_nm <= hi)
+                .collect();
+            in_range.sort_by(|a, b| {
+                b.strength
+                    .partial_cmp(&a.strength)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+            injected.extend(in_range.iter().take(5).map(|a| a.wavelength_nm));
+        }
 
         let frame = synthetic_arc_frame(
-            width,
-            height,
-            &orders,
-            &all_wavelengths,
-            2.5,    // sigma_px
+            width, height, &orders, &injected, 2.5,    // sigma_px
             2000.0, // peak flux
             2.5,    // spatial sigma
         );
@@ -2065,9 +2105,23 @@ mod tests {
             (150.0, 500.0, 525.0),
             (240.0, 700.0, 740.0),
         ];
+        // Same top-5-strongest-per-order strategy as test_pipeline_with_synthetic_arc
+        // (see comment there for why injecting the full 360-line atlas breaks detection).
         let atlas = load_hgar_atlas();
-        let all_wavelengths: Vec<f64> = atlas.iter().map(|a| a.wavelength_nm).collect();
-        let frame = synthetic_arc_frame(width, height, &orders, &all_wavelengths, 2.5, 2000.0, 2.5);
+        let mut injected: Vec<f64> = Vec::new();
+        for &(_, lo, hi) in &orders {
+            let mut in_range: Vec<&AtlasLine> = atlas
+                .iter()
+                .filter(|a| a.wavelength_nm >= lo && a.wavelength_nm <= hi)
+                .collect();
+            in_range.sort_by(|a, b| {
+                b.strength
+                    .partial_cmp(&a.strength)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+            injected.extend(in_range.iter().take(5).map(|a| a.wavelength_nm));
+        }
+        let frame = synthetic_arc_frame(width, height, &orders, &injected, 2.5, 2000.0, 2.5);
         let mut anchors = Vec::new();
         for (oi, &(_, lambda_start, lambda_end)) in orders.iter().enumerate() {
             anchors.push(SeedAnchor {

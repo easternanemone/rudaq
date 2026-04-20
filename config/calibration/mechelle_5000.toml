@@ -77,6 +77,20 @@ wl_seed_tolerance_nm = 5.0
 # Minimum matched lines per order — 1 enables single-line fallback (bd-3hlp)
 # which anchors the echelle equation to a single matched line during Stage 1/2
 min_lines_per_order = 1
+# Per-order wavelength-fit RMS rejection threshold (nm). Orders whose fit
+# residual exceeds this are dropped from the calibrated set.
+#
+# Bounds the wrong-atlas-line sensitivity that the expanded NIST inventory
+# exposes (bd-3yb8.30.1 raised the HgAr atlas from 29 to ~360 Hg I + Ar I
+# lines, which increases the density of "within tolerance" candidates per
+# detected peak). 0.3 nm is tight enough to reject most spurious matches
+# and loose enough to keep ME5000 linear-fit orders that would otherwise
+# fail on centroiding noise alone (~0.05–0.1 nm per-line precision × 2–3
+# matched lines).
+#
+# TODO(bd-3yb8.30.2): once progressive seed-tolerance + polynomial
+# auto-degree (sub-epic B/C) land, this should drop to 0.1 nm.
+max_fit_rms_nm = 0.3
 # Simple summation extraction (optimal extraction needs flat-field)
 use_optimal_extraction = false
 

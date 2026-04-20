@@ -1218,6 +1218,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "atomic-reference"
+version = "0.1.0"
+
+[[package]]
 name = "atomic-waker"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4018,6 +4022,7 @@ name = "echelle"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "atomic-reference",
  "chrono",
  "common",
  "criterion",
