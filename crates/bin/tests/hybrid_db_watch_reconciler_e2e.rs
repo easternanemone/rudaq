@@ -66,12 +66,16 @@ macro_rules! require_binary {
 }
 
 /// Capture and print daemon stderr for diagnostics on test failure.
+///
+/// Caller MUST ensure the child has exited (via try_wait/kill+wait) before
+/// calling this — `read_to_string` on a piped stream only returns at EOF,
+/// which happens when the child closes its pipes (i.e. on exit). Calling
+/// this on a live daemon hangs indefinitely (bd-pqkke).
 fn dump_daemon_output(child: &mut Child, label: &str) {
     use std::io::Read;
 
     if let Some(ref mut stderr) = child.stderr {
         let mut buf = String::new();
-        // Non-blocking: read what's available (stderr is piped)
         let _ = stderr.read_to_string(&mut buf);
         if !buf.is_empty() {
             eprintln!("=== Daemon {label} (stderr) ===\n{buf}\n=== end ===");
@@ -101,6 +105,12 @@ async fn test_watch_reconciler_adds_removes_and_restarts_devices() {
     let port = listener.local_addr().unwrap().port();
     drop(listener);
 
+    // stdout is discarded (not piped) because the daemon prints ~several-KB
+    // of banner + per-device startup lines. With a piped-but-unread stdout,
+    // the ~64KB pipe buffer fills and the daemon blocks on println! before
+    // the gRPC server binds — which looks exactly like a startup hang
+    // (bd-pqkke). Diagnostics we care about (tracing ERROR logs) go to
+    // stderr via tracing_subscriber, which we still capture.
     let mut child = Command::new(&binary)
         .current_dir(&workspace)
         .args([
@@ -111,22 +121,25 @@ async fn test_watch_reconciler_adds_removes_and_restarts_devices() {
             &port.to_string(),
         ])
         .env("RUST_BACKTRACE", "1")
-        .stdout(Stdio::piped())
+        .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()
         .expect("Failed to spawn daemon");
 
     // Give the daemon time to start. Mock mode is faster than hybrid-db since
     // it skips hardware config parsing and device instantiation.
-    tokio::time::sleep(Duration::from_secs(3)).await;
+    tokio::time::sleep(Duration::from_secs(5)).await;
 
     let addr = format!("http://127.0.0.1:{port}");
 
-    // Retry connection with backoff for CI reliability.
+    // Retry connection with backoff for CI reliability. Budget (30 × 1s) must
+    // tolerate CPU contention when the whole workspace test suite runs in
+    // parallel — solo startup is ~3s, but under load it can exceed 15s.
     let mut client = None;
-    for i in 0..10 {
+    for i in 0..30 {
         // Check that daemon process is still alive before retrying
         if let Some(status) = child.try_wait().ok().flatten() {
+            // Child has exited, so pipes are EOF — safe to dump output.
             dump_daemon_output(&mut child, "premature exit");
             panic!("Daemon exited prematurely with status: {status}");
         }
@@ -142,8 +155,11 @@ async fn test_watch_reconciler_adds_removes_and_restarts_devices() {
         }
     }
     let Some(mut client) = client else {
-        dump_daemon_output(&mut child, "connection timeout");
+        // Kill + reap BEFORE reading pipes — otherwise read_to_string blocks
+        // until the daemon exits (bd-pqkke).
         let _ = child.kill();
+        let _ = child.wait();
+        dump_daemon_output(&mut child, "connection timeout");
         panic!("Failed to connect to daemon after retries");
     };
 
