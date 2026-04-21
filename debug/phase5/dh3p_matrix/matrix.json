@@ -1,0 +1,8 @@
+[
+  {"label":"dh3p_g2000_t30000ms_acc5","mcp_gain":2000,"exposure_ms":30000,"accumulate_count":5,"effective_ms":150000,"tiff":"dh3p_g2000_t30000ms_acc5.tiff","elapsed_s":151,"size_kb":10804,"captured_at":"2026-04-21T00:20:24+00:00"},
+  {"label":"dh3p_g2000_t30000ms_acc10","mcp_gain":2000,"exposure_ms":30000,"accumulate_count":10,"effective_ms":300000,"tiff":"dh3p_g2000_t30000ms_acc10.tiff","elapsed_s":301,"size_kb":10804,"captured_at":"2026-04-21T00:25:25+00:00"},
+  {"label":"dh3p_g2000_t30000ms_acc20","mcp_gain":2000,"exposure_ms":30000,"accumulate_count":20,"effective_ms":600000,"tiff":"dh3p_g2000_t30000ms_acc20.tiff","elapsed_s":601,"size_kb":10804,"captured_at":"2026-04-21T00:35:26+00:00"},
+  {"label":"dh3p_g3000_t30000ms_acc10","mcp_gain":3000,"exposure_ms":30000,"accumulate_count":10,"effective_ms":300000,"tiff":"dh3p_g3000_t30000ms_acc10.tiff","elapsed_s":300,"size_kb":10804,"captured_at":"2026-04-21T00:40:26+00:00"},
+  {"label":"dh3p_g3000_t30000ms_acc20","mcp_gain":3000,"exposure_ms":30000,"accumulate_count":20,"effective_ms":600000,"tiff":"dh3p_g3000_t30000ms_acc20.tiff","elapsed_s":601,"size_kb":10804,"captured_at":"2026-04-21T00:50:27+00:00"},
+  {"label":"dh3p_g4000_t30000ms_acc10","mcp_gain":4000,"exposure_ms":30000,"accumulate_count":10,"effective_ms":300000,"tiff":"dh3p_g4000_t30000ms_acc10.tiff","elapsed_s":301,"size_kb":10804,"captured_at":"2026-04-21T00:55:28+00:00"}
+]
