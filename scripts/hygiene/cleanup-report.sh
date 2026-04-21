@@ -8,6 +8,7 @@
 #   - TODO/FIXME count in source
 #   - Deprecated item count (#[deprecated])
 #   - Generated vs tracked file sizes
+#   - Tracked raw debug artifacts
 #
 # This is a reporting tool — it always exits 0.
 
@@ -29,6 +30,15 @@ section() {
 
 tracked_rust_files() {
     git ls-files 'crates/**/*.rs' 2>/dev/null | sort
+}
+
+tracked_raw_debug_artifacts() {
+    git ls-files \
+        'debug/**/*.tiff' \
+        'debug/**/*.hdf5' \
+        'debug/**/*.fits' \
+        'debug/**/.DS_Store' \
+        'debug/.DS_Store' 2>/dev/null | sort
 }
 
 # ---------------------------------------------------------------------------
@@ -180,6 +190,33 @@ if [ "$total_rs_bytes" -gt 0 ] && [ "$proto_generated_bytes" -gt 0 ]; then
 fi
 
 # ---------------------------------------------------------------------------
+# 6. Tracked raw debug artifacts
+# ---------------------------------------------------------------------------
+
+section "Tracked Raw Debug Artifacts"
+
+raw_debug_count=0
+raw_debug_bytes=0
+while IFS= read -r f; do
+    raw_debug_count=$((raw_debug_count + 1))
+    if [ -f "$f" ]; then
+        size=$(wc -c < "$f" | tr -d ' ')
+        raw_debug_bytes=$((raw_debug_bytes + size))
+        printf "  %8s  %s\n" "$(fmt_kb "$size")" "$f"
+    else
+        printf "  missing  %s\n" "$f"
+    fi
+done < <(tracked_raw_debug_artifacts)
+
+if [ "$raw_debug_count" -eq 0 ]; then
+    echo "  None found."
+else
+    echo ""
+    printf "  Total: %d file(s), %s\n" "$raw_debug_count" "$(fmt_kb "$raw_debug_bytes")"
+    echo "  Move durable fixtures under testdata/ or a named fixture path."
+fi
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 
@@ -189,6 +226,7 @@ echo "  Oversized files:    $oversized_count"
 echo "  TODO+FIXME+HACK:    $((todo_count + fixme_count + hack_count))"
 echo "  Deprecated items:   $deprecated_count"
 echo "  Generated files:    $proto_generated"
+echo "  Raw debug artifacts: $raw_debug_count"
 echo ""
 echo "  Report complete. Review items above for periodic cleanup."
 
