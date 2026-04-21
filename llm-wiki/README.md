@@ -13,4 +13,7 @@ for prose. Canonical human docs live under [`docs/`](../docs/) (Diataxis).
 Inspired by Andrej Karpathy's LLM Wiki concept:
 <https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f>.
 
-Agents: read `schema.md` before editing anything here.
+Agents: read `schema.md` before editing anything here. For general work, use
+`index.md` for orientation before broad code search, then verify behavior
+against source files before making changes. If the source contradicts the wiki,
+source wins and the wiki should be corrected.

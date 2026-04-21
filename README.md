@@ -544,7 +544,8 @@ We welcome contributions! Start here:
 2. **Write Tests**: All new features require tests. See [Testing Guide](docs/how-to/testing.md)
 3. **Follow Style**: Run `cargo fmt --all` and `cargo clippy --all-targets`
 4. **Document Changes**: Update relevant README and ADR docs
-5. **Read CLAUDE.md**: Project-specific development guidelines in [CLAUDE.md](CLAUDE.md)
+5. **AI agents**: Read [AGENTS.md](AGENTS.md), then start with the [LLM Wiki](llm-wiki/index.md) before broad code search
+6. **Read CLAUDE.md**: Project-specific development guidelines in [CLAUDE.md](CLAUDE.md)
 
 For larger features, consider opening a discussion before starting work.
 

@@ -27,7 +27,7 @@ depth. Read this first on every query.
 
 - [`concepts/parameter.md`](./concepts/parameter.md) — `Parameter<T>` reactive state + `BoxFuture` callbacks. The default hardware-state primitive.
 - [`concepts/plan-run-engine.md`](./concepts/plan-run-engine.md) — Bluesky-style `Plan` + `RunEngine` + document stream.
-- [`concepts/capability-traits.md`](./concepts/capability-traits.md) — `Movable`, `Readable`, `FrameProducer`, `Triggerable`, `ExposureControl`, …  (24 traits).
+- [`concepts/capability-traits.md`](./concepts/capability-traits.md) — `Movable`, `Readable`, `FrameProducer`, `Triggerable`, `ExposureControl`, …  (30 traits).
 - [`concepts/driver-universal.md`](./concepts/driver-universal.md) — TOML-manifest driven serial/TCP/SCPI devices. **Forward path** for new devices.
 - [`concepts/driver-registry.md`](./concepts/driver-registry.md) — `DriverFactory` registration + feature gating + `create_canonical_mock_registry()`.
 - [`concepts/ring-buffer.md`](./concepts/ring-buffer.md) — mmap + seqlock Arrow IPC ring for zero-copy streaming.
@@ -37,7 +37,7 @@ depth. Read this first on every query.
 ## Crates (one page per workspace member)
 
 - [`crates/index.md`](./crates/index.md) — Crate graph + one-line summaries.
-- Per-crate pages: see `crates/<name>.md` (29 entries).
+- Per-crate pages: see `crates/<name>.md` (30 entries).
 
 ## Hardware machines
 

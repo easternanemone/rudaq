@@ -13,8 +13,7 @@ codebase context.
 - **The wiki** (this directory): LLM-generated markdown — summaries, entity
   pages, concept pages, cross-references. Maintained entirely by agents.
 - **The schema** (this file + `CLAUDE.md` + `AGENTS.md`): specifies
-  conventions, workflows, and invariants. Note: `AGENTS.md` is gitignored
-  by design; it is auto-injected into agent sessions and not tracked.
+  conventions, workflows, and invariants.
 
 ## Page conventions
 
@@ -67,8 +66,11 @@ new crate, hardware commissioning note, vendor SDK version bump.
 
 1. Read `index.md`.
 2. Follow the relevant category links (concepts / crates / drivers / hardware / workflows).
-3. Only fall back to full-repo `rg` / `Grep` / Agent(Explore) **if the wiki is silent** on the topic.
-4. If the query produces a durable, reusable answer that is not already
+3. Use the wiki to target source inspection. Verify implementation behavior
+   against source before editing or answering risky questions.
+4. Fall back to full-repo semantic/text search when the wiki is silent,
+   stale, or too coarse for the question.
+5. If the query produces a durable, reusable answer that is not already
    captured, **ingest it** (workflow 1) before closing the task.
 
 ### 3. Lint
@@ -93,10 +95,11 @@ Don't silently fix large discrepancies — file an issue.
 
 ## Branching & commits
 
-The wiki is **append-and-revise in place**. Edit on whichever branch you
-happen to be on — feature branches, main, doesn't matter. `log.md`
-preserves history independent of git, and git preserves it too. Do **not**
-create a wiki-only side branch.
+The wiki is **append-and-revise in place**, but normal repo workflow still
+applies: agents use feature branches and worktrees, never direct edits on
+`main` in the primary checkout. `log.md` preserves wiki ingest history
+independent of git, and git preserves it too. A wiki-only branch is fine when
+the task is specifically documentation or wiki maintenance.
 
 ## What belongs here vs `docs/`
 

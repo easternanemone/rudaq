@@ -2,6 +2,13 @@
 
 Organized using the [Diataxis](https://diataxis.fr/) framework.
 
+## AI Agent Context
+
+AI agents should start with the repo-level policy in [`../AGENTS.md`](../AGENTS.md)
+and the dense LLM-facing index in [`../llm-wiki/index.md`](../llm-wiki/index.md).
+The human docs below are canonical prose, but agents should use the wiki to
+choose which source files, configs, and references to inspect.
+
 ## Tutorials — Learn by doing
 
 | Tutorial | Description |

@@ -27,6 +27,13 @@ The project is a Rust workspace with 30 crates organized into layers:
 
 ## Development Workflows
 
+### LLM Wiki Context Protocol
+- Start every non-trivial task at `llm-wiki/index.md`.
+- Read `llm-wiki/invariants.md` and the relevant crate, concept, driver, hardware, or workflow pages before broad code search.
+- Treat the wiki as the agent context index, not the final authority. Verify behavior against source files, `Cargo.toml`, configs, and workflow YAML before editing.
+- If durable facts change or the wiki is wrong, update affected `llm-wiki/` pages and append `llm-wiki/log.md`.
+- Follow `llm-wiki/schema.md` when editing the wiki.
+
 ### Task & Issue Tracking
 - **System**: `bd` (beads) issue tracker.
 - **Workflow**: Always check `bd ready` for active tasks. Update issue notes with `COMPLETED`, `IN PROGRESS`, and `NEXT` markers.
@@ -74,7 +81,7 @@ See [Project Inventory](docs/reference/inventory.md) for canonical binaries and 
 ## Key Files & Directories
 - `llm-wiki/`: **LLM-facing knowledge base** (Karpathy-style). Start at `llm-wiki/index.md`. Read this before grepping the codebase.
 - `CLAUDE.md`: Concise operational guide for AI agents.
-- `AGENTS.md`: Canonical agent policy. **Gitignored / auto-injected at session start** — not committed to the repo.
+- `AGENTS.md`: Canonical repo-level agent policy.
 - `docs/explanation/architecture.md`: Detailed system design.
 - `docs/adr/`: Architecture Decision Records for major design choices.
 - `config/feature_flags.toml`: Centralized feature flag management.
@@ -84,7 +91,8 @@ See [Project Inventory](docs/reference/inventory.md) for canonical binaries and 
 
 ## Interaction Rules for Gemini
 1.  **Always use `bd` (beads)** to track progress and issues.
-2.  **Consult `CLAUDE.md`** for project-specific fast-start commands.
-3.  **Respect Feature Flags**: Do not assume all hardware drivers are available; check `Cargo.toml` or `config/feature_flags.toml`.
-4.  **Verification**: After significant changes, run `cargo nextest run` and `cargo clippy`.
-5.  **Maitai Builds**: Always remind the user to use `scripts/ops/build-maitai.sh` when working with real hardware.
+2.  **Use the LLM wiki first** for orientation, then verify against source.
+3.  **Consult `CLAUDE.md`** for project-specific fast-start commands.
+4.  **Respect Feature Flags**: Do not assume all hardware drivers are available; check `Cargo.toml` or `config/feature_flags.toml`.
+5.  **Verification**: After significant changes, run `cargo nextest run` and `cargo clippy`.
+6.  **Maitai Builds**: Always remind the user to use `scripts/ops/build-maitai.sh` when working with real hardware.

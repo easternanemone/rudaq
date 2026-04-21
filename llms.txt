@@ -6,7 +6,7 @@
 > (mmap ring buffer → HDF5 / Arrow / Zarr). 30-crate workspace, Rust 1.92.0.
 
 This file is an `llms.txt` per <https://llmstxt.org>. Start with the wiki; fall
-back to the Diataxis docs; read the code only when the wiki is silent.
+back to the Diataxis docs; inspect source to verify behavior before editing.
 
 ## LLM Wiki (start here)
 
@@ -16,6 +16,8 @@ back to the Diataxis docs; read the code only when the wiki is silent.
 - [Glossary](llm-wiki/glossary.md): domain vocabulary
 - [Invariants](llm-wiki/invariants.md): hard rules (Parameter<T>, Rust 1.92.0, bd-only tracking, …)
 - [Crate index](llm-wiki/crates/index.md): one page per workspace member
+
+Agent startup sequence: read the wiki index, read relevant linked pages, inspect source for the final answer, then update the wiki if durable facts changed.
 
 ## Core concepts
 
@@ -53,7 +55,7 @@ back to the Diataxis docs; read the code only when the wiki is silent.
 - [CLAUDE.md](CLAUDE.md): Claude Code quickstart + non-negotiable rules
 - [GEMINI.md](GEMINI.md): Gemini-specific guide
 - [CONTRIBUTING.md](CONTRIBUTING.md): human contributor guide
-- Note: `AGENTS.md` is gitignored by design; auto-injected at session start, not committed.
+- [AGENTS.md](AGENTS.md): canonical repo-level AI agent policy
 
 ## Canonical human docs (Diataxis)
 

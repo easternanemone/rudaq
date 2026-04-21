@@ -1,8 +1,17 @@
 # CLAUDE.md
 
-Guidance for Claude Code in this repo. Full agent policy: `AGENTS.md` (auto-injected at session start; **not tracked in git** — see `.gitignore`). Beads workflow: `bd prime`.
+Guidance for Claude Code in this repo. Full agent policy: [`AGENTS.md`](AGENTS.md). Beads workflow: `bd prime`.
 
-**LLM Wiki**: dense, cross-linked reference for agents at [`llm-wiki/index.md`](llm-wiki/index.md) (schema: [`llm-wiki/schema.md`](llm-wiki/schema.md)). Read this **before** grepping the codebase — it indexes crates, concepts, hardware machines, drivers, and workflows.
+**LLM Wiki is mandatory context.** Start at [`llm-wiki/index.md`](llm-wiki/index.md), then read [`llm-wiki/invariants.md`](llm-wiki/invariants.md) and the relevant crate/concept/driver/workflow pages before broad code search. The wiki orients; source wins on conflicts. If source and wiki disagree, fix the wiki or file a bead.
+
+## LLM Wiki Context Protocol
+
+For every non-trivial task:
+
+1. Read the wiki index and relevant linked pages.
+2. Use wiki pages to target source inspection; do not treat wiki prose as sufficient proof for behavior.
+3. After changing durable architecture, features, workflows, hardware facts, or crate ownership, update affected `llm-wiki/` pages and append [`llm-wiki/log.md`](llm-wiki/log.md).
+4. For wiki edits, follow [`llm-wiki/schema.md`](llm-wiki/schema.md).
 
 ## Non-Negotiable Rules
 
@@ -76,7 +85,7 @@ Testing:     integration-tests
 
 Key abstractions: `DeviceId` (Arc<str>-backed), `Parameter<T>` (reactive state), capability traits (`Movable`, `FrameProducer`, …), `Plan` + `RunEngine` (Bluesky-style), `RingBuffer` (mmap/seqlock).
 
-See `docs/explanation/architecture.md` for full details.
+Start with [`llm-wiki/architecture.md`](llm-wiki/architecture.md) for dense agent context, then use [`docs/explanation/architecture.md`](docs/explanation/architecture.md) for long-form human docs.
 
 ## Testing Patterns
 
@@ -117,6 +126,8 @@ git status             # Verify "up to date with origin"
 ## References
 
 - Agent policy: `AGENTS.md`
+- LLM wiki index: `llm-wiki/index.md`
+- LLM wiki schema: `llm-wiki/schema.md`
 - Architecture: `docs/explanation/architecture.md`
 - Testing: `docs/how-to/testing.md`
 - Hardware setup: `docs/how-to/hardware-setup.md`

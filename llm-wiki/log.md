@@ -153,3 +153,18 @@ Validated 25 specific claims from the first ingest pass against the actual code 
 - `docs/how-to/migration-rollback-toolkit.md`, `operations.md`, and lab DB signoff guides still described SurrealDB/RocksDB procedures. Updated to SQLite and the plain `db` feature.
 - `docs/explanation/newcomer-guide.md` still listed 23 capability traits, `PulseGenerator`, and `DocumentConsumer`. Updated to 30 traits, removed `PulseGenerator`, and corrected `DocumentSink`.
 - `docs/reference/inventory.md`, `grpc-api.md`, ADR indexes, and LLM wiki pages still had stale DB/feature/capability details. Updated high-impact current references and marked historical ADRs as superseded where appropriate.
+
+---
+
+## 2026-04-21 — Agent entrypoint wiring for LLM wiki
+
+**Trigger:** user asked whether the repo was set up to actually use the LLM wiki and requested updates to `AGENTS.md`, `CLAUDE.md`, and related files.
+
+**Changes:**
+
+- Added tracked `AGENTS.md` as the canonical repo-level agent policy and removed the `.gitignore` rule that suppressed it.
+- Made `llm-wiki/index.md`, `llm-wiki/invariants.md`, and relevant linked pages mandatory startup context for non-trivial agent work.
+- Clarified in `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, and `llms.txt` that the wiki orients agents but source files, `Cargo.toml`, config, and workflow YAML remain the final authority.
+- Updated `llm-wiki/schema.md` so wiki query workflow includes source verification and wiki edits still follow branch/worktree rules.
+- Fixed stale `llm-wiki/index.md` counts for 30 capability traits and 30 crate pages.
+- Added pointers from `README.md` and `docs/README.md` so agent-oriented contributors discover the wiki entrypoint.

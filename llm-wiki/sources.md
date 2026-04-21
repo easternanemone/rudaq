@@ -1,7 +1,7 @@
 # Raw Sources
 
 <!--
-last-ingested: 2026-04-19
+last-ingested: 2026-04-21
 sources: (self-referential; this page is the map)
 see-also:
   - ./schema.md
@@ -23,7 +23,7 @@ When `llm-wiki/` is silent on a topic, check here first, then grep the code.
 ## In-repo — agent / LLM docs
 
 - `CLAUDE.md` — Claude Code quickstart + non-negotiable rules.
-- `AGENTS.md` — canonical agent policy (cross-agent).
+- `AGENTS.md` — canonical repo-level agent policy and LLM wiki startup protocol.
 - `GEMINI.md` — Gemini-specific guide (has known staleness, see `invariants.md`).
 - `.claude/skills/` — skills (rust-skills, driver-plugin-builder, openspec tools, ms-rust, etc.).
 - `.claude/handoffs/` — dated handoff notes (e.g. `2026-03-23-pvcam-epic.md`).
