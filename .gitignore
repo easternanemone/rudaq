@@ -77,6 +77,18 @@ hive-mind-prompt-*.txt
 data_output/
 *.csv
 coverage_report/
+/issues.jsonl
+/backup.jsonl
+/hgar-*.png
+/patch_*.py
+/working/
+
+# Local calibration/debug capture outputs.
+# Keep durable reduced fixtures under testdata/ or an explicitly tracked
+# fixture path; raw capture matrices do not belong in ad hoc debug folders.
+/debug/**/*.tiff
+/debug/**/*.hdf5
+/debug/**/*.fits
 
 # Temporary analysis files
 *_PLAN.md

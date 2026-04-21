@@ -9,11 +9,21 @@
 - Bluesky-inspired experiment orchestration (Plans + RunEngine)
 - gRPC remote control with Rhai scripting
 - Apache Arrow / HDF5 data storage
-- 25 workspace crates (see CLAUDE.md for full architecture)
+- 30 workspace crates (see `Cargo.toml` and `llm-wiki/crates/index.md`)
+
+## Mandatory Context
+
+Start non-trivial work with the LLM Wiki:
+
+1. Read `llm-wiki/index.md`.
+2. Read `llm-wiki/invariants.md`.
+3. Read the relevant crate, concept, driver, hardware, or workflow pages.
+
+The wiki orients agents, but source code and Cargo metadata win on conflicts. If a durable fact changes, update the relevant `llm-wiki/` page and append `llm-wiki/log.md`.
 
 ## Tech Stack
 
-- **Language**: Rust 1.75+
+- **Language**: Rust edition 2024; toolchain pinned to 1.92.0 in `rust-toolchain.toml`
 - **Async Runtime**: Tokio
 - **Serialization**: Serde, protobuf (tonic)
 - **Testing**: Rust standard + hardware-in-the-loop
@@ -43,14 +53,14 @@ param.connect_to_hardware_write(move |val| -> BoxFuture<'static, Result<()>> {
 
 ### Testing
 
-- Run `cargo test` before committing
-- Use `--features hardware_tests` only on remote machine with hardware
-- Never use `std::thread::sleep` in async code - use `tokio::time::sleep`
+- Use `bash scripts/ops/fast-check.sh` for the local smoke loop.
+- Use `--features hardware_tests` only on remote machines with hardware.
+- Never use `std::thread::sleep` in async code; use `tokio::time::sleep`.
 
 ### Code Style
 
-- Run `cargo fmt --all` and `cargo clippy --all-features` before committing
-- All methods are async - ensure tokio runtime context
+- Run `cargo fmt --all -- --check` and CI-parity clippy before committing.
+- Do not assume every method is async; follow the local trait/API contract.
 - Use capability traits (`Movable`, `Readable`, etc.) for hardware abstraction
 
 ## Issue Tracking with bd (beads)
@@ -72,7 +82,7 @@ scripts/bd-safe.sh close <id> --reason "Done"
 2. Claim task: `scripts/bd-safe.sh update <id> --status in_progress`
 3. Work on it
 4. Complete: `scripts/bd-safe.sh close <id> --reason "Done"`
-5. Commit `.beads/issues.jsonl` with code changes
+5. Commit task-tracking changes only when beads exports them into tracked files
 
 ### Worktree Safety
 
@@ -89,7 +99,10 @@ scripts/hygiene/beads-worktree-hygiene.sh cleanup --apply
 cargo build                        # Default features
 cargo build --all-features         # All features
 cargo test -p common             # Test specific crate
-cargo clippy --all-targets --all-features
+cargo fmt --all -- --check         # Format check
+cargo clippy --workspace --all-targets --exclude ui --exclude comedi-sys --exclude driver-comedi -- -D warnings
+bash scripts/ops/fast-check.sh     # Local smoke loop
+bash scripts/ci/pre-push-gate.sh   # Canonical pre-push gate
 ```
 
 ## Feature Flags
@@ -106,8 +119,9 @@ cargo clippy --all-targets --all-features
 - Use `Parameter<T>` for all hardware state (not raw Mutex/RwLock)
 - Use bd for ALL task tracking
 - Test with mock hardware first, then real hardware on remote
-- Remote hardware machine: `maitai@100.117.5.12`
+- Hardware runbooks: `llm-wiki/workflows/hardware-testing.md`
+- Remote hardware: `maitai` at `100.117.5.12`, `leabs-dev` at `100.109.21.118`
 
 ---
 
-**For detailed documentation, see [CLAUDE.md](../CLAUDE.md)**
+**For detailed documentation, see [AGENTS.md](../AGENTS.md), [CLAUDE.md](../CLAUDE.md), and [llm-wiki/index.md](../llm-wiki/index.md).**

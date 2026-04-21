@@ -27,6 +27,10 @@ section() {
     echo "========================================"
 }
 
+tracked_rust_files() {
+    git ls-files 'crates/**/*.rs' 2>/dev/null | sort
+}
+
 # ---------------------------------------------------------------------------
 # 1. Oversized Rust files (>500 lines)
 # ---------------------------------------------------------------------------
@@ -40,7 +44,7 @@ while IFS= read -r file; do
         printf "  %6d lines  %s\n" "$lines" "$file"
         oversized_count=$((oversized_count + 1))
     fi
-done < <(find crates -name '*.rs' -type f 2>/dev/null | sort)
+done < <(tracked_rust_files)
 
 if [ "$oversized_count" -eq 0 ]; then
     echo "  None found."
@@ -71,6 +75,16 @@ if [ -x scripts/hygiene/check-inventory-drift.sh ]; then
     echo "  Exit code: $?"
 else
     echo "  scripts/hygiene/check-inventory-drift.sh not found or not executable — skipping."
+fi
+
+echo ""
+
+if [ -x scripts/hygiene/check-llm-wiki-drift.sh ]; then
+    echo "--- check-llm-wiki-drift.sh ---"
+    bash scripts/hygiene/check-llm-wiki-drift.sh 2>&1 | sed 's/^/  /'
+    echo "  Exit code: $?"
+else
+    echo "  scripts/hygiene/check-llm-wiki-drift.sh not found or not executable — skipping."
 fi
 
 # ---------------------------------------------------------------------------
@@ -135,7 +149,7 @@ while IFS= read -r f; do
     proto_generated=$((proto_generated + 1))
     size=$(wc -c < "$f" | tr -d ' ')
     proto_generated_bytes=$((proto_generated_bytes + size))
-done < <(find crates -path '*/src/gen*' -name '*.rs' -type f 2>/dev/null)
+done < <(tracked_rust_files | grep -E '/src/gen[^/]*/' || true)
 
 # Total tracked Rust source
 total_rs_bytes=0
@@ -144,7 +158,7 @@ while IFS= read -r f; do
     total_rs_count=$((total_rs_count + 1))
     size=$(wc -c < "$f" | tr -d ' ')
     total_rs_bytes=$((total_rs_bytes + size))
-done < <(find crates -name '*.rs' -type f 2>/dev/null)
+done < <(tracked_rust_files)
 
 fmt_kb() {
     local bytes=$1
