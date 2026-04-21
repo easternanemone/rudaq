@@ -74,9 +74,21 @@ arc_sigdetect = 3.0
 wl_poly_degree = 1
 # Atlas matching tolerance — 5nm accounts for echelle equation approximation (Stage 1)
 wl_seed_tolerance_nm = 5.0
-# Minimum matched lines per order — 1 enables single-line fallback (bd-3hlp)
-# which anchors the echelle equation to a single matched line during Stage 1/2
-min_lines_per_order = 1
+# Minimum matched lines per order (default posture post-bd-3yb8.30.2.3).
+# Orders with fewer than this many atlas matches are rejected as under-
+# constrained, EXCEPT when `allow_single_line_fallback` below is set.
+# Rationale for 2: a two-point linear fit has a meaningful dispersion
+# degree of freedom. A single-line fit must rely on the echelle-equation
+# seed for dispersion — useful as a fallback but not as the default.
+min_lines_per_order = 2
+# Opt-in to the bd-3hlp / bd-ccer6 single-line fallback for sparsely-
+# populated orders (typical for UV orders on HgAr captures where only
+# one Hg or Ar line is visible above the noise floor). Orders calibrated
+# via this path are flagged `fit_kind = AnchorOnly` in the diagnostic so
+# downstream consumers (Stage 3 surface fit, extraction-quality gates,
+# per-order weighting) know they carry no per-order dispersion DOF.
+# Set to `false` to reject single-line orders outright.
+allow_single_line_fallback = true
 # Per-order wavelength-fit RMS rejection threshold (nm). Orders whose fit
 # residual exceeds this are dropped from the calibrated set.
 #

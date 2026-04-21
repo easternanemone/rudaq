@@ -72,6 +72,13 @@ pub struct TuningSection {
     pub wl_seed_tolerance_nm: f64,
     /// Minimum matched lines required per order
     pub min_lines_per_order: usize,
+    /// Opt-in to the single-line fallback for sparsely-populated orders
+    /// (bd-3hlp / bd-ccer6). When `true` and an order matches exactly
+    /// one atlas line, calibrate it with the echelle-equation-derived
+    /// dispersion anchored at that wavelength; the diagnostic is flagged
+    /// `fit_kind = AnchorOnly` so downstream consumers can weight it
+    /// accordingly. Pairs with `min_lines_per_order >= 2`.
+    pub allow_single_line_fallback: bool,
     /// Maximum acceptable per-order wavelength-fit RMS in nm (bd-0poyt).
     /// Fits whose RMS exceeds this are rejected as likely spurious.
     /// Set to 0.0 to disable the gate.
@@ -105,6 +112,7 @@ impl Default for TuningSection {
             wl_poly_degree: 2,
             wl_seed_tolerance_nm: 2.0,
             min_lines_per_order: 3,
+            allow_single_line_fallback: false,
             max_fit_rms_nm: 1.0,
             use_optimal_extraction: false,
             lamp: default_lamp(),
@@ -237,6 +245,7 @@ impl CalibrateFileConfig {
             orientation: self.orientation,
             profile_name: self.instrument.name,
             min_lines_per_order: self.tuning.min_lines_per_order,
+            allow_single_line_fallback: self.tuning.allow_single_line_fallback,
             hdr_extra_arc_frames: hdr_extra_arc_frames.into_iter().map(Arc::new).collect(),
             hdr_merge_tol_px: self.hdr.merge_tol_px,
             hdr_prefer_unsaturated: self.hdr.prefer_unsaturated,

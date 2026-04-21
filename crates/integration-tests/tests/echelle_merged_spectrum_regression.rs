@@ -147,6 +147,8 @@ struct TuningSection {
     wl_poly_degree: usize,
     wl_seed_tolerance_nm: f64,
     min_lines_per_order: usize,
+    #[serde(default)]
+    allow_single_line_fallback: bool,
     max_fit_rms_nm: f64,
 }
 
@@ -241,6 +243,7 @@ fn build_pipeline_config(
         orientation: cfg.orientation.clone(),
         profile_name: "bd-g22gu.4 regression".to_string(),
         min_lines_per_order: cfg.tuning.min_lines_per_order,
+        allow_single_line_fallback: cfg.tuning.allow_single_line_fallback,
         hdr_extra_arc_frames: Vec::new(),
         hdr_merge_tol_px: 1.0,
         hdr_prefer_unsaturated: true,

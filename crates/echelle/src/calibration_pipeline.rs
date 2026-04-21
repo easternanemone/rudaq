@@ -147,7 +147,26 @@ pub struct CalibrationPipelineConfig {
     /// Human-readable name for the generated profile.
     pub profile_name: String,
     /// Minimum number of matched lines required per order (default: 3).
+    ///
+    /// Orders whose matched-line count falls below this are rejected as
+    /// under-constrained — unless `allow_single_line_fallback` is set and
+    /// exactly one match is available, in which case the single-line
+    /// [`SingleLineFallbackSeed`] path (bd-ccer6) is used and the order
+    /// is flagged with [`FitKind::AnchorOnly`] in its diagnostic.
     pub min_lines_per_order: usize,
+    /// Opt in to the single-line fallback for sparsely-populated orders.
+    ///
+    /// When `true`, orders that matched exactly one atlas line are still
+    /// calibrated (anchored at that wavelength with a physics-seeded
+    /// dispersion) and flagged [`FitKind::AnchorOnly`] for downstream
+    /// consumers. When `false` (default), such orders are rejected with
+    /// the same "too few atlas matches" error as zero-match orders.
+    ///
+    /// Pairs with raising `min_lines_per_order` from 1 → 2 (bd-3yb8.30.2.3):
+    /// the default posture is "two matches required", but Mechelle-class
+    /// UV orders with only one visible Hg/Ar line can opt into the
+    /// fallback explicitly.
+    pub allow_single_line_fallback: bool,
     /// Extra arc-lamp frames merged HDR-style via [`merge_arc_lines_hdr`].
     ///
     /// Same dimensions as the primary arc. Shared via [`Arc`] so cloning the
@@ -192,6 +211,7 @@ impl Default for CalibrationPipelineConfig {
             },
             profile_name: "Calibration".to_string(),
             min_lines_per_order: 3,
+            allow_single_line_fallback: false,
             hdr_extra_arc_frames: Vec::new(),
             hdr_merge_tol_px: 1.0,
             hdr_prefer_unsaturated: true,
@@ -200,6 +220,27 @@ impl Default for CalibrationPipelineConfig {
 }
 
 // ─── Result types ────────────────────────────────────────────────────────────
+
+/// How an order's wavelength solution was obtained.
+///
+/// When only a single atlas match is available for an order, the fitter
+/// uses the [`SingleLineFallbackSeed`] path (bd-ccer6, supersedes
+/// bd-3hlp) — the polynomial is anchored at that one wavelength and the
+/// dispersion is derived from the echelle equation, not fit from data.
+/// Those orders carry no per-order dispersion degrees of freedom, so
+/// downstream consumers (e.g. Stage 3's global 2D Chebyshev surface,
+/// extraction-quality gates, diagnostic plots) should treat them as
+/// "constrained in position only" and avoid using them as independent
+/// data points in cross-order fits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FitKind {
+    /// Ordinary per-order polynomial fit with ≥`min_lines_per_order`
+    /// matched atlas lines.
+    Normal,
+    /// Single-line fallback: the order's dispersion was seeded from the
+    /// echelle equation rather than fit from data (bd-3hlp / bd-ccer6).
+    AnchorOnly,
+}
 
 /// Diagnostic information for a single order's calibration.
 #[derive(Debug, Clone)]
@@ -216,6 +257,9 @@ pub struct OrderDiagnostic {
     pub rms_nm: f64,
     /// Whether this order was successfully calibrated.
     pub success: bool,
+    /// How the wavelength solution was obtained — [`FitKind::Normal`] or
+    /// [`FitKind::AnchorOnly`] (single-line fallback).
+    pub fit_kind: FitKind,
     /// Reason for failure, if any.
     pub failure_reason: Option<String>,
     /// The detected arc lines (for debugging).
@@ -519,6 +563,7 @@ fn run_calibration_pipeline_impl(
                                 n_lines_used: 0,
                                 rms_nm: 0.0,
                                 success: false,
+                                fit_kind: FitKind::Normal,
                                 failure_reason: Some(e),
                                 detected_lines: Vec::new(),
                                 wl_solution: None,
@@ -1018,16 +1063,26 @@ fn match_and_fit(
         n_lines_used: 0,
         rms_nm: 0.0,
         success: false,
+        fit_kind: FitKind::Normal,
         failure_reason: None,
         detected_lines: lines.to_vec(),
         wl_solution: None,
     };
 
-    if lines.len() < config.min_lines_per_order {
+    // Minimum detected-lines threshold: when the single-line fallback is
+    // enabled, one detected peak is enough to attempt a match. When it's
+    // off, the full `min_lines_per_order` is required up front
+    // (bd-3yb8.30.2.3).
+    let effective_min_detected = if config.allow_single_line_fallback {
+        1
+    } else {
+        config.min_lines_per_order
+    };
+    if lines.len() < effective_min_detected {
         diag.failure_reason = Some(format!(
             "too few arc lines detected ({}, need {})",
             lines.len(),
-            config.min_lines_per_order
+            effective_min_detected
         ));
         return diag;
     }
@@ -1044,13 +1099,30 @@ fn match_and_fit(
     };
     diag.n_lines_matched = matches.len();
 
-    if matches.len() < config.min_lines_per_order {
+    // Single-line fallback opt-in (bd-3yb8.30.2.3 / bd-3hlp): when
+    // `allow_single_line_fallback` is true and exactly one match is
+    // available, proceed through the fitter — the single-line path
+    // (bd-ccer6) will anchor the polynomial at that wavelength and
+    // derive dispersion from the echelle equation. Flag the resulting
+    // solution as [`FitKind::AnchorOnly`] so downstream consumers know
+    // it carries no per-order dispersion degrees of freedom.
+    let anchor_only_path =
+        config.allow_single_line_fallback && matches.len() == 1 && config.min_lines_per_order > 1;
+    let effective_min_matches = if anchor_only_path {
+        1
+    } else {
+        config.min_lines_per_order
+    };
+    if matches.len() < effective_min_matches {
         diag.failure_reason = Some(format!(
             "too few atlas matches ({}, need {})",
             matches.len(),
-            config.min_lines_per_order
+            effective_min_matches
         ));
         return diag;
+    }
+    if anchor_only_path {
+        diag.fit_kind = FitKind::AnchorOnly;
     }
 
     // Thread the physical order + grating constant through to the fitter so
@@ -1136,6 +1208,7 @@ fn process_single_order(
                     n_lines_used: 0,
                     rms_nm: 0.0,
                     success: false,
+                    fit_kind: FitKind::Normal,
                     failure_reason: Some(e),
                     detected_lines: Vec::new(),
                     wl_solution: None,
@@ -2206,6 +2279,7 @@ mod tests {
             n_lines_used: 10,
             rms_nm: 0.01,
             success: true,
+            fit_kind: FitKind::Normal,
             failure_reason: None,
             detected_lines: Vec::new(),
             wl_solution: Some(sol1),
@@ -2217,6 +2291,7 @@ mod tests {
             n_lines_used: 8,
             rms_nm: 0.02,
             success: true,
+            fit_kind: FitKind::Normal,
             failure_reason: None,
             detected_lines: Vec::new(),
             wl_solution: Some(sol2),
@@ -2600,5 +2675,119 @@ mod tests {
                 "order {i}: seed should have nonzero dispersion"
             );
         }
+    }
+
+    // ── B3 (bd-3yb8.30.2.3): single-line fallback opt-in ────────────────
+    //
+    // These tests exercise `match_and_fit` directly — the private entry
+    // point where `min_lines_per_order` and `allow_single_line_fallback`
+    // interact. Synthetic arc lines are positioned near a known atlas
+    // line so the two-phase matcher finds a match at a predictable
+    // (pixel, wavelength) anchor. A constant seed_fn is enough because
+    // we only verify the pass/fail + `fit_kind` branch, not dispersion
+    // accuracy.
+
+    fn b3_test_config(
+        min_lines_per_order: usize,
+        allow_single_line_fallback: bool,
+    ) -> CalibrationPipelineConfig {
+        CalibrationPipelineConfig {
+            atlas: vec![AtlasLine {
+                wavelength_nm: 546.074, // Hg I green
+                species: "Hg I".into(),
+                strength: 1.0,
+            }],
+            wl_config: WlFitConfig {
+                poly_degree: 1,
+                seed_tolerance_nm: 2.0,
+                max_fit_rms_nm: 0.0, // disable RMS gate for this unit test
+                ..Default::default()
+            },
+            frame_compat: EchelleFrameCompatibility {
+                sensor_width: 200,
+                sensor_height: 200,
+                frame_width: 200,
+                frame_height: 200,
+                roi_x: 0,
+                roi_y: 0,
+                binning_x: 1,
+                binning_y: 1,
+                bit_depth: Some(16),
+            },
+            min_lines_per_order,
+            allow_single_line_fallback,
+            ..Default::default()
+        }
+    }
+
+    fn b3_single_arc_line() -> ArcLine {
+        ArcLine {
+            order: 0,
+            pixel_center: 100.0,
+            pixel_sigma: 1.5,
+            amplitude: 1000.0,
+            wavelength_hint: None,
+            used: true,
+            saturated: false,
+        }
+    }
+
+    fn b3_two_phase() -> TwoPhaseMatchConfig {
+        // grating constant chosen so gc/m ≈ 546 nm at m=20 — matches the
+        // single-line atlas entry so the two-phase matcher seeds cleanly.
+        TwoPhaseMatchConfig {
+            physical_order: 20.0,
+            grating_constant_nm: 546.074 * 20.0,
+            primary_window_nm: 2.0,
+            fallback_tolerance_nm: 1.0,
+            final_tolerance_nm: 2.0,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn b3_single_match_rejected_when_fallback_disabled() {
+        let config = b3_test_config(2, false);
+        let seed_fn = |_px: f64| 546.074_f64;
+        let lines = vec![b3_single_arc_line()];
+        let tp = b3_two_phase();
+        let diag = match_and_fit(&lines, 0, &config, &seed_fn, Some(&tp));
+        assert!(!diag.success, "expected rejection, got success: {diag:?}");
+        assert_eq!(diag.fit_kind, FitKind::Normal);
+        // Either gate is a valid rejection: the detected-lines gate fires
+        // first when min_lines_per_order=2 and only one line was detected.
+        let reason = diag.failure_reason.as_deref().unwrap_or("");
+        assert!(
+            reason.contains("too few arc lines detected")
+                || reason.contains("too few atlas matches"),
+            "unexpected failure reason: {:?}",
+            diag.failure_reason
+        );
+    }
+
+    #[test]
+    fn b3_single_match_accepted_as_anchor_only_when_fallback_enabled() {
+        let config = b3_test_config(2, true);
+        let seed_fn = |_px: f64| 546.074_f64;
+        let lines = vec![b3_single_arc_line()];
+        let tp = b3_two_phase();
+        let diag = match_and_fit(&lines, 0, &config, &seed_fn, Some(&tp));
+        assert!(
+            diag.success,
+            "expected single-line fallback to succeed, got: {:?}",
+            diag.failure_reason
+        );
+        assert_eq!(diag.fit_kind, FitKind::AnchorOnly);
+        assert_eq!(diag.n_lines_matched, 1);
+    }
+
+    #[test]
+    fn b3_default_config_rejects_single_match() {
+        // `CalibrationPipelineConfig::default()` keeps `allow_single_line_fallback`
+        // off — regression guard so library consumers that take the
+        // default don't silently admit under-constrained orders.
+        let default = CalibrationPipelineConfig::default();
+        assert!(!default.allow_single_line_fallback);
+        assert_eq!(default.min_lines_per_order, 3);
     }
 }
