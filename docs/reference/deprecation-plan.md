@@ -96,7 +96,7 @@ lab scripts use Rhai -> RunEngine. Safe to remove at v1.0.
 
 ### 2.1 `FrameProducer::take_frame_receiver()` (common)
 
-**Location:** `crates/common/src/capabilities.rs:485-492`
+**Location:** historical path `crates/common/src/capabilities.rs:485-492`; current capability traits live in `crates/common-traits/src/capabilities.rs`.
 
 **Deprecated since:** v0.2.0
 
@@ -113,7 +113,7 @@ Must verify no driver overrides it.
 
 ### 2.2 `FrameProducer::subscribe_frames()` (common)
 
-**Location:** `crates/common/src/capabilities.rs:543-552`
+**Location:** historical path `crates/common/src/capabilities.rs:543-552`; current capability traits live in `crates/common-traits/src/capabilities.rs`.
 
 **Deprecated since:** v0.3.0
 

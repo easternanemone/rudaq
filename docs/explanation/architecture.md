@@ -17,7 +17,7 @@ The architecture follows a **Headless-First** design: the core daemon runs as a 
 
 ## System Components
 
-The project is structured as a Cargo workspace with 26 crates organized by layer:
+The project is structured as a Cargo workspace with 30 crates organized by layer:
 
 ### 1. Application Layer
 *   **`bin`**: The entry point for the daemon (`rust-daq-daemon`). Wires together the system based on compile-time features.
@@ -59,7 +59,7 @@ Each driver lives in its own crate for independent compilation, testing, and opt
 *   **`pool`**: Zero-allocation object pool for high-performance frame handling. Provides `Pool<T>` for generic objects and `BufferPool` for byte buffers with `bytes::Bytes` integration. Critical for high-FPS camera streaming where per-frame allocations cause latency. `ForeignView` trait enables zero-copy access from Python/C++/GPU consumers. `BorrowGuard`/`BorrowCount` prevent slot reclamation while foreign code holds references. `DlPackDescriptor` (feature `dlpack`) provides tensor metadata for NumPy/PyTorch interop.
 *   **`storage`**: Handles data persistence. Implements the "Mullet Strategy": fast **Arrow IPC** ring buffer in the front, reliable **HDF5** writer in the back. Also supports **Parquet**, **Tiff**, and **Zarr** formats. The `DocumentSink` trait decouples document production (RunEngine) from consumption -- implementations include HDF5, Arrow, and `ZarrSink` (feature `storage_zarr`) which maps `scan_indices` to Zarr chunk coordinates.
 *   **`protocol`**: Defines the wire protocol (Protobuf) for all network communication. Includes domain↔proto conversion utilities.
-*   **`db`**: Embedded SurrealDB control-plane database. Uses in-memory engine (`kv-mem`) for tests and RocksDB (`kv-rocksdb`) for production persistence. Manages device/experiment metadata with a two-plane model: SurrealDB as control plane (desired state), DashMap DeviceRegistry as data plane (observed state).
+*   **`db`**: Embedded SQLite persistence layer for the control plane — primary and only backend (bd-2a2ne). Uses `rusqlite` (bundled) with `tokio-rusqlite`. Manages device/experiment metadata with a two-plane model: SQLite as control plane (desired state), DashMap `DeviceRegistry` as data plane (observed state). Earlier revisions documented an optional SurrealDB variant; that backend has been removed and no `db-surreal` feature exists in the current workspace.
 
 ### 6. Core
 *   **`common`**: The foundation. Defines shared types (`Parameter<T>`, `Observable<T>`), error handling, size limits (`limits.rs`), and module domain types.
@@ -117,7 +117,7 @@ graph TD
     DrvRegistry --> DrvPvcam
     DrvRegistry --> DrvAndor
     DrvRegistry --> DrvComedi
-    HW --> DrvDover
+    DrvDover -.->|experimental, not registry-wired| DrvRegistry
     DrvRegistry --> DrvUniversal
     DrvRegistry --> DrvMock
     HW -->|Frame Data| Ring
@@ -160,10 +160,17 @@ Hardware is modeled by **Capabilities**, not identities. A device is defined by 
 *   `Commandable`: Direct command-response protocol.
 *   `SpectrometerControl`: Wavelength control for spectrometers.
 *   `TriggerOnPosition`: Positional triggering for synchronized motion.
-*   `PulseGenerator`: Pulse/waveform generation.
 *   `SafetyInterlock`: Safety monitoring and interlock control.
 *   `Reconfigurable`: Runtime reconfiguration of device settings.
+*   `StateRefreshable`: Re-read all parameters from hardware after a reconnect. Implemented by all `driver-universal` devices (bd-47p2).
+*   `CounterConfigurable`: Configure pulse / edge counters (Comedi counter channels).
+*   `RangeIntrospectable`: Report valid-range metadata for GUI slider bounds.
+*   `DeviceIntrospection`: Report device metadata (serial, firmware, model).
+*   `ReadableWithMetadata`: `Readable` extension that returns value + timestamp + units.
+*   `SpectrumReadable`: Return a 1D spectrum array (spectrometers, wavemeters).
 *   `CompositeCapability`: Orchestrates multi-device operations (e.g., move+trigger+read). Paired with `CapabilityProvider` for typed device lookups.
+
+Authoritative trait list lives in `crates/common-traits/src/capabilities.rs` (30 traits as of 2026-04). Re-exports in `crates/common`.
 
 This allows generic experiment scripts to work with any compatible hardware (e.g., `scan(movable, triggerable)`).
 
@@ -171,7 +178,7 @@ This allows generic experiment scripts to work with any compatible hardware (e.g
 
 The system uses a 3-layer safety stack to protect against hardware being left in dangerous states:
 
-*   **Layer 1: SafetyHeartbeat** (proactive) — A Tokio task toggles a Comedi DIO channel at 100ms to drive an external hardware interlock. If the daemon process dies for any reason (crash, SIGKILL, power loss), the pulse stops and the external circuitry cuts laser power. Feature-gated on `comedi_hardware`.
+*   **Layer 1: Safety heartbeat task** (proactive) — A Tokio task (`crates/bin/src/safety_heartbeat_task.rs`, entry `spawn_heartbeat`) toggles a Comedi DIO channel to drive an external hardware interlock, driven by a `HeartbeatConfig` (`crates/hardware/src/registry/types.rs`) loaded from the `[safety_heartbeat]` stanza of the hardware config TOML (e.g. `config/maitai_universal.toml`). If the daemon process dies for any reason (crash, SIGKILL, power loss), the pulse stops and the external circuitry cuts laser power. Feature-gated on `comedi_hardware`.
 *   **Layer 2: HardwareWatchdog** (reactive) — A dedicated OS thread monitors daemon liveness. If the Tokio runtime hangs or deadlocks (no kick received within 30s), it fires a 5-step emergency shutdown: close shutters, disable emission, stop motors, zero DAQ outputs.
 *   **Layer 3: Panic hook** — On Rust panics, the same 5-step emergency shutdown sequence runs from the panic handler, using bridge threads and a pre-allocated emergency runtime to execute async hardware calls.
 
@@ -211,7 +218,7 @@ Experiments are written in [Rhai](https://rhai.rs), a scripting language designe
 │   ├── andor-sdk3-sys/       # Raw FFI bindings to Andor SDK3
 │   ├── comedi-sys/           # Raw FFI bindings to Comedi
 │   ├── dover-motion-sys/     # Raw FFI bindings to Dover MotionSynergyAPI
-│   ├── db/                   # SurrealDB control-plane database
+│   ├── db/                   # SQLite control-plane database
 │   ├── experiment/           # RunEngine and Plan definitions
 │   ├── hardware/             # HAL with capability traits and DeviceRegistry
 │   ├── integration-tests/    # Cross-crate integration tests
@@ -355,12 +362,12 @@ The system uses a **three-tier hybrid persistence model**, each tier optimized f
 | Tier | Technology | Data Category | Example |
 |------|-----------|---------------|---------|
 | 1 — Design-time | TOML files (git-tracked) | Hardware configs, calibration profiles, device manifests | `config/devices/ell14.toml` |
-| 2 — Runtime control plane | SurrealDB (embedded, optional) | Parameter state, run records, device features, config reconciliation | `device_runtime_state` table |
+| 2 — Runtime control plane | SQLite (embedded, via `rusqlite`/`tokio-rusqlite`, bd-2a2ne) | Parameter state, run records, device features, config reconciliation | `device_runtime_state` table |
 | 3 — Science data | Specialized writers | Camera frames, scan datasets, spectral profiles | HDF5, Arrow IPC, Zarr V3 |
 
-TOML is always the authoritative source of truth for device configuration. SurrealDB is optional — the daemon degrades gracefully without it. Science data writers implement the `DocumentSink` trait, decoupling RunEngine document production from storage format.
+TOML is always the authoritative source of truth for device configuration. The SQLite control plane is the primary (and only) embedded DB backend — earlier revisions supported an optional SurrealDB backend; it has been removed (bd-2a2ne). Science data writers implement the `DocumentSink` trait, decoupling RunEngine document production from storage format.
 
-The bridge between tiers is a **Kubernetes-style reconciliation loop**: TOML configs are shadow-written to SurrealDB on startup, and a LIVE SELECT watch reconciler detects DB changes and converges the DeviceRegistry within ~300ms. See [SurrealDB Integration Guide](../how-to/surrealdb-integration.md) for details.
+The bridge between tiers is a **Kubernetes-style reconciliation loop**: TOML configs are shadow-written to SQLite on startup, and a watcher reconciles DB changes back into the `DeviceRegistry` (~300 ms convergence). `docs/how-to/surrealdb-integration.md` in this tree predates the SQLite migration and is retained for history; do not treat it as current.
 
 ---
 
@@ -389,22 +396,33 @@ Together, these provide real-time alerting (webhooks push to your phone) and for
 
 ## Legacy Migration Status
 
-The following items carry `#[deprecated(since = "...", note = "Sunset: v1.0")]`
-annotations and are scheduled for removal at v1.0:
+This table has historically drifted from the code. Verified state as of
+2026-04-19 (grep against `#[deprecated]` annotations on current HEAD):
 
-| Item | Crate | Replacement |
-|------|-------|-------------|
-| `DeviceConfig` (schema v2) | hardware | `UniversalDriverConfig` (schema v3) |
-| `GenericDriver::new` | hardware | `GenericDriver::new_serial` |
-| `ScanServiceImpl` | server | `RunEngineService` |
-| `TiffWriter::write_frame` | storage | `TiffWriter::write_frame_data` |
-| `take_frame_receiver` / `subscribe_frames` | common | `FrameObserver` trait |
-| `PvcamDriver::new` | driver-pvcam | `PvcamDriver::from_config` |
+**Still in the tree and carrying `#[deprecated]`:**
 
-**Previously deprecated items already removed:**
-- `DataPoint` (common) — replaced by `Observable<T>` / `Parameter<T>`
-- `ScriptHost` (scripting) — replaced by `ScriptEngine`
-- `Ell14Driver` legacy constructors (hardware) — serial drivers moved to `driver-universal`
-- `InstrumentConfigV3` type alias (common)
-- `CodePreviewPanel::ui()` method (ui)
-- `execute_script` free function (hardware)
+| Item | Crate | Annotation | Replacement |
+|------|-------|-----------|-------------|
+| `DeviceConfig` (schema v2) | hardware | `since = "0.3.0"` | `UniversalDriverConfig` (schema v3) |
+| `TiffWriter::write_frame` | storage | `since = "0.3.0"` | `TiffWriter::write_frame_data` |
+| `hardware::registry::create_mock_registry` | hardware | yes (see `hardware/src/registry/loading.rs:153`) | `driver_registry::create_canonical_mock_registry(workspace_root)` |
+
+**Already removed from the tree** (earlier "deprecated" status resolved):
+- `ScanServiceImpl` (server) — replaced by `RunEngineService` and deleted. Grep returns 0 matches.
+- `take_frame_receiver` / `subscribe_frames` (common) — replaced by the `FrameObserver` trait and deleted. Grep returns 0 matches in `common/src/`.
+- `DataPoint` (common) — replaced by `Observable<T>` / `Parameter<T>`.
+- `ScriptHost` (scripting) — replaced by the `ScriptEngine` trait; `RhaiEngine` is the default backend.
+- `Ell14Driver` legacy constructors (hardware) — serial drivers moved to `driver-universal`.
+- `InstrumentConfigV3` type alias (common).
+- `CodePreviewPanel::ui()` method (ui).
+- `execute_script` free function (hardware).
+
+**Not carrying `#[deprecated]` and not present** in the forms earlier docs
+described — treat earlier documentation as historical:
+- `GenericDriver::new` — a bare `new` constructor is not present on
+  `GenericDriver`; the available constructors are `new_serial`,
+  `new_tcp`, and `new_mock` (`crates/hardware/src/manifest_driver/driver.rs`).
+- `PvcamDriver::new` / `PvcamDriver::from_config` — the current API is
+  `PvcamDriver::new_async(camera_name)` (`crates/driver-pvcam/src/lib.rs:353`).
+  There is no `from_config` method; the factory (`PvcamFactory`) is what
+  consumes `InstrumentConfig`.

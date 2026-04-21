@@ -2,7 +2,7 @@
 
 **Date:** 2026-04-16
 **Tracking issue:** bd-ckbf1
-**Scope:** 29 workspace crates, ~305 KLOC
+**Scope:** 30 workspace crates, ~305 KLOC
 **Methodology:** Six parallel deep-dive audits (architecture, error handling, async/perf, trait design, code health, modernization) cross-referenced for convergence.
 
 ---

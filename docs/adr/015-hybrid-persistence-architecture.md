@@ -1,11 +1,17 @@
 # ADR: Hybrid Persistence Architecture
 
-**Status:** Accepted
+**Status:** Superseded
 **Date:** 2026-03-17
 **Author:** Architecture Review
 **Related Issues:** bd-4wf7, bd-kctc, bd-7xqd
 
 ---
+
+> **Current status (April 2026):** This ADR is historical. The SurrealDB
+> control-plane backend described below was removed in bd-2a2ne. The current
+> `db` crate is SQLite-only (`rusqlite` + `tokio-rusqlite`), and the daemon
+> exposes that backend through the plain `db` feature. Treat references to
+> `db-surreal`, RocksDB, and LIVE SELECT as superseded design context.
 
 ## Context
 

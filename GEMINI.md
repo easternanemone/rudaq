@@ -4,7 +4,7 @@
 **rust-daq** is a modular, high-performance Data Acquisition (DAQ) system designed for scientific research. It enables high-throughput data acquisition from diverse instruments (cameras, lasers, motion controllers, etc.) with automated workflows and live data streaming.
 
 ### Key Technologies
-- **Language**: Rust (edition 2021, MSRV 1.75+)
+- **Language**: Rust (edition 2024, pinned channel **1.92.0** in `rust-toolchain.toml`; workspace `rust-version = "1.85.0"` is the advisory MSRV only)
 - **Async Runtime**: `tokio` (1.36+)
 - **Communication**: gRPC (`tonic`) with Protobuf (`prost`)
 - **Data Serialization**: `serde`, Apache Arrow (zero-copy streaming)
@@ -14,14 +14,14 @@
 - **Tracing**: `tracing` for structured logging
 
 ### Architecture
-The project is a Rust workspace with 26 crates organized into layers:
+The project is a Rust workspace with 30 crates organized into layers:
 1.  **Core (`common`)**: Shared types, error handling, observable parameters.
 2.  **HAL (`hardware`)**: Capability-based Hardware Abstraction Layer (Movable, Readable, FrameProducer traits).
 3.  **Drivers (`driver-*`)**: Native SDK drivers (PVCAM, Andor SDK3, Comedi, Dover Motion) for FFI-bound hardware; `driver-universal` TOML manifests for serial/TCP/SCPI devices; `driver-mock` always compiled.
 4.  **Driver Registry (`driver-registry`)**: Hardware feature gating and factory orchestration.
 5.  **Engine (`experiment`, `scripting`)**: Orchestration (RunEngine) and automation.
 6.  **Interfaces (`server`, `ui`, `protocol`)**: gRPC server, desktop GUI, and wire protocol.
-7.  **Data (`storage`, `pool`)**: High-performance buffering and persistence.
+7.  **Data (`storage`, `pool`, `echelle`, `atomic-reference`)**: High-performance buffering, persistence, spectroscopy calibration, and NIST ASD line references.
 
 ---
 
@@ -72,8 +72,9 @@ See [Project Inventory](docs/reference/inventory.md) for canonical binaries and 
 ---
 
 ## Key Files & Directories
+- `llm-wiki/`: **LLM-facing knowledge base** (Karpathy-style). Start at `llm-wiki/index.md`. Read this before grepping the codebase.
 - `CLAUDE.md`: Concise operational guide for AI agents.
-- `AGENTS.md`: Canonical agent policy.
+- `AGENTS.md`: Canonical agent policy. **Gitignored / auto-injected at session start** — not committed to the repo.
 - `docs/explanation/architecture.md`: Detailed system design.
 - `docs/adr/`: Architecture Decision Records for major design choices.
 - `config/feature_flags.toml`: Centralized feature flag management.

@@ -60,7 +60,7 @@ graph TD
 
     subgraph "Domain Logic"
         ENGINE[RunEngine + Plans]
-        DB[(SurrealDB Control Plane)]
+        DB[(SQLite Control Plane)]
     end
 
     subgraph "Hardware Abstraction"
@@ -100,7 +100,7 @@ graph TD
     REGISTRY --> ANDOR
     REGISTRY --> COMEDI
     REGISTRY --> MOCK
-    HAL --> DOVER
+    DOVER -.->|experimental, not registry-wired| REGISTRY
     HAL -->|frames| RING
     RING --> STORAGE
     RING -.->|stream| SERVER
@@ -111,16 +111,16 @@ graph TD
 
 | Tier | Crates | Purpose |
 |------|--------|---------|
-| **Core** | `common`, `pool`, `protocol` | Foundation types, zero-alloc buffers, protobuf |
+| **Core** | `common`, `common-traits`, `pool`, `protocol` | Foundation types and traits, zero-alloc buffers, protobuf |
 | **Hardware** | `hardware`, `driver-registry`, `driver-mock`, `driver-universal` | HAL, feature gating, TOML-manifest drivers |
 | **Native Drivers** | `driver-pvcam`, `pvcam-sys`, `driver-andor-sdk3`, `andor-sdk3-sys`, `driver-comedi`, `comedi-sys`, `driver-dover-motion`, `dover-motion-sys` | FFI-bound SDK drivers |
 | **Engine** | `experiment`, `scripting`, `daq-modules` | RunEngine, Rhai scripts, module system |
-| **Services** | `server`, `client`, `db` | gRPC server, client lib, SurrealDB |
+| **Services** | `server`, `client`, `db` | gRPC server, client lib, SQLite control plane |
 | **Data** | `storage` | Ring buffers, HDF5, Arrow, Parquet, Tiff, Zarr |
-| **Applications** | `bin`, `ui` | Daemon CLI, Desktop GUI |
+| **Applications** | `bin`, `ui`, `ui-graph`, `ui-slint` | Daemon CLI, primary egui GUI, graph UI, experimental Slint UI |
 | **Testing** | `integration-tests` | Cross-crate integration suite |
 
-**Total: 26 crates** (includes `ui-slint` [EXPERIMENTAL] and 4 FFI sys crates: `pvcam-sys`, `andor-sdk3-sys`, `comedi-sys`, `dover-motion-sys`)
+**Total: 30 workspace members** (includes `atomic-reference`, `ui-slint` [EXPERIMENTAL], and 4 FFI sys crates: `pvcam-sys`, `andor-sdk3-sys`, `comedi-sys`, `dover-motion-sys`)
 
 Full architecture docs: [System Architecture](docs/explanation/architecture.md)
 
@@ -133,7 +133,7 @@ Full architecture docs: [System Architecture](docs/explanation/architecture.md)
 | **Cameras** | Photometrics Prime 95B, Prime BSI | FrameProducer, Triggerable, ExposureControl | Production | `pvcam_hardware` |
 | **Cameras** | Andor iStar sCMOS | FrameProducer, ExposureControl, GatedCamera | Production | `andor_hardware` |
 | **DAQ** | NI PCI-MIO-16XE-10 | Readable, Settable (Comedi) | Production | `comedi_hardware` |
-| **Motion** | Dover SmartStage | Movable, Parameterized | In Development | Built-in |
+| **Motion** | Dover SmartStage | Movable, Parameterized, TriggerOnPosition | Experimental | Not wired into `driver-registry` |
 | **Motion** | Newport ESP300 | Movable, Parameterized | Production | `serial` (via driver-universal) |
 | **Rotators** | Thorlabs ELL14 (RS-485) | Movable, Parameterized | Production | `serial` (via driver-universal) |
 | **Lasers** | Spectra-Physics MaiTai | Readable, ShutterControl, WavelengthTunable | Production | `serial` (via driver-universal) |
@@ -188,7 +188,7 @@ Full architecture docs: [System Architecture](docs/explanation/architecture.md)
 
 ### Prerequisites
 
-- **Rust**: Current stable toolchain. Some workspace crates use Rust edition 2024, so older toolchains such as 1.75 are not sufficient. ([Install](https://rustup.rs/))
+- **Rust**: The repo pins toolchain `1.92.0` in `rust-toolchain.toml`; most crates use edition 2024. ([Install](https://rustup.rs/))
 - **System Libraries** (optional, depends on features):
   - `libhdf5-dev` - For HDF5 storage support
   - `libudev-dev` - For USB serial device detection (Linux)

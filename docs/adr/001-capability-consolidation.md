@@ -1,9 +1,14 @@
 # ADR: Capability System Consolidation
 
-**Status:** Proposed  
-**Date:** 2026-01-27  
-**Authors:** Gemini 3 Pro Analysis, Brian Squires  
+**Status:** Historical / partially superseded
+**Date:** 2026-01-27
+**Authors:** Gemini 3 Pro Analysis, Brian Squires
 **Epic:** bd-4myc
+
+> **Current status (April 2026):** Capability trait definitions and
+> `DriverFactory` now live in `crates/common-traits/` and are re-exported
+> by `common`. Paths below that mention `common/src/driver.rs` describe the
+> pre-extraction layout.
 
 ## Context
 
@@ -20,7 +25,7 @@ Currently, adding a new capability (e.g., "Spectrometer") requires touching **6 
 
 | Layer | File | Change Required |
 |-------|------|-----------------|
-| Core | `common/src/driver.rs` | Add to `Capability` enum |
+| Core | historical `common/src/driver.rs`; current `common-traits/src/driver.rs` | Add to `Capability` enum |
 | Schema | `hardware/src/plugin/schema.rs` | Add to `CapabilitiesConfig` struct |
 | Registry (struct) | `hardware/src/registry.rs` | Add `Option<Arc<dyn Trait>>` field |
 | Registry (introspection) | `hardware/src/registry.rs` | Update `capabilities()` method |
@@ -155,7 +160,7 @@ message DeviceInfo {
 
 ## References
 
-- `crates/common/src/driver.rs` - Capability enum
+- `crates/common-traits/src/driver.rs` - Capability enum / driver API
 - `crates/hardware/src/registry.rs` - Registry introspection
 - `crates/hardware/src/plugin/schema.rs` - TOML schema
 - `crates/server/src/grpc/hardware_service.rs` - Proto translation

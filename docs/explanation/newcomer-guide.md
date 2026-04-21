@@ -45,9 +45,9 @@ graph TD
 
 In `rust-daq`, a "Device" is not a monolithic struct. Instead, devices implement **Capability Traits**. This allows the system to treat a camera, a spectrometer, and a DAQ card uniformly based on what they *do*, not what they *are*.
 
-**Location:** `crates/common/src/capabilities.rs`
+**Location:** `crates/common-traits/src/capabilities.rs` (re-exported through `common::capabilities`)
 
-### Key Traits (23 total)
+### Key Traits (30 total)
 
 | Trait | Function | Example Device |
 |-------|----------|----------------|
@@ -71,9 +71,16 @@ In `rust-daq`, a "Device" is not a monolithic struct. Instead, devices implement
 | `GatedCamera` | ICCD with DDG and MCP gain control | Andor iStar |
 | `SpectrometerControl` | Grating, wavelength, slit control | Spectrograph |
 | `TriggerOnPosition` | Coordinate motion with triggers | Synchronized scan systems |
-| `PulseGenerator` | Configurable pulse timing | Digital delay generator |
 | `SafetyInterlock` | Safety system integration | Laser interlock |
 | `Reconfigurable` | Runtime configuration changes | Modular instruments |
+| `StateRefreshable` | Re-read parameters after reconnect | Universal-driver devices |
+| `CounterConfigurable` | Configure pulse/edge counters | Comedi counters |
+| `RangeIntrospectable` | Report valid ranges for UI controls | Parameterized devices |
+| `DeviceIntrospection` | Report serial/firmware/model metadata | Hardware drivers |
+| `ReadableWithMetadata` | Scalar reading plus timestamp and units | Measurement devices |
+| `SpectrumReadable` | Return a 1D spectrum array | Spectrometers |
+| `CompositeCapability` | Orchestrate multi-device operations | Experiment helpers |
+| `CapabilityProvider` | Typed capability lookup surface | Registry facade |
 
 ### When to Implement What?
 - If your device just reads a value: Implement `Readable`.
@@ -266,12 +273,12 @@ How do you add new functionality?
 **For native SDK drivers only (PVCAM, Andor, Comedi, Dover Motion):**
 1. Create a new crate `crates/driver-<name>`.
 2. Implement capability traits (`Movable`, `Readable`, etc.).
-3. Implement the `DriverFactory` trait (see `common::driver`).
+3. Implement the `DriverFactory` trait (defined in `common-traits/src/driver.rs`, re-exported as `common::driver`).
 4. Register the factory in `crates/driver-registry`.
 
 ### Adding a New Storage Backend
-1. Create a struct implementing `DocumentConsumer`.
-2. Handle `EventDoc`s to write data.
+1. Create a struct implementing `DocumentSink`.
+2. Handle RunEngine event documents to write data.
 3. Register in `server/src/grpc/storage_service.rs`.
 
 ### Adding a New Script Command

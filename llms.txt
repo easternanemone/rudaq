@@ -1,0 +1,79 @@
+# rust-daq
+
+> Modular, high-performance Rust data-acquisition system: headless gRPC daemon
+> owning hardware + egui / WASM operator UI + Rhai scripting + Bluesky-style
+> orchestration (`Plan` + `RunEngine`) + zero-copy frame pipeline
+> (mmap ring buffer → HDF5 / Arrow / Zarr). 30-crate workspace, Rust 1.92.0.
+
+This file is an `llms.txt` per <https://llmstxt.org>. Start with the wiki; fall
+back to the Diataxis docs; read the code only when the wiki is silent.
+
+## LLM Wiki (start here)
+
+- [Wiki index](llm-wiki/index.md): catalog of all LLM-facing pages
+- [Wiki schema & workflows](llm-wiki/schema.md): ingest / query / lint conventions
+- [Architecture (LLM summary)](llm-wiki/architecture.md): 30-crate map + data flow
+- [Glossary](llm-wiki/glossary.md): domain vocabulary
+- [Invariants](llm-wiki/invariants.md): hard rules (Parameter<T>, Rust 1.92.0, bd-only tracking, …)
+- [Crate index](llm-wiki/crates/index.md): one page per workspace member
+
+## Core concepts
+
+- [`Parameter<T>`](llm-wiki/concepts/parameter.md): reactive hardware state primitive
+- [`Plan` + `RunEngine`](llm-wiki/concepts/plan-run-engine.md): Bluesky-style orchestration
+- [Capability traits](llm-wiki/concepts/capability-traits.md): 30 composable device capabilities
+- [`driver-universal`](llm-wiki/concepts/driver-universal.md): TOML-manifest forward path
+- [`driver-registry`](llm-wiki/concepts/driver-registry.md): factory registration + feature gating
+- [Ring buffer](llm-wiki/concepts/ring-buffer.md): mmap + seqlock + Arrow IPC
+- [Mock registry](llm-wiki/concepts/mock-registry.md): deterministic test hardware
+
+## Workflows
+
+- [Build / test / lint](llm-wiki/workflows/build-test-lint.md)
+- [Beads (bd) issue tracker](llm-wiki/workflows/beads.md)
+- [PR workflow](llm-wiki/workflows/pr-workflow.md)
+- [Hardware testing](llm-wiki/workflows/hardware-testing.md)
+
+## Hardware
+
+- [maitai](llm-wiki/hardware/maitai.md): 15 devices (PVCAM, Comedi, ELL14×3, MaiTai, ESP300×3, Newport PM)
+- [leabs-dev](llm-wiki/hardware/leabs-dev.md): 3 devices (Andor iStar, IPG YLPP-200, Thorlabs PM400)
+
+## Drivers
+
+- [PVCAM](llm-wiki/drivers/pvcam.md)
+- [Andor SDK3](llm-wiki/drivers/andor-sdk3.md)
+- [Comedi](llm-wiki/drivers/comedi.md)
+- [Dover Motion](llm-wiki/drivers/dover-motion.md)
+- [driver-universal](llm-wiki/drivers/universal.md)
+- [Mock drivers](llm-wiki/drivers/mock.md)
+
+## Agent policy & conventions
+
+- [CLAUDE.md](CLAUDE.md): Claude Code quickstart + non-negotiable rules
+- [GEMINI.md](GEMINI.md): Gemini-specific guide
+- [CONTRIBUTING.md](CONTRIBUTING.md): human contributor guide
+- Note: `AGENTS.md` is gitignored by design; auto-injected at session start, not committed.
+
+## Canonical human docs (Diataxis)
+
+- [docs/explanation/architecture.md](docs/explanation/architecture.md): long-form architecture
+- [docs/explanation/newcomer-guide.md](docs/explanation/newcomer-guide.md): 20-30 min onboarding
+- [docs/reference/inventory.md](docs/reference/inventory.md): binaries, config paths, crate layout
+- [docs/reference/driver-capability-matrix.md](docs/reference/driver-capability-matrix.md): per-factory capability declarations
+- [docs/how-to/hardware-setup.md](docs/how-to/hardware-setup.md): hardware wiring
+- [docs/how-to/hardware-drivers.md](docs/how-to/hardware-drivers.md): driver-authoring guide
+- [docs/how-to/testing.md](docs/how-to/testing.md)
+
+## Repo root
+
+- [README.md](README.md): project overview
+- [Cargo.toml](Cargo.toml): 30 workspace members (authoritative)
+- [rust-toolchain.toml](rust-toolchain.toml): pinned channel 1.92.0
+- [config/devices/](config/devices/): driver-universal TOML manifests
+
+## Optional
+
+- [HISTORY.md](HISTORY.md): narrative project history (21 KB)
+- [docs/adr/](docs/adr/): architecture decision records
+- [examples/](examples/): Rhai script examples

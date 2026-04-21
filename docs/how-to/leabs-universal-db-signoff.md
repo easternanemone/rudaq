@@ -1,6 +1,6 @@
 # LEABS Universal+DB Hardware Signoff Runbook
 
-Purpose: operational signoff checklist for `hybrid-db` runtime mode on LEABS hardware.
+Purpose: operational signoff checklist for LEABS hardware with SQLite control-plane persistence enabled. The deploy scripts may still use `hybrid-db` as a compatibility runtime-mode name.
 
 ## Preconditions
 
@@ -131,4 +131,4 @@ Expected:
 - Andor iStar runs in mock mode on macOS. Real SDK validation requires `leabs-dev` Linux VM with `andor_hardware` feature.
 - IPG laser TCP control requires network access to 10.0.0.15. Verify Tailscale routing if commands time out.
 - PM400 USB TMC requires `usbtmc` kernel module loaded and udev rule for non-root access.
-- `hybrid-db` requires daemon built with `db` feature (enabled by default).
+- DB-backed operation requires the daemon built with the `db` feature (enabled by default).

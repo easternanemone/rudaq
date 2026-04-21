@@ -18,7 +18,7 @@ Organized using the [Diataxis](https://diataxis.fr/) framework.
 | [Windows Build](how-to/build-and-run-windows.md) | Windows-specific build instructions |
 | [Hardware Setup (Maitai)](how-to/hardware-setup.md) | Real hardware configuration |
 | [Operations](how-to/operations.md) | Daemon startup, deployment, monitoring, alerting |
-| [Maitai Universal+DB Signoff](how-to/maitai-universal-db-signoff.md) | Hardware validation runbook for hybrid-db mode |
+| [Maitai Universal+DB Signoff](how-to/maitai-universal-db-signoff.md) | Hardware validation runbook for SQLite DB mode |
 | [Legacy SCPI Deprecation](how-to/legacy-scpi-deprecation.md) | Migration and rollback policy for legacy native SCPI/TCP paths |
 | [Platform Notes](how-to/platform-notes.md) | OS-specific considerations |
 
@@ -61,10 +61,10 @@ Organized using the [Diataxis](https://diataxis.fr/) framework.
 |-------|-------------|
 | [Testing](how-to/testing.md) | Test runner, profiles, hardware tests, coverage |
 | [Plugins](how-to/plugins.md) | Config-only, native Rust, and Rhai plugins |
-| [SurrealDB Integration](how-to/surrealdb-integration.md) | Embedded database setup, reconciler, parameter persistence |
+| [SQLite Control Plane](how-to/surrealdb-integration.md) | Current DB backend note and historical SurrealDB migration context |
 | [Web GUI](how-to/web-gui.md) | WASM build, deployment, and architecture |
 | [Migration/Rollback Toolkit](how-to/migration-rollback-toolkit.md) | Backup, restore, and incident rollback procedures |
-| [LEABS Universal+DB Signoff](how-to/leabs-universal-db-signoff.md) | LEABS hardware validation runbook for hybrid-db mode |
+| [LEABS Universal+DB Signoff](how-to/leabs-universal-db-signoff.md) | LEABS hardware validation runbook for SQLite DB mode |
 | [LIBS Scripting](how-to/libs-scripting.md) | Rhai API for LIBS experiments |
 | [Fast Inner Loop](how-to/fast-inner-loop.md) | Development iteration tips |
 | [Andor iSTAR Crash Capture](how-to/andor-istar-crash-capture-and-repro.md) | Crash capture and streaming repro harness |

@@ -17,7 +17,7 @@
 |---|---|---|
 | `config/demo.toml` | `mock` / CI | Basic mock hardware config for tests. |
 | `config/demo_mock_all.toml` | `mock` (extended) | Full simulated lab environment (cameras, stages, lasers). |
-| `config/maitai_universal.toml`| `native`, `universal`, `hybrid-db` | Production hardware layout for the 'Maitai' optical table. |
+| `config/maitai_universal.toml`| `native`, `universal`, `hybrid-db` | Production hardware layout for the Maitai optical table; `hybrid-db` is a compatibility name for DB-backed operation. |
 | `config/feature_flags.toml` | All | Runtime feature toggles (streaming perf, debug panels, etc.). |
 
 *Note: The DAQ_RUNTIME_MODE environment variable maps directly to these configurations unless overridden by DAQ_CONFIG_PATH.*
@@ -26,15 +26,16 @@
 
 | Layer | Crates | Purpose |
 |---|---|---|
-| **Core** | `common` | Shared types, observables (`Parameter<T>`), errors. |
-| **HAL** | `hardware` | Trait definitions (`Movable`, `Readable`, `FrameProducer`). |
+| **Core** | `common`, `common-traits` | Shared types, observables (`Parameter<T>`), errors, capability traits, `DriverFactory`. |
+| **HAL** | `hardware` | `DeviceRegistry`, config/schema loading, runtime hardware registry. |
 | **Registry** | `driver-registry` | Feature gating, driver instantiations, mapping strings to drivers. |
 | **Drivers** | `driver-*`, `*-sys` | FFI bindings (PVCAM, Comedi, Andor) and driver implementations. |
 | **Protocol** | `protocol` | Protobuf definitions and gRPC service traits. |
 | **Server** | `server` | The gRPC implementation, orchestrating calls to hardware and storage. |
 | **Engine** | `experiment`, `scripting`, `daq-modules` | Rhai engine integration, task sequences, module system, coordinated multi-axis scans. |
 | **Storage** | `storage`, `pool` | Fast streaming (Ring Buffer, Arrow) and persistence (HDF5). |
-| **UI** | `ui` [PRIMARY], `ui-slint` [EXPERIMENTAL] | `ui` is the primary supported operator UI (native + WASM); `ui-slint` is evaluation-only and not production parity. |
+| **Data** | `atomic-reference`, `echelle` | Atomic line references and echelle calibration/analysis helpers. |
+| **UI** | `ui` [PRIMARY], `ui-graph`, `ui-slint` [EXPERIMENTAL] | `ui` is the primary supported operator UI (native + WASM); `ui-graph` contains graph/UI analysis utilities; `ui-slint` is evaluation-only and not production parity. |
 | **Testing** | `integration-tests` | Cross-crate integration test suite. |
 
 ## Workspace Member Support Levels
@@ -55,8 +56,7 @@ All other workspace members are considered **stable** and included in the standa
 |---|---|---|
 | `comedi_hardware` | `bin`, `driver-registry` | Enables real Comedi hardware driver compilation (Linux only). |
 | `comedi-sdk` | `comedi-sys` | Links the Linux Comedi C SDK. |
-| `db-surreal` | `bin`, `server`, `db` | Compiles SurrealDB for configuration persistence. |
+| `db` | `bin`, `server`, `db` | Enables the SQLite control plane and ConfigService. |
 | `storage_arrow` | `storage` | Enables Apache Arrow IPC and Tensor formatting backends. |
-| `mock_only` | `driver-registry` | Forces the registry to exclude FFI drivers even if `comedi_hardware` is set. |
 
 *See `config/feature_flags.toml` for runtime toggles rather than compile-time features.*

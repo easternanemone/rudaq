@@ -1,6 +1,8 @@
 # CLAUDE.md
 
-Guidance for Claude Code in this repo. Full agent policy: `AGENTS.md` (auto-injected). Beads workflow: `bd prime`.
+Guidance for Claude Code in this repo. Full agent policy: `AGENTS.md` (auto-injected at session start; **not tracked in git** — see `.gitignore`). Beads workflow: `bd prime`.
+
+**LLM Wiki**: dense, cross-linked reference for agents at [`llm-wiki/index.md`](llm-wiki/index.md) (schema: [`llm-wiki/schema.md`](llm-wiki/schema.md)). Read this **before** grepping the codebase — it indexes crates, concepts, hardware machines, drivers, and workflows.
 
 ## Non-Negotiable Rules
 
@@ -58,13 +60,14 @@ source scripts/ops/env-check.sh && cargo nextest run --profile hardware --featur
 - `async_trait` retained for capability traits — native async fn in trait requires static dispatch, but `Arc<dyn Trait>` needs boxed futures
 - TODO/FIXME must reference a bead: `TODO(bd-xxxx)`
 
-## Architecture (29-crate workspace)
+## Architecture (30-crate workspace)
 
 ```
 Foundation:  common-traits, common, pool, protocol
 Hardware:    hardware, driver-registry, driver-mock, driver-universal + SDK drivers (pvcam, andor, comedi, dover)
 Engine:      experiment (RunEngine), scripting (Rhai), daq-modules
 Services:    server (gRPC), client, db (SQLite), storage (HDF5/Arrow/Zarr)
+Data:        echelle, atomic-reference
 Apps:        bin (daemon), ui, ui-graph, ui-slint
 Testing:     integration-tests
 ```

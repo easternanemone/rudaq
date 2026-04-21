@@ -974,10 +974,10 @@ message GetSystemHealthResponse {
 }
 ```
 
-> **Database readiness (bd-9n9k.3):** `db_available` reflects whether SurrealDB
-> initialized **and** passes its health check. When `false`,
+> **Database readiness (bd-9n9k.3):** `db_available` reflects whether the
+> SQLite control plane initialized **and** passes its health check. When `false`,
 > `config_service_available` is also `false` and `ConfigService` RPCs will
-> return `Unimplemented`. Use `db_engine` (`"rocksdb"`, `"mem"`) and
+> return `Unimplemented`. Use `db_engine` (`"sqlite"`) and
 > `db_state_message` from `GetSystemHealth` for static metadata — the
 > streaming `HealthUpdate` carries only the boolean availability flags to
 > minimize per-tick overhead. The standard gRPC health check

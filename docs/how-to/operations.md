@@ -47,8 +47,8 @@ Use `--runtime-mode` for deterministic launcher/profile selection:
 # Universal TOML profile
 ./target/release/rust-daq-daemon daemon --runtime-mode universal
 
-# Universal + SurrealDB control-plane expectations
-./target/release/rust-daq-daemon daemon --runtime-mode hybrid-db --db-path ./data/surrealdb
+# Universal profile with SQLite control-plane persistence
+./target/release/rust-daq-daemon daemon --runtime-mode universal --db-path ./data/daq.db
 ```
 
 ### CLI reference
@@ -56,8 +56,8 @@ Use `--runtime-mode` for deterministic launcher/profile selection:
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--port` | `50051` | gRPC listen port |
-| `--runtime-mode <mock\|native\|universal\|hybrid-db>` | unset | Explicit runtime profile selector |
-| `--db-path <path>` | none | SurrealDB RocksDB path in daemon mode (`db-surreal` builds) |
+| `--runtime-mode <mock\|native\|universal\|hybrid-db>` | unset | Explicit runtime profile selector; `hybrid-db` is a compatibility name for DB-backed operation |
+| `--db-path <path>` | none | SQLite database file path when built with the `db` feature |
 | `--hardware-config <path>` | none | Path to a TOML hardware config |
 | `--lab-hardware` | off | Backward-compatible alias for native maitai profile |
 
@@ -232,10 +232,10 @@ On graceful shutdown, the channel is driven LOW before the task exits. If
 the toggle encounters 10 consecutive failures, the task stops (the external
 interlock detects the missing pulse and triggers its own shutdown).
 
-### Database readiness (SurrealDB)
+### Database readiness (SQLite)
 
-When running with the `db-surreal` feature, the daemon reports database state
-through multiple channels:
+When running with the `db` feature, the daemon reports SQLite control-plane
+state through multiple channels:
 
 - **Startup banner**: Shows `ConfigService [DB available]` or
   `⚠ ConfigService UNAVAILABLE` in the feature list.
@@ -246,7 +246,7 @@ through multiple channels:
 - **Module health**: The `database` module appears in `GetModuleHealth`
   with heartbeat status (healthy) or error record (degraded).
 
-If DB initialization fails, the daemon continues running from TOML config
+If DB initialization fails, the daemon continues running from TOML config,
 but `ConfigService` is unavailable and system health reports `Degraded`.
 
 To query database info directly:
@@ -370,9 +370,9 @@ webhook alerting and the heartbeat log for complete coverage:
    timeline of system health. After an overnight failure, use `jq` queries
    to reconstruct what happened.
 3. **Crash detection** — The RunEngine updates `heartbeat_at` on the
-   `run_record` in SurrealDB every ~10 seconds during plan execution. If
-   the daemon crashes, the reconciler on restart detects stale heartbeats
-   and marks the run as `crashed`.
+   `run_record` in SQLite during plan execution. If the daemon crashes,
+   restart-time recovery can detect stale heartbeats and mark the run as
+   `crashed`.
 
 **Recommended checklist before overnight runs:**
 

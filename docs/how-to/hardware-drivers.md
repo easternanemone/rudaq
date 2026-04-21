@@ -1606,7 +1606,7 @@ No manual configuration needed - the factory detects shared ports by path and au
 
 ## See Also
 
-- [common driver.rs](../../crates/common/src/driver.rs) - DriverFactory trait definition
-- [common capabilities.rs](../../crates/common/src/capabilities.rs) - Capability trait definitions
+- [common-traits driver.rs](../../crates/common-traits/src/driver.rs) - DriverFactory trait definition
+- [common-traits capabilities.rs](../../crates/common-traits/src/capabilities.rs) - Capability trait definitions
 - [Scripting Guide](./scripting.md) - How users control drivers via Rhai
 - [Testing Guide](./testing.md) - General testing strategies for rust-daq

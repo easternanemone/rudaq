@@ -1,12 +1,12 @@
 # Maitai Universal+DB Hardware Signoff Runbook
 
-Purpose: operational signoff checklist for `hybrid-db` runtime mode on maitai hardware.
+Purpose: operational signoff checklist for maitai hardware with the SQLite control plane enabled.
 
 ## Preconditions
 
 1. Access to `maitai@100.117.5.12`.
 2. PVCAM environment available (`source /etc/profile.d/pvcam.sh` or `source config/hosts/maitai.env`).
-3. Daemon built with DB support (`db-surreal-mem` or `db-surreal-rocksdb`) and maitai hardware features.
+3. Daemon built with DB support (`db`) and maitai hardware features.
 
 ## Build and Launch
 
@@ -15,23 +15,22 @@ Purpose: operational signoff checklist for `hybrid-db` runtime mode on maitai ha
 cd ~/code/rust-daq
 source config/hosts/maitai.env
 
-# Clean rebuild with full hardware + surrealdb
-cargo clean
-cargo build --release -p bin --features "maitai,db-surreal-rocksdb,metrics"
+# Build with maitai hardware + SQLite control plane
+cargo build --release -p bin --features "maitai,db,metrics"
 
-# Ensure RocksDB directory exists
-mkdir -p data/surrealdb-maitai
+# Ensure SQLite data directory exists
+mkdir -p data/sqlite-maitai
 
-# Start daemon in explicit hybrid mode
+# Start daemon with maitai hardware config and persistent SQLite database
 ./target/release/rust-daq-daemon daemon \
   --port 50051 \
-  --runtime-mode hybrid-db \
-  --db-path data/surrealdb-maitai
+  --hardware-config config/maitai_universal.toml \
+  --db-path data/sqlite-maitai/daq.db
 ```
 
 Expected startup indicators:
 
-- `Runtime mode: hybrid-db`
+- `Initializing database (SQLite)...`
 - `Runtime policy [...]` summary line with non-zero universal count
 - `Database ready` (or explicit non-fatal DB warning if unavailable)
 - device registration list including camera + universal instruments
@@ -90,5 +89,5 @@ Expected:
 ## Known Limitations / Follow-ups
 
 - Hardware-specific timing/transport edge cases still require soak testing.
-- `hybrid-db` assumes daemon was built with db-surreal features.
+- DB-backed operation assumes daemon was built with the `db` feature.
 - Legacy SCPI/TCP native driver paths still function but are on deprecation path; see `docs/how-to/legacy-scpi-deprecation.md`.

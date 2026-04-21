@@ -50,9 +50,9 @@
 - [Storage Formats](how-to/storage-formats.md)
 - [Zarr Acquisition](how-to/zarr-acquisition.md)
 
-# SurrealDB
+# SQLite Control Plane
 
-- [Integration Guide](how-to/surrealdb-integration.md)
+- [Current DB Backend & Historical SurrealDB Notes](how-to/surrealdb-integration.md)
 - [Migration & Rollback](how-to/migration-rollback-toolkit.md)
 - [Maitai Signoff](how-to/maitai-universal-db-signoff.md)
 - [LEABS Signoff](how-to/leabs-universal-db-signoff.md)
