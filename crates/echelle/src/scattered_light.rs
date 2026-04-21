@@ -2,26 +2,18 @@
 //!
 //! Two methods, selected via `ScatteredLightConfig::method`:
 //!
-//! - **`InterOrderMedian`** (default, CERES-style): build an inter-order
-//!   mask from the detected trace positions, bin the frame into blocks,
-//!   take a sigma-clipped median of inter-order pixels per block, fit a
-//!   bivariate Chebyshev surface to the block medians.
-//! - **`MorphologicalOpening`** (bd-vdfum / NotebookLM §FM4 for ICCD):
-//!   apply a vertical morphological opening (erosion → dilation with a
-//!   25-px vertical structuring element) so order-width + MCP-halo peaks
-//!   are obliterated and only the slowly-varying background survives;
-//!   sample a sparse grid of anchors from the opened image, excluding
-//!   any anchor within a 15-px radius of a saturated pixel; fit the same
-//!   2D Chebyshev surface to those anchors. Required on MCP-intensified
-//!   detectors where the halo floods the inter-order gap and corrupts
-//!   the standard CERES median (documented "4500-count baseline
-//!   anomaly" on the Mechelle 5000 + iStar).
-//!
-//! Source: NotebookLM echelle notebook 7f275c3a, pipeline evaluation
-//! memo 3a0a13df §FM4 "The 4500-Count Baseline Anomaly".
+//! - **`InterOrderMedian`** (default, CERES-style): mask inter-order pixels
+//!   from the detected traces, block-bin, take a sigma-clipped median per
+//!   block, fit a bivariate Chebyshev surface.
+//! - **`MorphologicalOpening`** (for MCP-intensified detectors): vertical
+//!   morphological opening (erosion then dilation) squashes order peaks
+//!   plus their MCP halos; sparse anchor grid on the opened image (with
+//!   saturation exclusion) is fed to the same Chebyshev fitter. Required
+//!   on the Mechelle 5000 + iStar ICCD where the halo floods the
+//!   inter-order gap and corrupts the standard CERES median.
 
-// Pixel-index casts: always small enough for lossless usize→f64 conversion,
-// and f64→usize truncation is intentional for pixel coordinates.
+// Pixel-index casts: always small enough for lossless usize→f64, and
+// f64→usize truncation is intentional for pixel coordinates.
 #![allow(
     clippy::cast_precision_loss,
     clippy::cast_possible_truncation,
@@ -37,60 +29,50 @@ pub enum ScatteredLightMethod {
     /// CERES-style: sigma-clipped median of inter-order pixels per block.
     /// The default for conventional CCDs and DH3P-flat-dominated frames.
     InterOrderMedian,
-    /// Morphological opening (25-px vertical structuring element) + sparse
-    /// anchor sampling on the opened image, excluding a 15-px radius
-    /// around saturated pixels. Required for MCP-intensified detectors
-    /// (bd-vdfum / NotebookLM §FM4) where the halo floods inter-order
-    /// gaps and corrupts the standard median. See module docs.
+    /// Morphological opening + sparse anchor sampling on the opened image,
+    /// excluding a radius around saturated pixels. Required for
+    /// MCP-intensified detectors where the halo floods inter-order gaps
+    /// and corrupts the standard median. See module docs.
     MorphologicalOpening,
 }
 
 /// Configuration for scattered light subtraction.
 ///
-/// Presence or absence of scatter subtraction is controlled at the CALL SITE
-/// rather than by a field on this struct: `CalibrationPipelineConfig` carries
-/// separate `arc_scatter: Option<ScatteredLightConfig>` and
-/// `flat_scatter: Option<ScatteredLightConfig>` fields. A `None` means "skip
-/// this stage for that frame type" (bd-g22gu.3). This replaced the previous
-/// single `scatter_config: Option<_>` + redundant `enabled: bool` field.
+/// Whether scatter subtraction runs at all is controlled at the call site:
+/// `CalibrationPipelineConfig` carries separate `arc_scatter` /
+/// `flat_scatter: Option<ScatteredLightConfig>` fields, and `None` means
+/// "skip this stage for that frame type".
 #[derive(Debug, Clone)]
 pub struct ScatteredLightConfig {
-    /// Estimation method. Default is `InterOrderMedian` (conventional CCD);
-    /// set to `MorphologicalOpening` for MCP-intensified detectors
-    /// (iStar ICCD) per NotebookLM §FM4.
+    /// Estimation method. `InterOrderMedian` for conventional CCDs;
+    /// `MorphologicalOpening` for MCP-intensified detectors (iStar ICCD).
     pub method: ScatteredLightMethod,
-    /// Aperture half-width used to define order regions (pixels). Only
-    /// used by `InterOrderMedian`.
+    /// Aperture half-width defining order regions (pixels). Only used by
+    /// `InterOrderMedian`.
     pub aperture_half_width: f64,
-    /// Block size / anchor grid step for spatial binning (pixels, default:
-    /// 64). For `MorphologicalOpening` this is the grid stride.
+    /// Block size / anchor grid step for spatial binning (pixels, default 64).
     pub block_size: u32,
-    /// Polynomial degree in the dispersion direction (default: 3).
+    /// Polynomial degree in the dispersion direction (default 3).
     pub poly_degree_x: usize,
-    /// Polynomial degree in the cross-dispersion direction (default: 3).
+    /// Polynomial degree in the cross-dispersion direction (default 3).
     pub poly_degree_y: usize,
-    /// For `MorphologicalOpening` only: vertical structuring-element size
-    /// in pixels. NotebookLM §FM4 recommends 25 px for Mechelle 5000
-    /// (≈ 5 px order width + 8 px halo on each side).
+    /// Morphological-opening only: vertical structuring-element size (px).
+    /// ~ order width + 2× halo thickness on each side.
     pub morph_vertical_kernel_px: u32,
-    /// For `MorphologicalOpening` only: exclusion radius (pixels) around
-    /// saturated pixels when sampling anchors. Default 15 per NotebookLM.
+    /// Morphological-opening only: exclusion radius (px) around saturated
+    /// pixels when sampling anchors (default 15).
     pub morph_saturation_exclusion_px: u32,
-    /// For `MorphologicalOpening` only: threshold (as a fraction of the
-    /// frame's max ADU) above which a pixel is considered "saturated"
-    /// for anchor exclusion. Default 0.95.
+    /// Morphological-opening only: saturation threshold as a fraction of
+    /// the frame's max ADU (default 0.95).
     pub morph_saturation_frac: f64,
-    /// For `InterOrderMedian` only: when `Some(p)`, aggregate each block's
-    /// inter-order pixels via the `p`-th percentile (p ∈ (0,1)) instead of
-    /// the sigma-clipped median. Set this on MCP-intensified detectors
-    /// (iStar ICCD), where the inter-order-pixel distribution is bimodal —
-    /// true scatter at the low end, MCP-halo counts at the high end —
-    /// and the sigma-clipped median lands between the two modes, biasing
-    /// the fit high. A lower percentile (e.g. 0.25) rejects the halo mode
-    /// and anchors the Chebyshev surface on the true scatter baseline.
-    /// See debug/phase5/memo-sc2d-alternative.md for derivation
-    /// (Howk & Sembach 2000 / bd-g22gu.2.1). Default `None` (sigma-clipped
-    /// median, preserving pre-bd-g22gu.2.1 behavior on conventional CCDs).
+    /// Inter-order-median only: when `Some(p)`, aggregate each block's
+    /// inter-order pixels via the `p`-th percentile instead of the
+    /// sigma-clipped median. On MCP-intensified detectors the inter-order
+    /// pixel distribution is bimodal (true scatter low, MCP halo high); the
+    /// median lands between the modes and biases the fit high. A lower
+    /// percentile (e.g. 0.25) rejects the halo mode and anchors the
+    /// Chebyshev surface on the true scatter baseline. `None` (sigma-clipped
+    /// median) is correct for conventional CCDs.
     pub halo_percentile: Option<f64>,
 }
 
@@ -111,23 +93,14 @@ impl Default for ScatteredLightConfig {
 }
 
 impl ScatteredLightConfig {
-    /// Preset for DH3P / continuum flats captured on the Mechelle 5000 +
-    /// iStar ICCD (bd-g22gu.3): morphological opening with the NotebookLM
-    /// §FM4 parameters tuned for the NIR-order 9-px inter-order gap.
+    /// Preset for DH3P / continuum flats on Mechelle 5000 + iStar ICCD.
     ///
-    /// This is the **default for `CalibrationPipelineConfig::flat_scatter`**
-    /// on ME5000 configs. The opened-surface subtraction removes the
-    /// 4500-count MCP halo baseline from the flat before trace detection
-    /// and blaze extraction, recovering inter-element intensity ratios for
-    /// downstream LIBS science (bd-3yb8).
-    ///
-    /// **Do NOT use this preset for arc frames** (HgAr, ThAr) — empirical
-    /// validation on the leabs-dev HgAr capture shows that morphological
-    /// opening over-subtracts on pure-emission-line sources: with kernel=25
-    /// only 3/7 expected Hg lines survive the downstream atlas match; with
-    /// kernel=13 only 1/7 does. The call-site split in
-    /// `CalibrationPipelineConfig` (`arc_scatter` vs `flat_scatter`) means
-    /// this preset can only land on the flat by construction.
+    /// Morphological opening tuned for the NIR-order inter-order gap; the
+    /// default for `CalibrationPipelineConfig::flat_scatter` on ME5000
+    /// configs. Do NOT use on arc frames — empirical validation on the
+    /// leabs-dev HgAr capture shows the opening over-subtracts on
+    /// pure-emission-line sources. The pipeline's `arc_scatter` /
+    /// `flat_scatter` split keeps this preset off arcs by construction.
     #[must_use]
     pub fn mechelle_5000_istar_flat() -> Self {
         Self {
@@ -142,23 +115,14 @@ impl ScatteredLightConfig {
             halo_percentile: None,
         }
     }
-}
 
-impl ScatteredLightConfig {
-    /// Preset for continuum sources on MCP-intensified detectors (iStar
-    /// ICCD) using the `InterOrderMedian` method (bd-g22gu.2.1).
+    /// Preset for continuum sources on MCP-intensified detectors using the
+    /// `InterOrderMedian` method.
     ///
-    /// Differs from `mechelle_5000_istar_flat` (morphological opening)
-    /// in the estimation method: InterOrderMedian walks between the
-    /// detected traces to sample the background surface directly, but
-    /// on the iStar the MCP halo makes the inter-order-pixel distribution
-    /// bimodal. Using `halo_percentile = 0.25` rejects the halo mode
-    /// and keeps the fit anchored on the low-flux true scatter baseline.
-    ///
-    /// Use this preset when you want a CERES-style (not morphological)
-    /// scatter correction on a Mechelle-class frame — for instance, if
-    /// morphological opening is over-fitting continuum features in a
-    /// specific capture.
+    /// Alternative to `mechelle_5000_istar_flat` when you want a CERES-style
+    /// scatter correction on a Mechelle-class frame. `halo_percentile = 0.25`
+    /// rejects the MCP halo mode and keeps the fit anchored on the
+    /// low-flux true scatter baseline.
     #[must_use]
     pub fn mechelle_5000_istar_interorder() -> Self {
         Self {
@@ -208,16 +172,10 @@ impl ScatteredLightModel {
 
     /// Subtract scattered light from a frame in-place.
     ///
-    /// Fast path: precompute per-column `T_ix(x_norm)` and per-row `T_iy(y_norm)`
-    /// basis tables once, then factor the 2D evaluation into an outer sum over
-    /// `iy` (computed once per row) and an inner sum over `ix` (computed once
-    /// per pixel). This replaces 2·W·H short-lived `Vec<f64>` allocations and
-    /// a per-pixel `O(nx·ny)` inner loop with zero allocations and an
-    /// `O(nx)` inner loop (bd-gn016).
-    ///
-    /// Bit-equivalent to `eval(col, row)` per pixel up to floating-point
-    /// summation order (differences are sub-ULP and absorbed by downstream
-    /// tolerances).
+    /// Fast path: precompute per-column and per-row Chebyshev basis tables
+    /// once, factor the 2D evaluation into an `O(nx)` inner loop with no
+    /// per-pixel allocations. Bit-equivalent to `eval(col, row)` per pixel
+    /// up to floating-point summation order (sub-ULP differences).
     pub fn subtract_from(&self, frame: &mut [f32], width: u32) {
         let w = width as usize;
         if w == 0 {
@@ -229,8 +187,7 @@ impl ScatteredLightModel {
         let w_norm = f64::from(self.width.max(1));
         let h_norm = f64::from(self.height.max(1));
 
-        // Per-column basis table: tx_table[col * nx + i] = T_i(x_norm(col)).
-        // Sizing: w * nx * 8 bytes ≤ 2560 * 8 * 8 ≈ 160 KB for ME5000 + nx≤8.
+        // tx_table[col * nx + i] = T_i(x_norm(col)); ~160 KB at 2560 × nx=8.
         let mut tx_table = vec![0.0_f64; w * nx];
         for col in 0..w {
             let x_norm = 2.0 * (col as f64) / w_norm - 1.0;
@@ -240,9 +197,8 @@ impl ScatteredLightModel {
             );
         }
 
-        // Per-row scratch: ty[iy] = T_iy(y_norm) for the current row.
-        // row_contrib[ix] = sum_iy c[iy*nx + ix] * ty[iy] — folds out y so the
-        // inner per-pixel loop is just a dot product of tx·row_contrib.
+        // row_contrib[ix] = Σ_iy c[iy*nx + ix] · T_iy(y_norm) folds y out so the
+        // per-pixel inner loop is just tx · row_contrib.
         let mut ty = vec![0.0_f64; ny];
         let mut row_contrib = vec![0.0_f64; nx];
 
@@ -250,7 +206,6 @@ impl ScatteredLightModel {
             let y_norm = 2.0 * (row as f64) / h_norm - 1.0;
             crate::chebyshev_common::chebyshev_basis_into(y_norm, &mut ty);
 
-            // Layout: coeffs[iy * nx + ix] (y-outer, x-inner).
             for (ix, contrib) in row_contrib.iter_mut().enumerate() {
                 let mut s = 0.0_f64;
                 for (iy, &ty_val) in ty.iter().enumerate() {
@@ -333,11 +288,9 @@ fn estimate_inter_order_median(
 ) -> Option<ScatteredLightModel> {
     let w = width as usize;
     let h = height as usize;
-    // Step 1: Build inter-order mask.
     let inter_order_mask =
         build_inter_order_mask(width, height, traces, config.aperture_half_width);
 
-    // Step 2: Bin into blocks and compute median of inter-order pixels.
     let bs = config.block_size.max(1) as usize;
     let n_blocks_x = w.div_ceil(bs);
     let n_blocks_y = h.div_ceil(bs);
@@ -366,22 +319,9 @@ fn estimate_inter_order_median(
             }
 
             if scratch.len() >= 3 {
-                // Block aggregation depends on detector class:
-                //
-                // - Conventional CCD: sigma-clipped median (bd-8yjd1 P2.5).
-                //   A single cosmic-ray hit inside an inter-order block
-                //   used to corrupt the block median and distort the 2D
-                //   Chebyshev background fit. Clip values > 5σ from the
-                //   current median for up to 3 passes before the final
-                //   median. This is the default (halo_percentile = None).
-                //
-                // - MCP-intensified (iStar ICCD): lower-percentile
-                //   (bd-g22gu.2.1 / Howk & Sembach 2000). The inter-order
-                //   pixel distribution is bimodal — true scatter at the
-                //   low end, MCP halo counts at the high end. The median
-                //   lands between modes; a lower percentile (e.g. 0.25)
-                //   rejects the halo mode and keeps the Chebyshev surface
-                //   anchored on the true scatter baseline.
+                // Conventional CCDs: sigma-clipped median (rejects cosmic
+                // rays). MCP-intensified detectors: low percentile (rejects
+                // the halo mode of a bimodal inter-order distribution).
                 let robust = if let Some(p) = config.halo_percentile {
                     percentile(&mut scratch, p)
                 } else {
@@ -399,7 +339,6 @@ fn estimate_inter_order_median(
         return None;
     }
 
-    // Step 3: Fit 2D Chebyshev surface.
     let x_norm: Vec<f64> = block_x
         .iter()
         .map(|&x| 2.0 * x / f64::from(width) - 1.0)
@@ -426,23 +365,14 @@ fn estimate_inter_order_median(
     })
 }
 
-/// bd-vdfum / NotebookLM §FM4: morphological opening + sparse anchor fit.
+/// Morphological opening + sparse anchor fit for MCP-intensified detectors.
 ///
-/// 1. Apply a vertical morphological opening with a
-///    `config.morph_vertical_kernel_px`-wide structuring element. Erosion
-///    replaces each pixel with the min over a ±k/2 vertical neighborhood
-///    (squashing spectral lines + their MCP halos toward the true
-///    background). Dilation then expands back (max over the same
-///    neighborhood), restoring the spatial scale without re-introducing
-///    the peaks.
-/// 2. Detect saturated pixels (≥ `morph_saturation_frac × frame_max`).
-///    Grow a `morph_saturation_exclusion_px`-radius exclusion mask
-///    around each saturated pixel.
-/// 3. Sample the opened image on a regular grid (`block_size` stride),
-///    skipping grid points inside the exclusion mask.
-/// 4. Fit the existing 2D Chebyshev surface to the samples. The low
-///    Chebyshev degree (default 3×3) provides the "exceptionally high
-///    stiffness" NotebookLM §FM4 prescribes, without needing TPS/RBF.
+/// Vertical erosion then dilation (open with a `morph_vertical_kernel_px`
+/// structuring element) squashes order peaks and their halos, leaving only
+/// the slowly-varying background. A sparse grid of anchors on the opened
+/// image — skipping a radius around saturated pixels — is then fit with
+/// the same 2D Chebyshev surface as the inter-order-median method. The low
+/// polynomial degree provides the stiffness needed without TPS/RBF.
 fn estimate_morphological_opening(
     frame: &[f32],
     width: u32,
@@ -454,11 +384,9 @@ fn estimate_morphological_opening(
     let kernel = config.morph_vertical_kernel_px.max(3) as usize;
     let excl_r = config.morph_saturation_exclusion_px.max(1) as usize;
 
-    // Step 1: vertical erosion then dilation (opening).
     let eroded = vertical_minimum_filter(frame, w, h, kernel);
     let opened = vertical_maximum_filter(&eroded, w, h, kernel);
 
-    // Step 2: saturation exclusion mask.
     let frame_max = frame
         .iter()
         .copied()
@@ -467,7 +395,6 @@ fn estimate_morphological_opening(
     let sat_threshold = frame_max * config.morph_saturation_frac as f32;
     let excl_mask = build_saturation_exclusion_mask(frame, w, h, sat_threshold, excl_r);
 
-    // Step 3: anchor grid on the opened image, skipping excluded positions.
     let stride = config.block_size.max(4) as usize;
     let mut anchor_x = Vec::new();
     let mut anchor_y = Vec::new();
@@ -500,7 +427,6 @@ fn estimate_morphological_opening(
         "scattered_light[morph]: sampled anchors from opened image"
     );
 
-    // Step 4: fit 2D Chebyshev surface (reuse existing fitter).
     let x_norm: Vec<f64> = anchor_x
         .iter()
         .map(|&x| 2.0 * x / f64::from(width) - 1.0)
@@ -527,11 +453,10 @@ fn estimate_morphological_opening(
     })
 }
 
-/// Compile-time selector for the vertical extremum filter direction
-/// (bd-xhqdo). Pre-bd-xhqdo the crate shipped two ~95%-duplicated deque
-/// implementations of the rolling-window min/max along the cross-dispersion
-/// axis; unifying them with a zero-sized trait parameter collapses both
-/// paths into a single body that monomorphizes to the exact old code.
+/// Compile-time selector for the vertical extremum filter direction.
+///
+/// Zero-sized trait parameter that monomorphises `vertical_extremum_filter`
+/// into the min and max rolling-window deque variants.
 trait VerticalExtremum {
     /// Return `true` when the back element of the deque is dominated by the
     /// new candidate and should be dropped (strict-better plus non-finite).
@@ -573,11 +498,9 @@ impl VerticalExtremum for Max {
 }
 
 /// Deque-based O(w·h) rolling-window extremum filter along the cross-dispersion
-/// (y / row) axis. Each output pixel is the min or max — as determined by the
-/// `E` type parameter — over a ±(kernel/2) vertical neighborhood of the input.
-///
-/// Instantiated as `::<Min>` for erosion and `::<Max>` for dilation; both
-/// monomorphize to byte-equivalent code with the pre-bd-xhqdo implementations.
+/// (y / row) axis. Each output pixel is the min or max over a ±(kernel/2)
+/// vertical neighborhood, selected by the `E` type parameter (`Min` = erosion,
+/// `Max` = dilation).
 fn vertical_extremum_filter<E: VerticalExtremum>(
     frame: &[f32],
     w: usize,
@@ -594,9 +517,6 @@ fn vertical_extremum_filter<E: VerticalExtremum>(
         }
         deque.clear();
         for row in 0..h {
-            // Drop from tail while the new value dominates the tail (min:
-            // ≥, max: ≤, plus non-finite). Monomorphized: const-folded to
-            // the concrete comparator per instantiation.
             while let Some(&back) = deque.back() {
                 if E::should_pop_back(col_buf[back], col_buf[row]) {
                     deque.pop_back();
@@ -605,13 +525,8 @@ fn vertical_extremum_filter<E: VerticalExtremum>(
                 }
             }
             deque.push_back(row);
-            // Drop from head rows that are now outside the symmetric ±half
-            // window centered at `center = row - half`. The valid window is
-            // [center - half, center + half] = [row - 2·half, row], so drop
-            // rows with index < row - 2·half. Pre-bd-xhqdo the code used
-            // `row - half` here, which effectively emitted the min/max over
-            // the asymmetric upper half [center, center + half] only — a
-            // pre-existing bug filed and fixed in this PR (bd-g22gu.1.2).
+            // Symmetric ±half window centred at `center = row - half`, i.e.
+            // valid rows are [row - 2·half, row]; drop anything older.
             let lo = row.saturating_sub(2 * half);
             while let Some(&front) = deque.front() {
                 if front < lo {
@@ -620,15 +535,12 @@ fn vertical_extremum_filter<E: VerticalExtremum>(
                     break;
                 }
             }
-            // Emit once the window has slid past the upper edge so that
-            // (row - half) is the center pixel of the kernel.
             if row >= half {
                 let center = row - half;
                 out[center * w + col] = col_buf[*deque.front().unwrap()];
             }
         }
-        // Flush the trailing rows (where center + half ≥ h) with a naive
-        // scan of the truncated window.
+        // Flush trailing rows (where center + half ≥ h) with a truncated scan.
         for center in (h.saturating_sub(half))..h {
             let lo = center.saturating_sub(half);
             let hi = (center + half).min(h - 1);
@@ -751,13 +663,11 @@ fn build_inter_order_mask(
     mask
 }
 
-/// Evaluate a 2D Chebyshev polynomial: sum_{i,j} c_{ij} * T_i(x) * T_j(y).
+/// Evaluate a 2D Chebyshev polynomial: Σ c_{ij} · T_i(x) · T_j(y).
 ///
-/// Layout: `coeffs[iy * nx + ix]` — y is the outer (slower-varying) index,
-/// x is the inner (faster-varying) index. This is the opposite layout from
-/// `wavelength_fitting::chebyshev_eval_2d` / `chebyshev_2d::eval_chebyshev_2d_surface`,
-/// which both store x outer. The shared helper handles either by taking the
-/// outer/inner dimensions in call order.
+/// Layout here is `coeffs[iy * nx + ix]` (y outer, x inner), opposite to
+/// the x-outer layout used elsewhere in the crate — the shared `eval_2d`
+/// helper accepts either via its outer/inner parameter order.
 fn eval_2d_chebyshev(
     coeffs: &[f64],
     degree_x: usize,
@@ -798,55 +708,10 @@ fn fit_2d_chebyshev(
         }
     }
 
-    // V^T V c = V^T y via the shared helper (bd-g22gu.1.1).
     crate::chebyshev_common::solve_least_squares_flat(&vander, n_pts, n_coeffs, values)
 }
 
-/// Safely evaluate a trace model, returning None on errors.
-fn eval_trace_safe(trace: &EchelleTraceModel, x: f64) -> Option<f64> {
-    match trace {
-        EchelleTraceModel::Polynomial {
-            basis,
-            coefficients,
-            domain_start,
-            domain_end,
-        } => {
-            if coefficients.is_empty() || !x.is_finite() || *domain_start >= *domain_end {
-                return None;
-            }
-            let result = match basis {
-                crate::types::PolynomialBasis::Monomial => {
-                    let mut acc = 0.0f64;
-                    for &c in coefficients.iter().rev() {
-                        acc = acc * x + c;
-                    }
-                    acc
-                }
-                crate::types::PolynomialBasis::Chebyshev => {
-                    let t = (2.0 * (x - domain_start)) / (domain_end - domain_start) - 1.0;
-                    if coefficients.len() == 1 {
-                        return Some(coefficients[0]);
-                    }
-                    let mut t0 = 1.0f64;
-                    let mut t1 = t;
-                    let mut acc = coefficients[0] * t0 + coefficients[1] * t1;
-                    for &c in coefficients.iter().skip(2) {
-                        let tn = 2.0 * t * t1 - t0;
-                        acc += c * tn;
-                        t0 = t1;
-                        t1 = tn;
-                    }
-                    acc
-                }
-            };
-            if result.is_finite() {
-                Some(result)
-            } else {
-                None
-            }
-        }
-    }
-}
+use crate::trace_fitting::eval_trace_extrap as eval_trace_safe;
 
 // ─── Fast path for live extraction ─────────────────────────────────────────
 
@@ -992,20 +857,12 @@ fn is_inter_order(col: f64, row: f64, traces: &[TraceInfo<'_>], aperture_half_wi
     true
 }
 
-/// Median of `values` after `max_iters` passes of σ-clipping at `clip_sigma`.
+/// Return the `p`-th percentile of `values` (p ∈ [0, 1]) via nearest-rank
+/// selection on the sorted array; sorts `values` in place.
 ///
-/// Each pass computes the current median and MAD-based σ, drops values whose
-/// |x − median| > `clip_sigma · σ`, and re-sorts. Returns early when a pass
-/// removes nothing. If the input has fewer than 3 samples it falls back to
-/// the plain median. `values` is sorted in place.
-/// Return the `p`-th percentile of `values` (p ∈ [0, 1]) using nearest-rank
-/// selection on a sorted copy — no interpolation. Sorts `values` in place.
-///
-/// bd-g22gu.2.1: used instead of sigma-clipped median when the block's
-/// inter-order pixel distribution is bimodal (MCP halo on top of true
-/// scatter). A lower p (e.g. 0.25) samples below the halo mode, giving
-/// an unbiased estimate of the true scatter baseline that a median would
-/// average with the halo.
+/// Used instead of the sigma-clipped median when the block's inter-order
+/// pixel distribution is bimodal (MCP halo on top of true scatter): a low
+/// `p` (e.g. 0.25) samples below the halo mode rather than averaging with it.
 fn percentile(values: &mut [f64], p: f64) -> f64 {
     if values.is_empty() {
         return 0.0;
@@ -1021,6 +878,11 @@ fn percentile(values: &mut [f64], p: f64) -> f64 {
     values[idx]
 }
 
+/// Median of `values` after `max_iters` passes of σ-clipping at `clip_sigma`.
+///
+/// Each pass recomputes the median and MAD-based σ, drops samples outside
+/// `clip_sigma · σ`, and returns early once a pass removes nothing. Falls
+/// back to the plain median when fewer than 3 samples remain. Sorts in place.
 fn sigma_clipped_median(values: &mut Vec<f64>, clip_sigma: f64, max_iters: usize) -> f64 {
     if values.is_empty() {
         return 0.0;
@@ -1063,15 +925,12 @@ mod tests {
 
     #[test]
     fn test_percentile_rejects_mcp_halo_bimodal_mode() {
-        // bd-g22gu.2.1: synthetic inter-order-pixel block from an iStar
-        // frame. 80 pixels of true scatter at ADU ~10 (low mode, with
-        // noise); 20 pixels of MCP halo at ADU ~4500 (high mode). This
-        // is the empirical 4500-count baseline anomaly from NotebookLM
-        // §FM4 at realistic halo:scatter count ratios.
-        //
-        // sigma-clipped median gets pulled toward the halo mode because
-        // MAD-based σ sees a bimodal distribution as "wide" and fails to
-        // clip the halo; the 25th percentile lands firmly in the low mode.
+        // Synthetic inter-order block from an iStar frame: 80 pixels of
+        // true scatter at ADU ~10 (low mode), 20 pixels of MCP halo at
+        // ADU ~4500 (high mode). MAD-based σ sees the bimodal distribution
+        // as "wide" and fails to clip the halo, so the sigma-clipped median
+        // is pulled between the modes; the 25th percentile stays in the
+        // low mode.
         let mut vals: Vec<f64> = Vec::with_capacity(100);
         for i in 0..80_i32 {
             vals.push(10.0 + f64::from(i) * 0.02); // 10.0 .. 11.58
@@ -1182,11 +1041,8 @@ mod tests {
 
     #[test]
     fn test_vertical_extremum_matches_pre_refactor_behavior() {
-        // bd-xhqdo: lock the vertical min/max filter behavior so the Min/Max
-        // zero-sized-type generic in vertical_extremum_filter cannot silently
-        // drift from the pre-bd-xhqdo hand-written twins.
-        //
-        // With the symmetric ±half window (post-fix), kernel=3 (half=1):
+        // Lock the Min/Max zero-sized-type generic's output against the
+        // pre-refactor hand-written twins. Symmetric ±half window, kernel=3:
         //   row:  0   1   2   3   4   5   6
         //   val: 10   2   8   1   9   3   7
         //
@@ -1242,10 +1098,9 @@ mod tests {
 
     #[test]
     fn test_subtract_from_matches_naive_eval_per_pixel() {
-        // bd-gn016: the cached `subtract_from` hot path must produce the same
-        // per-pixel scatter value as a naive `for each px: model.eval(col,row)`
-        // loop. Sub-ULP summation-order differences are expected and bounded
-        // to a few ULPs per pixel against the signal.
+        // Cached `subtract_from` must produce the same per-pixel scatter as
+        // a naive `for each px: model.eval(col, row)` loop. Sub-ULP
+        // summation-order differences are bounded to a few ULPs.
         let width: u32 = 384;
         let height: u32 = 256;
         let model = ScatteredLightModel {

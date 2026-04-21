@@ -1,28 +1,26 @@
 //! End-to-end echelle calibration pipeline.
 //!
-//! Orchestrates all echelle building blocks into a single calibration flow:
-//! raw arc frame → order detection → extraction → line identification →
-//! wavelength solution → `EchelleCalibrationProfile`.
+//! Orchestrates the building blocks (trace detection, extraction, atlas match,
+//! wavelength fit) into a single flow that turns a raw arc frame into an
+//! [`EchelleCalibrationProfile`].
 //!
 //! # Pipeline stages
 //!
-//! 1. Scattered-light subtraction (optional)
-//! 2. Order trace detection
-//! 3. Per-order rectification
-//! 4. 1D spectral extraction (simple-sum or Horne optimal)
-//! 5. Arc emission line detection per order
-//! 6. **Stage 1** — per-order atlas match + Chebyshev fit seeded from the
-//!    echelle grating equation at the expected physical order
-//! 7. **Stage 2** — Cauchy-series `y(m) = a + b/m² + c/m⁴` fit from
-//!    Stage-1 anchors; invert to predict m for uncalibrated traces and
-//!    retry atlas matching
-//! 8. **Stage 3** — single global 2D Chebyshev fit `λ(x, m)` over all
-//!    matched arc lines (3×5, 3σ clip); synthesize per-order solutions
-//!    for traces still without a per-order fit
-//! 9. Deduplicate by physical order number and assemble the profile
+//! 1. Optional scattered-light subtraction on the arc (and flat, if supplied).
+//! 2. Order trace detection, rectification, and 1D extraction.
+//! 3. Per-order arc line detection (with optional HDR merge across exposures).
+//! 4. **Stage 1** — per-order atlas match + Chebyshev fit, seeded from the
+//!    echelle grating equation at the expected physical order.
+//! 5. **Stage 2** — fit the Cauchy series `y(m) = a + b/m² + c/m⁴` from
+//!    Stage-1 anchors, invert it to predict `m` for uncalibrated traces, and
+//!    retry the atlas match with a physics-refined seed.
+//! 6. **Stage 3** — single global 2D Chebyshev `λ(x, m)` over all matched
+//!    lines (3×5, 3σ clip); synthesize per-order solutions for traces with
+//!    no successful per-order fit.
+//! 7. Deduplicate by physical order number and assemble the profile.
 
-// Numerical code: pixel-index casts are always lossless for realistic frame sizes.
-// Order indices are always small enough that u32→i32 won't wrap.
+// Pixel indices and order numbers always fit in the target types at realistic
+// detector sizes; the numerical code relies on f64 precision elsewhere.
 #![allow(
     clippy::cast_precision_loss,
     clippy::cast_possible_truncation,
@@ -35,11 +33,8 @@ use std::sync::Arc;
 
 use chrono::Utc;
 
-// Parallelism on native via rayon; sequential fallback shim on wasm32 where
-// rayon is cfg'd out at the workspace level (see `crates/echelle/Cargo.toml`'s
-// `[target.'cfg(not(target_arch = "wasm32"))'.dependencies]`).
-// The shim keeps the large per-order map closures below single-sourced rather
-// than duplicated per target.
+// Rayon on native, sequential shim on wasm32 (where rayon is cfg'd out at the
+// workspace level). The shim keeps the per-order map closures single-sourced.
 #[cfg(not(target_arch = "wasm32"))]
 use rayon::prelude::*;
 
@@ -80,35 +75,22 @@ use crate::wavelength_fitting::{
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 
-/// Wavelength seed model for bootstrapping the pixel → wavelength mapping.
-///
-/// Echelle calibration requires an approximate initial guess of which
-/// wavelength range each order covers, so that detected arc lines can be
-/// matched to known atlas wavelengths. This enum provides different ways
-/// to supply that initial guess.
+/// Initial pixel→wavelength guess used to bootstrap atlas matching.
 #[derive(Debug, Clone)]
 pub enum WavelengthSeed {
-    /// User-identified anchor points: (order_index, pixel, wavelength_nm).
+    /// User-supplied `(order_index, pixel, wavelength_nm)` anchors.
     ///
-    /// At least 2 anchors per order are needed for a linear seed model.
-    /// Orders without anchors are bootstrapped via the echelle equation
-    /// if `echelle_constant_nm` is provided in the pipeline config.
+    /// With ≥2 anchors per order a linear seed is fitted; orders without
+    /// anchors are interpolated from their nearest neighbours.
     Anchors(Vec<SeedAnchor>),
 
-    /// Use the echelle grating equation: m × λ_center ≈ constant.
-    ///
-    /// Given the grating constant and the physical order number of the
-    /// first detected order, computes approximate wavelength ranges for
-    /// all orders.
+    /// Use the grating equation `m · λ_center ≈ constant` to seed every order.
     EchelleEquation {
-        /// The echelle grating constant in nm (m × λ_center).
-        /// For the Mechelle 5000, this is approximately 1_050_000 / grating_density.
+        /// Grating constant in nm (`m · λ_center`). Mechelle 5000 ≈ 1_050_000 / grating_density.
         grating_constant_nm: f64,
-        /// Physical diffraction order number assigned to detected order index 0
-        /// (the order at the smallest cross-dispersion position).
+        /// Physical diffraction order assigned to detected order index 0.
         first_physical_order: i32,
-        /// Increment per detected order index. Typically -1 for echelle
-        /// spectrographs where higher Y → lower order number → longer wavelength.
+        /// Increment per detected order index (typically `-1` for echelles).
         order_step: i32,
         /// Number of dispersion pixels across each order.
         n_pixels: u32,
@@ -139,20 +121,14 @@ pub struct CalibrationPipelineConfig {
     pub wl_config: WlFitConfig,
     /// Scatter policy applied to the arc frame before line detection.
     ///
-    /// `None` (the default) skips scatter subtraction for the arc — correct
-    /// for pure-emission lamps (HgAr, ThAr) where morphological opening
-    /// over-subtracts the line cores. ME5000 callers should leave this as
-    /// `None`. A future non-MCP detector might set this to an
-    /// `InterOrderMedian` preset if an arc baseline is warranted.
+    /// Default `None` is correct for pure-emission lamps (HgAr, ThAr) where
+    /// morphological opening would over-subtract line cores.
     pub arc_scatter: Option<ScatteredLightConfig>,
-    /// Scatter policy applied to the flat frame before trace detection and
-    /// before downstream blaze extraction.
+    /// Scatter policy applied to the flat frame before trace detection.
     ///
-    /// `None` skips scatter subtraction for the flat. For DH3P / continuum
-    /// sources on MCP-intensified detectors (iStar ICCD), set this to
-    /// `Some(ScatteredLightConfig::mechelle_5000_istar_flat())` to remove
-    /// the 4500-count MCP halo baseline from the flat prior to blaze
-    /// computation. See bd-g22gu.3 for context.
+    /// For MCP-intensified detectors (iStar ICCD on DH3P continuum), set to
+    /// `Some(ScatteredLightConfig::mechelle_5000_istar_flat())` to remove the
+    /// ~4500-count MCP halo baseline before blaze computation.
     pub flat_scatter: Option<ScatteredLightConfig>,
     /// Order rectification parameters.
     pub rectify_config: RectifyConfig,
@@ -172,11 +148,10 @@ pub struct CalibrationPipelineConfig {
     pub profile_name: String,
     /// Minimum number of matched lines required per order (default: 3).
     pub min_lines_per_order: usize,
-    /// Extra arc lamp frames (same width×height as the primary arc) for HDR-style
-    /// line merging: detect per exposure, then merge with [`merge_arc_lines_hdr`].
+    /// Extra arc-lamp frames merged HDR-style via [`merge_arc_lines_hdr`].
     ///
-    /// Stored as [`Arc`] so cloning [`CalibrationPipelineConfig`] does not duplicate
-    /// multi-megapixel buffers.
+    /// Same dimensions as the primary arc. Shared via [`Arc`] so cloning the
+    /// config does not duplicate multi-megapixel buffers.
     pub hdr_extra_arc_frames: Vec<Arc<Vec<f32>>>,
     /// Pixel chaining tolerance passed to [`merge_arc_lines_hdr`].
     pub hdr_merge_tol_px: f64,
@@ -358,12 +333,9 @@ fn run_calibration_pipeline_impl(
         }
     }
 
-    // ── Stage 1a: Arc-frame scatter subtraction (optional, bd-g22gu.3) ──
-    // Policy lives on `config.arc_scatter` — for ME5000 HgAr captures this
-    // is `None` by default (pure emission sources over-subtract under
-    // morphological opening). When enabled, build preliminary trace geometry
-    // from the raw arc and reuse it across the primary arc and every HDR
-    // extra so all line-detection sources see consistently corrected data.
+    // Arc-frame scatter subtraction (optional). When enabled, the same
+    // preliminary trace geometry is reused across the primary arc and every
+    // HDR extra so all line-detection sources see consistently corrected data.
     let preliminary_arc_traces: Option<Vec<OrderTrace>> = if config.arc_scatter.is_some() {
         Some(detect_orders(
             arc_frame,
@@ -390,23 +362,19 @@ fn run_calibration_pipeline_impl(
     let (working_frame, arc_scatter_active): (Vec<f32>, bool) =
         match (&config.arc_scatter, trace_infos_for_arc_scatter.as_ref()) {
             (Some(scatter_cfg), Some(trace_infos)) => {
-                if let Some((corrected, _model)) =
-                    subtract_scattered_light(arc_frame, width, height, trace_infos, scatter_cfg)
-                {
-                    (corrected, true)
-                } else {
-                    // Scatter subtraction failed (not enough inter-order pixels);
-                    // proceed with the raw frame.
-                    (arc_frame.to_vec(), false)
+                match subtract_scattered_light(arc_frame, width, height, trace_infos, scatter_cfg) {
+                    // Scatter subtraction can fail when there aren't enough
+                    // inter-order pixels; fall back to the raw frame.
+                    Some((corrected, _model)) => (corrected, true),
+                    None => (arc_frame.to_vec(), false),
                 }
             }
             _ => (arc_frame.to_vec(), false),
         };
     let frame_ref: &[f32] = working_frame.as_slice();
 
-    // HDR extras after arc scatter correction: build owned corrected frames
-    // in one pass, then take slices (avoids overlapping &mut vs & across
-    // `arc_line_sources` growth).
+    // HDR extras: build owned corrected frames in one pass so downstream
+    // `arc_line_sources` can hold slices without lifetime conflicts.
     let hdr_after_scatter: Vec<Option<Vec<f32>>> = match (
         arc_scatter_active,
         trace_infos_for_arc_scatter.as_ref(),
@@ -424,16 +392,12 @@ fn run_calibration_pipeline_impl(
         _ => vec![None; config.hdr_extra_arc_frames.len()],
     };
 
-    // ── Stage 1b: Flat-frame scatter subtraction (optional, bd-g22gu.3) ──
-    // Policy lives on `config.flat_scatter`. For ME5000 DH3P flats this is
-    // `Some(mechelle_5000_istar_flat())` by default — the MCP halo baseline
-    // biases trace detection and inflates blaze floors downstream. Applied
-    // before trace detection so the detector sees a clean flat.
+    // Flat-frame scatter subtraction (optional). Applied before trace
+    // detection so the detector sees a clean flat; the preliminary traces
+    // are only consumed by the `InterOrderMedian` path but are harmless to
+    // `MorphologicalOpening`.
     let flat_scatter_corrected: Option<Vec<f32>> = match (flat_frame, &config.flat_scatter) {
         (Some(flat), Some(scatter_cfg)) => {
-            // Preliminary trace detection on the RAW flat for the geometry
-            // the InterOrderMedian path needs (ignored by MorphologicalOpening,
-            // but passing it is harmless and keeps the call uniform).
             let prelim_flat_traces = detect_orders(flat, width, height, &config.trace_config);
             let flat_trace_infos: Vec<TraceInfo<'_>> = prelim_flat_traces
                 .iter()
@@ -465,10 +429,8 @@ fn run_calibration_pipeline_impl(
         arc_line_sources.push(slice);
     }
 
-    // ── Stage 2: Order trace detection ───────────────────────────────
-    // Use flat frame for trace detection if provided (broadband source
-    // illuminates all orders); otherwise detect from the arc frame.
-    // Prefer the scatter-corrected flat when Stage 1b produced one.
+    // Prefer flat for trace detection (broadband illuminates all orders);
+    // use the scatter-corrected flat when available, else raw flat, else arc.
     let trace_source: &[f32] = match (flat_frame, flat_scatter_corrected.as_deref()) {
         (_, Some(corrected_flat)) => corrected_flat,
         (Some(raw_flat), None) => raw_flat,
@@ -531,22 +493,13 @@ fn run_calibration_pipeline_impl(
         WavelengthSeed::Anchors(_) => None,
     };
 
-    // ── Stage 1: Per-order echelle-equation-seeded matching ─────────
-    // Each detected trace is seeded by the grating equation at its
-    // expected physical order `m = first_physical_order + step * index`.
-    // No candidate-m search: m collisions between traces are resolved
-    // by the Cauchy-series Y(m) model in Stage 2 (bd-s8d5g). The
-    // candidate-m search was non-canonical (IRAF ECIDENTIFY, CERES,
-    // PypeIt all assign m once from the physical grating equation) and
-    // produced derived-m collisions (bd-mlwvz).
+    // Stage 1: per-order atlas match seeded from the grating equation at the
+    // expected physical order `m = first_physical_order + step · index`.
+    // Any `m` collisions between traces are resolved later by the Cauchy
+    // `Y(m)` re-seed in Stage 2. Per-order work is pure wrt captured state
+    // (arc_line_sources, seed_fns, traces, config) so it runs in parallel.
     let npx = f64::from(width.max(1));
 
-    // bd-ongmw: Stage-1 work per order is pure wrt the captured references
-    // (arc_line_sources, seed_fns, traces, config). Each order produces
-    // (diagnostic, Option<calibration>) independently, so we par_iter across
-    // traces and collect in deterministic order before merging. On wasm32
-    // the `ParIterShim` at the top of this file transparently degrades
-    // `.par_iter()` to sequential iteration.
     let stage1_results: Vec<(OrderDiagnostic, Option<EchelleOrderCalibration>)> = traces
         .par_iter()
         .enumerate()
@@ -628,8 +581,8 @@ fn run_calibration_pipeline_impl(
         })
         .collect();
 
-    // par_iter().collect() preserves iterator order, so diagnostics and
-    // order_calibrations come out deterministically indexed by order_idx.
+    // `par_iter().collect()` preserves iterator order, so everything below
+    // lands deterministically indexed by `order_idx`.
     let mut diagnostics = Vec::with_capacity(n_orders);
     let mut order_calibrations: Vec<EchelleOrderCalibration> = Vec::new();
     for (diag, cal) in stage1_results {
@@ -639,32 +592,21 @@ fn run_calibration_pipeline_impl(
         }
     }
 
-    // ── Dedup by quality after Stage 1 ───────────────────────────────
-    // When the echelle-equation initial seed is off (because trace index
-    // is linear in detector space but m follows a prism-Cauchy curve),
-    // multiple traces can produce Stage-1 fits whose derived m collides.
-    // Keep the highest-quality fit per m (most lines used, then lowest
-    // RMS, then first arrival) and mark the losers as failed so that
-    // Stage 2 (Cauchy Y(m)) can re-seed them with a physically correct m.
+    // Because trace index is linear in Y while `m` follows a prism-Cauchy
+    // curve, Stage 1 can produce multiple fits with the same derived `m`.
+    // Keep the best per `m` and demote the losers so Stage 2 can re-seed.
     dedup_order_calibrations_by_quality(&mut order_calibrations, &mut diagnostics);
 
-    // ── Stage 2: Cauchy-series Y(m) re-assignment for failed orders ──
-    // Physical model: for a prism cross-dispersed echelle the trace
-    // y-centroid follows a Cauchy series Y(m) = a + b/m² + c/m⁴ (see
-    // `cauchy_dispersion.rs` and NotebookLM 7f275c3a eval memo §FM1).
-    // Fit from Stage-1 anchors {(y_centroid, m)}, invert to predict m
-    // for every failed trace, and retry the two-phase match.
+    // Stage 2: fit `Y(m) = a + b/m² + c/m⁴` from Stage-1 anchors, invert to
+    // predict `m` for every still-failed trace, and retry the match. This is
+    // the prism-dispersion Cauchy series (see `cauchy_dispersion.rs`).
     if let Some(gc) = grating_constant_nm {
         let x_mid = npx / 2.0;
-        // Physics-motivated pre-filter: reject Stage-1 anchors whose
-        // derived m is drastically off from the grating-equation seed.
-        // The prism non-linearity is smooth and small within ±5 orders
-        // of the linear guess; a |derived_m − expected_m| > 10 signals
-        // the single-line fallback matching a wrong atlas line, which
-        // would contaminate the Cauchy LSQ regardless of 3σ clipping
-        // (when >20% of anchors are wrong, the 3σ estimate itself is
-        // useless). This cap is generous — orders 44..143 with correct
-        // fits all have |Δm| ≤ 1 on real captures.
+        // Physics-motivated prefilter: reject anchors whose derived `m` is
+        // far from the grating-equation seed. Prism non-linearity is smooth
+        // and small (|Δm| ≤ 1 on real captures); |Δm| > 10 is a sign that
+        // the single-line fallback matched a wrong atlas line, which would
+        // poison the Cauchy LSQ beyond what 3σ clipping can repair.
         const MAX_ABS_DELTA_M: i32 = 10;
         let (first_m_seed, step_seed) = two_phase_base.map_or((1, 1), |(_, fm, s)| (fm, s));
         let cauchy_anchors: Vec<(f64, i32)> = order_calibrations
@@ -685,13 +627,9 @@ fn run_calibration_pipeline_impl(
         let n_failed = diagnostics.iter().filter(|d| !d.success).count();
 
         if cauchy_anchors.len() >= 4 && n_failed > 0 {
-            // Iterative 3σ outlier rejection — Stage-1 fits can latch
-            // onto the wrong physical order when the grating-equation
-            // seed misidentifies arc lines. The Cauchy fit then sees
-            // several (y, m) pairs that don't fit the series, and
-            // without rejection the LSQ solution is pulled off course
-            // (seen in the real-HgAr capture: RMS=80 px across 23
-            // anchors because ≥4 had wrong m).
+            // Iterative 3σ rejection — without it, a handful of wrong-m
+            // Stage-1 fits pull the LSQ solution off course (seen on real
+            // HgAr captures: 23 anchors → 80 px RMS when ≥4 had wrong m).
             if let Some((cauchy, _kept)) =
                 crate::cauchy_dispersion::fit_cauchy_y_of_m_clipped(&cauchy_anchors, 3.0, 5)
             {
@@ -704,12 +642,8 @@ fn run_calibration_pipeline_impl(
                 let first_m_i32 = two_phase_base.map_or(1, |(_, fm, _)| fm);
                 let step_i32 = two_phase_base.map_or(1, |(_, _, s)| s);
 
-                // bd-ongmw: parallelize Stage 2's per-failed-order Cauchy
-                // refinement. Read-only inputs (traces, config, arc_line_sources,
-                // cauchy, diagnostics-success flags) are captured by shared
-                // reference; par_iter produces a deterministic Vec of updates
-                // that a sequential post-pass applies to diagnostics and
-                // order_calibrations.
+                // Per-failed-order refinement is pure in its captures, so we
+                // run it in parallel and apply the updates sequentially below.
                 let stage2_updates: Vec<(usize, OrderDiagnostic, Option<EchelleOrderCalibration>)> =
                     traces
                         .par_iter()
@@ -734,17 +668,10 @@ fn run_calibration_pipeline_impl(
                                 move |pixel: f64| -> f64 { lambda_start + dispersion * pixel };
 
                             let oi = order_idx as u32;
-                            // bd-3yb8.30.2 B2: Stage 2 uses tight
-                            // `final_tolerance_nm` = `primary_window_nm`
-                            // because the Cauchy-refined seed is physics-
-                            // verified. Stage 1's loose 5 nm fallback
-                            // exists to tolerate seed drift; Stage 2 has
-                            // already corrected for drift via Cauchy Y(m)
-                            // inversion, so a 5 nm window here would only
-                            // admit wrong-line matches from the expanded
-                            // NIST atlas. 2 nm rejects those while leaving
-                            // room for centroiding noise on detector-edge
-                            // lines.
+                            // Tight 2 nm `final_tolerance_nm` = `primary_window_nm`:
+                            // the Cauchy-refined seed is physics-verified, so the
+                            // loose 5 nm Stage-1 fallback would only admit
+                            // wrong-line matches from the expanded NIST atlas.
                             let tp_config_s2 = TwoPhaseMatchConfig {
                                 primary_window_nm: 2.0,
                                 final_tolerance_nm: 2.0,
@@ -802,9 +729,7 @@ fn run_calibration_pipeline_impl(
                         })
                         .collect();
 
-                // par_iter preserves iterator order, so updates here land in
-                // ascending order_idx — exactly matching the pre-bd-ongmw
-                // sequential push/assign order.
+                // Ascending `order_idx` order is preserved by `par_iter().collect()`.
                 for (order_idx, diag, cal) in stage2_updates {
                     if let Some(c) = cal {
                         order_calibrations.push(c);
@@ -815,24 +740,14 @@ fn run_calibration_pipeline_impl(
         }
     }
 
-    // After Stage 2: re-dedup so Stage 3's global fit trains on a clean
-    // anchor set (one (x, m, λ) sample per m).
+    // Re-dedup so Stage 3 trains on one `(x, m, λ)` sample per `m`.
     dedup_order_calibrations_by_quality(&mut order_calibrations, &mut diagnostics);
 
-    // ── Stage 3: Global 2D Chebyshev λ(x, m) + per-order synthesis ───
-    // Canonical echelle wavelength solution (IRAF ECIDENTIFY, ESO MIDAS
-    // IDENTIFY/ECHELLE, CERES, PypeIt): fit λ(x, m) as a tensor-product
-    // Chebyshev surface over all matched arc lines from all orders
-    // simultaneously, with iterative 3σ rejection. Degrees 3×5 = CERES
-    // default (`ech_nspec_coeff`, `ech_norder_coeff`); see NotebookLM
-    // 7f275c3a eval memo §FM1.
-    //
-    // For traces that still have no matched lines, synthesize a per-order
-    // wavelength solution by sampling the global surface at (x, m_Cauchy)
-    // across the order's pixel domain and fitting a 1D Chebyshev. This
-    // is the PypeIt "recover missing orders from the 2D fit" step and
-    // replaces the old Pass-3 residual-surface bootstrap (which fitted
-    // Δλ and Runge-oscillated when extrapolated beyond anchor m range).
+    // Stage 3: canonical echelle global fit — tensor-product Chebyshev
+    // `λ(x, m)` over every matched arc line across every order (3×5 degrees,
+    // 3σ iterative rejection). For traces still without a per-order fit,
+    // synthesize one by sampling the global surface at `(x, m_Cauchy)` and
+    // refitting a 1D Chebyshev over the order's pixel domain.
     if let Some(gc) = grating_constant_nm {
         let (first_m_seed, step_seed) = two_phase_base.map_or((1, 1), |(_, fm, s)| (fm, s));
         refine_with_global_surface(
@@ -847,13 +762,10 @@ fn run_calibration_pipeline_impl(
         );
     }
 
-    // ── Deduplicate physical_order_number (safety net, bd-ccer6 P1.5) ─
-    // Arc-matched orders (Stage 1/2) appear before surface-synthesized
-    // ones (Stage 3), so first-wins preserves the higher-quality
-    // calibrations. Collisions remove the later order entirely (rather
-    // than clearing its physical m
-    // and leaving an orphaned wavelength model in the profile); downstream
-    // consumers depend on every profile order carrying a physical m.
+    // Safety-net dedup by physical `m`. Arc-matched (Stage 1/2) calibrations
+    // precede surface-synthesized ones, so first-wins preserves quality.
+    // Downstream consumers require every profile order to carry an `m`, so
+    // collisions drop the later order rather than clearing its `m`.
     {
         let mut seen_m: std::collections::HashSet<i32> = std::collections::HashSet::new();
         order_calibrations.retain(|cal| match cal.physical_order_number {
@@ -868,10 +780,9 @@ fn run_calibration_pipeline_impl(
         });
     }
 
-    // ── Grating-constant sanity warning (bd-ccer6 P1.7) ────────────────
-    // Every calibrated order must satisfy m · λ_center ≈ gc. If the
-    // observed scatter across orders exceeds 3% of the mean, the
-    // configured grating_constant_nm is likely mis-measured.
+    // Grating-constant sanity: every calibrated order must satisfy
+    // `m · λ_center ≈ gc`. Scatter > 3 % suggests the configured value is
+    // mis-tuned.
     if let Some(gc_configured) = grating_constant_nm {
         let mut count: u32 = 0;
         let mut sum = 0.0f64;
@@ -940,7 +851,7 @@ fn run_calibration_pipeline_impl(
         }
     }
 
-    // ── Stage 7: Assemble EchelleCalibrationProfile ──────────────────
+    // Assemble the EchelleCalibrationProfile.
     let n_calibrated = order_calibrations.len();
     if n_calibrated == 0 {
         let reasons: Vec<String> = diagnostics
@@ -1036,20 +947,16 @@ fn extract_order_spectrum_f32(
         order_index,
     };
     let rect = rectify_order(frame, width, height, &spec, &config.rectify_config)?;
-    // Arc line detection always uses the boxcar sum (bd-8yjd1 P2 follow-up):
-    // optimal extraction needs a calibrated spatial profile, but calibration
-    // is downstream of arc line detection — so using the Horne kernel here
-    // would use an uncalibrated narrow profile that collapses arc peaks to
-    // <1.5-px FWHM, causing the arc-line detector to reject them. The
-    // `use_optimal_extraction` flag is recorded on the profile so downstream
-    // consumers use Horne for science extraction once the profile exists.
+    // Arc line detection always uses boxcar summation: Horne optimal
+    // extraction needs a calibrated spatial profile, and calibration is
+    // downstream of arc line detection. `use_optimal_extraction` is still
+    // recorded on the profile so science extraction uses Horne later.
     let spectrum_f64: Vec<f64> = simple_sum_extract(&rect);
     Some(spectrum_f64.iter().map(|&v| v as f32).collect())
 }
 
-/// Extracts the 1D spectrum for a single order and detects arc lines within it.
-/// If multiple frames are provided (HDR mode), it processes each frame and merges
-/// the detected lines, preferring unsaturated peaks.
+/// Extract the 1D spectrum for an order and detect arc lines; merges across
+/// frames in HDR mode, preferring unsaturated peaks.
 #[allow(clippy::too_many_arguments)]
 fn extract_and_detect_lines(
     line_frames: &[&[f32]],
@@ -1063,7 +970,6 @@ fn extract_and_detect_lines(
         return Err("internal error: no arc frames for line detection".into());
     }
 
-    // ── Stages 3–5: rectify → extract → detect (optional HDR merge across exposures)
     let lines: Vec<ArcLine> = if line_frames.len() == 1 {
         let Some(spectrum_f32) =
             extract_order_spectrum_f32(line_frames[0], width, height, trace, order_index, config)
@@ -1097,8 +1003,7 @@ fn extract_and_detect_lines(
     Ok(lines)
 }
 
-/// Takes detected arc lines and performs cross-correlation against the reference atlas
-/// using the provided seed function and Phase 2 config. Returns a full wavelength solution.
+/// Match detected arc lines to the atlas and fit the wavelength solution.
 fn match_and_fit(
     lines: &[ArcLine],
     order_index: u32,
@@ -1127,7 +1032,6 @@ fn match_and_fit(
         return diag;
     }
 
-    // ── Stage 6: Match to atlas and fit wavelength solution ──────────
     let matches = if let Some(tp_config) = two_phase {
         match_lines_two_phase(lines, &config.atlas, seed_fn, tp_config)
     } else {
@@ -1149,11 +1053,8 @@ fn match_and_fit(
         return diag;
     }
 
-    // When we know the physical order and grating constant for this trace
-    // (via the two-phase seed), thread them to the wavelength fitter so the
-    // single-line fallback can derive a physically-correct dispersion rather
-    // than the legacy hardcoded heuristic. Orientation sign and detector
-    // width come from the pipeline-level instrument config.
+    // Thread the physical order + grating constant through to the fitter so
+    // its single-line fallback can derive a physically-correct dispersion.
     let mut wl_config_local = config.wl_config.clone();
     if let Some(tp) = two_phase {
         let physical_order = tp.physical_order.round() as i32;
@@ -1176,15 +1077,11 @@ fn match_and_fit(
         &wl_config_local,
     ) {
         Some(sol) => {
-            // Self-consistency gate (bd-0poyt): when the two-phase config
-            // supplies a candidate physical_order + grating constant, the
-            // fitted polynomial's midpoint wavelength must agree with the
-            // echelle equation `λ_center = gc / m` to within ±FSR. Otherwise
-            // the fit is drawn from spurious matches for a different order —
-            // typical when a degree-reduced 2-point linear fit overfits a
-            // pair of cross-order atlas matches, giving RMS=0 despite being
-            // physically wrong. Reject such fits so the candidate-m search
-            // doesn't accept them as winners.
+            // Self-consistency gate: when the two-phase seed supplies a
+            // candidate `m` + grating constant, the fitted midpoint wavelength
+            // must agree with `λ_center = gc / m` to within ±FSR. Without
+            // this, a degree-reduced 2-point fit on cross-order matches can
+            // report RMS=0 while being physically wrong.
             let self_consistent = match two_phase {
                 Some(tp) if tp.physical_order > 0.0 && tp.grating_constant_nm > 0.0 => {
                     let midpoint = sol.pixel_min.midpoint(sol.pixel_max);
@@ -1216,8 +1113,7 @@ fn match_and_fit(
     diag
 }
 
-/// Process a single order: rectify → extract → detect lines (HDR merge if multiple frames) → match → fit.
-/// Now incorporates dynamic `candidate_m` evaluation to robustly map traces to physical order numbers.
+/// Rectify, extract, detect, match, and fit a single order (HDR-aware).
 #[allow(clippy::too_many_arguments)]
 fn process_single_order(
     line_frames: &[&[f32]],
@@ -1263,17 +1159,13 @@ fn simple_sum_extract(rect: &crate::rectification::RectifiedOrder) -> Vec<f64> {
 
 // ─── Seed wavelength functions ───────────────────────────────────────────────
 
-/// A boxed seed function mapping pixel position → approximate wavelength in nm.
+/// Boxed seed closure mapping pixel → approximate wavelength in nm.
 ///
-/// `Send + Sync` is required so Stage 1 / Stage 2 can dispatch seed evaluations
-/// across rayon threads (bd-ongmw). Existing builders capture only `f64`
-/// primitives, which are trivially `Send + Sync`.
+/// `Send + Sync` lets Stage 1 / Stage 2 dispatch seed evaluations across
+/// rayon threads; existing builders only capture `f64` primitives.
 type SeedFn = Box<dyn Fn(f64) -> f64 + Send + Sync>;
 
-/// Build per-order seed wavelength functions from the seed configuration.
-///
-/// Returns a Vec of closures, one per detected order, each mapping
-/// pixel position → approximate wavelength in nm.
+/// Build per-order seed wavelength closures from the seed configuration.
 fn build_seed_functions(
     seed: &WavelengthSeed,
     n_orders: usize,
@@ -1390,18 +1282,12 @@ fn build_anchor_seeds(
     Ok(fns)
 }
 
-/// Keep only the highest-quality `EchelleOrderCalibration` per
-/// `physical_order_number` and demote the loser traces back to "failed"
-/// in `diagnostics` so the Cauchy (Stage 2) and global-surface (Stage 3)
-/// passes have a chance to re-seed them with a physically correct `m`.
+/// Keep only the best calibration per `physical_order_number` and demote the
+/// losers back to "failed" so Stages 2/3 can re-seed them.
 ///
-/// Ranking: (1) more matched lines is better; (2) lower RMS is better;
-/// (3) ties broken by first arrival (equivalent to the old `retain`
-/// dedup that preceded bd-mlwvz).
-///
-/// This is called between Stage 1→2 and Stage 2→3. Without it the
-/// Cauchy fit sees several `(y_centroid, m)` pairs with duplicate `m`
-/// and the LSQ residuals blow up.
+/// Ranking: most matched lines, then lowest RMS, then first arrival. Called
+/// between Stage 1→2 and Stage 2→3; without it the Cauchy LSQ sees duplicate
+/// `(y_centroid, m)` anchors and blows up.
 fn dedup_order_calibrations_by_quality(
     order_calibrations: &mut Vec<EchelleOrderCalibration>,
     diagnostics: &mut [OrderDiagnostic],
@@ -1491,28 +1377,14 @@ fn dedup_order_calibrations_by_quality(
     );
 }
 
-/// Refine the calibration with a single global 2D Chebyshev fit `λ(x, m)`.
+/// Fit a global 2D Chebyshev `λ(x, m)` and synthesize missing per-order fits.
 ///
-/// This is the IRAF ECIDENTIFY / ESO MIDAS / CERES / PypeIt standard
-/// approach (degrees 3×5, 3σ iterative rejection). It consumes the
-/// per-order matched arc lines produced by Stages 1 + 2 as a single
-/// global training set and then:
-///
-/// 1. Fits a tensor-product Chebyshev surface `m·λ(x_norm, m_norm)`
-///    with iterative 3σ outlier rejection.
-/// 2. Logs the global RMS; warns if > 0.3 nm (a reasonable upper bound
-///    for good HgAr/Ar arc calibration on a Mechelle 5000).
-/// 3. For every trace without a successful per-order fit, synthesizes
-///    an `OrderWlSolution` by sampling the global surface at
-///    `(x_i, m_Cauchy)` across the order's pixel domain and fitting a
-///    1D Chebyshev of the configured per-order degree.
-///
-/// The Cauchy-predicted `m` (Stage 2) is re-used here for traces that
-/// still fail; collisions are resolved by the later dedup step
-/// (first arrival by order_index = highest-quality, per Stages 1/2).
-///
-/// Returns the number of orders synthesized from the global surface
-/// (distinct from those directly calibrated in Stages 1-2).
+/// This is the IRAF ECIDENTIFY / ESO MIDAS / CERES / PypeIt standard: fit the
+/// tensor-product surface over every matched arc line from Stages 1 + 2 with
+/// 3σ iterative rejection (degrees 3×5), then for every trace still without a
+/// per-order fit sample the surface at `(x, m_Cauchy)` and refit a 1D
+/// Chebyshev of the configured per-order degree. Returns the number of orders
+/// recovered by synthesis.
 #[allow(clippy::too_many_arguments)]
 fn refine_with_global_surface(
     gc: f64,
@@ -1531,6 +1403,10 @@ fn refine_with_global_surface(
 
     // Collect training data from every matched arc line in every
     // successfully-calibrated order.
+    // We don't retain the per-line `(pixel, λ_atlas)` pairs after fitting, so
+    // we sample each successful per-order solution densely. This is equivalent
+    // to training on the fitted Chebyshev itself — fine because each per-order
+    // fit already minimises χ² on its matched atlas lines.
     let mut training: Vec<(f64, u32, f64)> = Vec::new();
     for diag in diagnostics.iter() {
         if !diag.success {
@@ -1539,8 +1415,6 @@ fn refine_with_global_surface(
         let Some(ref sol) = diag.wl_solution else {
             continue;
         };
-        // Physical order from the solution's midpoint wavelength. Cast to
-        // u32 for `fit_chebyshev_2d`'s (x, m_u32, λ) shape.
         let mid = f64::midpoint(sol.pixel_min, sol.pixel_max);
         let lambda_mid = sol.eval(mid);
         if lambda_mid <= 0.0 {
@@ -1553,12 +1427,6 @@ fn refine_with_global_surface(
         let Ok(m_u32) = u32::try_from(m_f as i64) else {
             continue;
         };
-        // Sample the matched atlas lines. For Chebyshev fits we don't have
-        // the per-line (pixel, λ_atlas) after the fact, so sample the
-        // solution at a dense grid. This is equivalent to training on the
-        // fitted Chebyshev itself — reasonable because the per-order fit
-        // already satisfies `χ² min`. We *additionally* include the
-        // diagnostic's `detected_lines` below when they carry wavelengths.
         for k in 0..16 {
             let frac = (k as f64 + 0.5) / 16.0;
             let px = sol.pixel_min + (sol.pixel_max - sol.pixel_min) * frac;
@@ -1567,7 +1435,7 @@ fn refine_with_global_surface(
         }
     }
 
-    // CERES default: 3×5 (pixel × order). We need n_pts ≥ (3+1)(5+1)=24.
+    // CERES default: degrees 3 (pixel) × 5 (order) → need ≥ 4·6 = 24 points.
     let (dx, dm) = (3usize, 5usize);
     let n_coeffs = (dx + 1) * (dm + 1);
     if training.len() < n_coeffs {
@@ -1592,10 +1460,9 @@ fn refine_with_global_surface(
         "Stage 3: global 2D Chebyshev fit converged"
     );
 
-    // Rebuild the Cauchy Y(m) model from the calibrated anchor set so we
-    // can assign m to traces that never matched any atlas line. Same
-    // physics-motivated prefilter as Stage 2 (reject anchors whose
-    // derived m is more than ±10 orders from the grating-equation seed).
+    // Rebuild the Cauchy `Y(m)` from the calibrated anchor set so we can
+    // assign `m` to traces that never matched any atlas line. Same physics
+    // prefilter as Stage 2 (see `MAX_ABS_DELTA_M` above).
     const MAX_ABS_DELTA_M: i32 = 10;
     let cauchy_anchors: Vec<(f64, i32)> = order_calibrations
         .iter()
@@ -1611,8 +1478,6 @@ fn refine_with_global_surface(
             Some((y, m_int))
         })
         .collect();
-    // Use 3σ-clipped Cauchy for the Stage-3 synthesis guess too — same
-    // reason as Stage 2: stray wrong-m anchors would poison the series.
     let cauchy = crate::cauchy_dispersion::fit_cauchy_y_of_m_clipped(&cauchy_anchors, 3.0, 5)
         .map(|(fit, _kept)| fit);
 
@@ -1629,9 +1494,8 @@ fn refine_with_global_surface(
             continue;
         }
 
-        // Predict m from the Cauchy Y(m) model. Require a valid y
-        // centroid at the frame midpoint; without one there is no
-        // physical way to place this trace on the 2D surface.
+        // Predict `m` from the Cauchy `Y(m)`. Requires a valid midpoint
+        // centroid to place the trace on the 2D surface.
         let Some(y_centroid) = crate::trace_fitting::eval_trace_y(&trace.trace, x_mid) else {
             continue;
         };
@@ -1646,10 +1510,8 @@ fn refine_with_global_surface(
             continue;
         }
 
-        // The global surface is only trusted inside its fitted m domain.
-        // Extrapolating a tensor-product Chebyshev beyond its training
-        // envelope is the Runge-oscillation trap the old residual
-        // bootstrap fell into; refuse rather than risk a broken axis.
+        // Trust the surface only inside its fitted `m` envelope —
+        // tensor-product Chebyshevs Runge-oscillate when extrapolated.
         if (m_f - 0.5) < surface.m_min || (m_f + 0.5) > surface.m_max {
             continue;
         }
@@ -1658,23 +1520,17 @@ fn refine_with_global_surface(
             continue;
         }
 
-        // Sample the global surface across this order's pixel range and
-        // fit a 1D Chebyshev of the configured per-order degree. This
-        // produces an OrderWlSolution that downstream code (profile
-        // assembly, `build_order_calibration`) treats identically to a
-        // directly-matched fit.
+        // Sample the surface and refit a 1D Chebyshev so downstream code
+        // treats this solution identically to a directly-matched fit.
         let n_samples = 32usize;
         let px_min = 0.0f64;
         let px_max = npx - 1.0;
-        let mut pixels: Vec<f64> = Vec::with_capacity(n_samples);
         let mut wls: Vec<f64> = Vec::with_capacity(n_samples);
         let mut x_norms: Vec<f64> = Vec::with_capacity(n_samples);
         for k in 0..n_samples {
             let frac = (k as f64 + 0.5) / n_samples as f64;
             let px = px_min + (px_max - px_min) * frac;
-            let lam = surface.eval_lambda(px, m_f);
-            pixels.push(px);
-            wls.push(lam);
+            wls.push(surface.eval_lambda(px, m_f));
             x_norms.push(2.0 * (px - px_min) / (px_max - px_min) - 1.0);
         }
 
@@ -1694,8 +1550,7 @@ fn refine_with_global_surface(
             n_lines_total: 0,
         };
 
-        // Reject if the synthesized solution is not monotonic or wanders
-        // outside [150, 1200] nm.
+        // Reject non-monotonic axes or solutions wandering outside [150, 1200] nm.
         if let Err(err) = sol.validate_monotonic(&config.orientation, 150.0, 1200.0) {
             tracing::warn!("Stage 3 synth: order {order_idx} rejected (axis invalid): {err}");
             continue;
@@ -1735,11 +1590,10 @@ fn refine_with_global_surface(
     synthesized
 }
 
-/// Build seed functions from the echelle grating equation.
+/// Build seed closures from the echelle grating equation.
 ///
-/// For order number m: λ_center = grating_constant / m
-/// Free spectral range: Δλ = λ_center / m = grating_constant / m²
-/// Linear approximation: λ(pixel) ≈ λ_start + (Δλ / n_pixels) * pixel
+/// Per order: `λ_center = gc / m`, `FSR = gc / m²` (one FSR spans the
+/// detector), linear dispersion `FSR / n_pixels`.
 fn build_echelle_seeds(
     grating_constant_nm: f64,
     first_physical_order: i32,
@@ -1753,10 +1607,6 @@ fn build_echelle_seeds(
     for i in 0..n_orders {
         let m = (first_physical_order + order_step * i as i32).abs().max(1) as f64;
         let lambda_center = grating_constant_nm / m;
-        // One free spectral range spans the detector: Δλ = gc/m² (nm), linear in pixel.
-        // Using disp_ref*(m_ref/m) was wrong — it yields gc/(m_ref·m·npx) instead of gc/(m²·npx),
-        // which mis-scales atlas matching for every order where m ≠ first_physical_order
-        // (bd-kt8k synthetic / NIR cluster RMS regression).
         let fsr = grating_constant_nm / (m * m);
         let dispersion = fsr / npx;
         let lambda_start = lambda_center - dispersion * (npx / 2.0);
@@ -1773,14 +1623,9 @@ fn build_echelle_seeds(
 
 /// Convert a trace + wavelength solution into an `EchelleOrderCalibration`.
 ///
-/// The sample range is constrained to the wavelength solution's fitted domain
-/// (pixel_min..pixel_max) because the Chebyshev polynomial is only reliable
-/// within the range of its training data. Extrapolation beyond the matched
-/// line positions would produce unreliable wavelengths.
-///
-/// If `grating_constant_nm` is provided, the physical order number is computed
-/// from the wavelength at the midpoint of the fitted pixel range:
-/// `m = round(grating_constant / λ_center)`.
+/// Sample range is clamped to the solution's fitted domain because the
+/// Chebyshev is only reliable inside its training data. When a grating
+/// constant is supplied, the physical order is `round(gc / λ_mid)`.
 fn build_order_calibration(
     trace: &OrderTrace,
     sol: &OrderWlSolution,
@@ -1788,10 +1633,9 @@ fn build_order_calibration(
     width: u32,
     grating_constant_nm: Option<f64>,
 ) -> EchelleOrderCalibration {
-    // The Chebyshev coefficients were fitted using normalization over
-    // [pixel_min, pixel_max]. The domain MUST match the fitted range exactly —
-    // extending it would change the x → [-1,1] mapping and produce wrong wavelengths.
-    // The sample range is constrained to the fitted domain.
+    // The Chebyshev was fit with normalisation over [pixel_min, pixel_max];
+    // changing the domain would rescale the x → [-1, 1] mapping and produce
+    // wrong wavelengths, so we clamp the sample range to the fitted window.
     let sample_start = sol.pixel_min.ceil().max(0.0) as u32;
     let sample_end = (sol.pixel_max.floor() as u32).min(width.saturating_sub(1));
 
@@ -1837,15 +1681,11 @@ fn build_order_calibration(
 
 // ─── Cross-order consistency check ───────────────────────────────────────────
 
-/// Check echelle equation consistency: m × λ_center should be approximately
-/// constant across all calibrated orders.
+/// Coefficient of variation of `m · λ_center` across all calibrated orders.
 ///
-/// Prefers using `physical_order_number` from the profile (computed from
-/// wavelength solutions) when available. Falls back to the seed-based
-/// assignment (`first_physical_order + order_step * index`) if not set.
-///
-/// Returns the coefficient of variation (std_dev / mean) of the products.
-/// Values < 0.01 (1%) indicate good consistency.
+/// Uses the profile's `physical_order_number` when set, else the seed-based
+/// assignment. Values below 0.01 (1 %) indicate good grating-equation
+/// consistency.
 #[must_use]
 pub fn check_echelle_consistency(
     result: &CalibrationResult,
@@ -1856,12 +1696,9 @@ pub fn check_echelle_consistency(
         .per_order_diagnostics
         .iter()
         .filter(|d| d.success)
-        .enumerate()
-        .filter_map(|(cal_idx, d)| {
+        .filter_map(|d| {
             let sol = d.wl_solution.as_ref()?;
 
-            // Prefer the wavelength-derived physical_order_number from the profile
-            // (set during build_order_calibration). Fall back to seed-based assignment.
             let m = result
                 .profile
                 .orders
@@ -1870,16 +1707,12 @@ pub fn check_echelle_consistency(
                 .and_then(|o| o.physical_order_number)
                 .map(|m| m.unsigned_abs() as f64)
                 .unwrap_or_else(|| {
-                    let _ = cal_idx; // suppress unused warning
-                    let m_seed = (first_physical_order + order_step * d.order_index as i32)
-                        .unsigned_abs() as f64;
-                    m_seed.max(1.0)
-                });
-            let m = m.max(1.0);
+                    (first_physical_order + order_step * d.order_index as i32).unsigned_abs() as f64
+                })
+                .max(1.0);
 
             let mid_pixel = sol.pixel_min.midpoint(sol.pixel_max);
-            let lambda_center = sol.eval(mid_pixel);
-            Some(m * lambda_center)
+            Some(m * sol.eval(mid_pixel))
         })
         .collect();
 
@@ -1969,28 +1802,24 @@ mod tests {
         frame
     }
 
-    #[test]
-    fn test_pipeline_with_synthetic_arc() {
-        // Create a synthetic 200×300 frame with 3 orders.
-        // Height must be large enough that order peaks are a small fraction
-        // of the spatial profile, so the inter-percentile noise estimator
-        // isn't inflated by the peaks themselves.
+    /// Build the canonical 3-order HgAr synthetic used by several tests:
+    /// 200×300 frame, three horizontal bands at y = 60 / 150 / 240 covering
+    /// 400–420, 500–525, 700–740 nm, with up to 5 strongest HgAr lines per
+    /// order injected on top of a continuum. Returns (frame, config).
+    fn build_synthetic_hgar_pipeline(
+        profile_name: &str,
+    ) -> (Vec<f32>, usize, usize, CalibrationPipelineConfig) {
         let width = 200;
         let height = 300;
-
-        // Order layout: 3 horizontal bands at y=60, 150, 240.
-        // Order 0: 400-420 nm, Order 1: 500-525 nm, Order 2: 700-740 nm.
         let orders = vec![
             (60.0, 400.0, 420.0),
             (150.0, 500.0, 525.0),
             (240.0, 700.0, 740.0),
         ];
 
-        // Inject the strongest lines per order range to simulate a real HgAr
-        // spectrum. The full atlas (NIST-backed after bd-3yb8.30.1) has
-        // ~360 Hg I + Ar I entries; injecting all of them into a 200-px
-        // synthetic order produces unresolved blends. Cap at the 5
-        // strongest per order, which is close to what a real iStar detects.
+        // The full NIST-backed HgAr atlas has ~360 entries; injecting every
+        // line into a 200-px order produces unresolved blends. Cap at the
+        // 5 strongest per order, close to what a real iStar detects.
         let atlas = load_hgar_atlas();
         let mut injected: Vec<f64> = Vec::new();
         for &(_, lo, hi) in &orders {
@@ -2006,16 +1835,10 @@ mod tests {
             injected.extend(in_range.iter().take(5).map(|a| a.wavelength_nm));
         }
 
-        let frame = synthetic_arc_frame(
-            width, height, &orders, &injected, 2.5,    // sigma_px
-            2000.0, // peak flux
-            2.5,    // spatial sigma
-        );
+        let frame = synthetic_arc_frame(width, height, &orders, &injected, 2.5, 2000.0, 2.5);
 
-        // Build seed anchors from known wavelength solutions.
         let mut anchors = Vec::new();
         for (oi, &(_, lambda_start, lambda_end)) in orders.iter().enumerate() {
-            // Provide 2 anchor points per order (start and end).
             anchors.push(SeedAnchor {
                 order_index: oi as u32,
                 pixel: 0.0,
@@ -2029,124 +1852,6 @@ mod tests {
         }
 
         let config = CalibrationPipelineConfig {
-            trace_config: TraceFitConfig {
-                min_snr: 3.0,
-                step_pixels: 5,
-                poly_degree: 2,
-                ..Default::default()
-            },
-            arc_config: ArcDetectConfig {
-                sigdetect: 3.0,
-                min_fwhm: 1.5,
-                max_fwhm: 10.0,
-                min_separation: 3.0,
-                continuum_window: 51,
-            },
-            wl_config: WlFitConfig {
-                poly_degree: 2,
-                seed_tolerance_nm: 2.0, // generous for synthetic data
-                ..Default::default()
-            },
-            rectify_config: RectifyConfig {
-                aperture_half_width: 5.0,
-                gaussian_weights: false,
-                fwhm: 3.0,
-            },
-            atlas,
-            seed: WavelengthSeed::Anchors(anchors),
-            frame_compat: EchelleFrameCompatibility {
-                sensor_width: width as u32,
-                sensor_height: height as u32,
-                frame_width: width as u32,
-                frame_height: height as u32,
-                roi_x: 0,
-                roi_y: 0,
-                binning_x: 1,
-                binning_y: 1,
-                bit_depth: Some(16),
-            },
-            orientation: EchelleOrientation {
-                dispersion_axis: DetectorAxis::X,
-                cross_dispersion_axis: DetectorAxis::Y,
-                order_number_increase_direction: AxisDirection::Negative,
-                wavelength_increase_with_dispersion_positive: true,
-            },
-            profile_name: "Test HgAr Calibration".to_string(),
-            min_lines_per_order: 2,
-            ..Default::default()
-        };
-
-        let result = run_calibration_pipeline(&frame, width as u32, height as u32, &config)
-            .expect("pipeline should succeed");
-
-        // Should detect 3 orders.
-        assert_eq!(
-            result.n_orders_detected, 3,
-            "expected 3 orders, got {}",
-            result.n_orders_detected
-        );
-
-        // At least some orders should be calibrated.
-        // (Not all may succeed depending on how many atlas lines fall in each range.)
-        assert!(
-            result.n_orders_calibrated > 0,
-            "at least one order should be calibrated, diagnostics: {:?}",
-            result
-                .per_order_diagnostics
-                .iter()
-                .map(|d| (&d.failure_reason, d.n_lines_detected, d.n_lines_matched))
-                .collect::<Vec<_>>()
-        );
-
-        // Profile should pass validation.
-        result
-            .profile
-            .validate()
-            .expect("generated profile should be valid");
-    }
-
-    #[test]
-    fn test_hdr_duplicate_extra_frame_matches_single_path() {
-        // Identical primary + extra exposure should merge to the same line census
-        // as a single exposure (duplicate detections coalesce within merge tolerance).
-        let width = 200;
-        let height = 300;
-        let orders = vec![
-            (60.0, 400.0, 420.0),
-            (150.0, 500.0, 525.0),
-            (240.0, 700.0, 740.0),
-        ];
-        // Same top-5-strongest-per-order strategy as test_pipeline_with_synthetic_arc
-        // (see comment there for why injecting the full 360-line atlas breaks detection).
-        let atlas = load_hgar_atlas();
-        let mut injected: Vec<f64> = Vec::new();
-        for &(_, lo, hi) in &orders {
-            let mut in_range: Vec<&AtlasLine> = atlas
-                .iter()
-                .filter(|a| a.wavelength_nm >= lo && a.wavelength_nm <= hi)
-                .collect();
-            in_range.sort_by(|a, b| {
-                b.strength
-                    .partial_cmp(&a.strength)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            });
-            injected.extend(in_range.iter().take(5).map(|a| a.wavelength_nm));
-        }
-        let frame = synthetic_arc_frame(width, height, &orders, &injected, 2.5, 2000.0, 2.5);
-        let mut anchors = Vec::new();
-        for (oi, &(_, lambda_start, lambda_end)) in orders.iter().enumerate() {
-            anchors.push(SeedAnchor {
-                order_index: oi as u32,
-                pixel: 0.0,
-                wavelength_nm: lambda_start,
-            });
-            anchors.push(SeedAnchor {
-                order_index: oi as u32,
-                pixel: (width - 1) as f64,
-                wavelength_nm: lambda_end,
-            });
-        }
-        let base = CalibrationPipelineConfig {
             trace_config: TraceFitConfig {
                 min_snr: 3.0,
                 step_pixels: 5,
@@ -2189,10 +1894,56 @@ mod tests {
                 order_number_increase_direction: AxisDirection::Negative,
                 wavelength_increase_with_dispersion_positive: true,
             },
-            profile_name: "HDR dup test".to_string(),
+            profile_name: profile_name.to_string(),
             min_lines_per_order: 2,
             ..Default::default()
         };
+
+        (frame, width, height, config)
+    }
+
+    #[test]
+    fn test_pipeline_with_synthetic_arc() {
+        // Height is chosen so the order peaks are a small fraction of the
+        // spatial profile, otherwise the inter-percentile noise estimator
+        // gets inflated by the peaks themselves.
+        let (frame, width, height, config) = build_synthetic_hgar_pipeline("Test HgAr Calibration");
+
+        let result = run_calibration_pipeline(&frame, width as u32, height as u32, &config)
+            .expect("pipeline should succeed");
+
+        // Should detect 3 orders.
+        assert_eq!(
+            result.n_orders_detected, 3,
+            "expected 3 orders, got {}",
+            result.n_orders_detected
+        );
+
+        // At least some orders should be calibrated.
+        // (Not all may succeed depending on how many atlas lines fall in each range.)
+        assert!(
+            result.n_orders_calibrated > 0,
+            "at least one order should be calibrated, diagnostics: {:?}",
+            result
+                .per_order_diagnostics
+                .iter()
+                .map(|d| (&d.failure_reason, d.n_lines_detected, d.n_lines_matched))
+                .collect::<Vec<_>>()
+        );
+
+        // Profile should pass validation.
+        result
+            .profile
+            .validate()
+            .expect("generated profile should be valid");
+    }
+
+    #[test]
+    fn test_hdr_duplicate_extra_frame_matches_single_path() {
+        // Identical primary + extra exposure must merge to the same line
+        // census as a single exposure (duplicate detections coalesce within
+        // merge tolerance).
+        let (frame, width, height, base) = build_synthetic_hgar_pipeline("HDR dup test");
 
         let single = run_calibration_pipeline(&frame, width as u32, height as u32, &base)
             .expect("single-path pipeline");
@@ -2223,16 +1974,11 @@ mod tests {
 
     #[test]
     fn test_pipeline_with_echelle_equation_seed() {
-        // Test the echelle equation seed mode.
-        // Frame height must be large enough for inter-percentile noise estimation.
+        // Hypothetical echelle with gc=2800: detector width covers 1 FSR at
+        // m=10 (λ_c=280 nm). Orders m=10, 9, 8 at y = 60, 150, 240.
         let width = 300;
         let height = 300;
 
-        // Simulate 3 orders of a hypothetical echelle.
-        // Assuming the detector width (300px) covers 1 FSR at m=10:
-        // m=10: disp = 28 / 300 = 0.0933 nm/px. λ_center = 280nm → 266.0 - 294.0nm
-        // m=9:  disp = 0.0933 * (10/9) = 0.1037 nm/px. λ_center = 311.11nm → 295.55 - 326.67nm
-        // m=8:  disp = 0.0933 * (10/8) = 0.1166 nm/px. λ_center = 350.0nm → 332.5 - 367.5nm
         let grating_const = 2800.0;
         let disp_ref = (grating_const / 100.0) / (width as f64);
 
@@ -2254,7 +2000,7 @@ mod tests {
             (240.0, m8_start, m8_end),
         ];
 
-        // Use some of the HgAr Hg lines that fall in these ranges.
+        // Hg lines that fall inside those ranges.
         let hg_lines = vec![296.728, 302.150, 312.567, 334.148, 365.015];
 
         let frame = synthetic_arc_frame(width, height, &orders, &hg_lines, 2.5, 3000.0, 2.5);
@@ -2315,7 +2061,7 @@ mod tests {
             seed: WavelengthSeed::EchelleEquation {
                 grating_constant_nm: grating_const,
                 first_physical_order: 10,
-                order_step: -1, // order numbers decrease with increasing Y
+                order_step: -1,
                 n_pixels: width as u32,
             },
             frame_compat: EchelleFrameCompatibility {
@@ -2579,39 +2325,26 @@ mod tests {
         assert_eq!(cal_no_gc.physical_order_number, None);
     }
 
-    // DELETED (bd-f7wv7): `test_linear_regression` removed — the helper
-    // `linear_regression` was only used by the removed `quadratic_regression`
-    // and `bootstrap_uncalibrated_orders`. The Cauchy-series fit has its
-    // own numerical tests in `cauchy_dispersion.rs`.
-
     #[test]
     fn test_non_consecutive_order_refinement() {
-        // Create a synthetic frame with 3 orders at NON-consecutive physical
-        // order numbers, using echelle equation seed that assumes consecutive.
-        // The two-pass refinement should recover the middle order.
+        // Three orders at non-consecutive `m` (10, 9, 6) with the seed
+        // assuming consecutive orders starting at m=10. Stage 1 picks up
+        // m=10 and m=9; Stage 2's Cauchy regression must recover m=6.
         let width = 300;
         let height = 400;
         let grating_const = 2800.0;
 
-        // Three orders: m=10 (y=60), m=8 (y=200), m=6 (y=340).
-        // With first_physical_order=10 and order_step=-1:
-        //   Pass 1: trace 0 → seed m=10 ✓, trace 1 → seed m=9 ✗ (actual=8),
-        //           trace 2 → seed m=8 ✗ (actual=6).
-        // Pass 2: linear model from trace 0 (m=10) alone won't trigger (needs ≥2).
-        // So instead, let's use orders m=10, m=9, m=6 where m=9 matches on pass 1
-        // and m=6 is recovered by the regression from m=10 and m=9.
-        let m10_center = grating_const / 10.0; // 280nm
-        let m9_center = grating_const / 9.0; // 311nm
-        let m6_center = grating_const / 6.0; // 466nm
+        let m10_center = grating_const / 10.0;
+        let m9_center = grating_const / 9.0;
+        let m6_center = grating_const / 6.0;
 
-        // Dispersion at m_ref=10: FSR/npx = (gc/m²)/npx
         let m_ref = 10.0f64;
         let fsr_ref = grating_const / (m_ref * m_ref);
         let disp_ref = fsr_ref / width as f64;
 
-        let m10_disp = disp_ref; // m=10
-        let m9_disp = disp_ref * (m_ref / 9.0); // m=9
-        let m6_disp = disp_ref * (m_ref / 6.0); // m=6
+        let m10_disp = disp_ref;
+        let m9_disp = disp_ref * (m_ref / 9.0);
+        let m6_disp = disp_ref * (m_ref / 6.0);
 
         let m10_start = m10_center - m10_disp * (width as f64 / 2.0);
         let m10_end = m10_start + m10_disp * width as f64;
@@ -2626,7 +2359,7 @@ mod tests {
             (340.0, m6_start, m6_end),
         ];
 
-        // Atlas lines carefully placed to land in each order's range.
+        // Atlas lines placed to land in each order's range.
         let atlas = vec![
             AtlasLine {
                 wavelength_nm: 275.0,
@@ -2748,10 +2481,6 @@ mod tests {
         result.profile.validate().expect("profile should be valid");
     }
 
-    // DELETED (bd-f7wv7): `test_bootstrap_skips_duplicate_physical_orders`
-    // removed when `bootstrap_uncalibrated_orders` was replaced by
-    // `refine_with_global_surface` + `fit_chebyshev_2d_clipped`.
-
     /// Verify that the post-assembly safety-net deduplication correctly clears
     /// duplicate `physical_order_number` values (keeping the first occurrence).
     #[test]
@@ -2832,13 +2561,8 @@ mod tests {
         }
     }
 
-    // ── Task 2 (bd-qe8p.1.7): Seed-model validation for cropped/sparse data ──
-
-    /// Verify that `build_echelle_seeds` produces valid wavelength models when
-    /// only half the expected orders are present (simulating a cropped detector).
-    ///
-    /// The seed function for each order should still map pixel → wavelength
-    /// correctly: λ_center should satisfy the echelle equation m × λ = gc.
+    /// Verify `build_echelle_seeds` on a cropped detector (half the expected
+    /// orders): each seed's midpoint must satisfy `m · λ = gc`.
     #[test]
     fn test_echelle_seed_cropped_half_orders() {
         let gc = 2800.0;
@@ -2877,19 +2601,4 @@ mod tests {
             );
         }
     }
-
-    // DELETED (bd-f7wv7, bd-s8d5g): `quadratic_regression` removed as
-    // non-physical. The `m(trace_index)` regression had no optical theory
-    // behind it. Replaced by `cauchy_dispersion::fit_cauchy_y_of_m`
-    // (Y(m) = a + b/m² + c/m⁴), which is the documented prism-dispersion
-    // model from the Cauchy series. See `cauchy_dispersion.rs` for the
-    // analytic-recovery and round-trip tests that replaced these.
-
-    // DELETED (bd-f7wv7): test_bootstrap_works_with_cropped_anchors,
-    // test_bootstrap_works_with_sparse_anchors, and
-    // test_bootstrap_graceful_with_too_few_anchors removed when
-    // bootstrap_uncalibrated_orders was replaced by
-    // refine_with_global_surface (global 2D Chebyshev fit). The new
-    // recovery path is exercised by the synthetic-HgAr regression test
-    // in crates/integration-tests/tests/echelle_synthetic_dataset.rs.
 }

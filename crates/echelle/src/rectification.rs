@@ -241,53 +241,7 @@ pub fn rectify_all_orders(
         .collect()
 }
 
-/// Safely evaluate a trace model, returning None instead of panicking.
-fn eval_trace_safe(trace: &EchelleTraceModel, x: f64) -> Option<f64> {
-    match trace {
-        EchelleTraceModel::Polynomial {
-            basis,
-            coefficients,
-            domain_start,
-            domain_end,
-        } => {
-            if coefficients.is_empty() || !x.is_finite() || *domain_start >= *domain_end {
-                return None;
-            }
-
-            let result = match basis {
-                crate::types::PolynomialBasis::Monomial => {
-                    let mut acc = 0.0f64;
-                    for &c in coefficients.iter().rev() {
-                        acc = acc * x + c;
-                    }
-                    acc
-                }
-                crate::types::PolynomialBasis::Chebyshev => {
-                    let t = (2.0 * (x - domain_start)) / (domain_end - domain_start) - 1.0;
-                    if coefficients.len() == 1 {
-                        return Some(coefficients[0]);
-                    }
-                    let mut t0 = 1.0f64;
-                    let mut t1 = t;
-                    let mut acc = coefficients[0] * t0 + coefficients[1] * t1;
-                    for &c in coefficients.iter().skip(2) {
-                        let tn = 2.0 * t * t1 - t0;
-                        acc += c * tn;
-                        t0 = t1;
-                        t1 = tn;
-                    }
-                    acc
-                }
-            };
-
-            if result.is_finite() {
-                Some(result)
-            } else {
-                None
-            }
-        }
-    }
-}
+use crate::trace_fitting::eval_trace_extrap as eval_trace_safe;
 
 #[cfg(test)]
 mod tests {

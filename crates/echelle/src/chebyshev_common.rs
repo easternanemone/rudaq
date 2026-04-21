@@ -10,6 +10,34 @@
 //! All functions here are `pub(crate)`: they are implementation details of
 //! `echelle`, not part of its public API surface.
 
+/// Evaluate `∑ coeffs[k] · T_k(x)` via the three-term recurrence without
+/// allocating a basis buffer.
+///
+/// Returns `0.0` for an empty coefficient slice and `coeffs[0]` for a
+/// degree-0 polynomial (`T_0 ≡ 1`). Equivalent to `eval_2d` with one axis
+/// degenerate, but avoids the basis-vector allocation — preferred on hot
+/// paths that evaluate a 1D polynomial many times (per-pixel wavelength
+/// solutions, LOO-CV, quality metrics).
+#[must_use]
+pub(crate) fn chebyshev_eval(coeffs: &[f64], x: f64) -> f64 {
+    if coeffs.is_empty() {
+        return 0.0;
+    }
+    if coeffs.len() == 1 {
+        return coeffs[0];
+    }
+    let mut t_prev = 1.0;
+    let mut t_curr = x;
+    let mut acc = coeffs[0] * t_prev + coeffs[1] * t_curr;
+    for &c in &coeffs[2..] {
+        let t_next = 2.0 * x * t_curr - t_prev;
+        acc += c * t_next;
+        t_prev = t_curr;
+        t_curr = t_next;
+    }
+    acc
+}
+
 /// Compute Chebyshev basis values `[T_0(x), T_1(x), …, T_{n-1}(x)]` via the
 /// three-term recurrence `T_k = 2x·T_{k-1} − T_{k-2}` seeded with `T_0 = 1`
 /// and `T_1 = x`.
@@ -170,6 +198,24 @@ mod tests {
     fn chebyshev_basis_into_handles_empty_buffer() {
         let mut out: [f64; 0] = [];
         chebyshev_basis_into(0.3, &mut out); // must not panic
+    }
+
+    #[test]
+    fn chebyshev_eval_agrees_with_basis_dot_product() {
+        let coeffs = [3.0, -1.5, 2.0, 0.25, -0.7];
+        let via_basis: f64 = chebyshev_basis(X, coeffs.len())
+            .iter()
+            .zip(coeffs.iter())
+            .map(|(t, c)| t * c)
+            .sum();
+        let via_eval = chebyshev_eval(&coeffs, X);
+        assert!((via_basis - via_eval).abs() < 1e-14);
+    }
+
+    #[test]
+    fn chebyshev_eval_handles_edge_sizes() {
+        assert_eq!(chebyshev_eval(&[], 0.5), 0.0);
+        assert_eq!(chebyshev_eval(&[7.0], 0.5), 7.0);
     }
 
     #[test]

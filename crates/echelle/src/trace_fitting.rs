@@ -1,18 +1,14 @@
 //! Flat-frame trace detection for echelle order calibration.
 //!
-//! Detects echelle order traces from a flat-field frame using
 //! PypeIt-inspired two-pass centroid refinement:
 //!
 //! 1. Cross-dispersion collapse → 1D spatial profile
 //! 2. Peak detection for order locations
 //! 3. Pass 1: uniform-weight centroid tracing + polynomial fit + sigma-clip
 //! 4. Pass 2: Gaussian-weight centroid refinement + final polynomial fit
-//!
-//! This module is inherently numerical — pixel indices are always small enough
-//! that usize→f64 casts are lossless, and f64→usize truncation is intentional
-//! for converting continuous trace positions to pixel coordinates.
-// Module-level cast allowances: pixel indices are always small enough for
-// lossless usize→f64, and f64→usize truncation is intentional for pixel coords.
+
+// Pixel indices are always small enough for lossless usize→f64, and
+// f64→usize truncation is intentional for pixel coordinates.
 #![allow(
     clippy::cast_precision_loss,
     clippy::cast_possible_truncation,
@@ -74,6 +70,38 @@ pub fn eval_trace_y(trace: &EchelleTraceModel, x: f64) -> Option<f64> {
     eval_trace_model(trace, x)
 }
 
+/// Evaluate a trace model at `x`, extrapolating outside the fit domain.
+///
+/// Like [`eval_trace_y`] but does not enforce domain bounds — used on
+/// rectification / scattered-light paths that need a prediction at pixels
+/// slightly outside the fit domain (edge-of-frame extensions, inter-order
+/// halo sampling). Returns `None` only for degenerate domains, empty
+/// coefficients, non-finite inputs, or a non-finite result. Basis-aware
+/// (Monomial or Chebyshev).
+#[must_use]
+pub(crate) fn eval_trace_extrap(trace: &EchelleTraceModel, x: f64) -> Option<f64> {
+    let EchelleTraceModel::Polynomial {
+        basis,
+        coefficients,
+        domain_start,
+        domain_end,
+    } = trace;
+    if coefficients.is_empty() || !x.is_finite() || *domain_start >= *domain_end {
+        return None;
+    }
+    let result = match basis {
+        crate::types::PolynomialBasis::Monomial => coefficients
+            .iter()
+            .rev()
+            .fold(0.0_f64, |acc, &c| acc * x + c),
+        crate::types::PolynomialBasis::Chebyshev => {
+            let t = 2.0 * (x - domain_start) / (domain_end - domain_start) - 1.0;
+            crate::chebyshev_common::chebyshev_eval(coefficients, t)
+        }
+    };
+    result.is_finite().then_some(result)
+}
+
 /// A detected order trace with its polynomial fit.
 #[derive(Debug, Clone)]
 pub struct OrderTrace {
@@ -113,10 +141,8 @@ pub fn detect_orders(
         return Vec::new();
     }
 
-    // Step 1: Collapse along dispersion axis (sigma-clipped mean per row).
     let spatial_profile = collapse_dispersion(frame, w, h);
 
-    // Step 2: Find peaks in the spatial profile.
     let noise_rms = estimate_noise(&spatial_profile);
     if noise_rms <= 0.0 {
         return Vec::new();
@@ -124,7 +150,6 @@ pub fn detect_orders(
     let threshold = config.min_snr * noise_rms;
     let peak_rows = find_peaks(&spatial_profile, threshold, config.min_peak_distance);
 
-    // Steps 3 & 4: Trace each peak.
     let mut traces = Vec::new();
     for &peak_row in &peak_rows {
         if let Some(trace) = trace_order(frame, w, h, peak_row, config) {
@@ -299,8 +324,9 @@ fn trace_order(
     let step = config.step_pixels.max(1) as usize;
     let half_w = config.aperture_half_width;
     let domain_end = (w - 1) as f64;
+    let min_samples = (config.poly_degree + 1).max(3);
 
-    // --- Pass 1: uniform-weight centroids ---
+    // Pass 1: uniform-weight centroids, with sigma-clip refinement.
     let mut xs = Vec::new();
     let mut ys = Vec::new();
 
@@ -314,14 +340,12 @@ fn trace_order(
         x += step;
     }
 
-    if xs.len() < (config.poly_degree + 1).max(3) {
+    if xs.len() < min_samples {
         return None;
     }
 
-    // Fit polynomial (Pass 1).
     let mut coeffs = fit_polynomial(&xs, &ys, config.poly_degree, 0.0, domain_end)?;
 
-    // Sigma-clip residuals and refit.
     let mut mask = vec![true; xs.len()];
     for _ in 0..2 {
         let residuals: Vec<f64> = xs
@@ -341,7 +365,6 @@ fn trace_order(
             }
         }
 
-        // Refit with unmasked points.
         let fxs: Vec<f64> = xs
             .iter()
             .zip(&mask)
@@ -355,14 +378,14 @@ fn trace_order(
             .map(|(&y, _)| y)
             .collect();
 
-        if fxs.len() < (config.poly_degree + 1).max(3) {
+        if fxs.len() < min_samples {
             return None;
         }
         coeffs = fit_polynomial(&fxs, &fys, config.poly_degree, 0.0, domain_end)?;
     }
 
-    // --- Pass 2: Gaussian-weight centroids ---
-    // sigma = FWHM / (2 * sqrt(2 * ln(2))) ≈ FWHM / 2.3548
+    // Pass 2: Gaussian-weight centroids seeded from the Pass 1 polynomial.
+    // sigma = FWHM / (2·√(2·ln 2)) ≈ FWHM / 2.3548.
     let gauss_sigma = config.fwhm_gaussian / (2.0 * (2.0 * 2.0_f64.ln()).sqrt());
     let mut xs2 = Vec::new();
     let mut ys2 = Vec::new();
@@ -370,7 +393,6 @@ fn trace_order(
     let mut x = 0;
     while x < w {
         let xf = x as f64;
-        // Use Pass 1 fit as the center estimate for Gaussian weighting.
         let center_est = eval_monomial(&coeffs, xf);
         if let Some(cy) = gaussian_centroid(frame, w, h, x, center_est, half_w, gauss_sigma) {
             xs2.push(xf);
@@ -379,13 +401,12 @@ fn trace_order(
         x += step;
     }
 
-    if xs2.len() < (config.poly_degree + 1).max(3) {
+    if xs2.len() < min_samples {
         return None;
     }
 
     let final_coeffs = fit_polynomial(&xs2, &ys2, config.poly_degree, 0.0, domain_end)?;
 
-    // Compute fit RMS.
     let residuals: Vec<f64> = xs2
         .iter()
         .zip(&ys2)
@@ -516,13 +537,11 @@ fn residual_rms(residuals: &[f64], mask: &[bool]) -> f64 {
     }
 }
 
-/// Fit a polynomial of given degree using least-squares (normal equations).
+/// Fit a polynomial of given degree via least-squares normal equations.
 ///
-/// Internally normalizes x-coordinates to [-1, 1] for numerical stability,
-/// then converts coefficients back to the original domain. This avoids
-/// catastrophic precision loss from monomial x^8 ≈ 10^29 on 4K frames.
-///
-/// Returns coefficients [c0, c1, ..., cn] in the original x domain.
+/// Internally normalises x to [-1, 1] for conditioning (monomial x^8 ≈ 10^29
+/// on 4K frames otherwise loses precision), then expands coefficients back
+/// to the original domain. Returns `[c0, c1, …, cn]` in original x.
 fn fit_polynomial(
     xs: &[f64],
     ys: &[f64],
@@ -535,12 +554,11 @@ fn fit_polynomial(
         return None;
     }
 
-    // Center and scale x to [-1, 1] for conditioning.
     let x_min = xs.iter().copied().fold(f64::INFINITY, f64::min);
     let x_max = xs.iter().copied().fold(f64::NEG_INFINITY, f64::max);
     let x_range = x_max - x_min;
 
-    // If all x-values are identical, only a constant can be fit.
+    // All x identical → only a constant can be fit.
     if x_range < 1e-10 {
         if degree == 0 {
             let mean = ys.iter().sum::<f64>() / ys.len() as f64;
@@ -549,13 +567,12 @@ fn fit_polynomial(
         return None;
     }
 
-    let alpha = 2.0 / x_range; // scale factor
-    let beta = -(x_max + x_min) / x_range; // shift: t = alpha*x + beta
-
-    // Transform x to normalized coordinates.
+    // t = alpha · x + beta ∈ [-1, 1].
+    let alpha = 2.0 / x_range;
+    let beta = -(x_max + x_min) / x_range;
     let ts: Vec<f64> = xs.iter().map(|&x| alpha * x + beta).collect();
 
-    // Build normal equations in normalized space: (V^T V) c = V^T y.
+    // Normal equations in normalised space: (V^T V) c = V^T y.
     let m = ts.len();
     let mut vtv = vec![0.0_f64; n * n];
     let mut vty = vec![0.0_f64; n];
@@ -626,21 +643,16 @@ fn fit_polynomial(
         norm_coeffs[i] = sum / aug[i * (n + 1) + i];
     }
 
-    // Convert normalized coefficients back to original domain.
-    // p(x) = Σ a_k (alpha*x + beta)^k
-    // Expand using binomial theorem to get coefficients in x.
     Some(denormalize_coefficients(&norm_coeffs, alpha, beta))
 }
 
-/// Convert polynomial coefficients from normalized domain t = alpha*x + beta
-/// back to coefficients in the original x domain.
-///
-/// Uses the binomial expansion: `(alpha*x + beta)^k = Σ_j C(k,j) alpha^j beta^(k-j) x^j`
+/// Convert polynomial coefficients from normalised domain `t = α·x + β`
+/// back to the original x domain via binomial expansion of `(α·x + β)^k`.
 fn denormalize_coefficients(norm_coeffs: &[f64], alpha: f64, beta: f64) -> Vec<f64> {
     let n = norm_coeffs.len();
     let mut orig = vec![0.0_f64; n];
 
-    // Precompute binomial coefficients (Pascal's triangle, max degree ~10).
+    // Pascal's triangle of binomial coefficients.
     let mut binom = vec![vec![0.0_f64; n]; n];
     for k in 0..n {
         binom[k][0] = 1.0;
@@ -653,9 +665,7 @@ fn denormalize_coefficients(norm_coeffs: &[f64], alpha: f64, beta: f64) -> Vec<f
         if a_k.abs() < 1e-30 {
             continue;
         }
-        // Expand a_k * (alpha*x + beta)^k
         for j in 0..=k {
-            // C(k,j) * alpha^j * beta^(k-j)
             let term = a_k * binom[k][j] * alpha.powi(j as i32) * beta.powi((k - j) as i32);
             orig[j] += term;
         }
@@ -664,14 +674,10 @@ fn denormalize_coefficients(norm_coeffs: &[f64], alpha: f64, beta: f64) -> Vec<f
     orig
 }
 
-// ---------------------------------------------------------------------------
-// Geometric flat-field order tracing (u16 raw frames)
-// ---------------------------------------------------------------------------
-//
-// These functions decouple order identification from wavelength calibration
-// by tracing order positions purely from a flat-field (white-light) exposure.
-// The pipeline: find peaks at center column -> trace each ridge across X ->
-// fit polynomial -> sort by Y -> assign absolute order numbers.
+// Geometric flat-field order tracing on u16 raw frames: find peaks at the
+// centre column, trace each ridge across X, fit a polynomial, sort by Y,
+// assign absolute order numbers. Decouples order identification from
+// wavelength calibration.
 
 /// Default Mechelle 5000 order range: m=43 (NIR, top/low-Y) to m=116 (UV, bottom/high-Y).
 const MECHELLE_ORDER_MAX: u32 = 116;
@@ -699,18 +705,15 @@ pub fn find_peaks_at_column(
         return Vec::new();
     }
 
-    // Extract column intensities.
     let col_vals: Vec<f64> = (0..h).map(|row| f64::from(image[row * w + col])).collect();
 
-    // Estimate a noise threshold via MAD to reject background peaks.
+    // Mild 3-σ-above-median threshold (MAD noise floor) to catch faint orders.
     let noise = estimate_noise(&col_vals);
-    // Use a mild threshold (3-sigma above median) to catch faint orders.
     let mut sorted = col_vals.clone();
     sorted.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let median = sorted[sorted.len() / 2];
     let threshold = median + 3.0 * noise.max(1.0);
 
-    // Find all local maxima above threshold.
     let mut candidates: Vec<usize> = Vec::new();
     for i in 1..h - 1 {
         if col_vals[i] > threshold && col_vals[i] > col_vals[i - 1] && col_vals[i] > col_vals[i + 1]
@@ -721,7 +724,7 @@ pub fn find_peaks_at_column(
 
     let sep = min_separation.max(1) as usize;
 
-    // Sort by descending intensity, greedily keep tallest with separation.
+    // Greedy keep-tallest with min-separation suppression.
     candidates.sort_by(|&a, &b| {
         col_vals[b]
             .partial_cmp(&col_vals[a])
@@ -749,13 +752,10 @@ pub fn find_peaks_at_column(
 
 /// Trace an order ridge across X from a starting position.
 ///
-/// Starting at `(start_x, start_y)`, traces left to x=0 then right to
-/// x=width-1, using an intensity-weighted centroid within `radius` pixels
-/// of the current Y position at each column. Steps one column at a time
-/// for maximum fidelity.
-///
-/// Returns `(x, y_centroid)` pairs sorted by X, representing the ridge
-/// center at each column where a valid centroid was found.
+/// Starting at `(start_x, start_y)`, walks left to x=0 then right to
+/// width-1, taking an intensity-weighted centroid within `radius` pixels
+/// of the current Y estimate at each column. Returns `(x, y_centroid)`
+/// pairs sorted by x, for every column where a valid centroid was found.
 pub fn trace_ridge(
     image: &[u16],
     w: u32,
@@ -773,7 +773,6 @@ pub fn trace_ridge(
 
     let rad = radius as usize;
 
-    // Compute centroid at a given column around an estimated Y center.
     let centroid_at = |col: usize, y_est: f64| -> Option<f64> {
         let center_row = y_est.round().max(0.0) as usize;
         if center_row >= height {
@@ -801,14 +800,13 @@ pub fn trace_ridge(
     };
 
     let mut points = Vec::new();
-
-    // Trace leftward from start_x to 0.
-    let mut y_est = start_y;
     let sx = start_x as usize;
-    // Include start_x itself in the leftward pass.
+
+    // Leftward pass, including start_x. Break on missing centroid or on a
+    // jump > radius (the ridge is broken).
+    let mut y_est = start_y;
     for col in (0..=sx).rev() {
         if let Some(cy) = centroid_at(col, y_est) {
-            // Reject jumps larger than radius -- the ridge is broken.
             if (cy - y_est).abs() > f64::from(radius) {
                 break;
             }
@@ -819,7 +817,7 @@ pub fn trace_ridge(
         }
     }
 
-    // Trace rightward from start_x+1 to width-1.
+    // Rightward pass from start_x+1.
     y_est = start_y;
     for col in (sx + 1)..width {
         if let Some(cy) = centroid_at(col, y_est) {
@@ -858,19 +856,11 @@ pub fn fit_trace_polynomial(points: &[(u32, f64)], degree: usize) -> Option<Vec<
 
 /// Extract order geometry from a flat-field (white-light) frame.
 ///
-/// Full pipeline:
-/// 1. Find intensity peaks at the center column (X = width/2)
-/// 2. Trace each peak left and right across the full frame
-/// 3. Fit a cubic polynomial to each trace
-/// 4. Sort traces by Y position at center (ascending = top to bottom)
-/// 5. Assign absolute order numbers: highest Y (bottom) = m=116 (UV),
-///    lowest Y (top) = m=43 (NIR), matching the Mechelle 5000 orientation
-///
-/// The `min_separation` parameter sets the minimum Y distance between peaks
-/// (typically ~10 for a Mechelle 5000 with ~30px order spacing).
-///
-/// Returns `OrderTrace` entries with `order_number` populated. Traces that
-/// span less than 25% of the frame width are discarded as spurious.
+/// Finds peaks at the centre column, traces each ridge across X, fits a
+/// cubic polynomial, sorts by Y at centre, and assigns absolute Mechelle
+/// order numbers (top = m=43 NIR, bottom = m=116 UV). `min_separation` is
+/// the minimum Y distance between peaks (~10 for a ~30-px order spacing).
+/// Traces spanning less than 25% of the frame width are discarded.
 pub fn extract_order_geometry(
     flat: &[u16],
     w: u32,
@@ -884,7 +874,6 @@ pub fn extract_order_geometry(
         return Vec::new();
     }
 
-    // Step 1: Find peaks at center column.
     let center_x = w / 2;
     let peaks = find_peaks_at_column(flat, w, h, center_x, min_separation);
 
@@ -892,10 +881,8 @@ pub fn extract_order_geometry(
         return Vec::new();
     }
 
-    // Step 2 & 3: Trace each peak and fit a cubic polynomial.
     let poly_degree = 3;
-    let trace_radius = min_separation / 2;
-    let trace_radius = trace_radius.max(3); // at least 3 pixels
+    let trace_radius = (min_separation / 2).max(3); // at least 3 pixels
     let min_span = w / 4; // require at least 25% frame coverage
 
     let mut traces = Vec::new();
@@ -904,7 +891,6 @@ pub fn extract_order_geometry(
     for &peak_y in &peaks {
         let ridge = trace_ridge(flat, w, h, center_x, f64::from(peak_y), trace_radius);
 
-        // Skip traces that are too short.
         if ridge.len() < (poly_degree + 1).max(10) {
             continue;
         }
@@ -917,7 +903,6 @@ pub fn extract_order_geometry(
         }
 
         if let Some(coeffs) = fit_trace_polynomial(&ridge, poly_degree) {
-            // Compute fit RMS.
             let rms = {
                 let residuals: Vec<f64> = ridge
                     .iter()
@@ -937,12 +922,13 @@ pub fn extract_order_geometry(
                 aperture_half_width: f64::from(trace_radius),
                 fit_rms: rms,
                 n_samples: ridge.len(),
-                order_number: None, // assigned below
+                order_number: None,
             });
         }
     }
 
-    // Step 4: Sort by Y at center (ascending = top to bottom).
+    // Sort by Y at centre so traces[0] is top (lowest Y), traces[n-1] is
+    // bottom (highest Y).
     let mid_x = f64::from(w) / 2.0;
     traces.sort_by(|a, b| {
         let ya = eval_trace_model(&a.trace, mid_x).unwrap_or(0.0);
@@ -950,15 +936,11 @@ pub fn extract_order_geometry(
         ya.partial_cmp(&yb).unwrap_or(std::cmp::Ordering::Equal)
     });
 
-    // Step 5: Assign order numbers.
-    // Mechelle orientation: low Y (top) = NIR = low m, high Y (bottom) = UV = high m.
-    // Assign m = ORDER_MAX down to ORDER_MIN, starting from the last (highest Y) trace.
+    // Mechelle orientation: low Y (top) = NIR = low m; high Y (bottom) =
+    // UV = high m. Assign m = ORDER_MAX down from the last (highest-Y) trace.
     let n = traces.len();
     for (i, trace) in traces.iter_mut().enumerate() {
-        // Trace 0 is top (lowest Y) = lowest m, trace n-1 is bottom (highest Y) = highest m.
-        // m_bottom = MECHELLE_ORDER_MAX, m_top = MECHELLE_ORDER_MAX - (n-1)
         let m = MECHELLE_ORDER_MAX.saturating_sub((n - 1 - i) as u32);
-        // Clamp to valid range.
         trace.order_number = Some(m.max(MECHELLE_ORDER_MIN));
     }
 
@@ -1084,9 +1066,7 @@ mod tests {
         );
     }
 
-    // -----------------------------------------------------------------------
-    // Geometric tracing (u16) tests
-    // -----------------------------------------------------------------------
+    // Geometric tracing (u16) tests.
 
     /// Create a synthetic u16 flat frame with horizontal Gaussian order traces.
     fn synthetic_flat_u16(

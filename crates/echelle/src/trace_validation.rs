@@ -54,7 +54,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::trace_fitting::OrderTrace;
-use crate::types::{EchelleTraceModel, PolynomialBasis};
+use crate::types::EchelleTraceModel;
 
 /// Configuration for post-detection trace validation.
 ///
@@ -356,46 +356,7 @@ pub fn validate_traces(
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
-fn eval_trace_at(trace: &EchelleTraceModel, x: f64) -> Option<f64> {
-    match trace {
-        EchelleTraceModel::Polynomial {
-            basis,
-            coefficients,
-            domain_start,
-            domain_end,
-        } => {
-            if coefficients.is_empty() || *domain_start >= *domain_end {
-                return None;
-            }
-            let val = match basis {
-                PolynomialBasis::Monomial => {
-                    let mut acc = 0.0f64;
-                    for &c in coefficients.iter().rev() {
-                        acc = acc * x + c;
-                    }
-                    acc
-                }
-                PolynomialBasis::Chebyshev => {
-                    let t = (2.0 * (x - domain_start)) / (domain_end - domain_start) - 1.0;
-                    if coefficients.len() == 1 {
-                        return Some(coefficients[0]);
-                    }
-                    let mut t0 = 1.0f64;
-                    let mut t1 = t;
-                    let mut acc = coefficients[0] * t0 + coefficients[1] * t1;
-                    for &c in coefficients.iter().skip(2) {
-                        let tn = 2.0 * t * t1 - t0;
-                        acc += c * tn;
-                        t0 = t1;
-                        t1 = tn;
-                    }
-                    acc
-                }
-            };
-            if val.is_finite() { Some(val) } else { None }
-        }
-    }
-}
+use crate::trace_fitting::eval_trace_extrap as eval_trace_at;
 
 /// Numerical 2nd derivative at `x` via central differences.
 fn eval_trace_curvature(trace: &EchelleTraceModel, x: f64) -> f64 {

@@ -30,7 +30,7 @@ pub struct ArcDetectConfig {
     /// Set to 0 to request an adaptive window sized at ~5% of the order
     /// length (minimum 21 px, rounded to an odd value). Adaptive is
     /// preferred for instruments with widely-varying order lengths; a
-    /// fixed 101 px is fine for 2k-pixel detectors (bd-ccer6 P1.3).
+    /// fixed 101 px is fine for 2k-pixel detectors.
     pub continuum_window: usize,
 }
 
@@ -129,7 +129,7 @@ pub fn detect_arc_lines(
     // Step 2: Find local maxima above threshold.
     let candidates = find_local_maxima(&subtracted, threshold);
 
-    // Determine the bit-depth maximum from the raw spectrum (bd-0ebq).
+    // Determine the bit-depth maximum from the raw spectrum.
     // Common detector depths: 12-bit (4095), 14-bit (16383), 16-bit (65535).
     let raw_max = order_spectrum.iter().copied().fold(0.0_f32, f32::max);
     let bit_depth_max = infer_saturation_threshold(raw_max);
@@ -470,7 +470,7 @@ fn estimate_noise_rms(data: &[f64]) -> f64 {
 /// Also detects flat-top (plateau) peaks where a run of equal values above the
 /// threshold is bounded by strictly lower values on both sides. The center of
 /// the plateau is returned as the peak index. This is essential for saturated
-/// arc lines that clip at the detector bit-depth maximum (bd-0ebq).
+/// arc lines that clip at the detector bit-depth maximum.
 fn find_local_maxima(data: &[f64], threshold: f64) -> Vec<usize> {
     let n = data.len();
     if n < 3 {
@@ -665,14 +665,14 @@ pub struct WlFitConfig {
     /// Seed tolerance in nm for initial atlas matching (default: 0.5).
     pub seed_tolerance_nm: f64,
     /// Maximum acceptable per-order wavelength-fit RMS in nm (default: 0.5).
-    /// Fits whose RMS exceeds this are rejected as likely-spurious matches
-    /// (bd-0poyt). A value of 0.0 disables the gate.
+    /// Fits whose RMS exceeds this are rejected as likely-spurious matches.
+    /// A value of 0.0 disables the gate.
     #[serde(default = "default_max_fit_rms_nm")]
     pub max_fit_rms_nm: f64,
     /// Physics-based seed for the single-line fallback. When `Some`, the
     /// fallback uses `fsr = grating_constant / m²` and the orientation sign
     /// to build a linear wavelength model — avoiding the former hardcoded
-    /// detector width and sign (bd-ccer6, supersedes bd-3hlp heuristic).
+    /// detector width and sign.
     ///
     /// Skipped by serde because it is populated per-order from pipeline
     /// state, not from user-facing TOML.
@@ -816,9 +816,9 @@ pub fn load_hgar_atlas() -> Vec<AtlasLine> {
 
 /// Legacy 29-line hand-curated HgAr atlas preserved for regression testing.
 ///
-/// Prior to the atomic-reference crate expansion (bd-3yb8.30.1,
-/// 2026-04-20), this was the production atlas. Retained as a private
-/// fixture so unit tests can assert the new atlas is a strict superset.
+/// Prior to the atomic-reference crate expansion, this was the production
+/// atlas. Retained as a private fixture so unit tests can assert the new
+/// atlas is a strict superset.
 #[cfg(test)]
 fn legacy_hgar_atlas_subset() -> Vec<AtlasLine> {
     vec![
@@ -988,7 +988,7 @@ fn legacy_hgar_atlas_subset() -> Vec<AtlasLine> {
     ]
 }
 
-// ─── Primary anchors and grating constant consistency (bd-huzm) ─────────────
+// ─── Primary anchors and grating constant consistency ──────────────────────
 
 /// The 20 strongest HgAr emission lines for primary anchor matching.
 ///
@@ -1061,7 +1061,7 @@ pub fn is_within_order_fsr(
     (wavelength_nm - lambda_center).abs() <= fsr * fsr_scale
 }
 
-/// Configuration for two-phase atlas matching (bd-huzm).
+/// Configuration for two-phase atlas matching.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TwoPhaseMatchConfig {
     /// Initial search window for primary anchors in nm (default: 2.0).
@@ -1262,13 +1262,11 @@ pub fn match_lines_two_phase(
             }
             // Reject matches outside this order's free spectral range. Without
             // this check, wide `final_tolerance_nm` values let cross-order
-            // atlas lines bleed in (bd-0poyt): Order 1 (m=19) on a gc=6300 nm
-            // grating could match atlas lines outside its FSR, inflating
-            // per-order RMS without improving coverage. We use FSR (not the
-            // global `gc_tolerance`) because a single order covers
-            // `λ_center ± FSR`, which is fractionally 1/m — far wider than
-            // the 1% `gc_tolerance` that only validates per-order `m·λ`
-            // agreement within a narrow band.
+            // atlas lines bleed in, inflating per-order RMS without improving
+            // coverage. We use FSR (not the global `gc_tolerance`) because a
+            // single order covers `λ_center ± FSR`, which is fractionally 1/m
+            // — far wider than the 1% `gc_tolerance` that only validates
+            // per-order `m·λ` agreement within a narrow band.
             if gc_active
                 && !is_within_order_fsr(config.physical_order, atlas_line.wavelength_nm, gc, 1.0)
             {
@@ -1327,7 +1325,7 @@ impl OrderWlSolution {
     ///
     /// Returns `Ok(())` when the solution is valid, otherwise the first violation
     /// encountered. Used to reject garbage wavelength models before they land in
-    /// a calibration profile (bd-ccer6).
+    /// a calibration profile.
     ///
     /// # Errors
     ///
@@ -1570,14 +1568,13 @@ pub fn fit_order_wavelength(
     }
     if matches.len() <= config.poly_degree {
         // Single-match fallback: the physics-seeded linear model anchors at
-        // the matched line and derives dispersion from the echelle equation
-        // (bd-ccer6, supersedes bd-3hlp). Degree-reduced overfit fits for
-        // matches==N==poly_degree are deliberately *not* taken here: a fit
-        // with zero degrees of freedom has RMS=0 regardless of whether the
-        // matches correspond to the right physical order, and cannot be
-        // distinguished from a wrong-candidate_m win (bd-0poyt). Let orders
-        // with `1 < matches.len() <= poly_degree` fall through to Pass 3
-        // bootstrap instead.
+        // the matched line and derives dispersion from the echelle equation.
+        // Degree-reduced overfit fits for matches == poly_degree are
+        // deliberately *not* taken here: a fit with zero degrees of freedom
+        // has RMS=0 regardless of whether the matches correspond to the right
+        // physical order, and cannot be distinguished from a wrong-candidate
+        // win. Let orders with `1 < matches.len() <= poly_degree` fall
+        // through to Pass 3 bootstrap instead.
         if matches.len() == 1 && (config.fallback_seed.is_some() || config.poly_degree <= 1) {
             return fit_single_line_fallback(lines, atlas, matches, order, config);
         }
@@ -1699,8 +1696,8 @@ fn fit_order_wavelength_with_degree(
     }
 
     // Reject fits with unreasonably high RMS — these are almost always caused
-    // by spurious atlas matches (bd-0poyt). `max_fit_rms_nm = 0.0` disables
-    // the gate for callers that want every fit regardless of quality.
+    // by spurious atlas matches. `max_fit_rms_nm = 0.0` disables the gate for
+    // callers that want every fit regardless of quality.
     if config.max_fit_rms_nm > 0.0 && rms > config.max_fit_rms_nm {
         return None;
     }
@@ -1716,30 +1713,7 @@ fn fit_order_wavelength_with_degree(
     })
 }
 
-/// Evaluate a Chebyshev polynomial at a point using the recurrence relation.
-///
-/// T_0(x) = 1, T_1(x) = x, T_{n+1}(x) = 2*x*T_n(x) - T_{n-1}(x)
-pub(crate) fn chebyshev_eval(coeffs: &[f64], x: f64) -> f64 {
-    if coeffs.is_empty() {
-        return 0.0;
-    }
-    if coeffs.len() == 1 {
-        return coeffs[0];
-    }
-
-    let mut t_prev = 1.0; // T_0
-    let mut t_curr = x; // T_1
-    let mut result = coeffs[0] * t_prev + coeffs[1] * t_curr;
-
-    for &c in &coeffs[2..] {
-        let t_next = 2.0 * x * t_curr - t_prev;
-        result += c * t_next;
-        t_prev = t_curr;
-        t_curr = t_next;
-    }
-
-    result
-}
+pub(crate) use crate::chebyshev_common::chebyshev_eval;
 
 /// Fit Chebyshev coefficients via least-squares (normal equations).
 ///
@@ -1839,7 +1813,7 @@ pub(crate) fn solve_linear_system(mat: &mut [Vec<f64>], rhs: &mut [f64]) -> Opti
     Some(solution)
 }
 
-// ─── 2D Chebyshev tensor-product basis (bd-hpzi.1) ────────────────────────────
+// ─── 2D Chebyshev tensor-product basis ───────────────────────────────────────
 
 /// Result of a 2D Chebyshev surface fit.
 #[derive(Debug, Clone)]
@@ -1935,7 +1909,7 @@ pub fn chebyshev_fit_2d(
         y_vals[row] = val;
     }
 
-    // V^T V c = V^T y via the shared helper (bd-g22gu.1.1).
+    // V^T V c = V^T y via the shared helper.
     let coefficients =
         crate::chebyshev_common::solve_least_squares_flat(&vandermonde, n_pts, n_coeffs, &y_vals)?;
 
@@ -2188,8 +2162,13 @@ mod tests {
 
     // ─── fit_single_line_fallback with physics seed (bd-ccer6) ─────────────
 
-    #[test]
-    fn single_line_fallback_uses_positive_sign_when_ascending() {
+    /// Shared setup for the single-line fallback regression tests
+    /// (bd-ccer6 / bd-3hlp): one detected line anchored to one atlas line,
+    /// physics seed picks sign + dispersion. Caller sets `wavelength_ascending`.
+    fn run_single_line_fallback(
+        anchor_wavelength_nm: f64,
+        wavelength_ascending: bool,
+    ) -> OrderWlSolution {
         let lines = vec![ArcLine {
             order: 0,
             pixel_center: 1280.0,
@@ -2200,22 +2179,27 @@ mod tests {
             saturated: false,
         }];
         let atlas = vec![AtlasLine {
-            wavelength_nm: 546.074,
+            wavelength_nm: anchor_wavelength_nm,
             species: "Hg I".into(),
             strength: 10000.0,
         }];
         let matches = vec![(0, 0)];
-        let mut config = WlFitConfig {
+        let config = WlFitConfig {
             poly_degree: 1,
+            fallback_seed: Some(SingleLineFallbackSeed {
+                grating_constant_nm: 36300.0,
+                physical_order: 66, // 36300/66 ≈ 550 nm
+                n_pixels: 2560.0,
+                wavelength_ascending,
+            }),
             ..Default::default()
         };
-        config.fallback_seed = Some(SingleLineFallbackSeed {
-            grating_constant_nm: 36300.0,
-            physical_order: 66, // 36300/66 ≈ 550 nm
-            n_pixels: 2560.0,
-            wavelength_ascending: true,
-        });
-        let sol = fit_order_wavelength(&lines, &atlas, &matches, 0, &config).expect("should fit");
+        fit_order_wavelength(&lines, &atlas, &matches, 0, &config).expect("should fit")
+    }
+
+    #[test]
+    fn single_line_fallback_uses_positive_sign_when_ascending() {
+        let sol = run_single_line_fallback(546.074, true);
         let wl_lo = sol.eval(sol.pixel_min);
         let wl_hi = sol.eval(sol.pixel_max);
         assert!(
@@ -2226,32 +2210,7 @@ mod tests {
 
     #[test]
     fn single_line_fallback_uses_negative_sign_when_descending() {
-        let lines = vec![ArcLine {
-            order: 0,
-            pixel_center: 1280.0,
-            pixel_sigma: 2.0,
-            amplitude: 1000.0,
-            wavelength_hint: None,
-            used: true,
-            saturated: false,
-        }];
-        let atlas = vec![AtlasLine {
-            wavelength_nm: 546.074,
-            species: "Hg I".into(),
-            strength: 10000.0,
-        }];
-        let matches = vec![(0, 0)];
-        let mut config = WlFitConfig {
-            poly_degree: 1,
-            ..Default::default()
-        };
-        config.fallback_seed = Some(SingleLineFallbackSeed {
-            grating_constant_nm: 36300.0,
-            physical_order: 66,
-            n_pixels: 2560.0,
-            wavelength_ascending: false,
-        });
-        let sol = fit_order_wavelength(&lines, &atlas, &matches, 0, &config).expect("should fit");
+        let sol = run_single_line_fallback(546.074, false);
         let wl_lo = sol.eval(sol.pixel_min);
         let wl_hi = sol.eval(sol.pixel_max);
         assert!(
@@ -2262,34 +2221,9 @@ mod tests {
 
     #[test]
     fn single_line_fallback_magnitude_matches_fsr_over_n_pixels() {
-        // FSR = 36300 / 66^2 ≈ 8.33 nm; dispersion = FSR / 2560 ≈ 0.00325 nm/pixel.
-        // Total wavelength span across the detector ≈ FSR.
-        let lines = vec![ArcLine {
-            order: 0,
-            pixel_center: 1280.0,
-            pixel_sigma: 2.0,
-            amplitude: 1000.0,
-            wavelength_hint: None,
-            used: true,
-            saturated: false,
-        }];
-        let atlas = vec![AtlasLine {
-            wavelength_nm: 550.0,
-            species: "Hg I".into(),
-            strength: 10000.0,
-        }];
-        let matches = vec![(0, 0)];
-        let mut config = WlFitConfig {
-            poly_degree: 1,
-            ..Default::default()
-        };
-        config.fallback_seed = Some(SingleLineFallbackSeed {
-            grating_constant_nm: 36300.0,
-            physical_order: 66,
-            n_pixels: 2560.0,
-            wavelength_ascending: true,
-        });
-        let sol = fit_order_wavelength(&lines, &atlas, &matches, 0, &config).expect("should fit");
+        // FSR = 36300 / 66² ≈ 8.33 nm; total wavelength span across the
+        // 2560-pixel detector should equal FSR.
+        let sol = run_single_line_fallback(550.0, true);
         let span = sol.eval(sol.pixel_max) - sol.eval(sol.pixel_min);
         let expected_fsr = 36300.0 / (66.0 * 66.0);
         let ratio = span / expected_fsr;
@@ -2466,16 +2400,10 @@ mod tests {
     // ─── Wavelength solution fitting tests ──────────────────────────
 
     #[test]
-    fn test_chebyshev_eval_t0_t1() {
-        // T_0(x) = 1, T_1(x) = x
+    fn test_chebyshev_eval_basis() {
+        // T_0(x) = 1, T_1(x) = x, T_2(x) = 2x² - 1.
         assert!((chebyshev_eval(&[3.0], 0.5) - 3.0).abs() < 1e-12);
         assert!((chebyshev_eval(&[2.0, 5.0], 0.5) - (2.0 + 5.0 * 0.5)).abs() < 1e-12);
-    }
-
-    #[test]
-    fn test_chebyshev_eval_t2() {
-        // T_2(x) = 2x^2 - 1
-        // coeffs = [0, 0, 1] → T_2(0.5) = 2*0.25 - 1 = -0.5
         assert!((chebyshev_eval(&[0.0, 0.0, 1.0], 0.5) - (-0.5)).abs() < 1e-12);
     }
 
@@ -3091,26 +3019,24 @@ mod tests {
         assert!(thresh >= 500.0, "threshold should be >= observed max");
     }
 
+    /// Minimal `ArcLine` builder for HDR merge tests — only the fields the
+    /// merger inspects (order, pixel_center, amplitude, saturated) vary.
+    fn hdr_line(order: u32, pixel_center: f64, amplitude: f64, saturated: bool) -> ArcLine {
+        ArcLine {
+            order,
+            pixel_center,
+            pixel_sigma: 2.0,
+            amplitude,
+            wavelength_hint: None,
+            used: true,
+            saturated,
+        }
+    }
+
     #[test]
     fn merge_arc_lines_hdr_merges_duplicate_centers() {
-        let run_a = vec![ArcLine {
-            order: 0,
-            pixel_center: 100.0,
-            pixel_sigma: 2.0,
-            amplitude: 50.0,
-            wavelength_hint: None,
-            used: true,
-            saturated: true,
-        }];
-        let run_b = vec![ArcLine {
-            order: 0,
-            pixel_center: 100.4,
-            pixel_sigma: 2.1,
-            amplitude: 200.0,
-            wavelength_hint: None,
-            used: true,
-            saturated: false,
-        }];
+        let run_a = vec![hdr_line(0, 100.0, 50.0, true)];
+        let run_b = vec![hdr_line(0, 100.4, 200.0, false)];
         let merged = merge_arc_lines_hdr(&[run_a.clone(), run_b.clone()], 1.0, true);
         assert_eq!(merged.len(), 1);
         assert!(!merged[0].saturated);
@@ -3125,33 +3051,9 @@ mod tests {
         // Anchor-only clustering would keep 1.6 separate from 0.0 (|1.6-0| > 1);
         // single-link along sorted axis merges all three.
         let run = vec![
-            ArcLine {
-                order: 0,
-                pixel_center: 0.0,
-                pixel_sigma: 2.0,
-                amplitude: 10.0,
-                wavelength_hint: None,
-                used: true,
-                saturated: false,
-            },
-            ArcLine {
-                order: 0,
-                pixel_center: 0.8,
-                pixel_sigma: 2.0,
-                amplitude: 20.0,
-                wavelength_hint: None,
-                used: true,
-                saturated: false,
-            },
-            ArcLine {
-                order: 0,
-                pixel_center: 1.6,
-                pixel_sigma: 2.0,
-                amplitude: 15.0,
-                wavelength_hint: None,
-                used: true,
-                saturated: false,
-            },
+            hdr_line(0, 0.0, 10.0, false),
+            hdr_line(0, 0.8, 20.0, false),
+            hdr_line(0, 1.6, 15.0, false),
         ];
         let merged = merge_arc_lines_hdr(&[run], 1.0, false);
         assert_eq!(merged.len(), 1);
@@ -3160,24 +3062,8 @@ mod tests {
 
     #[test]
     fn merge_arc_lines_hdr_keeps_separated_peaks() {
-        let run_a = vec![ArcLine {
-            order: 0,
-            pixel_center: 50.0,
-            pixel_sigma: 2.0,
-            amplitude: 100.0,
-            wavelength_hint: None,
-            used: true,
-            saturated: false,
-        }];
-        let run_b = vec![ArcLine {
-            order: 0,
-            pixel_center: 120.0,
-            pixel_sigma: 2.0,
-            amplitude: 90.0,
-            wavelength_hint: None,
-            used: true,
-            saturated: false,
-        }];
+        let run_a = vec![hdr_line(0, 50.0, 100.0, false)];
+        let run_b = vec![hdr_line(0, 120.0, 90.0, false)];
         let merged = merge_arc_lines_hdr(&[run_a, run_b], 3.0, true);
         assert_eq!(merged.len(), 2);
     }
@@ -3185,24 +3071,8 @@ mod tests {
     #[test]
     fn merge_arc_lines_hdr_partitions_by_order() {
         let run = vec![
-            ArcLine {
-                order: 0,
-                pixel_center: 10.0,
-                pixel_sigma: 2.0,
-                amplitude: 80.0,
-                wavelength_hint: None,
-                used: true,
-                saturated: false,
-            },
-            ArcLine {
-                order: 1,
-                pixel_center: 10.2,
-                pixel_sigma: 2.0,
-                amplitude: 70.0,
-                wavelength_hint: None,
-                used: true,
-                saturated: false,
-            },
+            hdr_line(0, 10.0, 80.0, false),
+            hdr_line(1, 10.2, 70.0, false),
         ];
         let merged = merge_arc_lines_hdr(&[run], 0.5, false);
         assert_eq!(merged.len(), 2);

@@ -1,17 +1,15 @@
 //! Calibration quality metrics for echelle spectrograph wavelength solutions.
 //!
-//! Provides physically meaningful diagnostics to replace the old circular
-//! (predicted-vs-stored) RMS metric:
-//!
-//! - **Global RMS**: residuals of identified arc peaks against the per-order
-//!   Chebyshev wavelength model (target: < 0.1 nm).
-//! - **Overlap agreement**: for adjacent orders that share a wavelength range,
-//!   the maximum disagreement at the same physical position (should be sub-pixel).
-//! - **Grating constant consistency**: `m * lambda_center` should be approximately
-//!   constant across all orders (typical: ~36300 nm for Mechelle 5000).
-//! - **LOO cross-validation**: leave-one-out RMS via the 2D Chebyshev surface fitter.
+//! Diagnostics:
+//! - **Global RMS**: arc-peak residuals against the per-order Chebyshev model
+//!   (target < 0.1 nm).
+//! - **Overlap agreement**: max wavelength disagreement between adjacent orders
+//!   in their shared range (should be sub-pixel).
+//! - **Grating constant consistency**: `m * λ_center` stays approximately
+//!   constant across orders (~36300 nm for Mechelle 5000).
+//! - **LOO cross-validation**: leave-one-out RMS via the 2D Chebyshev fitter.
 
-// Numerical code: pixel/order casts are always lossless for realistic frame sizes.
+// Pixel/order casts are always lossless for realistic frame sizes.
 #![allow(
     clippy::cast_precision_loss,
     clippy::cast_possible_truncation,
@@ -21,6 +19,7 @@
 )]
 
 use crate::chebyshev_2d::{self, Global2DChebyshevFit};
+use crate::chebyshev_common::chebyshev_eval;
 use crate::types::{EchelleCalibrationProfile, EchelleWavelengthModel, PolynomialBasis};
 use crate::wavelength_fitting::leave_one_out_rms;
 use serde::{Deserialize, Serialize};
@@ -100,37 +99,7 @@ pub struct CalibrationQualityReport {
     pub loo_rms: Option<f64>,
 }
 
-// ─── Wavelength evaluation helpers ──────────────────────────────────────────
-
-/// Evaluate a Chebyshev polynomial at a normalized coordinate.
-///
-/// Uses the three-term recurrence relation for numerical stability.
-fn chebyshev_eval(coeffs: &[f64], x: f64) -> f64 {
-    if coeffs.is_empty() {
-        return 0.0;
-    }
-    if coeffs.len() == 1 {
-        return coeffs[0];
-    }
-
-    let mut t_prev = 1.0; // T_0
-    let mut t_curr = x; // T_1
-    let mut result = coeffs[0] * t_prev + coeffs[1] * t_curr;
-
-    for &c in &coeffs[2..] {
-        let t_next = 2.0 * x * t_curr - t_prev;
-        result += c * t_next;
-        t_prev = t_curr;
-        t_curr = t_next;
-    }
-
-    result
-}
-
-/// Evaluate a wavelength model at the given pixel position.
-///
-/// Returns `None` for `Sampled` models (which don't support arbitrary-pixel
-/// evaluation without interpolation — quality metrics require `Polynomial`).
+/// Evaluate a wavelength model at a pixel position; `None` for `Sampled`.
 fn eval_wavelength_model(model: &EchelleWavelengthModel, pixel: f64) -> Option<f64> {
     match model {
         EchelleWavelengthModel::Polynomial {
@@ -144,26 +113,24 @@ fn eval_wavelength_model(model: &EchelleWavelengthModel, pixel: f64) -> Option<f
             if range.abs() < 1e-15 {
                 return None;
             }
-            let x_norm = match basis {
-                PolynomialBasis::Chebyshev => 2.0 * (pixel - domain_start) / range - 1.0,
-                PolynomialBasis::Monomial => pixel,
-            };
-            Some(match basis {
-                PolynomialBasis::Chebyshev => chebyshev_eval(coefficients, x_norm),
-                PolynomialBasis::Monomial => {
-                    // Standard Horner evaluation for monomial basis
+            match basis {
+                PolynomialBasis::Chebyshev => {
+                    let x_norm = 2.0 * (pixel - domain_start) / range - 1.0;
+                    Some(chebyshev_eval(coefficients, x_norm))
+                }
+                PolynomialBasis::Monomial => Some(
                     coefficients
                         .iter()
                         .rev()
-                        .fold(0.0, |acc, &c| acc * x_norm + c)
-                }
-            })
+                        .fold(0.0, |acc, &c| acc * pixel + c),
+                ),
+            }
         }
         EchelleWavelengthModel::Sampled { .. } => None,
     }
 }
 
-/// Get the wavelength range (min, max) for an order by evaluating at its endpoints.
+/// Wavelength range `(min, max)` of an order, derived from model endpoints.
 fn order_wavelength_range(
     model: &EchelleWavelengthModel,
     sample_start: u32,
@@ -178,15 +145,9 @@ fn order_wavelength_range(
     })
 }
 
-// ─── Public API ─────────────────────────────────────────────────────────────
-
-/// Compute the global RMS of residuals between atlas wavelengths and the
-/// per-order Chebyshev model predictions.
+/// Global RMS of atlas-vs-model residuals across all matched lines (nm).
 ///
-/// For each matched line, evaluates the order's wavelength polynomial at the
-/// detected pixel position and computes `|atlas_lambda - model_lambda|`.
-/// Returns the RMS across all lines. Lines whose orders have `Sampled` models
-/// are skipped.
+/// Lines whose orders use `Sampled` models are skipped.
 #[must_use]
 pub fn compute_global_rms(
     profile: &EchelleCalibrationProfile,
@@ -219,18 +180,15 @@ pub fn compute_global_rms(
     (sum_sq / count as f64).sqrt()
 }
 
-/// Compute overlap agreement between adjacent orders.
+/// Max wavelength disagreement between adjacent orders within their overlap.
 ///
-/// For each pair of consecutive orders (by relative index), finds the wavelength
-/// range covered by both orders and samples the maximum disagreement at evenly
-/// spaced pixel positions within the overlap.
-///
-/// Returns one entry per adjacent pair that has a non-empty overlap.
+/// For each consecutive pair by relative index, samples 101 wavelengths in the
+/// shared range and compares each order's model evaluated at the pixel where
+/// order A lands the target wavelength. Returns one entry per non-empty overlap.
 #[must_use]
 pub fn compute_overlap_agreement(profile: &EchelleCalibrationProfile) -> Vec<OverlapDisagreement> {
     let mut results = Vec::new();
 
-    // Sort orders by relative index for pairwise comparison.
     let mut orders: Vec<_> = profile.orders.iter().collect();
     orders.sort_by_key(|o| o.relative_index);
 
@@ -238,7 +196,6 @@ pub fn compute_overlap_agreement(profile: &EchelleCalibrationProfile) -> Vec<Ove
         let order_a = pair[0];
         let order_b = pair[1];
 
-        // Get wavelength ranges.
         let Some(range_a) = order_wavelength_range(
             &order_a.wavelength,
             order_a.sample_start,
@@ -254,16 +211,12 @@ pub fn compute_overlap_agreement(profile: &EchelleCalibrationProfile) -> Vec<Ove
             continue;
         };
 
-        // Find overlap wavelength range.
         let overlap_start = range_a.0.max(range_b.0);
         let overlap_end = range_a.1.min(range_b.1);
-
         if overlap_start >= overlap_end {
-            continue; // No overlap
+            continue;
         }
 
-        // Sample at 100 evenly spaced wavelengths within the overlap and
-        // find the maximum disagreement.
         let n_samples = 100usize;
         let mut max_disagreement = 0.0_f64;
 
@@ -271,47 +224,21 @@ pub fn compute_overlap_agreement(profile: &EchelleCalibrationProfile) -> Vec<Ove
             let target_wl =
                 overlap_start + (overlap_end - overlap_start) * (i as f64 / n_samples as f64);
 
-            // For each order, find the pixel that maps to this wavelength
-            // by linear search (evaluate at integer pixels and interpolate).
-            let wl_a = find_pixel_for_wavelength(
+            let Some(px_a) = find_pixel_for_wavelength(
                 &order_a.wavelength,
                 order_a.sample_start,
                 order_a.sample_end,
                 target_wl,
-            );
-            let wl_b = find_pixel_for_wavelength(
-                &order_b.wavelength,
-                order_b.sample_start,
-                order_b.sample_end,
-                target_wl,
-            );
-
-            if let (Some(px_a), Some(px_b)) = (wl_a, wl_b) {
-                // Evaluate both models at the same pixel (use order_a's pixel)
-                // to measure disagreement. We actually want: at the pixel in
-                // order A that gives target_wl, what does order B's model say?
-                // But the overlap is in wavelength space, so we compare
-                // the wavelength each model produces at each model's own pixel
-                // for the same target wavelength. The disagreement is how far
-                // apart the two models' pixels land for the same wavelength.
-                //
-                // A more direct approach: for a grid of wavelengths in the
-                // overlap, compare the pixel positions that each model assigns.
-                // Convert pixel difference to wavelength difference via
-                // local dispersion.
-                //
-                // Simplest approach: evaluate both models at the same pixel
-                // position in the middle of their shared pixel range.
-                let _ = px_b; // We use a different approach below.
-
-                // Evaluate order_a's model at px_a to get actual_wl_a
-                if let Some(actual_wl_a) = eval_wavelength_model(&order_a.wavelength, px_a) {
-                    // Find the same pixel in order_b's frame and evaluate
-                    if let Some(actual_wl_b) = eval_wavelength_model(&order_b.wavelength, px_a) {
-                        let disagreement = (actual_wl_a - actual_wl_b).abs();
-                        max_disagreement = max_disagreement.max(disagreement);
-                    }
-                }
+            ) else {
+                continue;
+            };
+            // Skip order_b's find-pixel (we measure at px_a for a direct
+            // per-pixel wavelength comparison between the two models).
+            if let (Some(wl_a), Some(wl_b)) = (
+                eval_wavelength_model(&order_a.wavelength, px_a),
+                eval_wavelength_model(&order_b.wavelength, px_a),
+            ) {
+                max_disagreement = max_disagreement.max((wl_a - wl_b).abs());
             }
         }
 
@@ -328,10 +255,10 @@ pub fn compute_overlap_agreement(profile: &EchelleCalibrationProfile) -> Vec<Ove
     results
 }
 
-/// Find the pixel position within an order that maps to a target wavelength.
+/// Bisect to find the pixel within an order that maps to `target_wl`.
 ///
-/// Uses bisection on the polynomial model. Returns `None` if the target is
-/// outside the order's wavelength range or the model is not polynomial.
+/// Returns `None` if the target is outside the order's wavelength range or
+/// the model is not polynomial.
 fn find_pixel_for_wavelength(
     model: &EchelleWavelengthModel,
     sample_start: u32,
@@ -344,50 +271,39 @@ fn find_pixel_for_wavelength(
     let wl_start = eval_wavelength_model(model, start)?;
     let wl_end = eval_wavelength_model(model, end)?;
 
-    // Check that the target is within range.
     let (wl_min, wl_max) = if wl_start <= wl_end {
         (wl_start, wl_end)
     } else {
         (wl_end, wl_start)
     };
-
     if target_wl < wl_min || target_wl > wl_max {
         return None;
     }
 
-    // Bisection: find pixel where model(pixel) == target_wl
     let mut lo = start;
     let mut hi = end;
     let increasing = wl_end > wl_start;
-
     for _ in 0..64 {
         let mid = lo.midpoint(hi);
         let wl_mid = eval_wavelength_model(model, mid)?;
         let diff = wl_mid - target_wl;
-
         if diff.abs() < 1e-10 {
             return Some(mid);
         }
-
         if (diff > 0.0) == increasing {
             hi = mid;
         } else {
             lo = mid;
         }
     }
-
     Some(lo.midpoint(hi))
 }
 
-/// Compute grating constant consistency across all orders.
+/// Grating-constant deviation `m·λ_center` per order vs `reference_gc`.
 ///
-/// For each order with a known physical order number, computes
-/// `m * lambda_center` where `lambda_center` is the wavelength at the
-/// midpoint of the order's pixel range. Returns the deviation from
-/// `reference_gc` for each order.
-///
-/// A well-calibrated Mechelle 5000 should show all products near 36300 nm
-/// with fractional deviation < 1%.
+/// `λ_center` is the wavelength at the midpoint of the order's pixel range.
+/// A well-calibrated Mechelle 5000 yields fractional deviations below 1 %
+/// around a reference of ~36300 nm.
 #[must_use]
 pub fn compute_gc_consistency(
     profile: &EchelleCalibrationProfile,
@@ -426,16 +342,16 @@ pub fn compute_gc_consistency(
     results
 }
 
-/// Compute the comprehensive calibration quality report.
+/// Build the full calibration quality report from matched arc lines.
 ///
 /// # Arguments
 ///
-/// * `profile` - The calibration profile to evaluate.
-/// * `matched_lines` - Atlas-matched arc line positions from the calibration
-///   pipeline. Pass `&[]` if unavailable (RMS and LOO will be zero/None).
-/// * `reference_gc` - Reference grating constant in nm (e.g., 36300 for Mechelle 5000).
-/// * `loo_degree_x` - Chebyshev degree in pixel direction for LOO (typical: 4).
-/// * `loo_degree_m` - Chebyshev degree in order direction for LOO (typical: 3).
+/// * `profile` - Calibration profile to evaluate.
+/// * `matched_lines` - Atlas-matched arc line positions. Pass `&[]` if
+///   unavailable (RMS and LOO degrade to zero / `None`).
+/// * `reference_gc` - Reference grating constant in nm (36300 for Mechelle 5000).
+/// * `loo_degree_x` - Chebyshev degree along pixel axis for LOO (typical 4).
+/// * `loo_degree_m` - Chebyshev degree along order axis for LOO (typical 3).
 #[must_use]
 pub fn compute_quality_report(
     profile: &EchelleCalibrationProfile,
@@ -444,47 +360,39 @@ pub fn compute_quality_report(
     loo_degree_x: usize,
     loo_degree_m: usize,
 ) -> CalibrationQualityReport {
-    let global_rms_nm = compute_global_rms(profile, matched_lines);
-
-    // Per-order RMS
-    let per_order_rms = compute_per_order_rms(profile, matched_lines);
-
-    // Overlap agreement
-    let overlap_disagreements = compute_overlap_agreement(profile);
-
-    // Grating constant consistency
-    let gc_deviations = compute_gc_consistency(profile, reference_gc);
-
-    // LOO cross-validation: convert matched lines to (pixel, order, wavelength)
-    // tuples for the 2D Chebyshev fitter.
-    let loo_rms = if matched_lines.len() > (loo_degree_x + 1) * (loo_degree_m + 1) {
-        let loo_data: Vec<(f64, f64, f64)> = matched_lines
-            .iter()
-            .map(|l| (l.pixel, f64::from(l.physical_order), l.atlas_wavelength_nm))
-            .collect();
-
-        let rms = leave_one_out_rms(&loo_data, loo_degree_x, loo_degree_m);
-        if rms.is_finite() { Some(rms) } else { None }
-    } else {
-        None
-    };
-
     CalibrationQualityReport {
-        global_rms_nm,
-        per_order_rms,
-        overlap_disagreements,
-        gc_deviations,
+        global_rms_nm: compute_global_rms(profile, matched_lines),
+        per_order_rms: compute_per_order_rms(profile, matched_lines),
+        overlap_disagreements: compute_overlap_agreement(profile),
+        gc_deviations: compute_gc_consistency(profile, reference_gc),
         n_matched_lines: matched_lines.len(),
-        loo_rms,
+        loo_rms: loo_rms_from_matched(matched_lines, loo_degree_x, loo_degree_m),
     }
 }
 
-/// Build a quality report from a `Global2DChebyshevFit` and training data.
+/// LOO cross-validation RMS from matched lines; `None` when under-determined.
+fn loo_rms_from_matched(
+    matched_lines: &[MatchedLine],
+    loo_degree_x: usize,
+    loo_degree_m: usize,
+) -> Option<f64> {
+    let n_coeffs = (loo_degree_x + 1) * (loo_degree_m + 1);
+    if matched_lines.len() <= n_coeffs {
+        return None;
+    }
+    let loo_data: Vec<(f64, f64, f64)> = matched_lines
+        .iter()
+        .map(|l| (l.pixel, f64::from(l.physical_order), l.atlas_wavelength_nm))
+        .collect();
+    let rms = leave_one_out_rms(&loo_data, loo_degree_x, loo_degree_m);
+    rms.is_finite().then_some(rms)
+}
+
+/// Quality report built from a 2D Chebyshev global fit plus training data.
 ///
-/// This is the preferred entry point when a 2D Chebyshev model is available
-/// (e.g., from the calibration pipeline's Stage-3 global fit). It uses the global
-/// model's RMS directly and delegates LOO to the existing `chebyshev_2d`
-/// module.
+/// Preferred over [`compute_quality_report`] when the pipeline's Stage-3 global
+/// fit is available: the report's `global_rms_nm` is taken directly from that
+/// model, and LOO reuses the shared `chebyshev_2d` path.
 #[must_use]
 pub fn compute_quality_report_from_2d(
     profile: &EchelleCalibrationProfile,
@@ -494,17 +402,14 @@ pub fn compute_quality_report_from_2d(
     loo_degree_x: usize,
     loo_degree_m: usize,
 ) -> CalibrationQualityReport {
-    // Convert training data to MatchedLine records
     let matched_lines: Vec<MatchedLine> = training_data
         .iter()
         .filter_map(|&(pixel, m_order, atlas_wl)| {
-            // Find the relative order index for this physical order
             let relative_order = profile
                 .orders
                 .iter()
                 .find(|o| o.physical_order_number == Some(m_order as i32))
                 .map(|o| o.relative_index)?;
-
             Some(MatchedLine {
                 pixel,
                 physical_order: m_order,
@@ -514,39 +419,17 @@ pub fn compute_quality_report_from_2d(
         })
         .collect();
 
-    let global_rms_nm = chebyshev_2d::compute_global_rms(global_fit, training_data);
-
-    let per_order_rms = compute_per_order_rms(profile, &matched_lines);
-    let overlap_disagreements = compute_overlap_agreement(profile);
-    let gc_deviations = compute_gc_consistency(profile, reference_gc);
-
-    // LOO cross-validation
-    let n_coeffs = (loo_degree_x + 1) * (loo_degree_m + 1);
-    let loo_rms = if matched_lines.len() > n_coeffs {
-        let loo_data: Vec<(f64, f64, f64)> = matched_lines
-            .iter()
-            .map(|l| (l.pixel, f64::from(l.physical_order), l.atlas_wavelength_nm))
-            .collect();
-
-        let rms = leave_one_out_rms(&loo_data, loo_degree_x, loo_degree_m);
-        if rms.is_finite() { Some(rms) } else { None }
-    } else {
-        None
-    };
-
     CalibrationQualityReport {
-        global_rms_nm,
-        per_order_rms,
-        overlap_disagreements,
-        gc_deviations,
+        global_rms_nm: chebyshev_2d::compute_global_rms(global_fit, training_data),
+        per_order_rms: compute_per_order_rms(profile, &matched_lines),
+        overlap_disagreements: compute_overlap_agreement(profile),
+        gc_deviations: compute_gc_consistency(profile, reference_gc),
         n_matched_lines: matched_lines.len(),
-        loo_rms,
+        loo_rms: loo_rms_from_matched(&matched_lines, loo_degree_x, loo_degree_m),
     }
 }
 
-// ─── Internal helpers ───────────────────────────────────────────────────────
-
-/// Compute per-order RMS from matched lines.
+/// Per-order RMS of atlas-vs-model residuals, with wavelength coverage.
 fn compute_per_order_rms(
     profile: &EchelleCalibrationProfile,
     matched_lines: &[MatchedLine],
@@ -555,45 +438,39 @@ fn compute_per_order_rms(
         .orders
         .iter()
         .map(|order| {
-            let order_lines: Vec<&MatchedLine> = matched_lines
-                .iter()
-                .filter(|l| l.relative_order == order.relative_index)
-                .collect();
-
-            let rms_nm = if order_lines.is_empty() {
-                0.0
+            let mut sum_sq = 0.0;
+            let mut count = 0usize;
+            let mut n_for_order = 0usize;
+            for line in matched_lines {
+                if line.relative_order != order.relative_index {
+                    continue;
+                }
+                n_for_order += 1;
+                if let Some(predicted) = eval_wavelength_model(&order.wavelength, line.pixel) {
+                    let residual = line.atlas_wavelength_nm - predicted;
+                    sum_sq += residual * residual;
+                    count += 1;
+                }
+            }
+            let rms_nm = if count > 0 {
+                (sum_sq / count as f64).sqrt()
             } else {
-                let mut sum_sq = 0.0;
-                let mut count = 0usize;
-                for line in &order_lines {
-                    if let Some(predicted) = eval_wavelength_model(&order.wavelength, line.pixel) {
-                        let residual = line.atlas_wavelength_nm - predicted;
-                        sum_sq += residual * residual;
-                        count += 1;
-                    }
-                }
-                if count > 0 {
-                    (sum_sq / count as f64).sqrt()
-                } else {
-                    0.0
-                }
+                0.0
             };
-
-            let wavelength_range_nm =
-                order_wavelength_range(&order.wavelength, order.sample_start, order.sample_end);
-
             OrderQuality {
                 relative_index: order.relative_index,
                 physical_order: order.physical_order_number,
                 rms_nm,
-                n_matched_lines: order_lines.len(),
-                wavelength_range_nm,
+                n_matched_lines: n_for_order,
+                wavelength_range_nm: order_wavelength_range(
+                    &order.wavelength,
+                    order.sample_start,
+                    order.sample_end,
+                ),
             }
         })
         .collect()
 }
-
-// ─── Tests ──────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -605,10 +482,10 @@ mod tests {
     };
     use chrono::Utc;
 
-    /// Build a minimal test profile with polynomial wavelength models.
+    /// Minimal polynomial profile: `n_orders` linear Chebyshev orders starting at `m_start`.
     ///
-    /// Creates `n_orders` orders spanning physical orders `m_start..m_start+n_orders`.
-    /// Each order has a linear Chebyshev wavelength model: lambda = gc/m + dispersion*(x - 1280).
+    /// Each order uses `λ(x) = gc/m + dispersion·(x − midpoint)` with five matched
+    /// lines per order at fractional positions `{0.1, 0.3, 0.5, 0.7, 0.9}`.
     fn make_test_profile(
         n_orders: usize,
         m_start: u32,
@@ -625,14 +502,10 @@ mod tests {
             let fsr = gc / (mf * mf);
             let dispersion = fsr / f64::from(n_pixels);
 
-            // Build linear Chebyshev model: lambda(x) = c0 + c1 * x_norm
-            // where x_norm = 2 * x / (n_pixels-1) - 1
             let domain_start = 0.0_f64;
             let domain_end = f64::from(n_pixels - 1);
             let half_range = (domain_end - domain_start) / 2.0;
-
-            // c1 = dispersion * half_range (Chebyshev T1 coefficient)
-            // c0 = lambda at midpoint
+            // Chebyshev linear form: c0 = λ at midpoint, c1 = dispersion · half_range.
             let c1 = dispersion * half_range;
             let c0 = lambda_center;
 
@@ -659,12 +532,10 @@ mod tests {
                 notes: None,
             });
 
-            // Generate some matched lines for this order at known pixel positions.
             for px_frac in [0.1, 0.3, 0.5, 0.7, 0.9] {
                 let pixel = px_frac * domain_end;
                 let x_norm = 2.0 * pixel / domain_end - 1.0;
                 let wl = c0 + c1 * x_norm;
-
                 matched_lines.push(MatchedLine {
                     pixel,
                     physical_order: m,
@@ -717,10 +588,7 @@ mod tests {
 
     #[test]
     fn test_global_rms_near_zero_for_exact_model() {
-        // When matched lines are generated from the model itself, RMS should
-        // be essentially zero.
         let (profile, matched_lines) = make_test_profile(6, 50, 36_300.0, 2560);
-
         let rms = compute_global_rms(&profile, &matched_lines);
         assert!(
             rms < 1e-10,
@@ -731,76 +599,46 @@ mod tests {
     #[test]
     fn test_global_rms_nonzero_with_perturbation() {
         let (profile, mut matched_lines) = make_test_profile(6, 50, 36_300.0, 2560);
-
-        // Add a small perturbation to some atlas wavelengths
         for (i, line) in matched_lines.iter_mut().enumerate() {
             line.atlas_wavelength_nm += 0.01 * (i as f64 * 1.3).sin();
         }
-
         let rms = compute_global_rms(&profile, &matched_lines);
-        assert!(
-            rms > 1e-6,
-            "RMS should be nonzero with perturbed wavelengths, got {rms:.15}"
-        );
-        assert!(
-            rms < 0.1,
-            "RMS should be small for small perturbations, got {rms:.6}"
-        );
+        assert!(rms > 1e-6, "expected nonzero RMS, got {rms:.15}");
+        assert!(rms < 0.1, "expected small RMS, got {rms:.6}");
     }
 
     #[test]
     fn test_global_rms_empty_lines() {
         let (profile, _) = make_test_profile(6, 50, 36_300.0, 2560);
         let rms = compute_global_rms(&profile, &[]);
-        assert!(
-            rms.abs() < 1e-15,
-            "RMS should be zero with no matched lines"
-        );
+        assert!(rms.abs() < 1e-15);
     }
 
     #[test]
     fn test_overlap_agreement_detects_discrepancies() {
         let gc = 36_300.0;
-        let n_pixels = 2560u32;
-
-        // Create two adjacent orders with slightly inconsistent models.
-        // Order m=50: lambda_center = 726nm, FSR ~14.5nm
-        // Order m=51: lambda_center = 711.8nm, FSR ~13.9nm
-        // Their wavelength ranges overlap.
-        let (mut profile, _) = make_test_profile(2, 50, gc, n_pixels);
-
-        // Perturb the second order's wavelength model slightly to create a
-        // detectable disagreement.
+        let (mut profile, _) = make_test_profile(2, 50, gc, 2560);
         if let EchelleWavelengthModel::Polynomial { coefficients, .. } =
             &mut profile.orders[1].wavelength
         {
-            coefficients[0] += 0.5; // Shift center wavelength by 0.5nm
+            coefficients[0] += 0.5; // shift λ-center by 0.5 nm
         }
-
         let overlaps = compute_overlap_agreement(&profile);
-
-        // Both orders cover overlapping wavelength ranges, so we should detect
-        // a disagreement.
         if !overlaps.is_empty() {
-            // The disagreement should be nonzero due to the 0.5nm shift
             assert!(
                 overlaps[0].max_disagreement_nm > 0.01,
                 "Expected detectable disagreement, got {:.6} nm",
                 overlaps[0].max_disagreement_nm
             );
         }
-        // Note: if there's no pixel overlap between the two orders' sample
-        // ranges (they're both 0..2559), overlap detection works in wavelength
-        // space via evaluation at common pixels.
     }
 
     #[test]
     fn test_overlap_agreement_no_overlap() {
-        // Create two orders with non-overlapping wavelength ranges.
         let gc = 36_300.0;
         let (mut profile, _) = make_test_profile(2, 50, gc, 2560);
 
-        // Move order 1 far away so ranges don't overlap.
+        // Push order 1 to m=150 (λ_center ≈ 242 nm) so ranges no longer overlap m=50.
         profile.orders[1].physical_order_number = Some(150);
         if let EchelleWavelengthModel::Polynomial {
             coefficients,
@@ -808,7 +646,6 @@ mod tests {
             ..
         } = &mut profile.orders[1].wavelength
         {
-            // lambda_center for m=150: 36300/150 = 242nm
             let mf = 150.0;
             let lambda_center = gc / mf;
             let fsr = gc / (mf * mf);
@@ -818,23 +655,16 @@ mod tests {
             coefficients[1] = dispersion * half_range;
         }
 
-        let overlaps = compute_overlap_agreement(&profile);
-        assert!(
-            overlaps.is_empty(),
-            "No overlap expected between m=50 and m=150"
-        );
+        assert!(compute_overlap_agreement(&profile).is_empty());
     }
 
     #[test]
     fn test_gc_consistency_mechelle_5000() {
-        // Create a profile with Mechelle 5000 parameters (gc ~36300nm).
         let gc = 36_300.0;
         let (profile, _) = make_test_profile(10, 50, gc, 2560);
-
         let deviations = compute_gc_consistency(&profile, gc);
 
-        assert_eq!(deviations.len(), 10, "Expected one entry per order");
-
+        assert_eq!(deviations.len(), 10);
         for dev in &deviations {
             assert!(
                 dev.fractional_deviation.abs() < 0.01,
@@ -842,8 +672,6 @@ mod tests {
                 dev.physical_order,
                 dev.fractional_deviation
             );
-
-            // m * lambda_center should be close to gc
             assert!(
                 (dev.m_lambda - gc).abs() < gc * 0.01,
                 "Order m={}: m*lambda = {:.2}, expected ~{gc:.2}",
@@ -857,24 +685,19 @@ mod tests {
     fn test_gc_consistency_detects_bad_order() {
         let gc = 36_300.0;
         let (mut profile, _) = make_test_profile(5, 50, gc, 2560);
-
-        // Corrupt one order's wavelength model significantly.
         if let EchelleWavelengthModel::Polynomial { coefficients, .. } =
             &mut profile.orders[2].wavelength
         {
-            coefficients[0] *= 1.5; // 50% shift in center wavelength
+            coefficients[0] *= 1.5; // 50 % λ-center shift
         }
 
         let deviations = compute_gc_consistency(&profile, gc);
-
-        // The corrupted order (index 2, m=52) should have large deviation.
-        let bad_order = deviations.iter().find(|d| d.relative_index == 2);
+        let bad = deviations
+            .iter()
+            .find(|d| d.relative_index == 2)
+            .expect("deviation entry for corrupted order");
         assert!(
-            bad_order.is_some(),
-            "Should have a deviation entry for the corrupted order"
-        );
-        assert!(
-            bad_order.expect("checked above").fractional_deviation.abs() > 0.1,
+            bad.fractional_deviation.abs() > 0.1,
             "Corrupted order should have > 10% deviation"
         );
     }
@@ -882,17 +705,12 @@ mod tests {
     #[test]
     fn test_per_order_rms() {
         let (profile, matched_lines) = make_test_profile(4, 50, 36_300.0, 2560);
-
         let per_order = compute_per_order_rms(&profile, &matched_lines);
 
         assert_eq!(per_order.len(), 4);
         for oq in &per_order {
-            assert!(
-                oq.rms_nm < 1e-10,
-                "Per-order RMS should be near-zero for exact model, got {:.15}",
-                oq.rms_nm
-            );
-            assert_eq!(oq.n_matched_lines, 5, "Expected 5 matched lines per order");
+            assert!(oq.rms_nm < 1e-10, "got {:.15}", oq.rms_nm);
+            assert_eq!(oq.n_matched_lines, 5);
             assert!(oq.wavelength_range_nm.is_some());
         }
     }
@@ -901,36 +719,27 @@ mod tests {
     fn test_quality_report_end_to_end() {
         let gc = 36_300.0;
         let (profile, matched_lines) = make_test_profile(6, 50, gc, 2560);
-
         let report = compute_quality_report(&profile, &matched_lines, gc, 4, 3);
 
-        // Global RMS should be near-zero for exact model.
         assert!(
             report.global_rms_nm < 1e-8,
-            "Global RMS should be near-zero, got {:.15}",
+            "got {:.15}",
             report.global_rms_nm
         );
-
-        assert_eq!(report.n_matched_lines, 30); // 6 orders * 5 lines each
+        assert_eq!(report.n_matched_lines, 30); // 6 orders × 5 lines
         assert_eq!(report.per_order_rms.len(), 6);
         assert_eq!(report.gc_deviations.len(), 6);
-
-        // LOO RMS should be available (30 points > 5*4 = 20 coefficients).
-        assert!(report.loo_rms.is_some(), "LOO RMS should be computed");
+        // 30 points > (4+1)·(3+1) = 20 coefficients → LOO available.
+        assert!(report.loo_rms.is_some());
     }
 
     #[test]
     fn test_loo_too_few_points() {
         let gc = 36_300.0;
-        // Only 2 orders * 5 lines = 10 points, fewer than (4+1)*(3+1) = 20 coefficients
+        // 2 × 5 = 10 points, under the 20-coefficient threshold.
         let (profile, matched_lines) = make_test_profile(2, 50, gc, 2560);
-
         let report = compute_quality_report(&profile, &matched_lines, gc, 4, 3);
-
-        assert!(
-            report.loo_rms.is_none(),
-            "LOO should be None with too few points"
-        );
+        assert!(report.loo_rms.is_none());
     }
 
     #[test]
@@ -943,19 +752,11 @@ mod tests {
             unit: "nm".to_string(),
         };
 
-        // At midpoint (x_norm = 0): lambda = 500.0
-        let wl_mid = eval_wavelength_model(&model, 1279.5).expect("should evaluate");
-        assert!(
-            (wl_mid - 500.0).abs() < 0.01,
-            "Midpoint wavelength should be ~500nm, got {wl_mid:.4}"
-        );
+        let wl_mid = eval_wavelength_model(&model, 1279.5).expect("midpoint");
+        assert!((wl_mid - 500.0).abs() < 0.01, "got {wl_mid:.4}");
 
-        // At domain_start (x_norm = -1): lambda = 500.0 - 10.0 = 490.0
-        let wl_start = eval_wavelength_model(&model, 0.0).expect("should evaluate");
-        assert!(
-            (wl_start - 490.0).abs() < 0.01,
-            "Start wavelength should be ~490nm, got {wl_start:.4}"
-        );
+        let wl_start = eval_wavelength_model(&model, 0.0).expect("start");
+        assert!((wl_start - 490.0).abs() < 0.01, "got {wl_start:.4}");
     }
 
     #[test]
@@ -964,11 +765,7 @@ mod tests {
             wavelengths: vec![400.0, 500.0, 600.0],
             unit: "nm".to_string(),
         };
-
-        assert!(
-            eval_wavelength_model(&model, 1.0).is_none(),
-            "Sampled model should return None"
-        );
+        assert!(eval_wavelength_model(&model, 1.0).is_none());
     }
 
     #[test]
@@ -980,14 +777,7 @@ mod tests {
             domain_end: 2559.0,
             unit: "nm".to_string(),
         };
-
-        // Find pixel for wavelength 500.0 (should be near midpoint)
-        let pixel = find_pixel_for_wavelength(&model, 0, 2559, 500.0);
-        assert!(pixel.is_some(), "Should find pixel for wavelength 500.0");
-        let px = pixel.expect("checked above");
-        assert!(
-            (px - 1279.5).abs() < 0.01,
-            "Pixel for 500nm should be near midpoint, got {px:.4}"
-        );
+        let px = find_pixel_for_wavelength(&model, 0, 2559, 500.0).expect("bisected");
+        assert!((px - 1279.5).abs() < 0.01, "got {px:.4}");
     }
 }

@@ -13,12 +13,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
+/// Highest profile-schema major version this build can read or write.
 pub const ECHELLE_PROFILE_SCHEMA_MAJOR: u32 = 1;
 
 /// Minimum blaze curve value to prevent excessive amplification at order edges.
 /// Values below this floor are clamped before dividing science flux.
 const BLAZE_FLOOR: f64 = 0.1;
 
+/// Semver triple identifying the on-disk profile schema.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EchelleSchemaVersion {
     pub major: u32,
@@ -27,6 +29,7 @@ pub struct EchelleSchemaVersion {
 }
 
 impl EchelleSchemaVersion {
+    /// Canonical `1.0.0` version used by all profiles written today.
     pub const fn v1() -> Self {
         Self {
             major: 1,
@@ -35,6 +38,7 @@ impl EchelleSchemaVersion {
         }
     }
 
+    /// Returns `true` if this build accepts the version for loading.
     pub fn is_supported_for_read(&self) -> bool {
         self.major == ECHELLE_PROFILE_SCHEMA_MAJOR
     }
@@ -46,6 +50,7 @@ impl Default for EchelleSchemaVersion {
     }
 }
 
+/// Detector axis tag (`X` or `Y`) used to name dispersion/cross-dispersion directions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DetectorAxis {
@@ -53,6 +58,7 @@ pub enum DetectorAxis {
     Y,
 }
 
+/// Sign of an axis direction: `Positive` increases with pixel index, `Negative` decreases.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AxisDirection {
@@ -60,6 +66,7 @@ pub enum AxisDirection {
     Negative,
 }
 
+/// Orientation of echelle orders on the detector.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EchelleOrientation {
     pub dispersion_axis: DetectorAxis,
@@ -68,6 +75,7 @@ pub struct EchelleOrientation {
     pub wavelength_increase_with_dispersion_positive: bool,
 }
 
+/// Sensor/frame geometry a profile was calibrated against.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EchelleFrameCompatibility {
     pub sensor_width: u32,
@@ -86,6 +94,7 @@ pub struct EchelleFrameCompatibility {
     pub bit_depth: Option<u32>,
 }
 
+/// Sideband-median background subtraction configuration.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EchelleBackgroundConfig {
     #[serde(default)]
@@ -96,6 +105,7 @@ pub struct EchelleBackgroundConfig {
     pub baseline_window_px: u32,
 }
 
+/// Cross-dispersion summation strategy used to collapse 2D order to 1D flux.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EchelleSummationMode {
@@ -105,6 +115,7 @@ pub enum EchelleSummationMode {
     Optimal,
 }
 
+/// Per-profile extraction parameters: summation mode, aperture, background, scatter.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EchelleExtractionConfig {
     pub summation_mode: EchelleSummationMode,
@@ -149,6 +160,7 @@ const fn default_row_stride() -> u32 {
     4
 }
 
+/// Polynomial basis used by trace and wavelength models.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PolynomialBasis {
@@ -156,6 +168,7 @@ pub enum PolynomialBasis {
     Chebyshev,
 }
 
+/// Order trace (cross-dispersion centroid as a function of dispersion pixel).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum EchelleTraceModel {
@@ -167,6 +180,7 @@ pub enum EchelleTraceModel {
     },
 }
 
+/// Wavelength model for one order (polynomial or directly sampled).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum EchelleWavelengthModel {
@@ -183,6 +197,7 @@ pub enum EchelleWavelengthModel {
     },
 }
 
+/// Calibration for a single echelle order (trace, wavelength, sample range).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EchelleOrderCalibration {
     pub relative_index: u32,
@@ -200,6 +215,7 @@ pub struct EchelleOrderCalibration {
     pub notes: Option<String>,
 }
 
+/// Reference to an on-disk calibration artifact (blaze, flat, bad-pixel mask, …).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EchelleArtifactRef {
     pub path: PathBuf,
@@ -209,6 +225,7 @@ pub struct EchelleArtifactRef {
     pub format: Option<String>,
 }
 
+/// Axis-aligned rectangular pixel region in frame coordinates.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PixelRegion {
     pub x: u32,
@@ -217,6 +234,7 @@ pub struct PixelRegion {
     pub height: u32,
 }
 
+/// Bundle of per-profile flux corrections (blaze, flat, bad pixels, exclusions).
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct EchelleCorrections {
     #[serde(default)]
@@ -300,10 +318,12 @@ impl BadPixelMask {
         self.mask[(y * self.width + x) as usize]
     }
 
+    /// Mask width in pixels.
     pub fn width(&self) -> u32 {
         self.width
     }
 
+    /// Mask height in pixels.
     pub fn height(&self) -> u32 {
         self.height
     }
@@ -314,6 +334,7 @@ impl BadPixelMask {
     }
 }
 
+/// Who generated this profile, when, and from what source frames.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EchelleProvenance {
     pub creator_tool: String,
@@ -326,6 +347,7 @@ pub struct EchelleProvenance {
     pub notes: Option<String>,
 }
 
+/// Complete echelle calibration profile: geometry, orders, corrections, provenance.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EchelleCalibrationProfile {
     #[serde(default)]
@@ -342,6 +364,7 @@ pub struct EchelleCalibrationProfile {
     pub provenance: EchelleProvenance,
 }
 
+/// Runtime frame geometry a profile is being applied to (for compatibility checks).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct EchelleFrameContext {
     pub width: u32,
@@ -502,6 +525,7 @@ pub enum EchelleProfileError {
 }
 
 impl EchelleCalibrationProfile {
+    /// Load and validate a profile from a `.toml` or `.json` file.
     pub fn load_from_path(path: impl AsRef<Path>) -> Result<Self, EchelleProfileError> {
         let path = path.as_ref();
         let path_str = path.display().to_string();
@@ -527,11 +551,11 @@ impl EchelleCalibrationProfile {
             }
         };
 
-        // If older v1 minor/patch is loaded, preserve exact version while still validating.
         profile.validate()?;
         Ok(profile)
     }
 
+    /// Validate then serialise this profile to `path` as TOML or JSON.
     pub fn save_to_path(&self, path: impl AsRef<Path>) -> Result<(), EchelleProfileError> {
         let path = path.as_ref();
         let path_str = path.display().to_string();
@@ -568,6 +592,7 @@ impl EchelleCalibrationProfile {
         })
     }
 
+    /// Validate all fields: schema version, geometry, extraction, corrections, orders.
     pub fn validate(&self) -> Result<(), EchelleProfileError> {
         if !self.schema_version.is_supported_for_read() {
             return Err(EchelleProfileError::Validation(format!(
@@ -610,8 +635,6 @@ impl EchelleCalibrationProfile {
         let mut hard_mismatches = Vec::new();
         let mut soft_mismatches = Vec::new();
 
-        // Frame dimensions: incompatible if different, because trace positions
-        // and sample ranges are defined in the profile's frame coordinate space.
         if frame.width != c.frame_width || frame.height != c.frame_height {
             hard_mismatches.push(CompatibilityWarning::FrameSizeMismatch {
                 expected_width: c.frame_width,
@@ -621,8 +644,6 @@ impl EchelleCalibrationProfile {
             });
         }
 
-        // ROI: incompatible if different, because trace polynomials encode
-        // sensor-coordinate positions that depend on the ROI origin.
         if let Some(roi_x) = frame.roi_x
             && roi_x != c.roi_x
         {
@@ -642,8 +663,6 @@ impl EchelleCalibrationProfile {
             });
         }
 
-        // Binning: incompatible if different, because it changes effective
-        // pixel scale and invalidates trace polynomial coefficients.
         if let Some(bx) = frame.binning_x
             && bx != c.binning_x
         {
@@ -663,8 +682,8 @@ impl EchelleCalibrationProfile {
             });
         }
 
-        // Bit depth: usable with warning. Extraction math is the same but
-        // saturation detection thresholds will be wrong.
+        // Bit depth is a soft mismatch: extraction math is identical but
+        // saturation thresholds derived from bit depth will be wrong.
         if let (Some(expected), Some(actual)) = (c.bit_depth, frame.bit_depth)
             && expected != actual
         {
@@ -702,7 +721,6 @@ impl EchelleCalibrationProfile {
         match compat {
             FrameCompatibility::Compatible => Ok(()),
             FrameCompatibility::UsableWithWarnings { warnings } => {
-                // Strict mode: treat warnings as errors
                 let msgs: Vec<String> = warnings.iter().map(ToString::to_string).collect();
                 Err(invalid(msgs.join("; ")))
             }
@@ -989,6 +1007,7 @@ const fn default_baseline_window_px() -> u32 {
     11
 }
 
+/// Extracted 1D spectrum for a single order with per-sample quality diagnostics.
 #[derive(Debug, Clone, PartialEq)]
 pub struct EchelleOrderPreview {
     pub relative_index: u32,
@@ -1003,6 +1022,7 @@ pub struct EchelleOrderPreview {
     pub saturated_samples: u32,
 }
 
+/// Single wavelength-sorted spectrum merged from multiple orders.
 #[derive(Debug, Clone, PartialEq)]
 pub struct EchelleMergedPreview {
     pub wavelength_unit: String,
@@ -1010,6 +1030,7 @@ pub struct EchelleMergedPreview {
     pub flux: Vec<f64>,
 }
 
+/// Full extraction result: per-order previews plus an optional merged spectrum.
 #[derive(Debug, Clone, PartialEq)]
 pub struct EchelleExtractionPreview {
     pub frame_number: u64,
@@ -1020,10 +1041,12 @@ pub struct EchelleExtractionPreview {
 }
 
 impl EchelleExtractionPreview {
+    /// Convert this preview to measurements with `preview=true` and no device scope.
     pub fn to_measurements(&self) -> Vec<Measurement> {
         self.to_measurements_with_context(true, None)
     }
 
+    /// Convert to measurements, tagging preview flag and optional `device_id`.
     pub fn to_measurements_with_context(
         &self,
         preview: bool,
@@ -1112,6 +1135,7 @@ fn insert_device_id_metadata(metadata: &mut serde_json::Value, device_id: &str) 
     }
 }
 
+/// Decoded 8/12/16-bit camera frame with uniform `u32`-valued pixel access.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DecodedIntensityFrame<'a> {
     width: u32,
@@ -1127,6 +1151,7 @@ enum DecodedPixels<'a> {
 }
 
 impl<'a> DecodedIntensityFrame<'a> {
+    /// Decode raw frame bytes; `u16_scratch` avoids allocation on misaligned 12/16-bit buffers.
     pub fn decode(
         frame_data: &'a [u8],
         width: u32,
@@ -1157,10 +1182,9 @@ impl<'a> DecodedIntensityFrame<'a> {
                     ));
                 }
                 #[allow(unsafe_code)]
-                // The zero-copy fast path is intentional; misaligned buffers fall back to owned decoding below.
-                // SAFETY: `align_to::<u16>()` only creates a borrowed view when the byte slice is
-                // properly aligned and complete; otherwise we detect the misalignment/trailing bytes
-                // via `prefix`/`suffix` and fall back to an owned little-endian decode below.
+                // SAFETY: `align_to::<u16>()` only yields a borrowed view when the byte
+                // slice is properly aligned and complete; misalignment/trailing bytes
+                // are detected via `prefix`/`suffix` and fall through to an owned decode.
                 let (prefix, u16s, suffix) = unsafe { frame_data.align_to::<u16>() };
                 if prefix.is_empty() && suffix.is_empty() && u16s.len() >= pixel_count {
                     DecodedPixels::U16Borrowed(&u16s[..pixel_count])
@@ -1193,16 +1217,19 @@ impl<'a> DecodedIntensityFrame<'a> {
         })
     }
 
+    /// Frame width in pixels.
     #[inline]
     pub fn width(&self) -> u32 {
         self.width
     }
 
+    /// Frame height in pixels.
     #[inline]
     pub fn height(&self) -> u32 {
         self.height
     }
 
+    /// Pixel value at `(x, y)` as `u32`; `None` if out of bounds.
     #[inline]
     pub fn get(&self, x: u32, y: u32) -> Option<u32> {
         if x >= self.width || y >= self.height {
@@ -1230,6 +1257,7 @@ impl<'a> DecodedIntensityFrame<'a> {
     }
 }
 
+/// Extract per-order previews (plus merged spectrum) from a raw frame.
 pub fn extract_preview(
     profile: &EchelleCalibrationProfile,
     frame_data: &[u8],
@@ -1249,6 +1277,7 @@ pub fn extract_preview(
     )
 }
 
+/// Like [`extract_preview`] but honours an optional bad-pixel mask.
 pub fn extract_preview_masked(
     profile: &EchelleCalibrationProfile,
     frame_data: &[u8],
@@ -1277,6 +1306,7 @@ pub fn extract_preview_masked(
     extract_preview_with_scratch_inner(profile, &decoded, bit_depth, frame_number, mask)
 }
 
+/// [`extract_preview`] variant that reuses a caller-owned `u16` scratch buffer.
 pub fn extract_preview_with_u16_scratch(
     profile: &EchelleCalibrationProfile,
     frame_data: &[u8],
@@ -1298,6 +1328,7 @@ pub fn extract_preview_with_u16_scratch(
     )
 }
 
+/// Scratch-buffer variant of [`extract_preview_masked`].
 #[allow(clippy::too_many_arguments)]
 pub fn extract_preview_with_u16_scratch_masked(
     profile: &EchelleCalibrationProfile,
@@ -1329,6 +1360,7 @@ pub fn extract_preview_with_u16_scratch_masked(
     extract_preview_with_scratch_inner(profile, &decoded, bit_depth, frame_number, mask)
 }
 
+/// Sensor-pixel `(x, y)` position for a sample index along a given order.
 #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // Overlay coordinates intentionally quantize calibrated f64 positions into UI-friendly f32 pixels.
 pub fn order_sample_image_position(
     profile: &EchelleCalibrationProfile,
@@ -1336,7 +1368,6 @@ pub fn order_sample_image_position(
     sample_index: usize,
 ) -> Option<(f32, f32)> {
     #[allow(clippy::cast_possible_truncation)]
-    // Sample indices are bounded by the validated order range.
     let sample_local = order.sample_start.checked_add(sample_index as u32)?;
     if sample_local > order.sample_end {
         return None;
@@ -1370,7 +1401,9 @@ fn extract_preview_with_scratch_inner(
     let saturation_threshold = bit_depth_max(bit_depth);
     let blaze_curves = profile.corrections.blaze_curves.as_ref();
 
-    // Scattered light: compute a full-resolution correction map if enabled.
+    // NOTE: the scattered-light estimator evaluates trace models in frame-local
+    // pixel coordinates. That is only correct while ROI offset is zero (as with
+    // iStar full-frame AOI). Non-zero ROI would require passing the offset in.
     let scatter_map: Option<Vec<f32>> =
         profile
             .extraction
@@ -1378,13 +1411,6 @@ fn extract_preview_with_scratch_inner(
             .as_ref()
             .map(|sl_config| {
                 let f32_frame = decoded.to_f32_vec();
-                // NOTE: The scattered-light estimator evaluates trace models
-                // using frame-local pixel coordinates. When ROI offset is
-                // non-zero, trace polynomials (defined in sensor coordinates)
-                // would be evaluated at the wrong position. For now this is
-                // correct because the iStar forces full-frame AOI (roi=0).
-                // A proper fix for non-zero ROI would pass offsets into the
-                // estimator to map frame-local → sensor coordinates.
                 let traces: Vec<TraceInfo<'_>> = profile
                     .orders
                     .iter()
@@ -1407,8 +1433,8 @@ fn extract_preview_with_scratch_inner(
             });
     let scatter_ref = scatter_map.as_deref();
 
-    // Collect (position_in_orders_vec, order) pairs so blaze_curves is
-    // indexed by position, not by relative_index (which may not be contiguous).
+    // Enumerate enabled orders so `blaze_curves` can be indexed by position
+    // (relative_index may be non-contiguous).
     let enabled_orders: Vec<(usize, &EchelleOrderCalibration)> = profile
         .orders
         .iter()
@@ -1476,7 +1502,6 @@ fn extract_order(
         .aperture_half_width_px
         .unwrap_or(profile.extraction.default_aperture_half_width_px);
     #[allow(clippy::cast_possible_truncation)]
-    // The configured aperture radius is rounded to an integer pixel span.
     let radius = half_width.max(0.0).floor() as i32;
     #[allow(clippy::cast_sign_loss)] // `planned_span` is derived from a non-negative radius.
     let planned_span = (radius * 2 + 1).max(1) as u32;
@@ -1521,7 +1546,6 @@ fn extract_order(
         wavelengths.push(wavelength.0);
 
         #[allow(clippy::cast_possible_truncation)]
-        // Trace evaluation is converted back onto the detector's integer pixel grid.
         let center_px = center_local.round() as i32;
         let mut sample_sum = 0.0f64;
         let mut valid = 0u32;
@@ -1548,9 +1572,8 @@ fn extract_order(
                 }
             }
             // Optimal extraction requires a rectified order and spatial profile
-            // (see optimal_extraction.rs). The preview path operates on raw frames,
-            // so Optimal falls back to SimpleSum here. Full optimal extraction is
-            // available via the rectification → optimal_extract pipeline.
+            // (see optimal_extraction.rs); the raw-frame preview path falls back
+            // to SimpleSum here.
             EchelleSummationMode::SimpleSum | EchelleSummationMode::Optimal => {
                 for offset in -radius..=radius {
                     let cross_px = center_px + offset;
@@ -1578,12 +1601,10 @@ fn extract_order(
                 }
             }
             EchelleSummationMode::SqrtWeightedSum => {
-                // Inverse-sqrt-variance weighting: weight_i = 1 / sqrt(V_i)
-                // where V_i = readnoise² + max(pixel_i, 0) / gain.
-                // This downweights noisy edge pixels without requiring a
-                // spatial profile fit (intermediate between SimpleSum and Optimal).
-                //
-                // Uses conservative defaults when detector model is not configured.
+                // Inverse-sqrt-variance weighting weight_i = 1/sqrt(readnoise² +
+                // max(pixel_i,0)/gain) downweights noisy edge pixels without
+                // requiring a spatial profile fit. Conservative defaults are
+                // used until a per-detector noise model is wired in.
                 const DEFAULT_READ_NOISE: f64 = 3.0; // electrons
                 const DEFAULT_GAIN: f64 = 1.0; // electrons/ADU
 
@@ -1607,7 +1628,6 @@ fn extract_order(
                             let signal = (f64::from(pixel)
                                 - scatter_at(scatter_map, x as u32, y as u32, frame.width()))
                             .max(0.0);
-                            // Variance: readnoise² + Poisson term (signal/gain)
                             let variance =
                                 DEFAULT_READ_NOISE * DEFAULT_READ_NOISE + signal / DEFAULT_GAIN;
                             let weight = 1.0 / variance.sqrt();
@@ -1618,7 +1638,7 @@ fn extract_order(
                         }
                     }
                 }
-                // Normalize by total weight to produce a weighted mean × aperture
+                // Convert the weighted sum into a weighted-mean × aperture span.
                 if weight_sum > 0.0 {
                     sample_sum /= weight_sum;
                     sample_sum *= f64::from(valid);
@@ -1626,8 +1646,7 @@ fn extract_order(
             }
         }
 
-        // Background subtraction applies to all aperture-based modes
-        // (SimpleSum, SqrtWeightedSum, Optimal) but not OrderCenterPixel.
+        // Sideband background subtraction is skipped in single-pixel mode.
         if valid > 0
             && !matches!(
                 profile.extraction.summation_mode,
@@ -1650,13 +1669,12 @@ fn extract_order(
             if background_count > 0 {
                 let background_mean = background_sum / f64::from(background_count);
                 sample_sum -= background_mean * f64::from(valid);
-                sample_sum = sample_sum.max(0.0); // Clamp to non-negative
+                sample_sum = sample_sum.max(0.0);
             }
         }
 
-        // Blaze correction: divide by normalised flat-lamp blaze function.
-        // Applied after background subtraction so both additive (sky) and
-        // multiplicative (blaze) corrections compose correctly.
+        // Blaze correction follows background subtraction so the additive (sky)
+        // and multiplicative (blaze) corrections compose correctly.
         if let Some(blaze_curve) = blaze {
             let sample_idx = (sample_local - order.sample_start) as usize;
             if let Some(&bval) = blaze_curve.get(sample_idx) {
@@ -1673,7 +1691,6 @@ fn extract_order(
         }
         flux.push(sample_sum);
         #[allow(clippy::cast_precision_loss)]
-        // Valid fraction is display-oriented quality metadata, not a numerically sensitive science output.
         valid_fraction.push(valid as f32 / planned_span as f32);
         saturated.push(saturated_sample);
     }
@@ -1739,9 +1756,8 @@ fn sample_background_sidebands(
     (background_sum, background_count)
 }
 
-/// Default merge bin width for `build_merged_preview` (nm). Finer than the
-/// legacy 0.1 nm grid so Mechelle-class resolving power is not over-smoothed
-/// in the GUI merged preview (bd-srh1).
+/// Merge bin width (nm) for [`build_merged_preview`]; finer than the legacy
+/// 0.1 nm grid so Mechelle-class R is not over-smoothed (see bd-srh1).
 pub const ECHELLE_MERGE_BIN_WIDTH_NM: f64 = 0.05;
 
 /// Echelle grating blaze envelope: sinc²(π·(λ − λ_blaze) / FSR), matching the
@@ -1781,14 +1797,11 @@ fn infer_order_grating_constant_nm(order: &EchelleOrderPreview, m: i32) -> Optio
 
 /// Merge per-order 1D previews into one wavelength-sorted spectrum.
 ///
-/// When `flux_is_blaze_corrected` is false (no empirical `blaze_curves` applied
-/// in [`extract_order`]), overlap regions are combined with **blaze weights**
-/// `W ∝ sinc²((λ−λ_blaze)/FSR)` using per-order `λ_blaze = (m·λ)_median / m` and
-/// `FSR = (m·λ)_median / m²`. That replaces the old fixed 10% edge trim (bd-srh1).
-///
-/// When empirical flat-field blaze curves were applied during extraction, flux is
-/// already flattened; merge uses uniform weights so we do not double-apply the
-/// grating envelope (bd-dgea).
+/// If `flux_is_blaze_corrected` is false, overlap regions use analytic blaze
+/// weights `W ∝ sinc²((λ−λ_blaze)/FSR)` with per-order `λ_blaze = (m·λ)_median/m`
+/// and `FSR = (m·λ)_median/m²` (bd-srh1, replacing the old 10% edge trim).
+/// When empirical `blaze_curves` have already flattened flux, merge uses
+/// uniform weights to avoid double-applying the envelope (bd-dgea).
 fn build_merged_preview(
     orders: &[EchelleOrderPreview],
     flux_is_blaze_corrected: bool,
@@ -1856,7 +1869,7 @@ fn build_merged_preview(
                 bin_w_sum = 0.0;
                 bin_fw_sum = 0.0;
             }
-            // Inject a NAN gap to break the egui line segment
+            // NAN marker breaks the egui line between disjoint order ranges.
             binned_wl.push(last_wl + gap_threshold * 0.5);
             binned_flux.push(f64::NAN);
             bin_start = wl;
@@ -2028,24 +2041,16 @@ fn eval_polynomial(
     })
 }
 
-// ─── Blaze correction ──────────────────────────────────────────────────────
-
 /// Extract per-order blaze curves from a flat-lamp frame.
 ///
-/// For each calibrated order the function:
-/// 1. Extracts the flat spectrum using simple-sum mode (no background,
-///    no blaze correction, no scattered-light subtraction).
-/// 2. Normalises the per-order flat spectrum so that its peak value is 1.0.
-/// 3. Clamps values below `BLAZE_FLOOR` to that floor to prevent
-///    excessive amplification at order edges.
+/// Each order is extracted in SimpleSum mode (no background, blaze, or scatter
+/// subtraction) and normalised so its peak is 1.0 with values clamped to
+/// [`BLAZE_FLOOR`]. Within one order the lamp SED varies by ~10 nm, so the
+/// flat shape is dominated by the blaze envelope and no continuum removal is
+/// performed.
 ///
-/// Note: this is a simple per-order normalisation; it does not perform
-/// lamp SED removal via continuum modelling or median smoothing. Within
-/// a single echelle order the lamp SED varies negligibly (~10 nm range).
-///
-/// Store the result in `profile.corrections.blaze_curves` so subsequent
-/// calls to [`extract_preview`] will automatically divide science flux
-/// by the blaze function.
+/// Store the result in `profile.corrections.blaze_curves`; subsequent
+/// [`extract_preview`] calls will automatically divide science flux by it.
 pub fn extract_flat_blaze_curves(
     profile: &EchelleCalibrationProfile,
     flat_data: &[u8],
@@ -2053,8 +2058,7 @@ pub fn extract_flat_blaze_curves(
     height: u32,
     bit_depth: u32,
 ) -> Result<Vec<Vec<f64>>, String> {
-    // Build a throw-away profile copy that always uses SimpleSum without
-    // background or blaze corrections – we want the raw flat shape.
+    // Throw-away profile that extracts the raw flat shape only.
     let mut flat_profile = profile.clone();
     flat_profile.corrections.blaze_curves = None;
     flat_profile.extraction.summation_mode = EchelleSummationMode::SimpleSum;
@@ -2063,7 +2067,6 @@ pub fn extract_flat_blaze_curves(
 
     let preview = extract_preview(&flat_profile, flat_data, width, height, bit_depth, 0)?;
 
-    // Map relative_index → extracted flux for quick lookup.
     let flux_map: std::collections::HashMap<u32, &[f64]> = preview
         .orders
         .iter()
@@ -2075,7 +2078,7 @@ pub fn extract_flat_blaze_curves(
         if let Some(flux) = flux_map.get(&order.relative_index) {
             curves.push(compute_blaze_from_flat(flux));
         } else {
-            // Disabled or failed order – identity curve (no correction).
+            // Disabled or failed order: identity curve (no correction).
             let n = (order.sample_end.saturating_sub(order.sample_start) + 1) as usize;
             curves.push(vec![1.0; n]);
         }
@@ -2537,8 +2540,6 @@ mod tests {
         );
     }
 
-    // -- FrameCompatibility tests (bd-qe8p.1.2) --
-
     #[test]
     fn compatible_when_all_fields_match() {
         let profile = minimal_profile();
@@ -2667,10 +2668,6 @@ mod tests {
         assert!(result.unwrap_err().contains("frame size mismatch"));
     }
 
-    // ====================================================================
-    // Task 1: bd-qe8p.2.2 — Compatibility regression suite
-    // ====================================================================
-
     #[test]
     fn incompatible_on_roi_mismatch() {
         let profile = minimal_profile();
@@ -2798,10 +2795,6 @@ mod tests {
             "expected bit depth mismatch error, got: {err}"
         );
     }
-
-    // ====================================================================
-    // Task 2: bd-qe8p.2.3 — Extraction regression fixtures
-    // ====================================================================
 
     /// Build a small profile with a single order on a compact frame
     /// suitable for extraction tests with controlled pixel values.
@@ -3090,10 +3083,6 @@ mod tests {
         );
     }
 
-    // ====================================================================
-    // Task 3: bd-qe8p.2.1 — WASM activate-path regression (non-WASM)
-    // ====================================================================
-
     #[test]
     fn large_multi_order_profile_roundtrip_and_extraction() {
         // Build a profile with 50+ orders programmatically.
@@ -3172,25 +3161,21 @@ mod tests {
             },
         };
 
-        // Step 1: Validate the profile.
         profile
             .validate()
             .expect("large multi-order profile should validate");
 
-        // Step 2: Serialize to TOML.
         let dir = tempdir().unwrap();
         let toml_path = dir.path().join("large_profile.toml");
         profile
             .save_to_path(&toml_path)
             .expect("should serialize to TOML");
 
-        // Step 3: Deserialize from TOML and re-validate.
         let loaded =
             EchelleCalibrationProfile::load_from_path(&toml_path).expect("should deserialize");
         assert_eq!(loaded.orders.len(), num_orders as usize);
         assert_eq!(loaded.display_name, profile.display_name);
         assert_eq!(loaded.compatibility, profile.compatibility);
-        // Verify order data survived the roundtrip.
         for (orig, loaded_order) in profile.orders.iter().zip(loaded.orders.iter()) {
             assert_eq!(orig.relative_index, loaded_order.relative_index);
             assert_eq!(
@@ -3199,7 +3184,6 @@ mod tests {
             );
         }
 
-        // Step 4: Extract on a matching synthetic frame.
         let frame = vec![0u8; (width as usize) * (height as usize) * 2];
         let preview = extract_preview(&loaded, &frame, width, height, 16, 42)
             .expect("extraction on matching synthetic frame should succeed");
@@ -3209,7 +3193,6 @@ mod tests {
             preview.merged.is_some(),
             "merged preview should be present for multi-order extraction"
         );
-        // Verify merged wavelengths are sorted.
         let merged = preview.merged.as_ref().unwrap();
         for pair in merged.wavelengths.windows(2) {
             assert!(
@@ -3220,8 +3203,6 @@ mod tests {
             );
         }
     }
-
-    // -- Wavelength model fidelity tests (bd-qe8p.1.6) --
 
     #[test]
     fn chebyshev_wavelength_model_roundtrip_preserves_full_precision() {
@@ -3319,10 +3300,6 @@ mod tests {
             }
         }
     }
-
-    // ====================================================================
-    // Blaze correction tests
-    // ====================================================================
 
     #[test]
     #[allow(clippy::cast_precision_loss)]

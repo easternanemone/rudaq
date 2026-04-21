@@ -1,56 +1,34 @@
 //! DH3P (Deuterium-Halogen) flat-field blaze correction + variance-weighted
-//! order merging — bd-w8wa6 / Phase E of the bd-sw760 epic.
+//! order merging.
 //!
 //! The Mechelle 5000's matched calibration lamp is a Deuterium + Tungsten-
-//! Halogen hybrid (DH3P). Its continuum spans the Mechelle's 200–975 nm
-//! bandpass by pairing a bright-UV Deuterium source with a bright-visible
-//! Halogen source. Unlike a pure Tungsten-Halogen lamp (whose SED is
-//! approximately Planckian and flat over ~10 nm, so a per-order peak
-//! normalisation is enough), the DH3P continuum has a pronounced
-//! crossover region around 350–400 nm where the Deuterium peak transits
-//! into the Halogen roll-off. A naïve per-order peak normalisation
-//! therefore **entangles** the instrumental blaze with the lamp's intrinsic
-//! SED and produces biased blaze curves at the UV/visible boundary.
+//! Halogen hybrid (DH3P) whose continuum spans the 200–975 nm bandpass.
+//! Unlike a pure Tungsten-Halogen lamp (approximately Planckian, flat over
+//! ~10 nm — a per-order peak normalisation is enough), the DH3P continuum
+//! has a pronounced crossover near 350–400 nm where the Deuterium peak
+//! transits into the Halogen roll-off. A naïve peak normalisation entangles
+//! the instrumental blaze with the lamp's intrinsic SED and yields biased
+//! blaze curves at the UV/visible boundary.
 //!
-//! # Algorithm (SOTA echelle review 2026-04-18 §"B-Spline Normalization" +
-//!   NotebookLM 7f275c3a eval memo §FM3)
+//! # Algorithm
 //!
-//! 1. Extract the DH3P flat through the same pipeline as science
-//!    (trace detection, scatter, Horne extraction). Yields per-order
-//!    extracted flux `F_i(x)` + wavelength axis `λ_i(x)`.
-//! 2. Assemble a global `(λ, F)` point cloud across all orders, sample
-//!    the upper envelope with an iterative sigma-clip (rejecting
-//!    positive outliers — Deuterium Balmer emission at 434/486/656 nm,
-//!    cosmic rays, saturated pixels), and fit a smoothed B-spline
-//!    continuum `C_lamp(λ)` to the retained points. The SOTA review
-//!    suggests "an 8-node quartic least-squares univariate spline" or
-//!    "a heavily smoothed spline / low-pass Fourier filter".
-//! 3. Isolate the instrumental blaze per order:
-//!    `B_i(x) = F_i(x) / C_lamp(λ_i(x))`
-//!    normalised to its own peak, then masked where `B_i(x)` drops
-//!    below 15 % of that peak (per-order, not global — aggressive edge
-//!    cutoff to eliminate optical aberrations at the detector boundary).
-//! 4. At science-extraction time, divide each order's flux by its
-//!    `B_i(x)` to recover the true relative flux.
-//! 5. Merge orders via strict **variance-weighted** average:
-//!    `S_merged(λ) = Σ_i (W_i(λ)·S_corr_i(λ)) / Σ_i W_i(λ)`
-//!    with `W_i(λ) = B_i(λ)² / σ_i(λ)²`. This aggressively penalises
-//!    order edges (where B → 0 and σ_corr = σ/B → ∞) and matches the
-//!    SOTA 2010+ pipelines (CERES, PypeIt, ESO MIDAS).
+//! 1. Extract the DH3P flat through the same pipeline as science,
+//!    yielding per-order `F_i(x)` and `λ_i(x)`.
+//! 2. Assemble a global `(λ, F)` cloud across all orders and fit a smoothed
+//!    continuum `C_lamp(λ)` via iterative positive-sigma-clip against a
+//!    piecewise-linear knot interpolation (rejects Deuterium Balmer emission
+//!    at 434/486/656 nm, cosmic rays, saturated pixels).
+//! 3. Per order: `B_i(x) = F_i(x) / C_lamp(λ_i(x))`, peak-normalised, then
+//!    masked below 15 % of that per-order peak — aggressive edge cutoff
+//!    against optical aberrations at the detector boundary.
+//! 4. At extraction time: divide each order's flux by `B_i(x)`.
+//! 5. Merge with weights `W_i(λ) = B_i(λ)² / σ_i(λ)²` ≡ `1 / σ_corr²`, which
+//!    penalises order edges (where `B → 0`) in proportion to their squared
+//!    SNR loss — matches CERES / PypeIt / ESO MIDAS practice.
 //!
-//! The Mechelle's "no moving parts" design means a single high-SNR
-//! master DH3P flat can be reused across many science runs — we
-//! cache the blaze model in
-//! [`crate::types::EchelleCorrections::blaze_curves`].
-//!
-//! # Status
-//!
-//! This module provides the building blocks. Integration into the full
-//! calibration + extraction pipeline (replacing the existing
-//! `compute_blaze_from_flat` per-order peak normalisation for DH3P
-//! sources, and swapping the preview merge for the variance-weighted
-//! merge) is a follow-up once a real DH3P flat has been captured on
-//! leabs-dev and validated.
+//! The Mechelle's "no moving parts" design means a single high-SNR master
+//! DH3P flat can be reused across many science runs; the derived blaze
+//! curves are cached in [`crate::types::EchelleCorrections::blaze_curves`].
 
 #![allow(
     clippy::cast_precision_loss,
@@ -60,36 +38,28 @@
 
 /// Wavelength sanity window (nm) for DH3P sample intake.
 ///
-/// Why: the echelle wavelength solution occasionally emits pathological
-/// values (e.g. near-zero or >2 μm) for degenerate orders that we still
-/// want to tolerate without blowing up the continuum fit. The Mechelle's
-/// physical bandpass is 200–975 nm; the generous window accepts mild
-/// extrapolation at the edges while rejecting nonsense.
+/// Generous around the Mechelle's 200–975 nm physical bandpass: accepts mild
+/// edge extrapolation while rejecting pathological near-zero or >2 μm values
+/// that degenerate orders sometimes emit.
 const SAMPLE_WAVELENGTH_MIN_NM: f64 = 100.0;
 const SAMPLE_WAVELENGTH_MAX_NM: f64 = 2000.0;
 
-/// Sample point from the assembled DH3P flat, used by the continuum fit.
+/// Single `(λ, F)` sample from the assembled DH3P flat.
 #[derive(Debug, Clone, Copy)]
 struct FlatSample {
     wavelength: f64,
     flux: f64,
 }
 
-/// Smoothed global continuum fit to the DH3P lamp SED.
+/// Smoothed global continuum fit `C_lamp(λ)` to the DH3P lamp SED.
 ///
-/// The lamp continuum `C_lamp(λ)` is stored as a piecewise-linear
-/// interpolation over densely-sampled knots on a log-wavelength grid.
-/// This is mathematically equivalent to a heavily-smoothed
-/// variable-knot spline when the knot spacing is chosen much larger
-/// than the echelle line-spread function but much smaller than the
-/// lamp SED's intrinsic correlation length (~20 nm for DH3P) —
-/// exactly the "high-stiffness smoothed spline" the literature
-/// prescribes.
+/// Stored as a piecewise-linear interpolation over uniformly-spaced knots.
+/// Mathematically equivalent to a heavily-smoothed variable-knot spline when
+/// knot spacing sits well above the echelle line-spread function yet below
+/// the lamp SED's intrinsic ~20 nm correlation length.
 ///
-/// For rust-daq's 200–975 nm bandpass a 64-knot fit (8 nodes per 100 nm)
-/// resolves the Deuterium peak and Halogen roll-off without chasing
-/// local noise. Users can request fewer or more knots via
-/// `Dh3pContinuumConfig::n_knots`.
+/// The 64-knot default (~12 nm spacing over 200–975 nm) resolves the Deuterium
+/// peak and Halogen roll-off without chasing local noise.
 #[derive(Debug, Clone)]
 pub struct Dh3pContinuum {
     /// Sorted knot wavelengths (nm).
@@ -105,8 +75,7 @@ pub struct Dh3pContinuum {
 }
 
 impl Dh3pContinuum {
-    /// Evaluate `C_lamp(λ)` at an arbitrary wavelength via linear
-    /// interpolation between knots. Returns 0.0 outside the knot range.
+    /// Evaluate `C_lamp(λ)` by linear interpolation; clamps at the knot range.
     #[must_use]
     pub fn eval(&self, wavelength: f64) -> f64 {
         let ks = &self.knot_wavelengths;
@@ -120,7 +89,6 @@ impl Dh3pContinuum {
         if wavelength >= ks[ks.len() - 1] {
             return fs[fs.len() - 1];
         }
-        // Binary search for the bracketing knots.
         let pos = ks.partition_point(|&k| k <= wavelength);
         let lo = pos.saturating_sub(1).min(ks.len() - 2);
         let hi = lo + 1;
@@ -131,16 +99,14 @@ impl Dh3pContinuum {
     }
 }
 
-/// Configuration for the DH3P continuum fit.
+/// Configuration for [`fit_dh3p_continuum`].
 #[derive(Debug, Clone)]
 pub struct Dh3pContinuumConfig {
-    /// Number of spline knots. 64 is a good default for the Mechelle
-    /// 5000's 200–975 nm range (≈12 nm spacing). Too few → lamp SED
-    /// features leak into the blaze correction; too many → the fit
-    /// chases Deuterium Balmer emission even after sigma-clipping.
+    /// Number of spline knots. Default 64 (~12 nm spacing on 200–975 nm).
+    /// Too few → lamp SED features leak into the blaze correction; too many
+    /// → the fit chases Deuterium Balmer emission even after sigma-clipping.
     pub n_knots: usize,
-    /// Sigma-clipping threshold for rejecting positive outliers
-    /// (emission lines, cosmic rays, saturated pixels).
+    /// Positive-outlier sigma-clip threshold (emission lines, CRs, saturation).
     pub sigma_threshold: f64,
     /// Maximum sigma-clip iterations.
     pub max_iters: usize,
@@ -156,35 +122,25 @@ impl Default for Dh3pContinuumConfig {
     }
 }
 
-/// Fit the global DH3P lamp continuum `C_lamp(λ)` from a set of
-/// per-order extracted flat spectra.
+/// Fit the global DH3P lamp continuum `C_lamp(λ)` from per-order flats.
 ///
 /// `orders_flat` — one entry per order: `(wavelengths_nm, extracted_flux)`.
-/// Wavelengths do not need to be globally sorted; the function assembles
-/// all samples into a single sorted series internally.
+/// Wavelengths need not be globally sorted; the function assembles and sorts
+/// all samples internally.
 ///
 /// # Precondition — in-illumination samples only
 ///
-/// **The caller is responsible for passing ONLY flat-flux samples from
-/// pixels where the echelle order is actually illuminated on the
-/// detector.** The profile's per-order `sample_start..sample_end` range
-/// for synthesized orders spans the full detector width, but the order
-/// only occupies a narrow illuminated strip within that range. Off-
-/// strip pixels aperture-sum to the near-zero inter-order background;
-/// if those samples are passed to this fit, the median-per-knot
-/// continuum estimator is dominated by the noise floor rather than the
-/// real lamp continuum.
+/// Pass ONLY flat-flux samples from pixels where the order is actually
+/// illuminated on the detector. Synthesised-profile orders span the full
+/// detector width in pixels, but the order occupies a narrow illuminated
+/// strip; off-strip pixels aperture-sum to the near-zero inter-order
+/// background. Including them drags the median-per-knot continuum estimator
+/// down to the noise floor, inflating per-order peak blaze efficiencies by
+/// 10–100×.
 ///
-/// Recommended filtering at the caller: for each order's flat flux
-/// `F_i(x)`, include only pixels where `F_i(x) > 10 × p10(F_i)` (ten
-/// times the 10th-percentile flux for that order), which reliably
-/// separates in-illumination pixels from background.
-///
-/// This precondition was identified during real-hardware validation on
-/// a leabs-dev DH3P flat (see `debug/phase5/validate_phase_e.py`): the
-/// first run without the illumination mask produced a C_lamp fit
-/// sitting at the noise floor rather than the lamp continuum level,
-/// with peak blaze efficiencies inflated by 10–100×.
+/// Recommended caller filter: keep pixels where `F_i(x) > 10 × p10(F_i)`
+/// (10× the 10th-percentile flux for that order) — this reliably separates
+/// in-illumination pixels from background.
 #[must_use]
 pub fn fit_dh3p_continuum(
     orders_flat: &[(&[f64], &[f64])],
@@ -220,12 +176,8 @@ pub fn fit_dh3p_continuum(
         return None;
     }
 
-    // No upper-envelope prefilter: the sigma-clip loop below already rejects
-    // positive outliers (emission lines, CRs) and the q75 prefilter was
-    // tautological on monotonic regions of the SED.
-    //
-    // Lay out knots uniformly in wavelength (not log — lamp SED correlation
-    // is smooth in linear λ over the Mechelle bandpass).
+    // Uniform (not log) knot spacing: DH3P SED correlation is smooth in linear
+    // λ across the Mechelle bandpass.
     let knot_wavelengths: Vec<f64> = (0..config.n_knots)
         .map(|i| {
             let t = i as f64 / (config.n_knots - 1) as f64;
@@ -233,13 +185,11 @@ pub fn fit_dh3p_continuum(
         })
         .collect();
 
-    // Iterative sigma-clipped fit.
     let mut kept_mask: Vec<bool> = vec![true; samples.len()];
     let mut knot_fluxes = vec![0.0; config.n_knots];
     let mut rms = 0.0;
-    for _iter in 0..config.max_iters.max(1) {
+    for _ in 0..config.max_iters.max(1) {
         knot_fluxes = compute_knot_fluxes(&samples, &kept_mask, &knot_wavelengths);
-        // Residuals of kept points against the piecewise-linear fit.
         let fit = Dh3pContinuum {
             knot_wavelengths: knot_wavelengths.clone(),
             knot_fluxes: knot_fluxes.clone(),
@@ -258,11 +208,9 @@ pub fn fit_dh3p_continuum(
             if !kept_mask[i] {
                 continue;
             }
-            let c = fit.eval(sample.wavelength);
-            let r = sample.flux - c - mean;
-            // Reject only positive outliers (emission lines above
-            // continuum). Negative outliers (absorption dips, bad
-            // pixels) are part of the continuum envelope by construction.
+            // Reject only positive residuals: emission lines / CRs sit above
+            // the continuum; absorption dips belong to the envelope.
+            let r = sample.flux - fit.eval(sample.wavelength) - mean;
             if r > threshold {
                 kept_mask[i] = false;
                 any_rejected = true;
@@ -289,29 +237,22 @@ pub fn fit_dh3p_continuum(
     })
 }
 
-/// Result of applying a DH3P continuum fit to a single order's extracted
-/// flat flux.
+/// Per-order DH3P blaze correction: peak-normalised curve plus usable mask.
 #[derive(Debug, Clone)]
 pub struct OrderBlaze {
-    /// Pure instrumental blaze per dispersion pixel, normalised to
-    /// per-order peak = 1.0.
+    /// Instrumental blaze per dispersion pixel, peak-normalised to 1.0.
     pub blaze: Vec<f64>,
-    /// Per-pixel mask: `true` means the blaze efficiency is above the
-    /// 15 % per-order-peak threshold and the pixel should contribute to
-    /// the merged spectrum. `false` means mask out (edge aberrations).
+    /// Per-pixel mask: `true` iff `blaze[i] ≥ blaze_threshold_frac`.
     pub usable_mask: Vec<bool>,
-    /// Per-order peak blaze efficiency before normalisation (before
-    /// dividing by C_lamp). Used for diagnostic reporting.
+    /// Per-order raw peak `max(F/C_lamp)` before normalisation (diagnostic).
     pub raw_peak: f64,
 }
 
-/// Compute an order's pure instrumental blaze curve from DH3P flat flux.
+/// Compute an order's instrumental blaze curve `B_i(x) = F_i(x) / C_lamp(λ_i(x))`.
 ///
-/// Returns `B_i(x) = F_i(x) / C_lamp(λ_i(x))` normalised to a per-order
-/// peak of 1.0, together with a mask of pixels whose `B_i(x)` exceeds
-/// 15 % of that per-order peak (SOTA §Absolute Thresholding).
-///
-/// Inputs of differing lengths return an empty result.
+/// Peak-normalised to 1.0, with a mask of pixels exceeding `blaze_threshold_frac`
+/// of that peak (SOTA §Absolute Thresholding — 0.15 is the Mechelle default).
+/// Returns an empty result if `flat_flux.len() != wavelengths.len()`.
 #[must_use]
 pub fn compute_blaze_from_dh3p_flat(
     flat_flux: &[f64],
@@ -328,7 +269,6 @@ pub fn compute_blaze_from_dh3p_flat(
         };
     }
 
-    // B_raw(x) = F(x) / C_lamp(λ(x))
     let mut blaze_raw = vec![0.0; n];
     for i in 0..n {
         let f = flat_flux[i];
@@ -340,7 +280,6 @@ pub fn compute_blaze_from_dh3p_flat(
         };
     }
 
-    // Per-order peak normalisation.
     let raw_peak = blaze_raw
         .iter()
         .copied()
@@ -354,8 +293,6 @@ pub fn compute_blaze_from_dh3p_flat(
         };
     }
     let blaze: Vec<f64> = blaze_raw.iter().map(|&b| b / raw_peak).collect();
-
-    // 15 % per-order-peak threshold mask.
     let usable_mask: Vec<bool> = blaze.iter().map(|&b| b >= blaze_threshold_frac).collect();
 
     OrderBlaze {
@@ -365,15 +302,14 @@ pub fn compute_blaze_from_dh3p_flat(
     }
 }
 
-/// Per-order input to the variance-weighted merge.
+/// Per-order input to [`variance_weighted_merge`].
 pub struct MergeOrderInput<'a> {
     /// Wavelength axis (nm).
     pub wavelengths: &'a [f64],
     /// Blaze-corrected flux `S_corr_i(x) = S_i(x) / B_i(x)`.
     pub flux: &'a [f64],
-    /// Pixel variance `σ_i(x)²` — **of the raw extracted flux, before**
-    /// blaze correction; the merge computes the corrected variance
-    /// `σ_corr² = σ² / B²` internally.
+    /// Pixel variance `σ_i(x)²` of the **raw** (pre-blaze-correction) flux;
+    /// the merge recovers `σ_corr² = σ² / B²` internally.
     pub variance: &'a [f64],
     /// Per-pixel blaze efficiency `B_i(x) ∈ [0, 1]`, peak-normalised.
     pub blaze: &'a [f64],
@@ -381,10 +317,10 @@ pub struct MergeOrderInput<'a> {
     pub usable_mask: &'a [bool],
 }
 
-/// Result of a variance-weighted order merge.
+/// Variance-weighted merged echelle spectrum on a uniform wavelength grid.
 #[derive(Debug, Clone)]
 pub struct MergedSpectrum {
-    /// Wavelength grid on which the merged spectrum is sampled (nm).
+    /// Wavelength grid (nm).
     pub wavelengths: Vec<f64>,
     /// Merged flux.
     pub flux: Vec<f64>,
@@ -394,18 +330,14 @@ pub struct MergedSpectrum {
     pub n_orders_per_bin: Vec<u32>,
 }
 
-/// Merge blaze-corrected echelle orders onto a common wavelength grid
-/// via strict variance-weighted averaging.
+/// Merge blaze-corrected orders via variance-weighted averaging on a uniform grid.
 ///
-/// Weight per pixel: `W_i(λ) = B_i(λ)² / σ_i(λ)²`, which is equivalent
-/// to `1 / σ_corr_i(λ)²` and ensures that order-edge pixels (where
-/// `B → 0`) are penalised proportionally to the squared-SNR loss.
+/// Per-pixel weight `W_i(λ) = B_i(λ)² / σ_i(λ)² ≡ 1 / σ_corr_i²`, so
+/// order-edge pixels (`B → 0`) are penalised by their squared SNR loss.
 ///
-/// The output grid is uniform in wavelength at `grid_spacing_nm`
-/// between the global min and max of all input orders. Each input
-/// pixel is assigned to the nearest bin (simple accumulator — use
-/// a higher-order resampler if flux conservation across very wide
-/// bins matters).
+/// Each input pixel is assigned to its nearest bin — adequate for Mechelle
+/// grids (~0.01–0.05 nm). Use a higher-order resampler if flux conservation
+/// across very wide bins matters.
 #[must_use]
 pub fn variance_weighted_merge(
     orders: &[MergeOrderInput<'_>],
@@ -457,7 +389,6 @@ pub fn variance_weighted_merge(
             if !wl.is_finite() || !fl.is_finite() || !var.is_finite() || var <= 0.0 || b <= 0.0 {
                 continue;
             }
-            // W = B² / σ² (raw variance; corrected-variance = σ²/B²).
             let weight = (b * b) / var;
             if !weight.is_finite() || weight <= 0.0 {
                 continue;
@@ -495,10 +426,10 @@ pub fn variance_weighted_merge(
     })
 }
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
-/// Compute continuum knot fluxes as the median of retained samples in a
-/// symmetric window around each knot wavelength.
+/// Median retained sample flux in a 1.5× knot-spacing window per knot.
+///
+/// 1.5× overlap means neighbouring windows cover ≥50 % of each other, so
+/// each knot retains ≥3 samples even at sparsely-sampled bandpass edges.
 fn compute_knot_fluxes(samples: &[FlatSample], kept: &[bool], knots: &[f64]) -> Vec<f64> {
     let n_knots = knots.len();
     if n_knots == 0 || samples.is_empty() {
@@ -509,9 +440,6 @@ fn compute_knot_fluxes(samples: &[FlatSample], kept: &[bool], knots: &[f64]) -> 
     } else {
         1.0
     };
-    // 1.5× overlap: neighbouring knot windows cover ≥50 % of each other,
-    // so a knot retains ≥3 samples even in sparsely-sampled regions at
-    // the bandpass edges.
     let window = knot_spacing * 1.5;
     let mut out = vec![0.0; n_knots];
     for (ki, &kw) in knots.iter().enumerate() {
@@ -527,7 +455,8 @@ fn compute_knot_fluxes(samples: &[FlatSample], kept: &[bool], knots: &[f64]) -> 
             })
             .collect();
         if window_vals.is_empty() {
-            // Fallback: use the nearest retained sample regardless of window.
+            // Fallback when the window is empty at a sparsely-sampled edge:
+            // use the nearest retained sample regardless of window.
             let nearest =
                 samples
                     .iter()
@@ -589,8 +518,8 @@ mod tests {
 
     #[test]
     fn test_continuum_fit_recovers_synthetic_dh3p_shape() {
-        // Build 3 synthetic orders (UV, blue, visible) with smooth
-        // continuum + small noise. Fit should recover the shape.
+        // Three synthetic orders (UV, blue, visible) with small noise: a
+        // heavily-smoothed fit should recover shape to within ~30 %.
         let mut orders: Vec<(Vec<f64>, Vec<f64>)> = Vec::new();
         for &(lo, hi) in &[(250.0f64, 320.0), (400.0, 500.0), (600.0, 750.0)] {
             let n = 256;
@@ -613,35 +542,28 @@ mod tests {
             ..Default::default()
         };
         let fit = fit_dh3p_continuum(&refs, &cfg).expect("fit should succeed");
-        assert!(fit.n_samples_kept >= 12, "expected >= 12 kept samples");
-        // Spot-check at 300 nm, 450 nm, 700 nm: eval() should be within
-        // 20% of the true continuum — this is a heavily-smoothed fit,
-        // not a precision approximation.
-        for &(w, _) in &[(300.0, 0.0), (450.0, 0.0), (700.0, 0.0)] {
+        assert!(fit.n_samples_kept >= 12);
+
+        for w in [300.0, 450.0, 700.0] {
             let truth = synth_dh3p(w);
             let est = fit.eval(w);
-            if truth > 0.0 {
-                let rel = (est - truth).abs() / truth;
-                assert!(
-                    rel < 0.3,
-                    "continuum fit at {w} nm: truth={truth:.1}, est={est:.1}, rel={rel:.3}"
-                );
-            }
+            let rel = (est - truth).abs() / truth;
+            assert!(
+                rel < 0.3,
+                "at {w} nm: truth={truth:.1}, est={est:.1}, rel={rel:.3}"
+            );
         }
     }
 
     #[test]
     fn test_continuum_fit_rejects_deuterium_balmer_emission_spikes() {
-        // Smooth continuum + strong positive spikes at 434, 486, 656 nm.
-        // Sigma-clipping must reject the spikes so the final fit passes
-        // smoothly through the continuum rather than bumping up at those
-        // wavelengths.
         let n = 1500;
         let wl: Vec<f64> = (0..n)
             .map(|i| 200.0 + 600.0 * (i as f64) / (n as f64 - 1.0))
             .collect();
         let mut flux: Vec<f64> = wl.iter().map(|&w| synth_dh3p(w)).collect();
-        // Add 5 px wide spikes at each Balmer line.
+        // Positive spikes at Balmer lines 434 / 486 / 656 nm — sigma-clip
+        // must reject them, else the fit chases the spike peak.
         for &lambda_spike in &[434.05_f64, 486.13, 656.28] {
             for (i, &w) in wl.iter().enumerate() {
                 let dx = (w - lambda_spike).abs();
@@ -651,28 +573,20 @@ mod tests {
             }
         }
         let orders = vec![(wl.as_slice(), flux.as_slice())];
-        let cfg = Dh3pContinuumConfig::default();
-        let fit = fit_dh3p_continuum(&orders, &cfg).expect("fit should succeed");
-        assert!(
-            fit.n_samples_rejected > 0,
-            "sigma-clipping should reject spike samples, got {}",
-            fit.n_samples_rejected
-        );
-        // The fit at 486 nm should NOT blow up toward the spike peak.
-        let est_at_486 = fit.eval(486.0);
-        let clean_continuum_at_486 = synth_dh3p(486.0);
-        let rel = (est_at_486 - clean_continuum_at_486).abs() / clean_continuum_at_486;
-        assert!(
-            rel < 0.3,
-            "fit must not chase Balmer spike at 486 nm: est={est_at_486:.1}, truth={clean_continuum_at_486:.1}"
-        );
+        let fit = fit_dh3p_continuum(&orders, &Dh3pContinuumConfig::default())
+            .expect("fit should succeed");
+        assert!(fit.n_samples_rejected > 0, "got {}", fit.n_samples_rejected);
+
+        let est = fit.eval(486.0);
+        let truth = synth_dh3p(486.0);
+        let rel = (est - truth).abs() / truth;
+        assert!(rel < 0.3, "486 nm: est={est:.1}, truth={truth:.1}");
     }
 
     #[test]
     fn test_blaze_from_dh3p_is_peak_one_and_masks_15_percent() {
-        // Synthetic order: blaze sinc² × DH3P continuum. Use FSR that
-        // fits 2× within the order so edges reach sinc²<0.15 (past the
-        // first sinc null at |w - center| = FSR).
+        // Synthetic order: sinc² blaze × DH3P continuum, FSR 8 nm over 20 nm
+        // so edges reach past the first sinc null (sinc² < 0.15).
         let n = 256;
         let wl: Vec<f64> = (0..n)
             .map(|i| 400.0 + 20.0 * (i as f64) / (n - 1) as f64)
@@ -692,50 +606,41 @@ mod tests {
             })
             .collect();
 
-        // Build a continuum fit on this single order (just the smooth part).
         let smooth: Vec<f64> = wl.iter().map(|&w| synth_dh3p(w)).collect();
         let refs = [(wl.as_slice(), smooth.as_slice())];
-        let cfg = Dh3pContinuumConfig {
-            n_knots: 12,
-            ..Default::default()
-        };
-        let continuum = fit_dh3p_continuum(&refs, &cfg).expect("continuum fit");
+        let continuum = fit_dh3p_continuum(
+            &refs,
+            &Dh3pContinuumConfig {
+                n_knots: 12,
+                ..Default::default()
+            },
+        )
+        .expect("continuum fit");
 
         let blaze = compute_blaze_from_dh3p_flat(&flux, &wl, &continuum, 0.15);
         let peak = blaze.blaze.iter().copied().fold(0.0_f64, f64::max);
+        assert!((peak - 1.0).abs() < 1e-6, "got {peak}");
+
+        assert!(blaze.usable_mask[n / 2], "order centre must be usable");
         assert!(
-            (peak - 1.0).abs() < 1e-6,
-            "peak-normalised blaze must be 1.0, got {peak}"
-        );
-        // Center of order should be usable; edges (where sinc² → 0) masked.
-        let center_idx = n / 2;
-        assert!(
-            blaze.usable_mask[center_idx],
-            "order centre must be in usable_mask"
-        );
-        let edge_masked = !blaze.usable_mask[0] || !blaze.usable_mask[n - 1];
-        assert!(
-            edge_masked,
-            "at least one edge should fall below 15% threshold"
+            !blaze.usable_mask[0] || !blaze.usable_mask[n - 1],
+            "at least one edge must fall below 15% threshold"
         );
     }
 
     #[test]
     fn test_variance_weighted_merge_down_weights_low_blaze_regions() {
-        // Two orders with an overlap region. Order A has high blaze at
-        // the overlap (near its centre), order B has low blaze at the
-        // overlap (near its edge). The merge at the overlap should be
-        // pulled toward A's flux because W_A = B_A²/σ² dominates.
+        // Order A: flat high blaze (0.9) → dominates. Order B: ramped 0.1→0.8
+        // with deliberately wrong flux, masked out below 0.15 at its edge.
+        // Merged flux in the overlap must equal A's flux (100) within noise.
         let wl_a: Vec<f64> = (0..100).map(|i| 500.0 + 0.05 * i as f64).collect();
         let wl_b: Vec<f64> = (0..100).map(|i| 502.5 + 0.05 * i as f64).collect();
         let flux_a = vec![100.0; 100];
         let flux_b = vec![200.0; 100]; // deliberately wrong
         let var_a = vec![1.0; 100];
         let var_b = vec![1.0; 100];
-        // Order A: high blaze everywhere (centre).
         let blaze_a = vec![0.9; 100];
         let mask_a = vec![true; 100];
-        // Order B: blaze ramps up from 0.1 (edge) → 0.8 (centre).
         let blaze_b: Vec<f64> = (0..100).map(|i| 0.1 + 0.7 * i as f64 / 99.0).collect();
         let mask_b: Vec<bool> = blaze_b.iter().map(|&b| b >= 0.15).collect();
         let orders = vec![
@@ -755,19 +660,15 @@ mod tests {
             },
         ];
         let merged = variance_weighted_merge(&orders, 0.05).expect("merge ok");
-        // Find the bin at the overlap start (around 502.5 nm where B is
-        // in the middle of A and near edge of B).
         let overlap_bin = merged
             .wavelengths
             .iter()
             .position(|&w| (w - 502.6).abs() < 0.03)
             .expect("found overlap bin");
         let merged_flux = merged.flux[overlap_bin];
-        // B_A (0.9)² / σ_A² = 0.81; B_B (≈ 0.1 here) ≈ <0.15 → masked out.
-        // Result should equal A's flux (100).
         assert!(
             (merged_flux - 100.0).abs() < 1.0,
-            "variance-weighted merge at overlap start must favour high-blaze order A (100); got {merged_flux}"
+            "merge at overlap start must favour high-blaze order A (100); got {merged_flux}"
         );
     }
 }
