@@ -7,6 +7,10 @@
 
 ---
 
+> **Naming note (2026-04-22):** This ADR uses `SafetyHeartbeat` as if it were a Rust type. The current implementation is a module + task — `crates/bin/src/safety_heartbeat_task.rs` exposes `spawn_heartbeat()`, driven by a `HeartbeatConfig` struct in `crates/hardware/src/registry/types.rs` (configured via the `[safety_heartbeat]` stanza in the hardware config TOML). There is no `struct SafetyHeartbeat`. The design intent below still stands; treat capitalized `SafetyHeartbeat` references in this ADR as shorthand for that task + config pair.
+
+---
+
 ## Context
 
 The Rhai scripting engine allows untrusted code execution with access to critical hardware: lasers, motion controllers, and DAQ equipment. Process panics in Rhai scripts could leave hardware in dangerous states (shutter open, motors moving, DAQ outputs active).

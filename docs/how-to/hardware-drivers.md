@@ -1208,23 +1208,23 @@ impl NetworkDevice {
 
 ## Reference Implementations
 
-### ELL14 Rotator (RS-485 Multidrop with new_async)
+### ELL14 Rotator (RS-485 Multidrop) — reference pattern
 
-Location: `config/devices/ell14.toml` (TOML manifest via `driver-universal`; legacy native code removed)
+Location: `config/devices/ell14.toml` — driver-universal TOML manifest. The legacy native `Ell14Driver` / `Ell14Bus` types **no longer exist**; the sample code below is a historical reference for the pattern, not something you can compile today.
 
 **Key Features:**
 - Multidrop RS-485 bus with address 0-F
-- `new_async()` validates device at address
+- Async constructor validates device at address before returning
 - Velocity control (0-100%)
 - Cached settings for non-blocking queries
 - Device identity validation on connection
 
-**Constructor Pattern:**
+**Constructor Pattern** (historical native-driver API — use `driver-universal` for new work):
 ```rust
-// Public API - always use this
+// HISTORICAL — Ell14Driver and Ell14Bus are gone from the tree.
+// For the live equivalent, run driver-universal with config/devices/ell14.toml.
 let rotator = Ell14Driver::new_async(port, address).await?;
 
-// Multidrop bus pattern with Ell14Bus
 let bus = Ell14Bus::open("/dev/ttyUSB1").await?;
 let rotator = bus.device("2").await?;  // Returns validated driver
 ```
@@ -1236,20 +1236,20 @@ let rotator = bus.device("2").await?;  // Returns validated driver
 - Motor optimization sequences
 - RS-485 multidrop bus management
 
-### Newport 1830-C Power Meter (Simple Serial ASCII with new_async)
+### Newport 1830-C Power Meter (Simple Serial ASCII) — reference pattern
 
-Location: `config/devices/newport_1830c.toml` (TOML manifest via `driver-universal`; legacy native code removed)
+Location: `config/devices/newport_1830c.toml` — driver-universal TOML manifest. The legacy native `Newport1830CDriver` type **no longer exists**; the sample below is a historical pattern reference.
 
 **Key Features:**
 - Simple ASCII command protocol (NOT SCPI)
-- `new_async()` validates device identity
+- Async constructor validates device identity
 - Zero calibration with/without attenuator
 - Readable trait implementation
 - Port path discovery
 
-**Constructor Pattern:**
+**Constructor Pattern** (historical — `Newport1830CDriver` is gone):
 ```rust
-// Public API - validates device responds with correct model
+// HISTORICAL — the live equivalent runs as driver-universal.
 let meter = Newport1830CDriver::new_async("/dev/ttyS0", 9600).await?;
 ```
 
@@ -1547,15 +1547,17 @@ When multiple devices share a single serial port (e.g., RS-485 multidrop bus), p
 
 ### The Problem
 
-Without transport sharing, each device opens its own serial port handle:
+Without transport sharing, each device opens its own serial port handle. In the former native-driver era this looked like:
 
 ```rust
-// WRONG - each device opens separate handle to /dev/ttyUSB0
+// HISTORICAL anti-pattern — `Ell14Driver` has been removed from the tree.
+// Kept for illustration: without transport sharing, each device opens its
+// own handle to /dev/ttyUSB0, commands interleave, responses go to the
+// wrong device. The same pitfall applies to any native RS-485 driver you
+// might write today.
 let rotator_2 = Ell14Driver::new("/dev/ttyUSB0", "2").await?;
 let rotator_3 = Ell14Driver::new("/dev/ttyUSB0", "3").await?;
 let rotator_8 = Ell14Driver::new("/dev/ttyUSB0", "8").await?;
-
-// Result: Commands interleave, responses go to wrong device
 ```
 
 ### Solution 1: Native Driver Shared Port Pattern

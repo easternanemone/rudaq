@@ -1,7 +1,15 @@
 # Deprecation & Legacy Code Removal Plan
 
 Inventory of deprecated APIs, legacy compatibility shims, and their removal conditions.
-Last audited: 2026-03-21 (Phase 5 repo cleanup).
+Last audited: 2026-04-22 (LLM-wiki docs-staleness sweep). Previous audit: 2026-03-21 (Phase 5 repo cleanup).
+
+**Already-removed items retained below for history** (citations now point to code that no longer exists; kept so search for the old name still finds the rationale):
+
+- §2.3 `ScanServiceImpl` — file `crates/server/src/grpc/scan_service.rs` no longer exists.
+- §2.6 `GenericDriver::new()` — only `new_serial`, `new_tcp`, `new_mock` remain on `GenericDriver`; the bare `new()` constructor is gone.
+- §2.7 `PvcamDriver::new()` — `crates/driver-pvcam/src/lib.rs:353` defines `new_async(camera_name)` and no `new()`.
+
+Each of those sections is marked **Status: Removed** below. The Removal Priority Summary table at the bottom has been trimmed accordingly.
 
 ---
 
@@ -134,15 +142,17 @@ access. Replaced by `register_primary_output()` for primary consumers and
 
 ### 2.3 `ScanServiceImpl` (server)
 
-**Location:** `crates/server/src/grpc/scan_service.rs:165-175`
+**Status:** **Removed** (verified 2026-04-22).
 
-**Deprecated since:** v0.7.0
+**Location:** previously `crates/server/src/grpc/scan_service.rs:165-175` — file no longer exists.
 
-**Why it exists:** See Section 1.2 above (proto-level deprecation).
+**Deprecated since:** v0.7.0.
 
-**Replacement:** `RunEngineServiceImpl`
+**Why it existed:** See Section 1.2 above (proto-level deprecation).
 
-**Removal condition:** Same as proto `ScanService` -- v1.0.
+**Replacement:** `RunEngineServiceImpl`.
+
+**Remaining work:** The proto-level `ScanService` (§1.2) still ships and is the remaining piece of the v0.7 deprecation. The Rust impl is gone.
 
 ---
 
@@ -184,29 +194,31 @@ from `driver_universal::config` directly. This is a larger refactor -- target v1
 
 ### 2.6 `GenericDriver::new()` (hardware/manifest_driver)
 
-**Location:** `crates/hardware/src/manifest_driver/driver.rs:175`
+**Status:** **Removed** (verified 2026-04-22).
 
-**Deprecated since:** v0.2.0
+**Location:** previously `crates/hardware/src/manifest_driver/driver.rs:175` — that file at line 175 now holds a field declaration; no bare `new()` exists. Only `new_serial()`, `new_tcp()`, and `new_mock()` remain.
 
-**Why it exists:** Original constructor that only supported serial connections.
+**Deprecated since:** v0.2.0.
+
+**Why it existed:** Original constructor that only supported serial connections.
 Replaced by `new_serial()` (same behavior, clearer name) as TCP support was added.
 
-**Replacement:** `GenericDriver::new_serial()`
-
-**Removal condition:** After v1.0. Trivial removal.
+**Replacement:** `GenericDriver::new_serial()`.
 
 ---
 
 ### 2.7 `PvcamDriver::new()` (driver-pvcam)
 
-**Location:** `crates/driver-pvcam/src/lib.rs:285`
+**Status:** **Removed** (verified 2026-04-22).
 
-**Deprecated since:** pre-v0.2.0
+**Location:** previously `crates/driver-pvcam/src/lib.rs:285` — that line now holds a `Parameter<u16>` field. The current constructor is `PvcamDriver::new_async(camera_name)` at `crates/driver-pvcam/src/lib.rs:353`.
 
-**Why it exists:** Synchronous constructor that calls `block_on()`. Replaced by
+**Deprecated since:** pre-v0.2.0.
+
+**Why it existed:** Synchronous constructor that called `block_on()`. Replaced by
 `new_async()` to avoid blocking the Tokio runtime.
 
-**Replacement:** `PvcamDriver::new_async()`
+**Replacement:** `PvcamDriver::new_async()`.
 
 **Removal condition:** After v1.0. Verify no synchronous call sites remain.
 
@@ -413,15 +425,16 @@ bridge between factory output and registry storage. Not actually removable.
 
 | Priority | Item | Target Version | Effort |
 |----------|------|---------------|--------|
-| **High** | ScanService (proto + impl) | v1.0 | Medium (delete ~1200 lines) |
+| **High** | ScanService (proto only; Rust impl already removed) | v1.0 | Medium (delete remaining ~1200 lines of proto + clients) |
 | **High** | Proto boolean capability flags | v1.0 | Low (delete fields + population code) |
 | **Medium** | `take_frame_receiver()` | v1.0 | Low (trait method + mock paths) |
 | **Medium** | `subscribe_frames()` | v1.0 | Low (trait method + mock paths) |
 | **Medium** | `TiffWriter::write_frame()` | v1.0 | Low (single method) |
 | **Low** | `DeviceConfig` in hardware schema | v1.0+ | Medium (scripting/UI refactor) |
-| **Low** | `GenericDriver::new()` | v1.0 | Trivial |
-| **Low** | `PvcamDriver::new()` | v1.0 | Trivial |
 | **Low** | `io_script_control()` | v1.0 | Low |
+| **Done** | `ScanServiceImpl` (server Rust impl) | shipped — file removed | n/a |
+| **Done** | `GenericDriver::new()` | shipped — constructor removed | n/a |
+| **Done** | `PvcamDriver::new()` | shipped — replaced by `new_async` | n/a |
 | **Keep** | Template syntax compat | audit first | - |
 | **Keep** | v1 config fields | audit first | - |
 | **Keep** | Settable fallback | audit first | - |

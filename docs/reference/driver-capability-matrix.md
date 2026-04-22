@@ -2,7 +2,13 @@
 
 Per-factory capability declarations and deployment target support for all driver crates in the workspace.
 
-> **Generated**: 2026-03-13 | **Source of truth**: `DriverFactory::capabilities()` return values and `driver-registry` feature gates.
+> **Generated**: 2026-04-22 (prior: 2026-03-13) | **Source of truth**: `DriverFactory::capabilities()` return values and `driver-registry` feature gates.
+>
+> **Changes since 2026-03-13:**
+>
+> - Six capability traits have been added to `crates/common-traits/src/capabilities.rs` since the prior generation: `StateRefreshable` (already represented here — post-reconnection parameter refresh, bd-47p2), plus `CounterConfigurable`, `RangeIntrospectable`, `DeviceIntrospection`, `ReadableWithMetadata`, `SpectrumReadable`. These are not yet mapped into the Coverage Summary table below; capability-trait total is now **30** (`crates/common-traits/src/capabilities.rs`).
+> - The `PulseGenerator` trait mentioned in older architecture prose does not exist in the code and has been removed from `docs/explanation/architecture.md`.
+> - Driver-registry `mock_only` feature no longer exists; `full` is now simply an alias for `all_hardware` (see `crates/driver-registry/Cargo.toml`). The pvcam feature-gate tiers are unchanged.
 
 ## Native SDK Drivers
 
