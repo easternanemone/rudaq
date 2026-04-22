@@ -1,19 +1,32 @@
 //! End-to-end regression test for the echelle pipeline on real hardware fixtures.
 //!
-//! Runs the full chain on the March-18 leabs-dev DH3P flat + HgAr arc:
-//! `trace detect → scatter → arc calibrate → extract → DH3P continuum fit →
+//! Runs the full chain on a halogen-alone flat + HgAr arc:
+//! `trace detect → scatter → arc calibrate → extract → lamp continuum fit →
 //! per-order blaze → variance-weighted merge`. The merged spectrum is asserted
-//! against a committed golden HDF5 at `debug/phase5/reference_merged_spectrum.hdf5`.
+//! against a committed golden HDF5 under `testdata/echelle/`.
 //!
-//! ## Why extract the DH3P flat (not the arc)
+//! The raw TIFF fixtures are too large for Git tracking and live in
+//! `debug/phase5/…` (gitignored under `/debug/**/*.tiff`). When the fixtures
+//! are absent — typical on ephemeral CI runners — the test emits a skip notice
+//! and passes. Runs on machines that retain the captures (hardware runners,
+//! the maintainer's workstation) still exercise the full pipeline.
 //!
-//! The Stage-E blaze path (`fit_dh3p_continuum`, `compute_blaze_from_dh3p_flat`,
+//! ## Why extract the flat (not the arc)
+//!
+//! The Stage-E blaze path (`fit_lamp_continuum`, `compute_blaze_from_flat`,
 //! `variance_weighted_merge`) was added by bd-sw760 / PR #603 and is only unit-tested.
 //! Extracting the flat itself through the chain exercises all three in one
 //! contract: since `flux/B` reduces to `C_lamp(λ)` by construction, any drift in
 //! the continuum fit, blaze mask, or merge weighting visibly perturbs the merged
 //! output. Perf refactors in bd-g22gu.1 (Chebyshev caching, rayon per-order,
 //! min/max filter unify) must leave this fingerprint unchanged.
+//!
+//! ## Why halogen (not DH3P)
+//!
+//! Halogen-alone detects 142 traces → 37 orders calibrated at 0.27 nm RMS
+//! across the full 237–858 nm band, versus DH3P's 17 traces / 10 orders /
+//! 0.40 nm RMS (post-slit-swap, leabs-dev Apr 2026). The blaze fitter is
+//! lamp-agnostic since bd-lj4g4 — halogen is simply the best-calibrated input.
 //!
 //! ## Regenerating the golden
 //!
@@ -23,10 +36,7 @@
 //!     --features storage_hdf5
 //! ```
 //!
-//! Re-run `debug/phase5/validate_phase_e.py` afterwards and visually compare
-//! `phaseE-dh3p-continuum.png` before committing the regenerated golden.
-//!
-//! bd-g22gu.4
+//! bd-g22gu.4 · bd-lj4g4
 
 #![cfg(feature = "storage_hdf5")]
 
@@ -34,14 +44,15 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow};
 use echelle::blaze::{
-    Dh3pContinuumConfig, MergeOrderInput, MergedSpectrum, OrderBlaze, compute_blaze_from_dh3p_flat,
-    fit_dh3p_continuum, variance_weighted_merge,
+    LampContinuumConfig, MergeOrderInput, MergedSpectrum, OrderBlaze, compute_blaze_from_flat,
+    fit_lamp_continuum, variance_weighted_merge,
 };
 use echelle::calibration_pipeline::{
     CalibrationPipelineConfig, CalibrationResult, WavelengthSeed,
     run_calibration_pipeline_with_flat,
 };
 use echelle::rectification::{OrderSpec, RectifyConfig, rectify_order};
+use echelle::scattered_light::{TraceInfo, subtract_scattered_light};
 use echelle::wavelength_fitting::load_hgar_atlas;
 use echelle::{
     EchelleCalibrationProfile, EchelleFrameCompatibility, EchelleOrientation, EchelleTraceModel,
@@ -51,10 +62,10 @@ use serde::Deserialize;
 
 // ─── Fixture locations ──────────────────────────────────────────────────────
 
-const FIXTURE_ARC_REL: &str = "debug/phase5/flats/hgar_arc_5s_g500_acc10.tiff";
-const FIXTURE_FLAT_REL: &str = "debug/phase5/flats/dh3p_flat_5s_g2000_acc10.tiff";
+const FIXTURE_ARC_REL: &str = "debug/phase5/hgar_matrix/hgar_g500_t1000ms.tiff";
+const FIXTURE_FLAT_REL: &str = "debug/phase5/halogen_matrix/halogen_g100_t500ms_acc5.tiff";
 const FIXTURE_CONFIG_REL: &str = "config/calibration/mechelle_5000.toml";
-const GOLDEN_REL: &str = "debug/phase5/reference_merged_spectrum.hdf5";
+const GOLDEN_REL: &str = "testdata/echelle/reference_merged_spectrum_halogen.hdf5";
 
 // ─── Pipeline constants ──────────────────────────────────────────────────────
 
@@ -68,10 +79,13 @@ const GRID_SPACING_NM: f64 = 0.01;
 const BLAZE_THRESHOLD_FRAC: f64 = 0.15;
 
 /// In-illumination pixel selector: keep aperture-summed samples above
-/// `10 × p10(F)`. Matches `debug/phase5/validate_phase_e.py:156-157` and
-/// is the filter required by `fit_dh3p_continuum`'s documented precondition
-/// (crates/echelle/src/blaze.rs:166-187).
-const ILLUM_FLUX_MULT: f64 = 10.0;
+/// `ILLUM_FLUX_MULT × p10(F)` on the scatter-subtracted flat. Operates on
+/// the scatter-corrected flat so p10 tracks genuine order-edge dim pixels
+/// rather than the inter-order pedestal. 1.5× is tuned for the halogen-only
+/// flat whose post-scatter dynamic range (~2–3× p10-to-peak) is much
+/// narrower than DH3P's (~10×); higher multipliers reject the UV orders
+/// whose integrated halogen signal sits just above order-edge level.
+const ILLUM_FLUX_MULT: f64 = 1.5;
 
 /// Simple-sum Poisson variance floor. Keeps `σ² > 0` for empty-aperture
 /// pixels so the variance-weighted merge does not divide by zero.
@@ -213,7 +227,7 @@ fn build_pipeline_config(
         arc_config,
         wl_config,
         // bd-g22gu.3: per-call-site scatter policy. Arc OFF (HgAr emission
-        // over-subtracts under morph opening); flat ON (DH3P continuum needs
+        // over-subtracts under morph opening); flat ON (lamp continuum needs
         // MCP halo removal for blaze correctness).
         arc_scatter: None,
         flat_scatter: Some(
@@ -387,9 +401,40 @@ fn run_full_chain() -> Result<ChainOutput> {
         run_calibration_pipeline_with_flat(&arc, &flat, w, h, &pipeline_cfg)
             .map_err(|e| anyhow!("calibration pipeline failed: {e}"))?;
 
+    // Mirror the pipeline's flat-scatter subtraction before extracting the flat
+    // flux ourselves. The halogen flat's inter-order pedestal is a few hundred
+    // counts per pixel — comparable in magnitude to the order-strip signal on
+    // dim orders — so subtracting scattered light is mandatory, not optional,
+    // for any downstream blaze continuum fit to resolve the illumination
+    // envelope. Historically implicit with DH3P (huge pedestal:signal ratio
+    // masked the omission); explicit here for lamp-agnostic correctness.
+    let flat_for_extract: Vec<f32> = if let Some(scatter_cfg) = &pipeline_cfg.flat_scatter {
+        let traces: Vec<TraceInfo<'_>> = cal
+            .profile
+            .orders
+            .iter()
+            .filter(|o| o.enabled)
+            .map(|o| TraceInfo {
+                trace: &o.trace,
+                disp_start: o.sample_start,
+                disp_end: o.sample_end,
+            })
+            .collect();
+        subtract_scattered_light(&flat, w, h, &traces, scatter_cfg)
+            .map(|(corrected, _)| corrected)
+            .unwrap_or_else(|| flat.clone())
+    } else {
+        flat.clone()
+    };
+
     // Extract flat flux + wavelengths + illumination mask for each calibrated order.
-    let extractions =
-        extract_calibrated_orders(&flat, w, h, &cal.profile, &pipeline_cfg.rectify_config);
+    let extractions = extract_calibrated_orders(
+        &flat_for_extract,
+        w,
+        h,
+        &cal.profile,
+        &pipeline_cfg.rectify_config,
+    );
     if extractions.is_empty() {
         return Err(anyhow!(
             "no extractable orders after calibration (n_calibrated={})",
@@ -397,7 +442,7 @@ fn run_full_chain() -> Result<ChainOutput> {
         ));
     }
 
-    // Fit the DH3P lamp continuum from in-illumination samples across all orders.
+    // Fit the lamp continuum from in-illumination samples across all orders.
     let illum_samples: Vec<(Vec<f64>, Vec<f64>)> = extractions
         .iter()
         .map(|e| {
@@ -415,14 +460,14 @@ fn run_full_chain() -> Result<ChainOutput> {
         .iter()
         .map(|(wl, fx)| (wl.as_slice(), fx.as_slice()))
         .collect();
-    let continuum = fit_dh3p_continuum(&refs, &Dh3pContinuumConfig::default())
-        .ok_or_else(|| anyhow!("fit_dh3p_continuum returned None — continuum fit failed"))?;
+    let continuum = fit_lamp_continuum(&refs, &LampContinuumConfig::default())
+        .ok_or_else(|| anyhow!("fit_lamp_continuum returned None — continuum fit failed"))?;
 
     // Per-order blaze + blaze-corrected flux + variance.
     let blaze_outputs: Vec<(OrderBlaze, Vec<f64>, Vec<f64>)> = extractions
         .iter()
         .map(|e| {
-            let blaze = compute_blaze_from_dh3p_flat(
+            let blaze = compute_blaze_from_flat(
                 &e.flat_flux,
                 &e.wavelengths,
                 &continuum,
@@ -671,18 +716,36 @@ fn assert_merged_matches_golden(actual: &MergedSpectrum, golden: &MergedSpectrum
 
 // ─── Test entry point ───────────────────────────────────────────────────────
 
+/// Skip the test (print notice, exit early) if the caller's checkout is
+/// missing either input TIFF. The fixtures are gitignored (`/debug/**/*.tiff`)
+/// per the Apr 2026 cleanup; only machines that captured or preserved them
+/// locally can exercise the full pipeline. CI without fixtures thus skips
+/// instead of failing — the test still gates against regression on hardware
+/// runners and the maintainer's workstation.
+fn fixtures_missing_skip_reason() -> Option<String> {
+    let arc = repo_path(FIXTURE_ARC_REL);
+    let flat = repo_path(FIXTURE_FLAT_REL);
+    let mut missing = Vec::new();
+    if !arc.exists() {
+        missing.push(FIXTURE_ARC_REL);
+    }
+    if !flat.exists() {
+        missing.push(FIXTURE_FLAT_REL);
+    }
+    if missing.is_empty() {
+        None
+    } else {
+        Some(format!(
+            "echelle_merged_spectrum_regression: skipping — missing fixture(s): {}",
+            missing.join(", ")
+        ))
+    }
+}
+
 #[test]
-fn echelle_merged_spectrum_regression_dh3p_flat() {
-    // The raw TIFF fixtures under `debug/phase5/flats/` are gitignored
-    // (`/debug/**/*.tiff`, Apr 21 cleanup). Only machines that retain the
-    // captures locally exercise this regression; skip cleanly when missing
-    // so ephemeral CI runners stay green. bd-lj4g4 moves this test off
-    // DH3P and onto the halogen fixture; until that merges, this is the
-    // minimum viable fix to unblock CI on this branch.
-    let arc_path = repo_path(FIXTURE_ARC_REL);
-    let flat_path = repo_path(FIXTURE_FLAT_REL);
-    if !arc_path.exists() || !flat_path.exists() {
-        eprintln!("echelle_merged_spectrum_regression_dh3p_flat: skipping — missing fixture(s)");
+fn echelle_merged_spectrum_regression_halogen_flat() {
+    if let Some(reason) = fixtures_missing_skip_reason() {
+        eprintln!("{reason}");
         return;
     }
 

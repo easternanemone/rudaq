@@ -38,13 +38,15 @@ Two approaches are now available:
 ### Automated 3-Pass Pipeline (Recommended)
 
 1. Capture representative frames for the target mode:
-   - **Flat frame** (continuum source, e.g. DH-3P lamp) for trace detection
+   - **Flat frame** (continuum source — halogen alone is preferred after
+     bd-cpph3 / bd-lj4g4; DH-3P or D2-alone also work, the blaze fitter
+     is lamp-agnostic) for trace detection
    - **Arc frame** (HgAr lamp) for wavelength calibration
 2. Run the offline calibration CLI:
    ```bash
    rust-daq-daemon calibrate \
      --frame arc_hgar.tiff \
-     --flat flat_dh3p.tiff \
+     --flat flat_halogen.tiff \
      --config config/calibration/mechelle_5000.toml \
      --output calibrated_profile.toml
    ```

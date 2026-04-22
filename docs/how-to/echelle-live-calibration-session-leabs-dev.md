@@ -257,10 +257,15 @@ Before opening the GUI, run the 3-pass calibration pipeline:
 ```bash
 rust-daq-daemon calibrate \
   --frame arc_hg2_capture.tiff \
-  --flat flat_dh3p_capture.tiff \
+  --flat flat_halogen_capture.tiff \
   --config config/calibration/mechelle_5000.toml \
   --output session_calibration_profile.toml
 ```
+
+> **Note (bd-cpph3/bd-lj4g4, Apr 2026):** halogen-alone has replaced DH3P
+> as the preferred flat for post-slit-swap calibration (142 traces vs 17,
+> 0.27 nm RMS vs 0.40 nm). The blaze fitter is lamp-agnostic, so DH3P
+> or D2-alone still work if halogen is unavailable.
 
 This automatically:
 1. Detects traces from the flat frame

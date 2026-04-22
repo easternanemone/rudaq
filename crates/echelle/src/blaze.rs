@@ -1,23 +1,28 @@
-//! DH3P (Deuterium-Halogen) flat-field blaze correction + variance-weighted
-//! order merging.
+//! Lamp-agnostic flat-field blaze correction + variance-weighted order merging.
 //!
-//! The Mechelle 5000's matched calibration lamp is a Deuterium + Tungsten-
-//! Halogen hybrid (DH3P) whose continuum spans the 200–975 nm bandpass.
-//! Unlike a pure Tungsten-Halogen lamp (approximately Planckian, flat over
-//! ~10 nm — a per-order peak normalisation is enough), the DH3P continuum
-//! has a pronounced crossover near 350–400 nm where the Deuterium peak
-//! transits into the Halogen roll-off. A naïve peak normalisation entangles
-//! the instrumental blaze with the lamp's intrinsic SED and yields biased
-//! blaze curves at the UV/visible boundary.
+//! The Mechelle 5000 has been driven with three calibration-lamp configurations:
+//! Deuterium + Tungsten-Halogen hybrid (DH3P, pronounced bimodal SED with a
+//! crossover near 350–400 nm), Deuterium-alone (UV-dominated with Balmer
+//! emission at 434/486/656 nm), and Tungsten-Halogen-alone (smooth monotonic
+//! roll-off through the visible). A naïve peak normalisation entangles the
+//! instrumental blaze with the lamp's intrinsic SED at every crossover and
+//! emission feature, so the continuum is fit globally rather than per order.
+//!
+//! The fitter below is lamp-agnostic: it assumes only that the lamp SED is
+//! smooth over a correlation length larger than the echelle line-spread
+//! function and that any features above the continuum (Balmer emission, cosmic
+//! rays, saturation) sit above the smooth envelope. Uniform knots + median
+//! window + positive sigma-clip handle DH3P, D2-only, and halogen-only inputs
+//! without parameter tuning — halogen-alone simply observes zero rejections.
 //!
 //! # Algorithm
 //!
-//! 1. Extract the DH3P flat through the same pipeline as science,
-//!    yielding per-order `F_i(x)` and `λ_i(x)`.
+//! 1. Extract the lamp flat through the same pipeline as science, yielding
+//!    per-order `F_i(x)` and `λ_i(x)`.
 //! 2. Assemble a global `(λ, F)` cloud across all orders and fit a smoothed
 //!    continuum `C_lamp(λ)` via iterative positive-sigma-clip against a
-//!    piecewise-linear knot interpolation (rejects Deuterium Balmer emission
-//!    at 434/486/656 nm, cosmic rays, saturated pixels).
+//!    piecewise-linear knot interpolation (rejects emission lines, cosmic
+//!    rays, saturated pixels).
 //! 3. Per order: `B_i(x) = F_i(x) / C_lamp(λ_i(x))`, peak-normalised, then
 //!    masked below 15 % of that per-order peak — aggressive edge cutoff
 //!    against optical aberrations at the detector boundary.
@@ -27,8 +32,8 @@
 //!    SNR loss — matches CERES / PypeIt / ESO MIDAS practice.
 //!
 //! The Mechelle's "no moving parts" design means a single high-SNR master
-//! DH3P flat can be reused across many science runs; the derived blaze
-//! curves are cached in [`crate::types::EchelleCorrections::blaze_curves`].
+//! flat can be reused across many science runs; the derived blaze curves are
+//! cached in [`crate::types::EchelleCorrections::blaze_curves`].
 
 #![allow(
     clippy::cast_precision_loss,
@@ -36,7 +41,7 @@
     clippy::cast_sign_loss
 )]
 
-/// Wavelength sanity window (nm) for DH3P sample intake.
+/// Wavelength sanity window (nm) for flat sample intake.
 ///
 /// Generous around the Mechelle's 200–975 nm physical bandpass: accepts mild
 /// edge extrapolation while rejecting pathological near-zero or >2 μm values
@@ -44,24 +49,25 @@
 const SAMPLE_WAVELENGTH_MIN_NM: f64 = 100.0;
 const SAMPLE_WAVELENGTH_MAX_NM: f64 = 2000.0;
 
-/// Single `(λ, F)` sample from the assembled DH3P flat.
+/// Single `(λ, F)` sample from the assembled lamp flat.
 #[derive(Debug, Clone, Copy)]
 struct FlatSample {
     wavelength: f64,
     flux: f64,
 }
 
-/// Smoothed global continuum fit `C_lamp(λ)` to the DH3P lamp SED.
+/// Smoothed global continuum fit `C_lamp(λ)` to any calibration-lamp SED.
 ///
 /// Stored as a piecewise-linear interpolation over uniformly-spaced knots.
 /// Mathematically equivalent to a heavily-smoothed variable-knot spline when
 /// knot spacing sits well above the echelle line-spread function yet below
 /// the lamp SED's intrinsic ~20 nm correlation length.
 ///
-/// The 64-knot default (~12 nm spacing over 200–975 nm) resolves the Deuterium
-/// peak and Halogen roll-off without chasing local noise.
+/// The 64-knot default (~12 nm spacing over 200–975 nm) resolves DH3P's
+/// Deuterium peak + Halogen crossover, D2-only Balmer emission, and pure
+/// halogen roll-off without chasing local noise.
 #[derive(Debug, Clone)]
-pub struct Dh3pContinuum {
+pub struct LampContinuum {
     /// Sorted knot wavelengths (nm).
     pub knot_wavelengths: Vec<f64>,
     /// Continuum flux at each knot (same units as input `F_i(x)`).
@@ -74,7 +80,7 @@ pub struct Dh3pContinuum {
     pub n_samples_rejected: usize,
 }
 
-impl Dh3pContinuum {
+impl LampContinuum {
     /// Evaluate `C_lamp(λ)` by linear interpolation; clamps at the knot range.
     #[must_use]
     pub fn eval(&self, wavelength: f64) -> f64 {
@@ -99,12 +105,12 @@ impl Dh3pContinuum {
     }
 }
 
-/// Configuration for [`fit_dh3p_continuum`].
+/// Configuration for [`fit_lamp_continuum`].
 #[derive(Debug, Clone)]
-pub struct Dh3pContinuumConfig {
+pub struct LampContinuumConfig {
     /// Number of spline knots. Default 64 (~12 nm spacing on 200–975 nm).
     /// Too few → lamp SED features leak into the blaze correction; too many
-    /// → the fit chases Deuterium Balmer emission even after sigma-clipping.
+    /// → the fit chases emission-line residuals even after sigma-clipping.
     pub n_knots: usize,
     /// Positive-outlier sigma-clip threshold (emission lines, CRs, saturation).
     pub sigma_threshold: f64,
@@ -112,7 +118,7 @@ pub struct Dh3pContinuumConfig {
     pub max_iters: usize,
 }
 
-impl Default for Dh3pContinuumConfig {
+impl Default for LampContinuumConfig {
     fn default() -> Self {
         Self {
             n_knots: 64,
@@ -122,11 +128,15 @@ impl Default for Dh3pContinuumConfig {
     }
 }
 
-/// Fit the global DH3P lamp continuum `C_lamp(λ)` from per-order flats.
+/// Fit the global lamp continuum `C_lamp(λ)` from per-order flats.
 ///
 /// `orders_flat` — one entry per order: `(wavelengths_nm, extracted_flux)`.
 /// Wavelengths need not be globally sorted; the function assembles and sorts
 /// all samples internally.
+///
+/// Works on any smooth lamp SED: DH3P (bimodal), D2-alone (UV peak + Balmer
+/// emission rejected by sigma-clip), halogen-alone (monotonic roll-off, zero
+/// rejections). No per-lamp tuning required.
 ///
 /// # Precondition — in-illumination samples only
 ///
@@ -142,10 +152,10 @@ impl Default for Dh3pContinuumConfig {
 /// (10× the 10th-percentile flux for that order) — this reliably separates
 /// in-illumination pixels from background.
 #[must_use]
-pub fn fit_dh3p_continuum(
+pub fn fit_lamp_continuum(
     orders_flat: &[(&[f64], &[f64])],
-    config: &Dh3pContinuumConfig,
-) -> Option<Dh3pContinuum> {
+    config: &LampContinuumConfig,
+) -> Option<LampContinuum> {
     let mut samples: Vec<FlatSample> = Vec::new();
     for (wl, fx) in orders_flat {
         if wl.len() != fx.len() {
@@ -190,7 +200,7 @@ pub fn fit_dh3p_continuum(
     let mut rms = 0.0;
     for _ in 0..config.max_iters.max(1) {
         knot_fluxes = compute_knot_fluxes(&samples, &kept_mask, &knot_wavelengths);
-        let fit = Dh3pContinuum {
+        let fit = LampContinuum {
             knot_wavelengths: knot_wavelengths.clone(),
             knot_fluxes: knot_fluxes.clone(),
             rms_residual: 0.0,
@@ -228,7 +238,7 @@ pub fn fit_dh3p_continuum(
         return None;
     }
 
-    Some(Dh3pContinuum {
+    Some(LampContinuum {
         knot_wavelengths,
         knot_fluxes,
         rms_residual: rms,
@@ -237,7 +247,7 @@ pub fn fit_dh3p_continuum(
     })
 }
 
-/// Per-order DH3P blaze correction: peak-normalised curve plus usable mask.
+/// Per-order blaze correction: peak-normalised curve plus usable mask.
 #[derive(Debug, Clone)]
 pub struct OrderBlaze {
     /// Instrumental blaze per dispersion pixel, peak-normalised to 1.0.
@@ -254,10 +264,10 @@ pub struct OrderBlaze {
 /// of that peak (SOTA §Absolute Thresholding — 0.15 is the Mechelle default).
 /// Returns an empty result if `flat_flux.len() != wavelengths.len()`.
 #[must_use]
-pub fn compute_blaze_from_dh3p_flat(
+pub fn compute_blaze_from_flat(
     flat_flux: &[f64],
     wavelengths: &[f64],
-    continuum: &Dh3pContinuum,
+    continuum: &LampContinuum,
     blaze_threshold_frac: f64,
 ) -> OrderBlaze {
     let n = flat_flux.len();
@@ -479,7 +489,7 @@ fn compute_knot_fluxes(samples: &[FlatSample], kept: &[bool], knots: &[f64]) -> 
     out
 }
 
-fn residual_stats(samples: &[FlatSample], kept: &[bool], fit: &Dh3pContinuum) -> (f64, f64) {
+fn residual_stats(samples: &[FlatSample], kept: &[bool], fit: &LampContinuum) -> (f64, f64) {
     let mut residuals: Vec<f64> = samples
         .iter()
         .zip(kept.iter())
@@ -537,11 +547,11 @@ mod tests {
             .iter()
             .map(|(w, f)| (w.as_slice(), f.as_slice()))
             .collect();
-        let cfg = Dh3pContinuumConfig {
+        let cfg = LampContinuumConfig {
             n_knots: 24,
             ..Default::default()
         };
-        let fit = fit_dh3p_continuum(&refs, &cfg).expect("fit should succeed");
+        let fit = fit_lamp_continuum(&refs, &cfg).expect("fit should succeed");
         assert!(fit.n_samples_kept >= 12);
 
         for w in [300.0, 450.0, 700.0] {
@@ -573,7 +583,7 @@ mod tests {
             }
         }
         let orders = vec![(wl.as_slice(), flux.as_slice())];
-        let fit = fit_dh3p_continuum(&orders, &Dh3pContinuumConfig::default())
+        let fit = fit_lamp_continuum(&orders, &LampContinuumConfig::default())
             .expect("fit should succeed");
         assert!(fit.n_samples_rejected > 0, "got {}", fit.n_samples_rejected);
 
@@ -608,16 +618,16 @@ mod tests {
 
         let smooth: Vec<f64> = wl.iter().map(|&w| synth_dh3p(w)).collect();
         let refs = [(wl.as_slice(), smooth.as_slice())];
-        let continuum = fit_dh3p_continuum(
+        let continuum = fit_lamp_continuum(
             &refs,
-            &Dh3pContinuumConfig {
+            &LampContinuumConfig {
                 n_knots: 12,
                 ..Default::default()
             },
         )
         .expect("continuum fit");
 
-        let blaze = compute_blaze_from_dh3p_flat(&flux, &wl, &continuum, 0.15);
+        let blaze = compute_blaze_from_flat(&flux, &wl, &continuum, 0.15);
         let peak = blaze.blaze.iter().copied().fold(0.0_f64, f64::max);
         assert!((peak - 1.0).abs() < 1e-6, "got {peak}");
 
