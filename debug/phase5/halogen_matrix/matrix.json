@@ -1,0 +1,8 @@
+[
+  {"label":"halogen_g0_t500ms_acc1","mcp_gain":0,"exposure_ms":500,"accumulate_count":1,"effective_ms":500,"tiff":"halogen_g0_t500ms_acc1.tiff","elapsed_s":1,"size_kb":10804,"captured_at":"2026-04-21T18:29:40+00:00"},
+  {"label":"halogen_g0_t2000ms_acc1","mcp_gain":0,"exposure_ms":2000,"accumulate_count":1,"effective_ms":2000,"tiff":"halogen_g0_t2000ms_acc1.tiff","elapsed_s":2,"size_kb":10804,"captured_at":"2026-04-21T18:29:42+00:00"},
+  {"label":"halogen_g100_t100ms_acc1","mcp_gain":100,"exposure_ms":100,"accumulate_count":1,"effective_ms":100,"tiff":"halogen_g100_t100ms_acc1.tiff","elapsed_s":1,"size_kb":10804,"captured_at":"2026-04-21T18:29:43+00:00"},
+  {"label":"halogen_g100_t500ms_acc5","mcp_gain":100,"exposure_ms":500,"accumulate_count":5,"effective_ms":2500,"tiff":"halogen_g100_t500ms_acc5.tiff","elapsed_s":121,"size_kb":10804,"captured_at":"2026-04-21T18:31:44+00:00"},
+  {"label":"halogen_g500_t50ms_acc1","mcp_gain":500,"exposure_ms":50,"accumulate_count":1,"effective_ms":50,"tiff":"halogen_g500_t50ms_acc1.tiff","elapsed_s":1,"size_kb":10804,"captured_at":"2026-04-21T18:31:45+00:00"},
+  {"label":"halogen_g500_t200ms_acc5","mcp_gain":500,"exposure_ms":200,"accumulate_count":5,"effective_ms":1000,"tiff":"halogen_g500_t200ms_acc5.tiff","elapsed_s":121,"size_kb":10804,"captured_at":"2026-04-21T18:33:46+00:00"}
+]
