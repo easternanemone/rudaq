@@ -69,15 +69,36 @@ impl PresetServiceImpl {
         self
     }
 
+    #[allow(clippy::result_large_err)]
+    fn validate_preset_id(preset_id: &str) -> Result<(), Status> {
+        if preset_id.is_empty() {
+            return Err(Status::invalid_argument("preset_id is required"));
+        }
+        if !preset_id
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
+        {
+            return Err(Status::invalid_argument(
+                "preset_id must contain only alphanumeric characters, underscores, and hyphens",
+            ));
+        }
+        Ok(())
+    }
+
     /// Get path to a preset file
-    fn preset_path(&self, preset_id: &str) -> PathBuf {
-        self.storage_path.join(format!("{preset_id}.json"))
+    #[allow(clippy::result_large_err)]
+    fn preset_path(&self, preset_id: &str) -> Result<PathBuf, Status> {
+        Self::validate_preset_id(preset_id)?;
+        Ok(self.storage_path.join(format!("{preset_id}.json")))
     }
 
     /// Get path to a preset backup file
-    fn backup_path(&self, preset_id: &str, backup_num: usize) -> PathBuf {
-        self.storage_path
-            .join(format!("{preset_id}.backup{backup_num}.json"))
+    #[allow(clippy::result_large_err)]
+    fn backup_path(&self, preset_id: &str, backup_num: usize) -> Result<PathBuf, Status> {
+        Self::validate_preset_id(preset_id)?;
+        Ok(self
+            .storage_path
+            .join(format!("{preset_id}.backup{backup_num}.json")))
     }
 
     /// Get path to manifest file
@@ -159,22 +180,7 @@ impl PresetServiceImpl {
             .as_ref()
             .map(|m| m.preset_id.clone())
             .unwrap_or_default();
-
-        if preset_id.is_empty() {
-            return Err(Status::invalid_argument("preset_id is required"));
-        }
-
-        // Validate preset_id (alphanumeric, underscore, hyphen only)
-        if !preset_id
-            .chars()
-            .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
-        {
-            return Err(Status::invalid_argument(
-                "preset_id must contain only alphanumeric characters, underscores, and hyphens",
-            ));
-        }
-
-        let path = self.preset_path(&preset_id);
+        let path = self.preset_path(&preset_id)?;
 
         // Rotate backups if file exists
         if fs::try_exists(&path).await.unwrap_or(false) {
@@ -214,7 +220,7 @@ impl PresetServiceImpl {
     /// Rotate backup files (keep max_backups)
     async fn rotate_backups(&self, preset_id: &str) -> Result<(), Status> {
         // Remove oldest backup if at limit
-        let oldest_backup = self.backup_path(preset_id, self.max_backups);
+        let oldest_backup = self.backup_path(preset_id, self.max_backups)?;
         if fs::try_exists(&oldest_backup).await.unwrap_or(false) {
             let _ = fs::remove_file(&oldest_backup).await;
             let _ = fs::remove_file(oldest_backup.with_extension("json.sha256")).await;
@@ -222,8 +228,8 @@ impl PresetServiceImpl {
 
         // Shift existing backups
         for i in (1..self.max_backups).rev() {
-            let from = self.backup_path(preset_id, i);
-            let to = self.backup_path(preset_id, i + 1);
+            let from = self.backup_path(preset_id, i)?;
+            let to = self.backup_path(preset_id, i + 1)?;
             if fs::try_exists(&from).await.unwrap_or(false) {
                 let _ = fs::rename(&from, &to).await;
                 let from_hash = from.with_extension("json.sha256");
@@ -235,8 +241,8 @@ impl PresetServiceImpl {
         }
 
         // Move current to backup 1
-        let current = self.preset_path(preset_id);
-        let backup1 = self.backup_path(preset_id, 1);
+        let current = self.preset_path(preset_id)?;
+        let backup1 = self.backup_path(preset_id, 1)?;
         if fs::try_exists(&current).await.unwrap_or(false) {
             let _ = fs::rename(&current, &backup1).await;
             let current_hash = current.with_extension("json.sha256");
@@ -251,7 +257,7 @@ impl PresetServiceImpl {
 
     /// Load preset from filesystem with integrity check
     async fn load_preset_from_disk(&self, preset_id: &str) -> Result<Preset, Status> {
-        let path = self.preset_path(preset_id);
+        let path = self.preset_path(preset_id)?;
 
         if !fs::try_exists(&path).await.unwrap_or(false) {
             return Err(Status::not_found(format!("Preset '{preset_id}' not found")));
@@ -352,7 +358,7 @@ impl PresetServiceImpl {
 
     /// Delete preset from storage
     async fn delete_preset_from_disk(&self, preset_id: &str) -> Result<(), Status> {
-        let path = self.preset_path(preset_id);
+        let path = self.preset_path(preset_id)?;
 
         if !fs::try_exists(&path).await.unwrap_or(false) {
             return Err(Status::not_found(format!("Preset '{preset_id}' not found")));
@@ -369,7 +375,7 @@ impl PresetServiceImpl {
 
         // Remove backups
         for i in 1..=self.max_backups {
-            let backup = self.backup_path(preset_id, i);
+            let backup = self.backup_path(preset_id, i)?;
             let _ = fs::remove_file(&backup).await;
             let _ = fs::remove_file(backup.with_extension("json.sha256")).await;
         }
@@ -485,7 +491,7 @@ impl PresetService for PresetServiceImpl {
             .unwrap_or_default();
 
         // Check if exists and overwrite flag
-        let path = self.preset_path(&preset_id);
+        let path = self.preset_path(&preset_id)?;
         if fs::try_exists(&path).await.unwrap_or(false) && !req.overwrite {
             return Ok(Response::new(SavePresetResponse {
                 saved: false,
@@ -774,18 +780,18 @@ mod tests {
 
         // Check backups exist
         assert!(
-            fs::try_exists(service.backup_path("rotate_test", 1))
+            fs::try_exists(service.backup_path("rotate_test", 1).unwrap())
                 .await
                 .unwrap_or(false)
         );
         assert!(
-            fs::try_exists(service.backup_path("rotate_test", 2))
+            fs::try_exists(service.backup_path("rotate_test", 2).unwrap())
                 .await
                 .unwrap_or(false)
         );
         // Backup 3 should not exist (max_backups=2)
         assert!(
-            !fs::try_exists(service.backup_path("rotate_test", 3))
+            !fs::try_exists(service.backup_path("rotate_test", 3).unwrap())
                 .await
                 .unwrap_or(false)
         );
@@ -803,7 +809,7 @@ mod tests {
             .unwrap();
 
         // Corrupt the file
-        let path = service.preset_path("integrity");
+        let path = service.preset_path("integrity").unwrap();
         fs::write(&path, "corrupted content").await.unwrap();
 
         // Load should fail integrity check
