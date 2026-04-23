@@ -171,7 +171,8 @@ impl ScriptModule {
     /// module metadata by calling `module_type_info()` in the script.
     pub async fn from_file(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
-        let script_source = std::fs::read_to_string(path)
+        let script_source = tokio::fs::read_to_string(path)
+            .await
             .map_err(|e| anyhow!("Failed to read script file {}: {}", path.display(), e))?;
 
         Self::from_source(script_source, path.to_path_buf()).await
