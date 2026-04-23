@@ -504,8 +504,20 @@ mod mock_features {
         let mode = PvcamFeatures::get_clear_mode(&conn).unwrap();
         assert_eq!(mode, ClearMode::PreExposure);
 
-        let result = PvcamFeatures::set_clear_mode(&conn, ClearMode::Never);
-        assert!(result.is_ok());
+        let variants = [
+            ClearMode::Never,
+            ClearMode::PreExposure,
+            ClearMode::PreSequence,
+            ClearMode::PostSequence,
+            ClearMode::PrePostSequence,
+            ClearMode::PreExposurePostSequence,
+        ];
+
+        for mode in variants {
+            let result = PvcamFeatures::set_clear_mode(&conn, mode.clone());
+            assert!(result.is_ok());
+            assert_eq!(PvcamFeatures::get_clear_mode(&conn).unwrap(), mode);
+        }
     }
 
     #[test]
