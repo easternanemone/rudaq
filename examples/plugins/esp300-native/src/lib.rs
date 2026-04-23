@@ -720,14 +720,23 @@ impl ModuleFfi for Esp300Stage {
         // - Enabling the motor amplifier
         // - Beginning position polling
 
-        let inner = match self.inner.lock() {
+        let mut inner = match self.inner.lock() {
             Ok(inner) => inner,
             Err(e) => return RResult::RErr(RString::from(format!("Lock error: {}", e))),
         };
 
         if !inner.mock_mode {
-            // TODO: Enable motor amplifier with: "{axis}MO\r\n"
-            debug!("ESP300: Would enable motor for axis {}", inner.axis);
+            let cmd = format!("{}MO\r\n", inner.axis);
+            if let Some(port) = &mut inner.port {
+                if let Err(e) = port.write_all(cmd.as_bytes()) {
+                    return RResult::RErr(RString::from(format!("Serial write error: {}", e)));
+                }
+            } else {
+                warn!(
+                    "ESP300: Serial port not open, dropping command: {}",
+                    cmd.trim()
+                );
+            }
         }
 
         drop(inner);
