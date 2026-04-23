@@ -8,12 +8,13 @@ use crate::config::raw::{
     RawConnectionConfig, RawManifest, RawMethodMapping, RawMovableMapping, RawWaitSettledMapping,
 };
 use crate::config::validated::{
-    BaudRate, CapabilitySet, CommandConfig, CommandRef, ConnectionConfig, ConversionRef,
-    DeviceInfo, DeviceManifest, EmissionControlConfig, FormatVariant, InitCommand,
-    ManifestParameterMeta, MethodConfig, MovableConfig, ReadableConfig, ResponseParser,
-    ResponseRef, ScpiResponseType, SerialConfig, SerialFlowControl, SerialParity, SettableConfig,
-    ShutterControlConfig, SpectrumReadableConfig, Timeout, ValidatedFormat, ValidatedFormula,
-    ValidatedRegex, ValidatedTemplate, WaitSettledConfig, WavelengthTunableConfig,
+    BaudRate, CapabilitySet, CommandConfig, CommandRef, CommandUiHint, ConnectionConfig,
+    ConversionRef, DeviceInfo, DeviceManifest, EmissionControlConfig, FormatVariant, InitCommand,
+    ManifestParameterMeta, MethodConfig, MovableConfig, ParameterUiHint, ReadableConfig,
+    ResponseParser, ResponseRef, ScpiResponseType, SerialConfig, SerialFlowControl, SerialParity,
+    SettableConfig, ShutterControlConfig, SpectrumReadableConfig, Timeout, ValidatedFormat,
+    ValidatedFormula, ValidatedRegex, ValidatedTemplate, WaitSettledConfig,
+    WavelengthTunableConfig, WidgetHint,
 };
 use crate::format_parser;
 use crate::template;
@@ -102,7 +103,7 @@ pub fn parse_manifest(raw: RawManifest) -> Result<DeviceManifest, Vec<ConfigErro
     }
 
     // 8b. Extract rich parameter metadata for DB/UI consumption.
-    let parameter_metadata = extract_parameter_metadata(&raw.parameters);
+    let parameter_metadata = extract_parameter_metadata(&raw.parameters, &mut errors);
 
     // 9. Validate init_sequence entries
     let init_sequence = validate_init_sequence(&raw, &mut errors);
@@ -389,6 +390,7 @@ fn validate_connection(
 /// ```
 fn extract_parameter_metadata(
     raw_params: &HashMap<String, toml::Value>,
+    errors: &mut Vec<ConfigError>,
 ) -> Vec<ManifestParameterMeta> {
     let mut metas = Vec::new();
 
@@ -432,6 +434,12 @@ fn extract_parameter_metadata(
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
 
+            // `[parameters.X.ui]` (bd-jcb4x G1) — inline UI declaration.
+            let ui_hint = table
+                .get("ui")
+                .and_then(|v| v.as_table())
+                .map(|ui_tbl| parse_parameter_ui(name, ui_tbl, errors));
+
             metas.push(ManifestParameterMeta {
                 name: name.clone(),
                 dtype,
@@ -441,6 +449,7 @@ fn extract_parameter_metadata(
                 unit,
                 description,
                 read_only,
+                ui_hint,
             });
         } else {
             // Bare scalar — infer type from TOML value
@@ -462,12 +471,73 @@ fn extract_parameter_metadata(
                 unit: None,
                 description: None,
                 read_only: false,
+                ui_hint: None,
             });
         }
     }
 
     metas.sort_by(|a, b| a.name.cmp(&b.name));
     metas
+}
+
+/// Convert a `[parameters.<name>.ui]` TOML sub-table into a validated
+/// [`ParameterUiHint`] (bd-jcb4x G1).
+///
+/// Unknown `widget_hint` strings produce a `ConfigError` rather than silently
+/// falling back, so typos surface immediately at manifest load time.
+fn parse_parameter_ui(
+    param_name: &str,
+    ui_tbl: &toml::value::Table,
+    errors: &mut Vec<ConfigError>,
+) -> ParameterUiHint {
+    let label = ui_tbl
+        .get("label")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+
+    let widget_hint = ui_tbl
+        .get("widget_hint")
+        .and_then(|v| v.as_str())
+        .and_then(|s| match WidgetHint::parse(s) {
+            Some(h) => Some(h),
+            None => {
+                errors.push(ConfigError::Other(format!(
+                    "parameter '{param_name}': unknown widget_hint '{s}'. \
+                     Valid values: {}",
+                    WidgetHint::ALL_LABELS.join(", ")
+                )));
+                None
+            }
+        });
+
+    let group = ui_tbl
+        .get("group")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+
+    #[allow(clippy::cast_precision_loss)]
+    // SAFETY: TOML integers are i64; precision loss acceptable for UI step metadata
+    let step = ui_tbl
+        .get("step")
+        .and_then(|v| v.as_float().or_else(|| v.as_integer().map(|i| i as f64)));
+
+    let enum_values = ui_tbl
+        .get("enum_values")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    ParameterUiHint {
+        label,
+        widget_hint,
+        group,
+        step,
+        enum_values,
+    }
 }
 
 fn validate_commands(
@@ -494,6 +564,33 @@ fn validate_commands(
             .as_ref()
             .and_then(|rt| ScpiResponseType::parse(rt));
 
+        // Inline UI declaration (bd-jcb4x G1). Convert raw → validated and
+        // report a ConfigError for unknown widget_hint strings rather than
+        // silently dropping them.
+        let ui_hint = cmd.ui.as_ref().map(|raw_ui| {
+            let widget_hint =
+                raw_ui
+                    .widget_hint
+                    .as_deref()
+                    .and_then(|s| match WidgetHint::parse(s) {
+                        Some(h) => Some(h),
+                        None => {
+                            errors.push(ConfigError::Other(format!(
+                                "command '{name}': unknown widget_hint '{s}'. \
+                             Valid values: {}",
+                                WidgetHint::ALL_LABELS.join(", ")
+                            )));
+                            None
+                        }
+                    });
+            CommandUiHint {
+                label: raw_ui.label.clone(),
+                widget_hint,
+                group: raw_ui.group.clone(),
+                description: raw_ui.description.clone(),
+            }
+        });
+
         commands.insert(
             name.clone(),
             CommandConfig {
@@ -503,6 +600,7 @@ fn validate_commands(
                 response_type,
                 expects_response: cmd.expects_response,
                 description: cmd.description.clone(),
+                ui_hint,
             },
         );
     }
@@ -1146,6 +1244,305 @@ layout = "vertical"
 
         assert_eq!(icon, "meter");
         assert_eq!(layout, "vertical");
+    }
+
+    // ---- bd-jcb4x G1: inline [commands.X.ui] / [parameters.X.ui] ----
+
+    /// Helper: build a minimal valid manifest that exercises both inline
+    /// UI tables so tests can drop in additional fields easily.
+    fn g1_manifest_with_ui() -> &'static str {
+        r#"
+schema_version = 3
+
+[device]
+name = "G1 Test Device"
+capabilities = ["Readable", "Settable"]
+
+[connection]
+type = "serial"
+baud_rate = 9600
+
+[commands.read_power]
+template = "READ?"
+response_type = "float"
+description = "Read the current power."
+
+[commands.read_power.ui]
+label = "Read Power"
+widget_hint = "button"
+group = "status"
+description = "Query current power from device"
+
+[commands.set_power]
+template = "POWER {{ value }}"
+parameters = { value = "float" }
+
+[commands.set_power.ui]
+widget_hint = "slider"
+group = "control"
+
+[capabilities.readable]
+read = { command = "read_power" }
+
+[capabilities.settable]
+set = { command = "set_power", from_param = "value" }
+
+[parameters.power_mw]
+type = "float"
+default = 50.0
+range = [0.0, 200.0]
+unit = "mW"
+
+[parameters.power_mw.ui]
+label = "Output Power"
+widget_hint = "slider"
+group = "control"
+step = 0.5
+
+[parameters.mode]
+type = "string"
+description = "Operating mode"
+
+[parameters.mode.ui]
+widget_hint = "enum_select"
+enum_values = ["idle", "pulsed", "cw"]
+group = "control"
+"#
+    }
+
+    #[test]
+    fn g1_parse_command_ui_hint_basic() {
+        let raw: RawManifest = toml::from_str(g1_manifest_with_ui()).unwrap();
+        let manifest = parse_manifest(raw).expect("manifest with inline UI should parse");
+
+        let cmd = manifest
+            .commands
+            .get("read_power")
+            .expect("read_power command");
+        let ui_hint = cmd
+            .ui_hint
+            .as_ref()
+            .expect("read_power should have ui_hint");
+        assert_eq!(ui_hint.label.as_deref(), Some("Read Power"));
+        assert_eq!(ui_hint.widget_hint, Some(WidgetHint::Button));
+        assert_eq!(ui_hint.group.as_deref(), Some("status"));
+        assert_eq!(
+            ui_hint.description.as_deref(),
+            Some("Query current power from device")
+        );
+    }
+
+    #[test]
+    fn g1_parse_command_ui_hint_partial() {
+        // set_power has only widget_hint + group, no label/description — must still parse.
+        let raw: RawManifest = toml::from_str(g1_manifest_with_ui()).unwrap();
+        let manifest = parse_manifest(raw).expect("partial ui_hint should parse");
+
+        let cmd = manifest
+            .commands
+            .get("set_power")
+            .expect("set_power command");
+        let ui_hint = cmd.ui_hint.as_ref().expect("set_power should have ui_hint");
+        assert!(ui_hint.label.is_none());
+        assert_eq!(ui_hint.widget_hint, Some(WidgetHint::Slider));
+        assert_eq!(ui_hint.group.as_deref(), Some("control"));
+        assert!(ui_hint.description.is_none());
+    }
+
+    #[test]
+    fn g1_parse_parameter_ui_hint_numeric() {
+        let raw: RawManifest = toml::from_str(g1_manifest_with_ui()).unwrap();
+        let manifest = parse_manifest(raw).expect("manifest with parameter.ui should parse");
+
+        let meta = manifest
+            .parameter_metadata
+            .iter()
+            .find(|m| m.name == "power_mw")
+            .expect("power_mw metadata");
+        let ui_hint = meta.ui_hint.as_ref().expect("power_mw should have ui_hint");
+        assert_eq!(ui_hint.label.as_deref(), Some("Output Power"));
+        assert_eq!(ui_hint.widget_hint, Some(WidgetHint::Slider));
+        assert_eq!(ui_hint.group.as_deref(), Some("control"));
+        assert_eq!(ui_hint.step, Some(0.5));
+        assert!(ui_hint.enum_values.is_empty());
+    }
+
+    #[test]
+    fn g1_parse_parameter_ui_hint_enum() {
+        let raw: RawManifest = toml::from_str(g1_manifest_with_ui()).unwrap();
+        let manifest = parse_manifest(raw).expect("manifest with enum ui should parse");
+
+        let meta = manifest
+            .parameter_metadata
+            .iter()
+            .find(|m| m.name == "mode")
+            .expect("mode metadata");
+        let ui_hint = meta.ui_hint.as_ref().expect("mode should have ui_hint");
+        assert_eq!(ui_hint.widget_hint, Some(WidgetHint::EnumSelect));
+        assert_eq!(
+            ui_hint.enum_values,
+            vec!["idle".to_string(), "pulsed".to_string(), "cw".to_string()]
+        );
+    }
+
+    #[test]
+    fn g1_missing_ui_sections_produce_none() {
+        // Baseline ell14 manifest has no [commands.*.ui] / [parameters.*.ui]
+        // tables; ui_hint fields must be None across the board.
+        let raw: RawManifest = toml::from_str(ell14_toml()).unwrap();
+        let manifest = parse_manifest(raw).expect("ell14 should parse");
+
+        for (name, cmd) in &manifest.commands {
+            assert!(
+                cmd.ui_hint.is_none(),
+                "command {name} should have no ui_hint in legacy manifest"
+            );
+        }
+        for meta in &manifest.parameter_metadata {
+            assert!(
+                meta.ui_hint.is_none(),
+                "parameter {} should have no ui_hint in legacy manifest",
+                meta.name
+            );
+        }
+    }
+
+    #[test]
+    fn g1_unknown_command_widget_hint_is_error() {
+        let toml_str = r#"
+schema_version = 3
+
+[device]
+name = "Bad Hint"
+capabilities = ["Readable"]
+
+[connection]
+type = "serial"
+baud_rate = 9600
+
+[commands.read]
+template = "READ?"
+response_type = "float"
+
+[commands.read.ui]
+widget_hint = "holographic_dial"
+
+[capabilities.readable]
+read = { command = "read" }
+"#;
+        let raw: RawManifest = toml::from_str(toml_str).unwrap();
+        let err = parse_manifest(raw).expect_err("unknown widget_hint must error");
+        let combined = err
+            .iter()
+            .map(|e| format!("{e}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            combined.contains("holographic_dial"),
+            "error message should mention the offending value: {combined}"
+        );
+        assert!(
+            combined.contains("widget_hint"),
+            "error message should name the field: {combined}"
+        );
+    }
+
+    #[test]
+    fn g1_unknown_parameter_widget_hint_is_error() {
+        let toml_str = r#"
+schema_version = 3
+
+[device]
+name = "Bad Param Hint"
+capabilities = ["Readable"]
+
+[connection]
+type = "serial"
+baud_rate = 9600
+
+[commands.read]
+template = "READ?"
+response_type = "float"
+
+[capabilities.readable]
+read = { command = "read" }
+
+[parameters.spin]
+type = "float"
+default = 0.0
+
+[parameters.spin.ui]
+widget_hint = "antigravity"
+"#;
+        let raw: RawManifest = toml::from_str(toml_str).unwrap();
+        let err = parse_manifest(raw).expect_err("unknown widget_hint must error");
+        let combined = err
+            .iter()
+            .map(|e| format!("{e}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            combined.contains("antigravity"),
+            "error message should mention the offending value: {combined}"
+        );
+        assert!(
+            combined.contains("spin"),
+            "error message should name the parameter: {combined}"
+        );
+    }
+
+    #[test]
+    fn g1_widget_hint_aliases_accepted() {
+        // "enum", "select", "dropdown" should all map to EnumSelect;
+        // "checkbox" → Toggle; "numeric", "number" → NumericInput.
+        let toml_str = r#"
+schema_version = 3
+
+[device]
+name = "Aliases"
+capabilities = ["Readable"]
+
+[connection]
+type = "serial"
+baud_rate = 9600
+
+[commands.read]
+template = "READ?"
+response_type = "float"
+
+[commands.read.ui]
+widget_hint = "CHECKBOX"
+
+[capabilities.readable]
+read = { command = "read" }
+
+[parameters.pick]
+type = "string"
+
+[parameters.pick.ui]
+widget_hint = "dropdown"
+"#;
+        let raw: RawManifest = toml::from_str(toml_str).unwrap();
+        let manifest = parse_manifest(raw).expect("aliases should resolve");
+        assert_eq!(
+            manifest.commands["read"]
+                .ui_hint
+                .as_ref()
+                .unwrap()
+                .widget_hint,
+            Some(WidgetHint::Toggle),
+            "CHECKBOX (case-insensitive) must map to Toggle"
+        );
+        let pick = manifest
+            .parameter_metadata
+            .iter()
+            .find(|m| m.name == "pick")
+            .unwrap();
+        assert_eq!(
+            pick.ui_hint.as_ref().unwrap().widget_hint,
+            Some(WidgetHint::EnumSelect),
+            "'dropdown' must map to EnumSelect"
+        );
     }
 
     #[test]

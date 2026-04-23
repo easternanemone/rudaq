@@ -146,8 +146,62 @@
           "description": "Name of a conversion formula to apply (from [conversions.*])."
         },
         "retry": {},
-        "timeout_ms": { "type": "integer", "minimum": 1, "maximum": 60000 }
+        "timeout_ms": { "type": "integer", "minimum": 1, "maximum": 60000 },
+        "ui": { "$ref": "#/$defs/command_ui" }
       }
+    },
+    "command_ui": {
+      "type": "object",
+      "description": "Inline UI declaration for a command (bd-jcb4x G1). Feeds Phase 2 G2 ControlPanelConfig auto-synthesis; no effect on runtime.",
+      "properties": {
+        "label": {
+          "type": "string",
+          "description": "Human-readable button / widget label. Defaults to the command name."
+        },
+        "widget_hint": {
+          "type": "string",
+          "description": "Suggested widget shape. Omit to let the synthesizer pick from command shape.",
+          "enum": ["slider", "toggle", "enum_select", "numeric_input", "text_input", "button"]
+        },
+        "group": {
+          "type": "string",
+          "description": "Named group for clustering related widgets (e.g. 'motion', 'status'). Seeds Phase 2 G3 layout slots."
+        },
+        "description": {
+          "type": "string",
+          "description": "Tooltip / help text. Falls back to the command's top-level description."
+        }
+      },
+      "additionalProperties": false
+    },
+    "parameter_ui": {
+      "type": "object",
+      "description": "Inline UI declaration for a parameter (bd-jcb4x G1). Feeds Phase 2 G2 ControlPanelConfig auto-synthesis; no effect on runtime.",
+      "properties": {
+        "label": {
+          "type": "string",
+          "description": "Human-readable label. Defaults to the parameter name."
+        },
+        "widget_hint": {
+          "type": "string",
+          "description": "Suggested widget shape. Omit to let the synthesizer pick from dtype + range.",
+          "enum": ["slider", "toggle", "enum_select", "numeric_input", "text_input", "button"]
+        },
+        "group": {
+          "type": "string",
+          "description": "Named group for clustering related parameters."
+        },
+        "step": {
+          "type": "number",
+          "description": "Slider / numeric-input step size. Only meaningful for numeric widgets."
+        },
+        "enum_values": {
+          "type": "array",
+          "description": "Discrete allowed values for enum_select widgets. Ignored for other shapes.",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
     },
     "response": {
       "type": "object",

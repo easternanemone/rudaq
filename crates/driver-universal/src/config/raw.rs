@@ -217,10 +217,49 @@ pub struct RawCommandConfig {
     #[serde(default)]
     pub delay_ms: Option<u32>,
 
+    /// Inline UI declaration for this command (bd-jcb4x G1).
+    ///
+    /// Optional. When present, feeds the Phase 2 G2 auto-synthesizer which
+    /// builds a [`ControlPanelConfig`] without any hand-written panel code.
+    /// Has no effect on the runtime driver.
+    #[serde(default)]
+    pub ui: Option<RawCommandUi>,
+
     // LEGACY: v2 query flag, accepted but ignored in v3. See deprecation-plan.md 3.2.
     /// Whether this is a query command (v2 legacy, ignored in v3).
     #[serde(default)]
     pub query: Option<bool>,
+}
+
+/// `[commands.X.ui]` — inline UI declaration for a command (bd-jcb4x G1).
+///
+/// Every field is optional so existing manifests keep working. Fields here
+/// describe *how* a command should surface in the auto-synthesized control
+/// panel, not *whether* — a command without a `[.ui]` table can still be
+/// routed into a generic action button by the synthesizer.
+#[derive(Debug, Deserialize)]
+pub struct RawCommandUi {
+    /// Human-readable label for the button / widget. Falls back to the
+    /// command's own name if omitted.
+    #[serde(default)]
+    pub label: Option<String>,
+
+    /// Suggested widget shape. Validated in stage 2 against
+    /// [`WidgetHint`](super::validated::WidgetHint). Unknown strings produce
+    /// a validation error; omission is fine and lets the synthesizer pick.
+    #[serde(default)]
+    pub widget_hint: Option<String>,
+
+    /// Named group for this command (e.g. "motion", "status"). Used by the
+    /// synthesizer to cluster related widgets; also a seed for Phase 2 G3's
+    /// named layout slots.
+    #[serde(default)]
+    pub group: Option<String>,
+
+    /// Tooltip / help text. Falls back to the command's own `description`
+    /// field when absent.
+    #[serde(default)]
+    pub description: Option<String>,
 }
 
 fn default_true() -> bool {

@@ -94,6 +94,55 @@ mod tests {
     }
 
     #[test]
+    fn embedded_schema_defines_inline_ui_blocks() {
+        // bd-jcb4x G1 added [commands.X.ui] and [parameters.X.ui] inline
+        // declarations. The schema must document both so editors autocomplete
+        // the widget_hint / label / group / step / enum_values fields.
+        let parsed: Value = serde_json::from_str(MANIFEST_SCHEMA_JSON).unwrap();
+        let defs = parsed.get("$defs").expect("$defs required");
+
+        // $defs.command_ui / $defs.parameter_ui must exist
+        for variant in &["command_ui", "parameter_ui"] {
+            let def = defs
+                .get(variant)
+                .unwrap_or_else(|| panic!("$defs is missing '{variant}'"));
+            let widget_enum = def
+                .get("properties")
+                .and_then(|p| p.get("widget_hint"))
+                .and_then(|w| w.get("enum"))
+                .and_then(Value::as_array)
+                .unwrap_or_else(|| panic!("{variant}.properties.widget_hint.enum missing"));
+            let labels: Vec<&str> = widget_enum.iter().filter_map(Value::as_str).collect();
+            for expected in &[
+                "slider",
+                "toggle",
+                "enum_select",
+                "numeric_input",
+                "text_input",
+                "button",
+            ] {
+                assert!(
+                    labels.contains(expected),
+                    "{variant}.widget_hint enum missing '{expected}'"
+                );
+            }
+        }
+
+        // The command schema must reference command_ui via a .ui property.
+        let cmd_ui = parsed
+            .get("$defs")
+            .and_then(|v| v.get("command"))
+            .and_then(|v| v.get("properties"))
+            .and_then(|v| v.get("ui"))
+            .expect("$defs.command.properties.ui missing");
+        let reffed = cmd_ui.get("$ref").and_then(Value::as_str).unwrap_or("");
+        assert!(
+            reffed.ends_with("/command_ui"),
+            "command.ui must $ref command_ui, got {reffed}"
+        );
+    }
+
+    #[test]
     fn embedded_schema_describes_response_variants_field() {
         // F1 added `variants` as the preferred multi-format shape; make sure
         // the schema documents it so VS Code autocompletes it.

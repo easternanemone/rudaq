@@ -73,6 +73,10 @@ pub struct ManifestParameterMeta {
     pub description: Option<String>,
     /// Whether the parameter is read-only.
     pub read_only: bool,
+    /// Optional inline UI declaration (bd-jcb4x G1). When present, feeds
+    /// Phase 2 G2 auto-synthesis of [`ControlPanelConfig`]. `None` means the
+    /// synthesizer falls back to dtype/range-driven defaults.
+    pub ui_hint: Option<ParameterUiHint>,
 }
 
 fn parameter_metadata_from_manifest(
@@ -272,6 +276,125 @@ pub struct CommandConfig {
 
     /// Human-readable description from the TOML manifest.
     pub description: Option<String>,
+
+    /// Optional inline UI declaration (bd-jcb4x G1). When present, feeds
+    /// Phase 2 G2 auto-synthesis of [`ControlPanelConfig`]. Has no effect on
+    /// runtime driver behavior.
+    pub ui_hint: Option<CommandUiHint>,
+}
+
+/// Validated widget-shape hint for an inline UI declaration (bd-jcb4x G1).
+///
+/// Each variant corresponds to one of the renderer's concrete widget types.
+/// Unknown strings from the manifest produce a validation error in stage 2;
+/// this enum is what Phase 2 G2 synthesis keys off to pick an egui widget.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WidgetHint {
+    /// Slider widget: bounded numeric with min/max range (needs a range).
+    Slider,
+    /// Boolean toggle / checkbox.
+    Toggle,
+    /// Dropdown selecting one of a fixed set of enum values.
+    EnumSelect,
+    /// Plain numeric text input (no slider).
+    NumericInput,
+    /// Plain text line edit (for string parameters).
+    TextInput,
+    /// Action button (for commands with no input).
+    Button,
+}
+
+impl WidgetHint {
+    /// Parse a widget-hint string from the manifest. Returns `None` for
+    /// unrecognised values; callers report that as a `ConfigError`.
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.trim().to_lowercase().as_str() {
+            "slider" => Some(Self::Slider),
+            "toggle" | "checkbox" => Some(Self::Toggle),
+            "enum_select" | "enum" | "select" | "dropdown" => Some(Self::EnumSelect),
+            "numeric_input" | "numeric" | "number" => Some(Self::NumericInput),
+            "text_input" | "text" | "string" => Some(Self::TextInput),
+            "button" | "action" => Some(Self::Button),
+            _ => None,
+        }
+    }
+
+    /// Canonical string label, matching the primary spelling accepted by
+    /// [`WidgetHint::parse`]. Used for diagnostics and round-tripping.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Slider => "slider",
+            Self::Toggle => "toggle",
+            Self::EnumSelect => "enum_select",
+            Self::NumericInput => "numeric_input",
+            Self::TextInput => "text_input",
+            Self::Button => "button",
+        }
+    }
+
+    /// All valid widget-hint string values, for documenting the schema /
+    /// producing helpful error messages.
+    pub const ALL_LABELS: &'static [&'static str] = &[
+        "slider",
+        "toggle",
+        "enum_select",
+        "numeric_input",
+        "text_input",
+        "button",
+    ];
+}
+
+/// Validated inline UI declaration for a command (bd-jcb4x G1).
+///
+/// Every field is optional — Phase 2 G2 synthesis applies sensible defaults
+/// when fields are omitted. Used only by the synthesizer; runtime ignores
+/// this completely.
+#[derive(Debug, Clone)]
+pub struct CommandUiHint {
+    /// Human-readable label for the generated widget. Falls back to the
+    /// command name when `None`.
+    pub label: Option<String>,
+
+    /// Suggested widget shape. `None` lets the synthesizer pick based on
+    /// command shape (zero-parameter → Button, boolean parameter → Toggle,
+    /// etc).
+    pub widget_hint: Option<WidgetHint>,
+
+    /// Named group for clustering related commands in the synthesized panel.
+    /// Seeds Phase 2 G3's named layout slots.
+    pub group: Option<String>,
+
+    /// Tooltip / help text. Falls back to the command's top-level
+    /// `description` field when `None`.
+    pub description: Option<String>,
+}
+
+/// Validated inline UI declaration for a parameter (bd-jcb4x G1).
+///
+/// Companion to [`CommandUiHint`] for the `[parameters.<name>.ui]` table.
+/// Phase 2 G2 synthesis picks a widget from `widget_hint` if present, or
+/// falls back to the parameter's `dtype` and range.
+#[derive(Debug, Clone)]
+pub struct ParameterUiHint {
+    /// Human-readable label. Falls back to the parameter name when `None`.
+    pub label: Option<String>,
+
+    /// Suggested widget shape. `None` lets the synthesizer pick based on
+    /// dtype + range (e.g. float with min/max → Slider, bool → Toggle,
+    /// enum with enum_values → EnumSelect).
+    pub widget_hint: Option<WidgetHint>,
+
+    /// Named group for clustering related parameters in the synthesized
+    /// panel.
+    pub group: Option<String>,
+
+    /// Optional slider / numeric-input step size. Only meaningful for
+    /// numeric widgets.
+    pub step: Option<f64>,
+
+    /// Discrete allowed values for `EnumSelect`. Ignored for other widget
+    /// shapes.
+    pub enum_values: Vec<String>,
 }
 
 /// A verified-to-exist reference to a command name.
@@ -657,5 +780,65 @@ mod tests {
     fn test_scpi_response_type_equality() {
         assert_eq!(ScpiResponseType::Float, ScpiResponseType::Float);
         assert_ne!(ScpiResponseType::Float, ScpiResponseType::Integer);
+    }
+
+    // ---- bd-jcb4x G1: WidgetHint ----
+
+    #[test]
+    fn widget_hint_parses_canonical_labels() {
+        // Every variant must round-trip through label() + parse().
+        for hint in [
+            WidgetHint::Slider,
+            WidgetHint::Toggle,
+            WidgetHint::EnumSelect,
+            WidgetHint::NumericInput,
+            WidgetHint::TextInput,
+            WidgetHint::Button,
+        ] {
+            assert_eq!(WidgetHint::parse(hint.label()), Some(hint));
+        }
+    }
+
+    #[test]
+    fn widget_hint_parses_aliases() {
+        // Documented aliases must resolve to the right variant.
+        assert_eq!(WidgetHint::parse("checkbox"), Some(WidgetHint::Toggle));
+        assert_eq!(WidgetHint::parse("enum"), Some(WidgetHint::EnumSelect));
+        assert_eq!(WidgetHint::parse("select"), Some(WidgetHint::EnumSelect));
+        assert_eq!(WidgetHint::parse("dropdown"), Some(WidgetHint::EnumSelect));
+        assert_eq!(WidgetHint::parse("numeric"), Some(WidgetHint::NumericInput));
+        assert_eq!(WidgetHint::parse("number"), Some(WidgetHint::NumericInput));
+        assert_eq!(WidgetHint::parse("text"), Some(WidgetHint::TextInput));
+        assert_eq!(WidgetHint::parse("string"), Some(WidgetHint::TextInput));
+        assert_eq!(WidgetHint::parse("action"), Some(WidgetHint::Button));
+    }
+
+    #[test]
+    fn widget_hint_parse_is_case_insensitive_and_trimmed() {
+        assert_eq!(WidgetHint::parse("  SLIDER  "), Some(WidgetHint::Slider));
+        assert_eq!(WidgetHint::parse("Toggle"), Some(WidgetHint::Toggle));
+        assert_eq!(
+            WidgetHint::parse("Enum_Select"),
+            Some(WidgetHint::EnumSelect)
+        );
+    }
+
+    #[test]
+    fn widget_hint_parse_rejects_unknown() {
+        assert_eq!(WidgetHint::parse(""), None);
+        assert_eq!(WidgetHint::parse("gyroscope"), None);
+        assert_eq!(WidgetHint::parse("float"), None);
+    }
+
+    #[test]
+    fn widget_hint_all_labels_parse_back() {
+        // The ALL_LABELS constant is surfaced in error messages and editor
+        // documentation; every entry must actually parse.
+        for label in WidgetHint::ALL_LABELS {
+            assert!(
+                WidgetHint::parse(label).is_some(),
+                "ALL_LABELS entry {label:?} must parse back"
+            );
+        }
     }
 }
