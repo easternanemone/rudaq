@@ -1,4 +1,5 @@
 ---
+name: cargo-modules
 description: Visualize and analyze Rust crate structure using cargo-modules for understanding module hierarchy, dependencies, and detecting orphaned files
 tags: [rust, crate-structure, modules, dependencies, analysis]
 ---
