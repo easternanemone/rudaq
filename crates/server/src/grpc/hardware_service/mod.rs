@@ -733,7 +733,7 @@ impl HardwareService for HardwareServiceImpl {
         request: Request<LoadCalibrationProfileRequest>,
     ) -> Result<Response<LoadCalibrationProfileResponse>, Status> {
         let path = request.into_inner().path;
-        match std::fs::read_to_string(&path) {
+        match tokio::fs::read_to_string(&path).await {
             Ok(content) => Ok(Response::new(LoadCalibrationProfileResponse {
                 success: true,
                 content,
@@ -752,7 +752,7 @@ impl HardwareService for HardwareServiceImpl {
         request: Request<SaveCalibrationProfileRequest>,
     ) -> Result<Response<SaveCalibrationProfileResponse>, Status> {
         let req = request.into_inner();
-        match std::fs::write(&req.path, &req.content) {
+        match tokio::fs::write(&req.path, &req.content).await {
             Ok(()) => Ok(Response::new(SaveCalibrationProfileResponse {
                 success: true,
                 error_message: String::new(),
