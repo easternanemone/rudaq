@@ -4,6 +4,8 @@
 
 Evaluation complete. Partial adoption recommended.
 
+> **Count note (2026-04-22):** The "24 capability trait methods" figure below is the snapshot at the time this ADR was written. The trait count in `crates/common-traits/src/capabilities.rs` is now **30**. The `anyhow::Result` design point still applies.
+
 ## Context
 
 Microsoft's Pragmatic Rust Guidelines (M-ERRORS-CANONICAL-STRUCTS) recommend that

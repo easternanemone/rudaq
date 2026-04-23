@@ -131,7 +131,7 @@ sudo systemctl start pvcam-usb-buffer
 
 **Symptoms:**
 
-- Application panics or returns error during `PvcamDriver::new()`.
+- Application panics or returns error during `PvcamDriver::new_async()`.
 
 **Checklist:**
 

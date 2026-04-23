@@ -192,3 +192,37 @@ Validated 25 specific claims from the first ingest pass against the actual code 
 **Fix:** same skip-if-missing pattern used by `echelle_merged_spectrum_regression_halogen_flat` applied to `baseline_hgar_doe_matrix`. Returns `Ok(())` with a skip notice when the DH3P flat is absent; hardware runners that retain the capture still exercise the DoE baseline. CI stays green without the fixture.
 
 **Pages touched:** none. The test-skip pattern is internal to the integration test.
+
+---
+
+## 2026-04-22 — Docs staleness sweep (broader pass)
+
+**Trigger:** user: "The docs staleness sweep is very important, proceed with that."
+
+**Scope:** systematic grep of `docs/` for the stale patterns the previous audit pass enumerated. Much of the tree was already clean — `docs/reference/feature-matrix.md`, `docs/reference/build-profiles.md`, `docs/how-to/migration-rollback-toolkit.md`, `docs/how-to/surrealdb-integration.md`, `docs/adr/015-hybrid-persistence-architecture.md`, `docs/adr/runtime-driver-policy.md`, `docs/explanation/newcomer-guide.md`, and `docs/SUMMARY.md` / `docs/README.md` / `docs/adr/README.md` already carry correct SQLite language, 30-trait counts, or historical banners. The `scripts/hygiene/check-llm-wiki-drift.sh` guard also passes.
+
+**Remaining stale items fixed:**
+
+- `docs/how-to/pvcam-setup.md:134` — `PvcamDriver::new()` → `PvcamDriver::new_async()`. One-line fix.
+- `docs/reference/driver-capability-matrix.md` — bumped generation date (2026-03-13 → 2026-04-22), added a changelog block naming the 6 capability traits that exist in `crates/common-traits/src/capabilities.rs` but were absent when the matrix was last generated (`StateRefreshable`, `CounterConfigurable`, `RangeIntrospectable`, `DeviceIntrospection`, `ReadableWithMetadata`, `SpectrumReadable`), explicitly flagged `PulseGenerator` as fictional, and noted the `mock_only` feature no longer exists / `full` is now an alias for `all_hardware`. Coverage-summary and per-factory tables left as-is (still accurate; new traits not yet mapped there).
+- `docs/reference/deprecation-plan.md` — three sections (§2.3 `ScanServiceImpl`, §2.6 `GenericDriver::new()`, §2.7 `PvcamDriver::new()`) were citing line numbers in source files that no longer contain the named items (verified: `scan_service.rs` deleted; the cited line numbers now hold unrelated field declarations). Marked each section **Status: Removed**, retained the rationale for history, reshuffled the summary table from "Low, v1.0" to "**Done**: shipped" for those three, and corrected the `ScanService` row to clarify only the proto layer remains. Bumped "last audited" to 2026-04-22.
+- `docs/how-to/hardware-drivers.md` — the "Reference Implementations" section ships code snippets that call `Ell14Driver::new_async()`, `Ell14Driver::new()`, `Ell14Bus::open()`, and `Newport1830CDriver::new_async()`. None of those types exist in the tree anymore; the devices moved to `driver-universal` TOML manifests. The pattern being taught (transport sharing, async-validating constructors) is still useful. Added "HISTORICAL" callouts inside each snippet so a newcomer does not try to compile the dead API, and rewrote the surrounding prose to make it clear the native-driver examples are reference patterns, not live code. Pointer to `config/devices/ell14.toml` / `newport_1830c.toml` retained.
+- `docs/adr/004-panic-safety.md` — added a "Naming note" callout near the top explaining that `SafetyHeartbeat` is used as shorthand throughout but there is no `struct SafetyHeartbeat` in the code; the mechanism is `crates/bin/src/safety_heartbeat_task.rs::spawn_heartbeat` + `HeartbeatConfig`. Body of the ADR preserved.
+- `docs/adr/016-capability-arc-dyn-pattern.md` — added a "Count note" banner that the "24 capability traits" figure is the snapshot at acceptance; the current count is 30, pattern unchanged.
+- `docs/adr/017-error-type-pragmatization.md` — same treatment as ADR-016 for its "24 capability trait methods" figure.
+
+**Deliberately left as-is:**
+
+- `docs/how-to/surrealdb-integration.md` — retained on disk as a stale-link catcher with a "Current status" banner already at the top. Moving to `docs/archive/` would break inbound links from `docs/README.md`, `docs/SUMMARY.md`, `docs/adr/README.md`, and the architecture prose without benefit.
+- `docs/adr/010-pvcam-pool-migration-results.md` / `docs/archive/test-suite-overhaul.md` — historical artifacts, no banner needed.
+- `docs/explanation/refactoring-plan-2026-04.md` — references `subscribe_frames` deprecation; that trait method still exists in `common-traits/src/capabilities.rs:532` with `#[deprecated]`, so the plan is still accurate.
+
+**Verification:** `bash scripts/hygiene/check-llm-wiki-drift.sh` passes. Final grep for remaining `PvcamDriver::new(` / `PvcamDriver::from_config` / `DocumentConsumer` across `docs/` returns only deliberate historical mentions (deprecation plan status row, architecture.md's own audit callout).
+
+**Pages touched:** `docs/how-to/pvcam-setup.md`, `docs/how-to/hardware-drivers.md`, `docs/reference/driver-capability-matrix.md`, `docs/reference/deprecation-plan.md`, `docs/adr/004-panic-safety.md`, `docs/adr/016-capability-arc-dyn-pattern.md`, `docs/adr/017-error-type-pragmatization.md`, `llm-wiki/log.md` (this entry).
+
+**Still open (not blocking):**
+
+- Regenerate `docs/reference/driver-capability-matrix.md` *properly* by introspecting `DriverFactory::capabilities()` for every registered factory and expanding the Coverage Summary to cover all 30 traits. The date bump + changelog in this pass is a stop-gap.
+- Potential sweep of the 17+ ADRs in `docs/adr/` for other out-of-date specifics; not triggered by the known stale-pattern list.
+- `HISTORY.md` distillation into concept pages (still open from earlier entries).

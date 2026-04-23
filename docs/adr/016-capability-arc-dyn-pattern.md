@@ -4,6 +4,8 @@
 
 Accepted
 
+> **Count note (2026-04-22):** The "24 capability traits" figure below reflects the trait count at the time this ADR was accepted. The set has since grown to **30 traits** in `crates/common-traits/src/capabilities.rs`. The `Arc<dyn Trait>` pattern and its rationale are unchanged; only the running total is larger.
+
 ## Context
 
 Microsoft's Pragmatic Rust Guidelines (M-AVOID-WRAPPERS) recommend avoiding smart
