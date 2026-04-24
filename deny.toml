@@ -26,6 +26,10 @@ feature-depth = 1
 # ADVISORIES - Check for known security vulnerabilities
 # ============================================================================
 [advisories]
+# Downgrade yanked-crate detection to warn — transitive deps (rerun, etc.) may
+# pull in yanked crates that we cannot upgrade unilaterally.
+yanked = "warn"
+
 # Ignore specific advisories (with justification)
 ignore = [
     # rustls-pemfile is unmaintained but no safe upgrade exists yet
