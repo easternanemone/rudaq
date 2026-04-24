@@ -1,0 +1,24 @@
+{
+  "mcpServers": {
+    "stringer": {
+      "command": "stringer",
+      "args": [
+        "mcp",
+        "serve"
+      ]
+    },
+    "accesskit": {
+      "command": "node",
+      "args": ["dist/index.js"],
+      "cwd": "tools/mcp-accesskit"
+    },
+    "asta": {
+      "command": "asta",
+      "args": ["mcp", "serve"]
+    },
+    "notebooklm-mcp": {
+      "command": "nlm",
+      "args": ["mcp", "serve"]
+    }
+  }
+}
