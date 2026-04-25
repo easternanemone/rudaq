@@ -1,412 +1,16 @@
-# config/devices/ell14.toml
-# Thorlabs ELL14 Rotation Mount - Complete Protocol Definition
-#
-# This configuration defines the Elliptec ELL14 protocol for config-driven
-# driver instantiation. It enables creating a GenericSerialDriver that
-# behaves identically to the hand-coded Ell14Driver.
-#
-# Reference: ELLx modules protocol manual Issue 10
-
 schema_version = 3
-
-[device]
-name = "Thorlabs ELL14"
-description = "Elliptec rotation mount with RS-485 multidrop support"
-manufacturer = "Thorlabs"
-model = "ELL14"
-protocol = "elliptec"
-category = "stage"
-capabilities = ["Movable", "Parameterized"]
-
-# ==============================================================================
-# Connection Settings
-# ==============================================================================
-
-[connection]
-type = "serial"
-baud_rate = 9600
-data_bits = 8
-parity = "none"
-stop_bits = 1
-flow_control = "none"
-timeout_ms = 1000
-terminator_tx = ""          # ELL14 uses no terminator for commands
-terminator_rx = ""          # Response ends after expected bytes
-
-# RS-485 multidrop configuration
-[connection.bus]
-type = "rs485"
-address_format = "hex_char"   # 0-9, A-F
-default_address = "0"
-
-# ==============================================================================
-# Retry Configuration (Phase 4)
-# ==============================================================================
-
-[default_retry]
-max_retries = 3
-initial_delay_ms = 100
-max_delay_ms = 2000
-backoff_multiplier = 2.0
-# Retry on communication and busy errors, but not hardware failures
-retry_on_errors = ["0x01", "0x09"]
-no_retry_on_errors = ["0x07", "0x08", "0x0A", "0x0B", "0x0D"]
-
-# ==============================================================================
-# Device Parameters
-# ==============================================================================
-
-[parameters.address]
-type = "string"
-default = "0"
-description = "Device address on RS-485 bus (0-F)"
-pattern = "^[0-9A-Fa-f]$"
-
-[parameters.pulses_per_degree]
-type = "float"
-default = 398.2222
-description = "Calibration factor (nominal: 143360 pulses / 360 degrees)"
-read_only = true
-
-[parameters.position_deg]
-type = "float"
-default = 0.0
-range = [0.0, 360.0]
-unit = "degrees"
-description = "Current rotation position"
-
-[parameters.jog_step_deg]
-type = "float"
-default = 5.0
-range = [0.001, 360.0]
-unit = "degrees"
-description = "Jog step size for fw/bw commands"
-
-# ==============================================================================
-# Command Definitions
-# ==============================================================================
-
-# --- Movement Commands ---
-
-[commands.move_absolute]
-template = "{{ address }}ma{{ position_pulses | hex(8) }}"
-description = "Move to absolute position (pulses as 8-char hex)"
-parameters = { position_pulses = "int32" }
-expects_response = true
-timeout_ms = 5000  # Movement can take up to 5s for full rotation
-
-[commands.move_absolute.retry]
-max_retries = 2
-initial_delay_ms = 500
-
-[commands.move_relative]
-template = "{{ address }}mr{{ distance_pulses | hex(8) }}"
-description = "Move relative distance (pulses as 8-char signed hex)"
-parameters = { distance_pulses = "int32" }
-expects_response = true
-timeout_ms = 5000  # Movement can take up to 5s
-
-[commands.move_relative.retry]
-max_retries = 2
-initial_delay_ms = 500
-
-[commands.home]
-template = "{{ address }}ho{{ direction }}"
-description = "Home to mechanical zero (direction: 0=CW, 1=CCW)"
-parameters = { direction = "string" }
-expects_response = false
-timeout_ms = 10000  # Homing can take longer
-
-[commands.stop]
-template = "{{ address }}st"
-description = "Stop motion immediately"
-expects_response = false
-
-# --- Query Commands ---
-
-[commands.get_position]
-template = "{{ address }}gp"
-description = "Query current position"
-response = "position"
-
-[commands.get_status]
-template = "{{ address }}gs"
-description = "Query device status"
-response = "status"
-
-[commands.get_info]
-template = "{{ address }}in"
-description = "Query device information (type, serial, calibration)"
-response = "device_info"
-
-# --- Jog Commands ---
-
-[commands.jog_forward]
-template = "{{ address }}fw"
-description = "Jog forward by jog step size"
-expects_response = false
-
-[commands.jog_backward]
-template = "{{ address }}bw"
-description = "Jog backward by jog step size"
-expects_response = false
-
-[commands.set_jog_step]
-template = "{{ address }}sj{{ step_pulses | hex(8) }}"
-description = "Set jog step size (pulses as 8-char hex)"
-parameters = { step_pulses = "int32" }
-response = "jog_step"
-
-[commands.get_jog_step]
-template = "{{ address }}gj"
-description = "Query jog step size"
-response = "jog_step"
-
-# --- Configuration Commands ---
-
-[commands.get_velocity]
-template = "{{ address }}gv"
-description = "Query velocity percentage (60-100%)"
-response = "velocity"
-
-[commands.set_velocity]
-template = "{{ address }}sv{{ percent | hex(2) }}"
-description = "Set velocity percentage (60-100%)"
-parameters = { percent = "uint32" }
-
-[commands.get_home_offset]
-template = "{{ address }}go"
-description = "Query home offset"
-response = "home_offset"
-
-[commands.set_home_offset]
-template = "{{ address }}so{{ offset_pulses | hex(8) }}"
-description = "Set home offset (pulses as 8-char signed hex)"
-parameters = { offset_pulses = "int32" }
-
-[commands.save_user_data]
-template = "{{ address }}us"
-description = "Save parameters to EEPROM"
-expects_response = true
-
-[commands.isolate_device]
-template = "{{ address }}is{{ minutes | hex(2) }}"
-description = "Isolate device from group commands for N minutes (00-FF hex)"
-parameters = { minutes = "uint32" }
-response = "status"
-
-[commands.clean_mechanics]
-template = "{{ address }}cm"
-description = "Perform full-range movement cycle to clean the mechanics"
-expects_response = true
-timeout_ms = 30000  # Full-range movement can take a while
-
-# ==============================================================================
-# Response Definitions
-# ==============================================================================
-
-# Position response: {addr}PO{pulses:8hex}
-# Example: "0PO00004650" -> address 0, position 0x4650 = 17744 pulses
-[responses.position]
-format = "{addr:1}PO{pulses:hex8}"
-
-# Status response: {addr}GS{code:2hex}
-# Example: "0GS00" -> status OK, "0GS02" -> mechanical timeout
-[responses.status]
-format = "{addr:1}GS{code:hex2}"
-
-# Jog step response: {addr}GJ{pulses:8hex}
-# Example: "0GJ00001F4" -> jog step = 500 pulses
-[responses.jog_step]
-format = "{addr:1}GJ{pulses:hex8}"
-
-# Velocity response: {addr}GV{percent:2hex}
-# Example: "0GV64" -> velocity = 100%
-[responses.velocity]
-format = "{addr:1}GV{percent:hex2}"
-
-# Home offset response: {addr}HO{pulses:8hex}
-[responses.home_offset]
-format = "{addr:1}HO{pulses:hex8}"
-
-# Device info response: firmware-dependent trailing width.
-# Fixed prefix: addr(1) + "IN" + type(2) + serial(8) + year(4) + fw(2) + hw(1) = 20 chars.
-# Trailer: travel(5 or 8) + pulses(8 hex) — older firmware emits 5-digit travel,
-# newer firmware emits 8-digit travel. First variant that matches the full response wins.
-# Example (travel=5): "2IN0E1140051720231701016800023000"
-[responses.device_info]
-variants = [
-    "{addr:hex1}IN{type:hex2}{serial:8}{year:4}{firmware:2}{hw:1}{travel:5}{pulses:hex8}",
-    "{addr:hex1}IN{type:hex2}{serial:8}{year:4}{firmware:2}{hw:1}{travel:8}{pulses:hex8}",
-]
-
-# Error response (same format as status)
-[responses.error]
-format = "{addr:1}GS{code:hex2}"
-
-# ==============================================================================
-# Unit Conversions
-# ==============================================================================
-
-[conversions.degrees_to_pulses]
-formula = "to_pulses(degrees, pulses_per_degree)"
-
-[conversions.pulses_to_degrees]
-formula = "from_pulses(pulses, pulses_per_degree)"
-
-# ==============================================================================
-# Error Code Mapping
-# ==============================================================================
-
-[error_codes."0x00"]
-name = "OK"
-description = "No error"
-recoverable = true
-severity = "info"
-
-[error_codes."0x01"]
-name = "CommunicationTimeout"
-description = "Communication timeout"
-recoverable = true
-severity = "warning"
-
-[error_codes."0x02"]
-name = "MechanicalTimeout"
-description = "Motor didn't reach target position"
-recoverable = true
-severity = "error"
-
-[error_codes."0x02".recovery_action]
-command = "home"
-auto_recover = false
-manual_instructions = "Home the device to recalibrate position"
-
-[error_codes."0x03"]
-name = "CommandError"
-description = "Invalid command"
-recoverable = true
-severity = "error"
-
-[error_codes."0x04"]
-name = "ValueOutOfRange"
-description = "Value out of range"
-recoverable = true
-severity = "error"
-
-[error_codes."0x05"]
-name = "ModuleIsolated"
-description = "Module isolated"
-recoverable = true
-severity = "warning"
-
-[error_codes."0x06"]
-name = "ModuleOutOfIsolation"
-description = "Module out of isolation"
-recoverable = true
-severity = "info"
-
-[error_codes."0x07"]
-name = "InitializationError"
-description = "Initialization error"
-recoverable = false
-severity = "critical"
-
-[error_codes."0x07".recovery_action]
-auto_recover = false
-manual_instructions = "Power cycle the device"
-
-[error_codes."0x08"]
-name = "ThermalError"
-description = "Overtemperature"
-recoverable = false
-severity = "critical"
-
-[error_codes."0x08".recovery_action]
-auto_recover = false
-delay_ms = 30000
-manual_instructions = "Allow device to cool for 30+ seconds"
-
-[error_codes."0x09"]
-name = "Busy"
-description = "Device busy"
-recoverable = true
-severity = "info"
-
-[error_codes."0x09".recovery_action]
-auto_recover = true
-delay_ms = 200
-
-[error_codes."0x0A"]
-name = "SensorError"
-description = "Sensor error"
-recoverable = false
-severity = "critical"
-
-[error_codes."0x0A".recovery_action]
-auto_recover = false
-manual_instructions = "Check sensor connections and power cycle"
-
-[error_codes."0x0B"]
-name = "MotorError"
-description = "Motor error"
-recoverable = false
-severity = "critical"
-
-[error_codes."0x0B".recovery_action]
-auto_recover = false
-manual_instructions = "Check for mechanical obstructions and power cycle"
-
-[error_codes."0x0C"]
-name = "OutOfRange"
-description = "Position out of range"
-recoverable = true
-severity = "error"
-
-[error_codes."0x0C".recovery_action]
-command = "home"
-auto_recover = false
-manual_instructions = "Home the device or move to a valid position"
-
-[error_codes."0x0D"]
-name = "OverCurrentError"
-description = "Over current"
-recoverable = false
-severity = "fatal"
-
-[error_codes."0x0D".recovery_action]
-auto_recover = false
-manual_instructions = "Check for mechanical obstructions, power cycle, and contact support if issue persists"
-
-# ==============================================================================
-# Validation Rules
-# ==============================================================================
-
-[validation.position_deg]
-range = [0.0, 360.0]
-unit = "degrees"
-
-[validation.jog_step_deg]
-range = [0.001, 360.0]
-unit = "degrees"
-
-[validation.address]
-pattern = "^[0-9A-Fa-f]$"
-
-# ==============================================================================
-# Capability Mapping: Movable
-# ==============================================================================
 
 [capabilities.movable.move_abs]
 command = "move_absolute"
+from_param = "degrees"
 input_conversion = "degrees_to_pulses"
 input_param = "position_pulses"
-from_param = "degrees"
 
 [capabilities.movable.move_rel]
 command = "move_relative"
+from_param = "degrees"
 input_conversion = "degrees_to_pulses"
 input_param = "distance_pulses"
-from_param = "degrees"
 
 [capabilities.movable.position]
 command = "get_position"
@@ -418,56 +22,398 @@ command = "stop"
 
 [capabilities.movable.wait_settled]
 poll_command = "get_status"
-success_condition = "code == 0"
 poll_interval_ms = 50
+success_condition = "code == 0"
 timeout_ms = 10000
 
-# ==============================================================================
-# Initialization Sequence (Phase 4)
-# ==============================================================================
+[commands.clean_mechanics]
+description = "Perform full-range movement cycle to clean the mechanics"
+expects_response = true
+template = "{{ address }}cm"
+timeout_ms = 30000
 
-# Query device info to verify communication and get calibration
+[commands.get_home_offset]
+description = "Query home offset"
+response = "home_offset"
+template = "{{ address }}go"
+
+[commands.get_info]
+description = "Query device information (type, serial, calibration)"
+response = "device_info"
+template = "{{ address }}in"
+
+[commands.get_jog_step]
+description = "Query jog step size"
+response = "jog_step"
+template = "{{ address }}gj"
+
+[commands.get_position]
+description = "Query current position"
+response = "position"
+template = "{{ address }}gp"
+
+[commands.get_status]
+description = "Query device status"
+response = "status"
+template = "{{ address }}gs"
+
+[commands.get_velocity]
+description = "Query velocity percentage (60-100%)"
+response = "velocity"
+template = "{{ address }}gv"
+
+[commands.home]
+description = "Home to mechanical zero (direction: 0=CW, 1=CCW)"
+expects_response = false
+template = "{{ address }}ho{{ direction }}"
+timeout_ms = 10000
+
+[commands.home.parameters]
+direction = "string"
+
+[commands.isolate_device]
+description = "Isolate device from group commands for N minutes (00-FF hex)"
+response = "status"
+template = "{{ address }}is{{ minutes | hex(2) }}"
+
+[commands.isolate_device.parameters]
+minutes = "uint32"
+
+[commands.jog_backward]
+description = "Jog backward by jog step size"
+expects_response = false
+template = "{{ address }}bw"
+
+[commands.jog_forward]
+description = "Jog forward by jog step size"
+expects_response = false
+template = "{{ address }}fw"
+
+[commands.move_absolute]
+description = "Move to absolute position (pulses as 8-char hex)"
+expects_response = true
+template = "{{ address }}ma{{ position_pulses | hex(8) }}"
+timeout_ms = 5000
+
+[commands.move_absolute.parameters]
+position_pulses = "int32"
+
+[commands.move_absolute.retry]
+initial_delay_ms = 500
+max_retries = 2
+
+[commands.move_relative]
+description = "Move relative distance (pulses as 8-char signed hex)"
+expects_response = true
+template = "{{ address }}mr{{ distance_pulses | hex(8) }}"
+timeout_ms = 5000
+
+[commands.move_relative.parameters]
+distance_pulses = "int32"
+
+[commands.move_relative.retry]
+initial_delay_ms = 500
+max_retries = 2
+
+[commands.save_user_data]
+description = "Save parameters to EEPROM"
+expects_response = true
+template = "{{ address }}us"
+
+[commands.set_home_offset]
+description = "Set home offset (pulses as 8-char signed hex)"
+template = "{{ address }}so{{ offset_pulses | hex(8) }}"
+
+[commands.set_home_offset.parameters]
+offset_pulses = "int32"
+
+[commands.set_jog_step]
+description = "Set jog step size (pulses as 8-char hex)"
+response = "jog_step"
+template = "{{ address }}sj{{ step_pulses | hex(8) }}"
+
+[commands.set_jog_step.parameters]
+step_pulses = "int32"
+
+[commands.set_velocity]
+description = "Set velocity percentage (60-100%)"
+template = "{{ address }}sv{{ percent | hex(2) }}"
+
+[commands.set_velocity.parameters]
+percent = "uint32"
+
+[commands.stop]
+description = "Stop motion immediately"
+expects_response = false
+template = "{{ address }}st"
+
+[connection]
+baud_rate = 9600
+data_bits = 8
+flow_control = "none"
+parity = "none"
+stop_bits = 1
+terminator_rx = ""
+terminator_tx = ""
+timeout_ms = 1000
+type = "serial"
+
+[connection.bus]
+address_format = "hex_char"
+default_address = "0"
+type = "rs485"
+
+[conversions.degrees_to_pulses]
+formula = "to_pulses(degrees, pulses_per_degree)"
+
+[conversions.pulses_to_degrees]
+formula = "from_pulses(pulses, pulses_per_degree)"
+
+[default_retry]
+backoff_multiplier = 2.0
+initial_delay_ms = 100
+max_delay_ms = 2000
+max_retries = 3
+no_retry_on_errors = [
+    "0x07",
+    "0x08",
+    "0x0A",
+    "0x0B",
+    "0x0D",
+]
+retry_on_errors = [
+    "0x01",
+    "0x09",
+]
+
+[device]
+capabilities = [
+    "Movable",
+    "Parameterized",
+]
+category = "stage"
+description = "Elliptec rotation mount with RS-485 multidrop support"
+manufacturer = "Thorlabs"
+model = "ELL14"
+name = "Thorlabs ELL14"
+protocol = "elliptec"
+
+[error_codes.0x00]
+description = "No error"
+name = "OK"
+recoverable = true
+severity = "info"
+
+[error_codes.0x01]
+description = "Communication timeout"
+name = "CommunicationTimeout"
+recoverable = true
+severity = "warning"
+
+[error_codes.0x02]
+description = "Motor didn't reach target position"
+name = "MechanicalTimeout"
+recoverable = true
+severity = "error"
+
+[error_codes.0x02.recovery_action]
+auto_recover = false
+command = "home"
+manual_instructions = "Home the device to recalibrate position"
+
+[error_codes.0x03]
+description = "Invalid command"
+name = "CommandError"
+recoverable = true
+severity = "error"
+
+[error_codes.0x04]
+description = "Value out of range"
+name = "ValueOutOfRange"
+recoverable = true
+severity = "error"
+
+[error_codes.0x05]
+description = "Module isolated"
+name = "ModuleIsolated"
+recoverable = true
+severity = "warning"
+
+[error_codes.0x06]
+description = "Module out of isolation"
+name = "ModuleOutOfIsolation"
+recoverable = true
+severity = "info"
+
+[error_codes.0x07]
+description = "Initialization error"
+name = "InitializationError"
+recoverable = false
+severity = "critical"
+
+[error_codes.0x07.recovery_action]
+auto_recover = false
+manual_instructions = "Power cycle the device"
+
+[error_codes.0x08]
+description = "Overtemperature"
+name = "ThermalError"
+recoverable = false
+severity = "critical"
+
+[error_codes.0x08.recovery_action]
+auto_recover = false
+delay_ms = 30000
+manual_instructions = "Allow device to cool for 30+ seconds"
+
+[error_codes.0x09]
+description = "Device busy"
+name = "Busy"
+recoverable = true
+severity = "info"
+
+[error_codes.0x09.recovery_action]
+auto_recover = true
+delay_ms = 200
+
+[error_codes.0x0A]
+description = "Sensor error"
+name = "SensorError"
+recoverable = false
+severity = "critical"
+
+[error_codes.0x0A.recovery_action]
+auto_recover = false
+manual_instructions = "Check sensor connections and power cycle"
+
+[error_codes.0x0B]
+description = "Motor error"
+name = "MotorError"
+recoverable = false
+severity = "critical"
+
+[error_codes.0x0B.recovery_action]
+auto_recover = false
+manual_instructions = "Check for mechanical obstructions and power cycle"
+
+[error_codes.0x0C]
+description = "Position out of range"
+name = "OutOfRange"
+recoverable = true
+severity = "error"
+
+[error_codes.0x0C.recovery_action]
+auto_recover = false
+command = "home"
+manual_instructions = "Home the device or move to a valid position"
+
+[error_codes.0x0D]
+description = "Over current"
+name = "OverCurrentError"
+recoverable = false
+severity = "fatal"
+
+[error_codes.0x0D.recovery_action]
+auto_recover = false
+manual_instructions = "Check for mechanical obstructions, power cycle, and contact support if issue persists"
+
 [[init_sequence]]
 command = "get_info"
 description = "Query device information and calibration"
 required = true
 
-# Check device status
 [[init_sequence]]
 command = "get_status"
 description = "Verify device is ready"
+expect = "GS00"
 required = true
-expect = "GS00"  # Expect status OK
 
-# Query current position to initialize state
 [[init_sequence]]
 command = "get_position"
+delay_ms = 100
 description = "Get current position"
 required = false
-delay_ms = 100
 
-# ==============================================================================
-# UI Configuration
-# ==============================================================================
+[parameters.address]
+default = "0"
+description = "Device address on RS-485 bus (0-F)"
+pattern = "^[0-9A-Fa-f]$"
+type = "string"
+
+[parameters.jog_step_deg]
+default = 5.0
+description = "Jog step size for fw/bw commands"
+range = [
+    0.001,
+    360.0,
+]
+type = "float"
+unit = "degrees"
+
+[parameters.position_deg]
+default = 0.0
+description = "Current rotation position"
+range = [
+    0.0,
+    360.0,
+]
+type = "float"
+unit = "degrees"
+
+[parameters.pulses_per_degree]
+default = 398.2222
+description = "Calibration factor (nominal: 143360 pulses / 360 degrees)"
+read_only = true
+type = "float"
+
+[responses.device_info]
+variants = [
+    "{addr:hex1}IN{type:hex2}{serial:8}{year:4}{firmware:2}{hw:1}{travel:5}{pulses:hex8}",
+    "{addr:hex1}IN{type:hex2}{serial:8}{year:4}{firmware:2}{hw:1}{travel:8}{pulses:hex8}",
+]
+
+[responses.error]
+format = "{addr:1}GS{code:hex2}"
+
+[responses.home_offset]
+format = "{addr:1}HO{pulses:hex8}"
+
+[responses.jog_step]
+format = "{addr:1}GJ{pulses:hex8}"
+
+[responses.position]
+format = "{addr:1}PO{pulses:hex8}"
+
+[responses.status]
+format = "{addr:1}GS{code:hex2}"
+
+[responses.velocity]
+format = "{addr:1}GV{percent:hex2}"
 
 [ui]
-icon = "motor"
 color = "#4CAF50"
+icon = "motor"
 panel_kind = "rotator"
 
 [ui.control_panel]
+collapsible = false
 layout = "vertical"
 show_header = true
-collapsible = false
 
 [[ui.control_panel.sections]]
-type = "motion"
+jog_steps = [
+    0.1,
+    1.0,
+    5.0,
+    10.0,
+    45.0,
+]
 label = "Rotation"
-show_jog = true
-jog_steps = [0.1, 1.0, 5.0, 10.0, 45.0]
-show_home = true
-show_stop = true
 precision = 2
+show_home = true
+show_jog = true
+show_stop = true
+type = "motion"
 unit = "°"
 
 [[ui.control_panel.sections]]
@@ -475,17 +421,44 @@ type = "separator"
 visible = true
 
 [[ui.control_panel.sections]]
-type = "preset_buttons"
 label = "Quick Positions"
-presets = [
-    { label = "0°", value = 0.0 },
-    { label = "45°", value = 45.0 },
-    { label = "90°", value = 90.0 },
-    { label = "180°", value = 180.0 },
-]
+type = "preset_buttons"
 vertical = false
 
+[[ui.control_panel.sections.presets]]
+label = "0°"
+value = 0.0
+
+[[ui.control_panel.sections.presets]]
+label = "45°"
+value = 45.0
+
+[[ui.control_panel.sections.presets]]
+label = "90°"
+value = 90.0
+
+[[ui.control_panel.sections.presets]]
+label = "180°"
+value = 180.0
+
 [ui.status_display]
-summary_params = ["position_degrees"]
-summary_format = "{{ position_degrees }}°"
 show_connection = true
+summary_format = "{{ position_degrees }}°"
+summary_params = ["position_degrees"]
+
+[validation.address]
+pattern = "^[0-9A-Fa-f]$"
+
+[validation.jog_step_deg]
+range = [
+    0.001,
+    360.0,
+]
+unit = "degrees"
+
+[validation.position_deg]
+range = [
+    0.0,
+    360.0,
+]
+unit = "degrees"

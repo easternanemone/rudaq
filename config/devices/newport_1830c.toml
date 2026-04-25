@@ -1,51 +1,128 @@
-# config/devices/newport_1830c.toml
-# Newport 1830-C Optical Power Meter - Protocol Definition
-#
-# This configuration defines the Newport 1830-C protocol for config-driven
-# driver instantiation. It enables creating a GenericSerialDriver that
-# behaves identically to the hand-coded Newport1830CDriver.
-#
-# Reference: Newport 1830-C User's Manual
-#
-# Protocol Notes:
-# - Uses simple ASCII commands (NOT SCPI)
-# - Terminator: LF only (\n), NOT CRLF
-# - Response format depends on unit mode:
-#   - Watts (U1): Scientific notation (e.g., "+.11E-9" for 0.11 nW)
-#   - dBm (U2): Decimal (e.g., "-15.24")
-# - Driver sets U1 (Watts) on initialization for consistent parsing
-# - No hardware flow control required
-# - Unit commands are 1-indexed: U1=W, U2=dBm, U3=dB, U4=REL
-
 schema_version = 3
 
+[capabilities.readable.read]
+command = "read_power"
+output_field = "value"
+
+[capabilities.wavelength_tunable.get_wavelength]
+command = "get_wavelength"
+output_field = "value"
+
+[capabilities.wavelength_tunable.set_wavelength]
+command = "set_wavelength"
+from_param = "wavelength_nm"
+
+[commands.clear_status]
+description = "Clear status (zero power reading)"
+expects_response = false
+template = "CS"
+
+[commands.disable_echo]
+description = "Disable echo mode (prevents command echo before response)"
+expects_response = false
+template = "E0"
+
+[commands.get_range]
+description = "Query range setting (1-8)"
+response = "range"
+template = "R?"
+
+[commands.get_units]
+description = "Query units setting (1=W, 2=dBm, 3=dB, 4=REL) - 1-indexed"
+response = "units"
+template = "U?"
+
+[commands.get_wavelength]
+description = "Query wavelength setting"
+response = "wavelength"
+template = "W?"
+
+[commands.read_power]
+description = "Query power measurement (returns Watts in scientific notation)"
+response = "power"
+template = "D?"
+
+[commands.set_attenuator_off]
+description = "Disable attenuator"
+expects_response = false
+template = "A0"
+
+[commands.set_attenuator_on]
+description = "Enable attenuator"
+expects_response = false
+template = "A1"
+
+[commands.set_filter_fast]
+description = "Set filter to Fast (shortest integration time)"
+expects_response = false
+template = "F3"
+
+[commands.set_filter_medium]
+description = "Set filter to Medium"
+expects_response = false
+template = "F2"
+
+[commands.set_filter_slow]
+description = "Set filter to Slow (longest integration time)"
+expects_response = false
+template = "F1"
+
+[commands.set_units_watts]
+description = "Set units to Watts (required for scientific notation response)"
+expects_response = false
+template = "U1"
+
+[commands.set_wavelength]
+description = "Set wavelength for accurate measurement (4-digit format)"
+expects_response = false
+template = "W{{ wavelength_nm | int | pad(4, '0') }}"
+
+[commands.set_wavelength.parameters]
+wavelength_nm = "int32"
+
+[connection]
+baud_rate = 9600
+terminator_rx = """
+
+"""
+terminator_tx = """
+
+"""
+timeout_ms = 1000
+type = "serial"
+
 [device]
-name = "Newport 1830-C"
+capabilities = [
+    "Readable",
+    "WavelengthTunable",
+    "Parameterized",
+]
+category = "power_meter"
 description = "Optical power meter with wavelength compensation"
 manufacturer = "Newport"
 model = "1830-C"
+name = "Newport 1830-C"
 protocol = "newport_1830c"
-category = "power_meter"
-capabilities = ["Readable", "WavelengthTunable", "Parameterized"]
 
-# ==============================================================================
-# Connection Settings
-# ==============================================================================
+[error_codes.ERR]
+description = "General error"
+name = "Error"
+recoverable = true
 
-[connection]
-type = "serial"
-baud_rate = 9600
-# data_bits, parity, stop_bits, flow_control omitted → defaults to 8N1 no flow control
-# (matches common::serial::open_serial_async defaults)
-timeout_ms = 1000
-terminator_tx = "\n"          # LF terminator for commands
-terminator_rx = "\n"
+[error_codes.OVER]
+description = "Power reading above range"
+name = "Overrange"
+recoverable = true
 
-# ==============================================================================
-# Initialization Sequence
-# ==============================================================================
-# The 1830-C starts with echo mode enabled, which causes read_line() to pick up
-# the echoed command before the response. Disable echo first, then set units.
+[error_codes.SAT]
+description = "Detector saturated (overloaded)"
+name = "Saturated"
+recoverable = true
+
+[error_codes.UNDER]
+description = "Power reading below range"
+name = "Underrange"
+recoverable = true
 
 [[init_sequence]]
 command = "disable_echo"
@@ -55,163 +132,53 @@ delay_ms = 100
 command = "set_units_watts"
 delay_ms = 100
 
-# ==============================================================================
-# Device Parameters
-# ==============================================================================
-
-[parameters.wavelength_nm]
-type = "float"
-default = 800.0
-range = [300.0, 1100.0]
-unit = "nm"
-description = "Detector calibration wavelength"
-
 [parameters.attenuator]
-type = "bool"
 default = false
 description = "Attenuator state (true=enabled, false=disabled)"
+type = "bool"
 
 [parameters.filter]
-type = "int"
 default = 2
-range = [1, 3]
 description = "Filter setting (1=Slow, 2=Medium, 3=Fast)"
+range = [
+    1,
+    3,
+]
+type = "int"
 
-# ==============================================================================
-# Command Definitions
-# ==============================================================================
+[parameters.wavelength_nm]
+default = 800.0
+description = "Detector calibration wavelength"
+range = [
+    300.0,
+    1100.0,
+]
+type = "float"
+unit = "nm"
 
-# --- Measurement Commands ---
-
-[commands.read_power]
-template = "D?"
-description = "Query power measurement (returns Watts in scientific notation)"
-response = "power"
-
-# --- Configuration Commands ---
-
-[commands.get_wavelength]
-template = "W?"
-description = "Query wavelength setting"
-response = "wavelength"
-
-[commands.set_wavelength]
-template = "W{{ wavelength_nm | int | pad(4, '0') }}"
-description = "Set wavelength for accurate measurement (4-digit format)"
-parameters = { wavelength_nm = "int32" }
-expects_response = false
-
-[commands.get_range]
-template = "R?"
-description = "Query range setting (1-8)"
-response = "range"
-
-[commands.get_units]
-template = "U?"
-description = "Query units setting (1=W, 2=dBm, 3=dB, 4=REL) - 1-indexed"
-response = "units"
-
-[commands.set_units_watts]
-template = "U1"
-description = "Set units to Watts (required for scientific notation response)"
-expects_response = false
-
-[commands.set_attenuator_on]
-template = "A1"
-description = "Enable attenuator"
-expects_response = false
-
-[commands.set_attenuator_off]
-template = "A0"
-description = "Disable attenuator"
-expects_response = false
-
-[commands.set_filter_slow]
-template = "F1"
-description = "Set filter to Slow (longest integration time)"
-expects_response = false
-
-[commands.set_filter_medium]
-template = "F2"
-description = "Set filter to Medium"
-expects_response = false
-
-[commands.set_filter_fast]
-template = "F3"
-description = "Set filter to Fast (shortest integration time)"
-expects_response = false
-
-[commands.disable_echo]
-template = "E0"
-description = "Disable echo mode (prevents command echo before response)"
-expects_response = false
-
-[commands.clear_status]
-template = "CS"
-description = "Clear status (zero power reading)"
-expects_response = false
-
-# ==============================================================================
-# Response Definitions
-# ==============================================================================
-
-# Power response: scientific notation
-# Examples: "5E-9", "1.234E-6", "+.75E-9", "-1.5E-3"
 [responses.power]
-transform = ["trim", "to_float"]
+transform = [
+    "trim",
+    "to_float",
+]
 
-# Wavelength response: nm value (may be integer "0780" or float "780.0")
-# Using to_float for robust parsing across firmware versions
-[responses.wavelength]
-transform = ["trim", "to_float"]
-
-# Range response: single digit 1-8
 [responses.range]
-transform = ["trim", "to_int"]
+transform = [
+    "trim",
+    "to_int",
+]
 
-# Units response: 1=W, 2=dBm, 3=dB, 4=REL (1-indexed)
-# Note: Commands are also 1-indexed: U1=Watts, U2=dBm, U3=dB, U4=REL
 [responses.units]
-transform = ["trim", "to_int"]
+transform = [
+    "trim",
+    "to_int",
+]
 
-# ==============================================================================
-# Error Code Mapping
-# ==============================================================================
-
-[error_codes."ERR"]
-name = "Error"
-description = "General error"
-recoverable = true
-
-[error_codes."OVER"]
-name = "Overrange"
-description = "Power reading above range"
-recoverable = true
-
-[error_codes."UNDER"]
-name = "Underrange"
-description = "Power reading below range"
-recoverable = true
-
-[error_codes."SAT"]
-name = "Saturated"
-description = "Detector saturated (overloaded)"
-recoverable = true
-
-# ==============================================================================
-# Capability Mapping: Readable
-# ==============================================================================
-
-[capabilities.readable]
-read = { command = "read_power", output_field = "value" }
-
-# ==============================================================================
-# Capability Mapping: WavelengthTunable
-# ==============================================================================
-
-[capabilities.wavelength_tunable]
-set_wavelength = { command = "set_wavelength", from_param = "wavelength_nm" }
-get_wavelength = { command = "get_wavelength", output_field = "value" }
+[responses.wavelength]
+transform = [
+    "trim",
+    "to_float",
+]
 
 [ui]
 panel_kind = "power_meter"

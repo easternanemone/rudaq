@@ -1,178 +1,9 @@
-# config/devices/esp300.toml
-# Newport ESP300 Universal Motion Controller - Protocol Definition
-#
-# This configuration defines the ESP300 SCPI-like protocol for config-driven
-# driver instantiation. It enables creating a GenericSerialDriver that
-# behaves identically to the hand-coded Esp300Driver.
-#
-# Reference: ESP300 Universal Motion Controller/Driver User's Manual
-
 schema_version = 3
-
-[device]
-name = "Newport ESP300"
-description = "Multi-axis motion controller (up to 3 axes)"
-manufacturer = "Newport"
-model = "ESP300"
-protocol = "esp300"
-category = "stage"
-capabilities = ["Movable", "Parameterized"]
-
-# ==============================================================================
-# Connection Settings
-# ==============================================================================
-
-[connection]
-type = "serial"
-baud_rate = 19200
-data_bits = 8
-parity = "none"
-stop_bits = 1
-flow_control = "hardware"
-timeout_ms = 5000
-terminator_tx = "\r"           # ESP300 accepts CR-only commands
-terminator_rx = "\r\n"         # ESP300 responds with CR+LF
-
-# ==============================================================================
-# Device Parameters
-# ==============================================================================
-
-[parameters.axis]
-type = "int"
-default = 1
-range = [1, 3]
-description = "Axis number (1-3)"
-
-[parameters.position_mm]
-type = "float"
-default = 0.0
-unit = "mm"
-description = "Current position"
-
-[parameters.velocity_mm_s]
-type = "float"
-default = 10.0
-unit = "mm/s"
-description = "Motion velocity"
-
-[parameters.acceleration_mm_s2]
-type = "float"
-default = 100.0
-unit = "mm/s^2"
-description = "Motion acceleration"
-
-# ==============================================================================
-# Command Definitions
-# ==============================================================================
-
-# --- Movement Commands ---
-
-[commands.move_absolute]
-template = "{{ address }}PA{{ position }}"
-description = "Move to absolute position (mm)"
-parameters = { position = "float" }
-expects_response = false
-
-[commands.move_relative]
-template = "{{ address }}PR{{ distance }}"
-description = "Move relative distance (mm)"
-parameters = { distance = "float" }
-expects_response = false
-
-[commands.home]
-template = "{{ address }}OR"
-description = "Home axis (find mechanical zero)"
-expects_response = false
-
-[commands.stop]
-template = "{{ address }}ST"
-description = "Stop motion immediately"
-expects_response = false
-
-# --- Query Commands ---
-
-[commands.get_position]
-template = "{{ address }}TP?"
-description = "Query current position"
-response = "position"
-
-[commands.get_motion_done]
-template = "{{ address }}MD?"
-description = "Query motion status (0=stationary, 1=moving)"
-response = "motion_status"
-
-# --- Configuration Commands ---
-
-[commands.get_velocity]
-template = "{{ address }}VA?"
-description = "Query velocity"
-response = "velocity"
-
-[commands.set_velocity]
-template = "{{ address }}VA{{ velocity }}"
-description = "Set velocity (mm/s)"
-parameters = { velocity = "float" }
-expects_response = false
-
-[commands.get_acceleration]
-template = "{{ address }}AC?"
-description = "Query acceleration"
-response = "acceleration"
-
-[commands.set_acceleration]
-template = "{{ address }}AC{{ acceleration }}"
-description = "Set acceleration (mm/s^2)"
-parameters = { acceleration = "float" }
-expects_response = false
-
-# ==============================================================================
-# Response Definitions
-# ==============================================================================
-
-# Position response: numeric value (may have whitespace)
-# Example: "12.345" or "  12.345  "
-[responses.position]
-transform = ["trim", "to_float"]
-
-# Motion status: 0=stationary, 1=moving
-[responses.motion_status]
-transform = ["trim", "to_int"]
-
-# Velocity response
-[responses.velocity]
-transform = ["trim", "to_float"]
-
-# Acceleration response
-[responses.acceleration]
-transform = ["trim", "to_float"]
-
-# ==============================================================================
-# Error Code Mapping
-# ==============================================================================
-
-[error_codes."0"]
-name = "OK"
-description = "No error"
-recoverable = true
-
-[error_codes."1"]
-name = "AxisNotFound"
-description = "Axis not found"
-recoverable = false
-
-[error_codes."2"]
-name = "CommandNotAllowed"
-description = "Command not allowed in current state"
-recoverable = true
-
-# ==============================================================================
-# Capability Mapping: Movable
-# ==============================================================================
 
 [capabilities.movable.move_abs]
 command = "move_absolute"
-input_param = "position"
 from_param = "position"
+input_param = "position"
 
 [capabilities.movable.position]
 command = "get_position"
@@ -183,9 +14,162 @@ command = "stop"
 
 [capabilities.movable.wait_settled]
 poll_command = "get_motion_done"
-success_condition = "value == 0"
 poll_interval_ms = 100
+success_condition = "value == 0"
 timeout_ms = 60000
+
+[commands.get_acceleration]
+description = "Query acceleration"
+response = "acceleration"
+template = "{{ address }}AC?"
+
+[commands.get_motion_done]
+description = "Query motion status (0=stationary, 1=moving)"
+response = "motion_status"
+template = "{{ address }}MD?"
+
+[commands.get_position]
+description = "Query current position"
+response = "position"
+template = "{{ address }}TP?"
+
+[commands.get_velocity]
+description = "Query velocity"
+response = "velocity"
+template = "{{ address }}VA?"
+
+[commands.home]
+description = "Home axis (find mechanical zero)"
+expects_response = false
+template = "{{ address }}OR"
+
+[commands.move_absolute]
+description = "Move to absolute position (mm)"
+expects_response = false
+template = "{{ address }}PA{{ position }}"
+
+[commands.move_absolute.parameters]
+position = "float"
+
+[commands.move_relative]
+description = "Move relative distance (mm)"
+expects_response = false
+template = "{{ address }}PR{{ distance }}"
+
+[commands.move_relative.parameters]
+distance = "float"
+
+[commands.set_acceleration]
+description = "Set acceleration (mm/s^2)"
+expects_response = false
+template = "{{ address }}AC{{ acceleration }}"
+
+[commands.set_acceleration.parameters]
+acceleration = "float"
+
+[commands.set_velocity]
+description = "Set velocity (mm/s)"
+expects_response = false
+template = "{{ address }}VA{{ velocity }}"
+
+[commands.set_velocity.parameters]
+velocity = "float"
+
+[commands.stop]
+description = "Stop motion immediately"
+expects_response = false
+template = "{{ address }}ST"
+
+[connection]
+baud_rate = 19200
+data_bits = 8
+flow_control = "hardware"
+parity = "none"
+stop_bits = 1
+terminator_rx = """
+\r
+"""
+terminator_tx = "\r"
+timeout_ms = 5000
+type = "serial"
+
+[device]
+capabilities = [
+    "Movable",
+    "Parameterized",
+]
+category = "stage"
+description = "Multi-axis motion controller (up to 3 axes)"
+manufacturer = "Newport"
+model = "ESP300"
+name = "Newport ESP300"
+protocol = "esp300"
+
+[error_codes.0]
+description = "No error"
+name = "OK"
+recoverable = true
+
+[error_codes.1]
+description = "Axis not found"
+name = "AxisNotFound"
+recoverable = false
+
+[error_codes.2]
+description = "Command not allowed in current state"
+name = "CommandNotAllowed"
+recoverable = true
+
+[parameters.acceleration_mm_s2]
+default = 100.0
+description = "Motion acceleration"
+type = "float"
+unit = "mm/s^2"
+
+[parameters.axis]
+default = 1
+description = "Axis number (1-3)"
+range = [
+    1,
+    3,
+]
+type = "int"
+
+[parameters.position_mm]
+default = 0.0
+description = "Current position"
+type = "float"
+unit = "mm"
+
+[parameters.velocity_mm_s]
+default = 10.0
+description = "Motion velocity"
+type = "float"
+unit = "mm/s"
+
+[responses.acceleration]
+transform = [
+    "trim",
+    "to_float",
+]
+
+[responses.motion_status]
+transform = [
+    "trim",
+    "to_int",
+]
+
+[responses.position]
+transform = [
+    "trim",
+    "to_float",
+]
+
+[responses.velocity]
+transform = [
+    "trim",
+    "to_float",
+]
 
 [ui]
 panel_kind = "stage"

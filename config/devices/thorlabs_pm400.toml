@@ -1,107 +1,103 @@
-# config/devices/thorlabs_pm400.toml
-# Thorlabs PM400 Power Meter - Protocol Definition
-#
-# Standard SCPI power meter with USB TMC (Test & Measurement Class) interface.
-# On Linux, the kernel `usbtmc` module presents the device as /dev/usbtmcN.
-# The device path is specified in the hardware instance config, not here.
-
 schema_version = 3
 
+[capabilities.readable.read]
+command = "read_power"
+output_field = "value"
+
+[capabilities.wavelength_tunable.get_wavelength]
+command = "get_wavelength"
+output_field = "value"
+
+[capabilities.wavelength_tunable.set_wavelength]
+command = "set_wavelength"
+from_param = "value"
+
+[commands.get_autorange]
+description = "Query auto-range state"
+response = "scpi_int"
+template = "SENSe:POWer:DC:RANGe:AUTO?"
+
+[commands.get_wavelength]
+description = "Query current correction wavelength (nm)"
+response = "scpi_float"
+template = "SENSe:CORRection:WAVelength?"
+
+[commands.identify]
+description = "Query instrument identification string"
+response = "scpi_string"
+template = "*IDN?"
+
+[commands.read_error]
+description = "Read next error from error queue"
+response = "scpi_string"
+template = "SYSTem:ERRor:NEXT?"
+
+[commands.read_power]
+description = "Read optical power (W)"
+response = "scpi_float"
+template = "MEASure:SCALar:POWer?"
+
+[commands.set_autorange_off]
+description = "Disable auto-range"
+expects_response = false
+template = "SENSe:POWer:DC:RANGe:AUTO OFF"
+
+[commands.set_autorange_on]
+description = "Enable auto-range"
+expects_response = false
+template = "SENSe:POWer:DC:RANGe:AUTO ON"
+
+[commands.set_wavelength]
+description = "Set correction wavelength (nm)"
+expects_response = false
+template = "SENSe:CORRection:WAVelength {{ value }}"
+
+[commands.set_wavelength.parameters]
+value = "float"
+
+[commands.zero_sensor]
+description = "Initiate zero adjustment (block laser before calling)"
+expects_response = false
+template = "SENSe:CORRection:COLLect:ZERO:INITiate"
+
+[connection]
+terminator_tx = """
+
+"""
+timeout_ms = 5000
+type = "usbtmc"
+
 [device]
-name = "Thorlabs PM400"
+capabilities = [
+    "Readable",
+    "WavelengthTunable",
+    "Commandable",
+]
+category = "power_meter"
 description = "Thorlabs PM400 optical power meter with SCPI control"
 manufacturer = "Thorlabs"
 model = "PM400"
+name = "Thorlabs PM400"
 protocol = "scpi"
-category = "power_meter"
-capabilities = ["Readable", "WavelengthTunable", "Commandable"]
-
-[connection]
-type = "usbtmc"
-timeout_ms = 5000
-terminator_tx = "\n"
-
-# ==============================================================================
-# Response Definitions
-# ==============================================================================
 
 [responses.scpi_float]
-transform = ["trim", "to_float"]
+transform = [
+    "trim",
+    "to_float",
+]
+
+[responses.scpi_int]
+transform = [
+    "trim",
+    "to_int",
+]
 
 [responses.scpi_string]
 transform = ["trim"]
 
-[responses.scpi_int]
-transform = ["trim", "to_int"]
-
-# ==============================================================================
-# Command Definitions
-# ==============================================================================
-
-[commands.identify]
-template = "*IDN?"
-description = "Query instrument identification string"
-response = "scpi_string"
-
-[commands.read_power]
-template = "MEASure:SCALar:POWer?"
-description = "Read optical power (W)"
-response = "scpi_float"
-
-[commands.get_wavelength]
-template = "SENSe:CORRection:WAVelength?"
-description = "Query current correction wavelength (nm)"
-response = "scpi_float"
-
-[commands.set_wavelength]
-template = "SENSe:CORRection:WAVelength {{ value }}"
-description = "Set correction wavelength (nm)"
-parameters = { value = "float" }
-expects_response = false
-
-[commands.set_autorange_on]
-template = "SENSe:POWer:DC:RANGe:AUTO ON"
-description = "Enable auto-range"
-expects_response = false
-
-[commands.set_autorange_off]
-template = "SENSe:POWer:DC:RANGe:AUTO OFF"
-description = "Disable auto-range"
-expects_response = false
-
-[commands.get_autorange]
-template = "SENSe:POWer:DC:RANGe:AUTO?"
-description = "Query auto-range state"
-response = "scpi_int"
-
-[commands.zero_sensor]
-template = "SENSe:CORRection:COLLect:ZERO:INITiate"
-description = "Initiate zero adjustment (block laser before calling)"
-expects_response = false
-
-[commands.read_error]
-template = "SYSTem:ERRor:NEXT?"
-description = "Read next error from error queue"
-response = "scpi_string"
-
-# ==============================================================================
-# Capability Mapping
-# ==============================================================================
-
-[capabilities.readable]
-read = { command = "read_power", output_field = "value" }
-
-[capabilities.wavelength_tunable]
-set_wavelength = { command = "set_wavelength", from_param = "value" }
-get_wavelength = { command = "get_wavelength", output_field = "value" }
-
-# ==============================================================================
-# UI Configuration
-# ==============================================================================
-
 [ui]
-icon = "sensor"
 color = "#1E88E5"
+icon = "sensor"
 panel_kind = "power_meter"
 
 [ui.control_panel]
@@ -109,32 +105,32 @@ layout = "vertical"
 show_header = true
 
 [[ui.control_panel.sections]]
-type = "sensor"
 label = "Optical Power"
 precision = 6
-unit = "W"
 refresh_ms = 500
+type = "sensor"
+unit = "W"
 
 [[ui.control_panel.sections]]
 type = "separator"
 visible = true
 
 [[ui.control_panel.sections]]
-type = "parameter"
 label = "Wavelength"
 parameter = "wavelength"
-widget = "spinner"
-read_only = false
 read_command = "get_wavelength"
+read_only = false
+type = "parameter"
+widget = "spinner"
 write_command = "set_wavelength"
 
 [[ui.control_panel.sections]]
-type = "custom_action"
-label = "Zero Sensor"
 command = "zero_sensor"
+label = "Zero Sensor"
 style = "warning"
+type = "custom_action"
 
 [ui.status_display]
-summary_params = ["power"]
-summary_format = "{{ power }} W"
 show_connection = true
+summary_format = "{{ power }} W"
+summary_params = ["power"]

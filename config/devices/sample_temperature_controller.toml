@@ -1,447 +1,257 @@
-# config/devices/sample_temperature_controller.toml
-# ============================================================================
-# SAMPLE: Acme TC-2000 Temperature Controller
-# ============================================================================
-#
-# This is a comprehensive example demonstrating ALL capabilities of the
-# GenericSerialDriver TOML configuration format. Use this as a template
-# when creating configs for new devices.
-#
-# The TC-2000 is a fictional device that demonstrates:
-# - Serial communication with terminators
-# - Multiple capability traits (Readable, Settable, Parameterized)
-# - Command templating with MiniJinja interpolation
-# - Response parsing with format strings and transform pipelines
-# - Unit conversions with evalexpr formulas
-# - Error code mapping with recovery actions
-# - Retry configuration with exponential backoff
-# - Initialization sequences
-# - Rhai scripting for complex operations
-# - UI configuration for control panels
-#
-# Reference: This is a sample file - no real device exists
-
 schema_version = 3
 
-# ==============================================================================
-# SECTION 1: Device Identity
-# ==============================================================================
-# Defines what the device is and what capabilities it supports.
+[capabilities.readable.read]
+command = "get_temperature"
+output_field = "value"
 
-[device]
-name = "Acme TC-2000 Temperature Controller"
-description = "Precision temperature controller with PID control and ramping"
-manufacturer = "Acme Scientific"
-model = "TC-2000"
-protocol = "acme_tc2000"              # Unique protocol identifier
-category = "sensor"                   # Options: stage, sensor, source, detector, modulator, analyzer, data_acquisition, other
-
-# Capability traits this device implements (determines which trait methods are available)
-capabilities = ["Readable", "Settable", "Parameterized"]
-
-# ==============================================================================
-# SECTION 2: Connection Settings
-# ==============================================================================
-# How to communicate with the device over serial port.
-
-[connection]
-type = "serial"                       # Connection type: serial, tcp, udp
-baud_rate = 9600                      # Serial baud rate (300-921600)
-data_bits = 8                         # Data bits (5-8)
-parity = "none"                       # Parity: none, odd, even
-stop_bits = 1                         # Stop bits: 1 or 2
-flow_control = "none"                 # Flow control: none, software, hardware
-timeout_ms = 2000                     # Read/write timeout in milliseconds
-
-# Command/response terminators
-terminator_tx = "\r\n"                # Sent after each command (CR+LF)
-terminator_rx = "\r\n"                # Expected in responses
-
-# Optional: specify port path (usually set at runtime)
-# port_path = "/dev/serial/by-id/usb-Acme_TC2000-if00-port0"
-
-# ==============================================================================
-# SECTION 3: Retry Configuration (Default)
-# ==============================================================================
-# Default retry behavior for all commands (can be overridden per-command).
-
-[default_retry]
-max_retries = 3                       # Maximum retry attempts (0-10)
-initial_delay_ms = 100                # Delay before first retry
-max_delay_ms = 2000                   # Maximum delay between retries
-backoff_multiplier = 2.0              # Exponential backoff factor
-
-# Error codes that should trigger retry (if empty, retries on any error)
-retry_on_errors = ["ERR_BUSY", "ERR_COMM"]
-
-# Error codes that should NEVER trigger retry (takes precedence)
-no_retry_on_errors = ["ERR_FATAL", "ERR_OVERTEMP"]
-
-# ==============================================================================
-# SECTION 4: Device Parameters
-# ==============================================================================
-# Runtime parameters that can be read/written and used in conversions.
-# These are stored in the driver and can be referenced in formulas.
-
-[parameters.setpoint_celsius]
-type = "float"
-default = 25.0
-range = [-40.0, 200.0]                # Valid range [min, max]
-unit = "C"
-description = "Target temperature setpoint"
-
-[parameters.actual_temp_celsius]
-type = "float"
-default = 25.0
-unit = "C"
-description = "Current measured temperature"
-read_only = true                      # Cannot be set directly
-
-[parameters.heater_power_percent]
-type = "float"
-default = 0.0
-range = [0.0, 100.0]
-unit = "%"
-description = "Current heater output power"
-read_only = true
-
-[parameters.pid_p]
-type = "float"
-default = 10.0
-range = [0.0, 1000.0]
-description = "PID proportional gain"
-
-[parameters.pid_i]
-type = "float"
-default = 0.5
-range = [0.0, 100.0]
-description = "PID integral gain"
-
-[parameters.pid_d]
-type = "float"
-default = 2.0
-range = [0.0, 100.0]
-description = "PID derivative gain"
-
-[parameters.ramp_rate_c_per_min]
-type = "float"
-default = 5.0
-range = [0.1, 50.0]
-unit = "C/min"
-description = "Temperature ramp rate"
-
-[parameters.control_mode]
-type = "string"
-default = "PID"
-choices = ["OFF", "PID", "MANUAL", "RAMP"]
-description = "Temperature control mode"
-
-[parameters.alarm_high_celsius]
-type = "float"
-default = 150.0
-range = [-40.0, 250.0]
-unit = "C"
-description = "High temperature alarm threshold"
-
-[parameters.alarm_low_celsius]
-type = "float"
-default = 0.0
-range = [-50.0, 200.0]
-unit = "C"
-description = "Low temperature alarm threshold"
-
-# ==============================================================================
-# SECTION 5: Command Definitions
-# ==============================================================================
-# Define all commands the device supports.
-# Template syntax: {{ param_name }} (MiniJinja)
-
-# --- Temperature Query/Set Commands ---
-
-[commands.get_temperature]
-template = "TEMP?"
-description = "Query current temperature"
-response = "temperature"              # Name of response definition to use
-
-[commands.get_setpoint]
-template = "SETP?"
-description = "Query temperature setpoint"
-response = "setpoint"
-
-[commands.set_setpoint]
-template = "SETP {{ value }}"
-description = "Set temperature setpoint (C)"
-parameters = { value = "float" }
-expects_response = false              # No response expected
-
-# Per-command retry override
-[commands.set_setpoint.retry]
-max_retries = 2
-initial_delay_ms = 200
-
-# --- PID Commands ---
-
-[commands.get_pid]
-template = "PID?"
-description = "Query PID parameters"
-response = "pid_values"
-
-[commands.set_pid]
-template = "PID {{ p }},{{ i }},{{ d }}"
-description = "Set PID parameters (P, I, D)"
-parameters = { p = "float", i = "float", d = "float" }
-expects_response = false
-
-# --- Control Mode Commands ---
-
-[commands.get_mode]
-template = "MODE?"
-description = "Query control mode"
-response = "mode"
-
-[commands.set_mode]
-template = "MODE {{ mode }}"
-description = "Set control mode"
-parameters = { mode = "string" }
-expects_response = false
-
-# --- Status Commands ---
-
-[commands.get_status]
-template = "STAT?"
-description = "Query device status (bit flags)"
-response = "status"
-
-[commands.get_heater_power]
-template = "HTR?"
-description = "Query heater output power"
-response = "heater_power"
-
-# --- Alarm Commands ---
-
-[commands.get_alarms]
-template = "ALARM?"
-description = "Query alarm settings"
-response = "alarms"
-
-[commands.set_alarm_high]
-template = "ALMHI {{ temp }}"
-description = "Set high temperature alarm"
-parameters = { temp = "float" }
-expects_response = false
-
-[commands.set_alarm_low]
-template = "ALMLO {{ temp }}"
-description = "Set low temperature alarm"
-parameters = { temp = "float" }
-expects_response = false
+[capabilities.settable.set]
+command = "set_setpoint"
+from_param = "setpoint_celsius"
+input_param = "value"
 
 [commands.clear_alarms]
-template = "ALMCLR"
 description = "Clear active alarms"
 expects_response = false
+template = "ALMCLR"
 
-# --- Ramp Commands ---
+[commands.get_alarms]
+description = "Query alarm settings"
+response = "alarms"
+template = "ALARM?"
 
-[commands.set_ramp_rate]
-template = "RAMP {{ rate }}"
-description = "Set ramp rate (C/min)"
-parameters = { rate = "float" }
-expects_response = false
+[commands.get_heater_power]
+description = "Query heater output power"
+response = "heater_power"
+template = "HTR?"
 
-[commands.start_ramp]
-template = "RAMP:START {{ target }}"
-description = "Start ramping to target temperature"
-parameters = { target = "float" }
-expects_response = false
-timeout_ms = 5000                     # Per-command timeout override
+[commands.get_mode]
+description = "Query control mode"
+response = "mode"
+template = "MODE?"
 
-[commands.stop_ramp]
-template = "RAMP:STOP"
-description = "Stop temperature ramp"
-expects_response = false
+[commands.get_pid]
+description = "Query PID parameters"
+response = "pid_values"
+template = "PID?"
 
-# --- Utility Commands ---
+[commands.get_setpoint]
+description = "Query temperature setpoint"
+response = "setpoint"
+template = "SETP?"
+
+[commands.get_status]
+description = "Query device status (bit flags)"
+response = "status"
+template = "STAT?"
+
+[commands.get_temperature]
+description = "Query current temperature"
+response = "temperature"
+template = "TEMP?"
 
 [commands.identify]
-template = "*IDN?"
 description = "Query device identity"
 response = "identity"
+template = "*IDN?"
 
 [commands.reset]
-template = "*RST"
+delay_ms = 2000
 description = "Reset device to defaults"
 expects_response = false
-delay_ms = 2000                       # Wait after command
+template = "*RST"
 
-# ==============================================================================
-# SECTION 6: Response Definitions
-# ==============================================================================
-# Define how to parse responses. Prefer `format` (literals + `{field:type}`
-# placeholders) — it is faster, self-documenting, and error messages point at
-# the specific field that failed. Drop down to `transform` pipelines for
-# extract/map/trim work, and `regex` (in an [advanced] block) only when the
-# shape genuinely requires it.
+[commands.set_alarm_high]
+description = "Set high temperature alarm"
+expects_response = false
+template = "ALMHI {{ temp }}"
 
-# Temperature response: "TEMP 25.50"
-[responses.temperature]
-format = "TEMP {value:float}"
+[commands.set_alarm_high.parameters]
+temp = "float"
 
-# Setpoint response: "SETP 30.00"
-[responses.setpoint]
-format = "SETP {value:float}"
+[commands.set_alarm_low]
+description = "Set low temperature alarm"
+expects_response = false
+template = "ALMLO {{ temp }}"
 
-# PID response: "PID 10.0,0.5,2.0"
-[responses.pid_values]
-format = "PID {p:float},{i:float},{d:float}"
+[commands.set_alarm_low.parameters]
+temp = "float"
 
-# Mode response: "MODE PID"
-[responses.mode]
-format = "MODE {mode}"
+[commands.set_mode]
+description = "Set control mode"
+expects_response = false
+template = "MODE {{ mode }}"
 
-# Status response: "STAT 0x05" (bit flags as hex string; convert in the driver)
-[responses.status]
-format = "STAT 0x{flags}"
+[commands.set_mode.parameters]
+mode = "string"
 
-# Heater power response: "HTR 45.2"
-[responses.heater_power]
-format = "HTR {power:float}"
+[commands.set_pid]
+description = "Set PID parameters (P, I, D)"
+expects_response = false
+template = "PID {{ p }},{{ i }},{{ d }}"
 
-# Alarm response: "ALARM HI:150.0 LO:0.0"
-[responses.alarms]
-format = "ALARM HI:{high:float} LO:{low:float}"
+[commands.set_pid.parameters]
+d = "float"
+i = "float"
+p = "float"
 
-# Identity response: "ACME,TC-2000,SN12345,v1.2"
-[responses.identity]
-format = "{manufacturer},{model},{serial},v{version}"
+[commands.set_ramp_rate]
+description = "Set ramp rate (C/min)"
+expects_response = false
+template = "RAMP {{ rate }}"
 
-# ==============================================================================
-# SECTION 7: Unit Conversions
-# ==============================================================================
-# Define conversion formulas using evalexpr syntax.
-# Available: +, -, *, /, %, round(), floor(), ceil(), abs()
-# Can reference any parameter by name.
+[commands.set_ramp_rate.parameters]
+rate = "float"
+
+[commands.set_setpoint]
+description = "Set temperature setpoint (C)"
+expects_response = false
+template = "SETP {{ value }}"
+
+[commands.set_setpoint.parameters]
+value = "float"
+
+[commands.set_setpoint.retry]
+initial_delay_ms = 200
+max_retries = 2
+
+[commands.start_ramp]
+description = "Start ramping to target temperature"
+expects_response = false
+template = "RAMP:START {{ target }}"
+timeout_ms = 5000
+
+[commands.start_ramp.parameters]
+target = "float"
+
+[commands.stop_ramp]
+description = "Stop temperature ramp"
+expects_response = false
+template = "RAMP:STOP"
+
+[connection]
+baud_rate = 9600
+data_bits = 8
+flow_control = "none"
+parity = "none"
+stop_bits = 1
+terminator_rx = """
+\r
+"""
+terminator_tx = """
+\r
+"""
+timeout_ms = 2000
+type = "serial"
 
 [conversions.celsius_to_fahrenheit]
 formula = "celsius * 9.0 / 5.0 + 32.0"
 
-[conversions.fahrenheit_to_celsius]
-formula = "(fahrenheit - 32.0) * 5.0 / 9.0"
-
 [conversions.celsius_to_kelvin]
 formula = "celsius + 273.15"
+
+[conversions.fahrenheit_to_celsius]
+formula = "(fahrenheit - 32.0) * 5.0 / 9.0"
 
 [conversions.kelvin_to_celsius]
 formula = "kelvin - 273.15"
 
-# ==============================================================================
-# SECTION 8: Error Code Mapping
-# ==============================================================================
-# Define device-specific error codes with severity and recovery actions.
+[default_retry]
+backoff_multiplier = 2.0
+initial_delay_ms = 100
+max_delay_ms = 2000
+max_retries = 3
+no_retry_on_errors = [
+    "ERR_FATAL",
+    "ERR_OVERTEMP",
+]
+retry_on_errors = [
+    "ERR_BUSY",
+    "ERR_COMM",
+]
 
-[error_codes."ERR_NONE"]
-name = "OK"
-description = "No error"
-recoverable = true
-severity = "info"
+[device]
+capabilities = [
+    "Readable",
+    "Settable",
+    "Parameterized",
+]
+category = "sensor"
+description = "Precision temperature controller with PID control and ramping"
+manufacturer = "Acme Scientific"
+model = "TC-2000"
+name = "Acme TC-2000 Temperature Controller"
+protocol = "acme_tc2000"
 
-[error_codes."ERR_COMM"]
-name = "CommunicationError"
-description = "Communication timeout or checksum error"
-recoverable = true
-severity = "warning"
-
-[error_codes."ERR_BUSY"]
-name = "DeviceBusy"
+[error_codes.ERR_BUSY]
 description = "Device is busy processing previous command"
+name = "DeviceBusy"
 recoverable = true
 severity = "info"
 
-[error_codes."ERR_BUSY".recovery_action]
+[error_codes.ERR_BUSY.recovery_action]
 auto_recover = true
 delay_ms = 500
 
-[error_codes."ERR_RANGE"]
-name = "OutOfRange"
-description = "Parameter value out of valid range"
+[error_codes.ERR_COMM]
+description = "Communication timeout or checksum error"
+name = "CommunicationError"
 recoverable = true
-severity = "error"
+severity = "warning"
 
-[error_codes."ERR_OVERTEMP"]
-name = "OverTemperature"
-description = "Temperature exceeded safety limit"
-recoverable = false
-severity = "critical"
-
-[error_codes."ERR_OVERTEMP".recovery_action]
-auto_recover = false
-manual_instructions = "Allow device to cool down. Check for thermal runaway."
-
-[error_codes."ERR_SENSOR"]
-name = "SensorFault"
-description = "Temperature sensor fault"
-recoverable = false
-severity = "critical"
-
-[error_codes."ERR_SENSOR".recovery_action]
-auto_recover = false
-manual_instructions = "Check sensor connections. May require service."
-
-[error_codes."ERR_FATAL"]
-name = "FatalError"
+[error_codes.ERR_FATAL]
 description = "Unrecoverable hardware error"
+name = "FatalError"
 recoverable = false
 severity = "fatal"
 
-[error_codes."ERR_FATAL".recovery_action]
+[error_codes.ERR_FATAL.recovery_action]
 auto_recover = false
 command = "reset"
 manual_instructions = "Power cycle the device. Contact support if issue persists."
 
-# ==============================================================================
-# SECTION 9: Validation Rules
-# ==============================================================================
-# Additional validation constraints for parameters.
+[error_codes.ERR_NONE]
+description = "No error"
+name = "OK"
+recoverable = true
+severity = "info"
 
-[validation.setpoint_celsius]
-range = [-40.0, 200.0]
-unit = "C"
-error_message = "Setpoint must be between -40C and 200C"
+[error_codes.ERR_OVERTEMP]
+description = "Temperature exceeded safety limit"
+name = "OverTemperature"
+recoverable = false
+severity = "critical"
 
-[validation.ramp_rate_c_per_min]
-range = [0.1, 50.0]
-unit = "C/min"
-error_message = "Ramp rate must be between 0.1 and 50 C/min"
+[error_codes.ERR_OVERTEMP.recovery_action]
+auto_recover = false
+manual_instructions = "Allow device to cool down. Check for thermal runaway."
 
-# ==============================================================================
-# SECTION 10: Capability Mapping
-# ==============================================================================
-# Maps capability trait methods to device commands.
+[error_codes.ERR_RANGE]
+description = "Parameter value out of valid range"
+name = "OutOfRange"
+recoverable = true
+severity = "error"
 
-# --- Readable trait: read() returns current temperature ---
-[capabilities.readable]
-read = { command = "get_temperature", output_field = "value" }
+[error_codes.ERR_SENSOR]
+description = "Temperature sensor fault"
+name = "SensorFault"
+recoverable = false
+severity = "critical"
 
-# --- Settable trait: set() writes a temperature setpoint ---
-[capabilities.settable]
-set = { command = "set_setpoint", input_param = "value", from_param = "setpoint_celsius" }
-
-# ==============================================================================
-# SECTION 11: Initialization Sequence
-# ==============================================================================
-# Commands to run when connecting to verify device identity and state.
+[error_codes.ERR_SENSOR.recovery_action]
+auto_recover = false
+manual_instructions = "Check sensor connections. May require service."
 
 [[init_sequence]]
 command = "identify"
 description = "Query device identity to verify correct device"
+expect = "ACME"
 required = true
-expect = "ACME"                       # Response must contain this string
 
 [[init_sequence]]
 command = "get_status"
+delay_ms = 100
 description = "Check device status"
 required = true
-delay_ms = 100
 
 [[init_sequence]]
 command = "get_temperature"
@@ -453,58 +263,128 @@ command = "get_setpoint"
 description = "Get current setpoint"
 required = false
 
-# ==============================================================================
-# SECTION 12: Rhai Scripts (Optional)
-# ==============================================================================
-# For complex operations that can't be expressed declaratively.
-# Scripts have access to: input, address, and all parameters.
-# Available functions: driver.command_name(), driver.wait_ms(ms)
+[parameters.actual_temp_celsius]
+default = 25.0
+description = "Current measured temperature"
+read_only = true
+type = "float"
+unit = "C"
 
-[scripts.ramp_to_temperature]
-description = "Ramp to target temperature and wait until stable"
-timeout_ms = 300000                   # 5 minutes
-inputs = ["target"]
-returns = "float"
-script = """
-    // Set the ramp target
-    let target = input;
+[parameters.alarm_high_celsius]
+default = 150.0
+description = "High temperature alarm threshold"
+range = [
+    -40.0,
+    250.0,
+]
+type = "float"
+unit = "C"
 
-    // Configure ramp rate (use parameter or default)
-    let rate = if ramp_rate_c_per_min > 0.0 {
-        ramp_rate_c_per_min
-    } else {
-        5.0
-    };
+[parameters.alarm_low_celsius]
+default = 0.0
+description = "Low temperature alarm threshold"
+range = [
+    -50.0,
+    200.0,
+]
+type = "float"
+unit = "C"
 
-    // Start the ramp
-    driver.set_ramp_rate(rate);
-    driver.start_ramp(target);
+[parameters.control_mode]
+choices = [
+    "OFF",
+    "PID",
+    "MANUAL",
+    "RAMP",
+]
+default = "PID"
+description = "Temperature control mode"
+type = "string"
 
-    // Poll until temperature is stable
-    let stable_count = 0;
-    let tolerance = 0.5;  // C
+[parameters.heater_power_percent]
+default = 0.0
+description = "Current heater output power"
+range = [
+    0.0,
+    100.0,
+]
+read_only = true
+type = "float"
+unit = "%"
 
-    loop {
-        driver.wait_ms(1000);
-        let temp = driver.get_temperature();
+[parameters.pid_d]
+default = 2.0
+description = "PID derivative gain"
+range = [
+    0.0,
+    100.0,
+]
+type = "float"
 
-        if abs(temp - target) < tolerance {
-            stable_count += 1;
-            if stable_count >= 3 {
-                break;  // Stable for 3 consecutive readings
-            }
-        } else {
-            stable_count = 0;
-        }
-    }
+[parameters.pid_i]
+default = 0.5
+description = "PID integral gain"
+range = [
+    0.0,
+    100.0,
+]
+type = "float"
 
-    // Return final temperature
-    driver.get_temperature()
-"""
+[parameters.pid_p]
+default = 10.0
+description = "PID proportional gain"
+range = [
+    0.0,
+    1000.0,
+]
+type = "float"
+
+[parameters.ramp_rate_c_per_min]
+default = 5.0
+description = "Temperature ramp rate"
+range = [
+    0.1,
+    50.0,
+]
+type = "float"
+unit = "C/min"
+
+[parameters.setpoint_celsius]
+default = 25.0
+description = "Target temperature setpoint"
+range = [
+    -40.0,
+    200.0,
+]
+type = "float"
+unit = "C"
+
+[responses.alarms]
+format = "ALARM HI:{high:float} LO:{low:float}"
+
+[responses.heater_power]
+format = "HTR {power:float}"
+
+[responses.identity]
+format = "{manufacturer},{model},{serial},v{version}"
+
+[responses.mode]
+format = "MODE {mode}"
+
+[responses.pid_values]
+format = "PID {p:float},{i:float},{d:float}"
+
+[responses.setpoint]
+format = "SETP {value:float}"
+
+[responses.status]
+format = "STAT 0x{flags}"
+
+[responses.temperature]
+format = "TEMP {value:float}"
 
 [scripts.autotune_pid]
 description = "Run PID autotuning sequence"
-timeout_ms = 600000                   # 10 minutes
 inputs = []
 returns = "string"
 script = """
@@ -550,97 +430,159 @@ script = """
     // Return result
     "Autotune complete: P=" + new_p + ", I=" + new_i + ", D=" + new_d
 """
+timeout_ms = 600000
 
-# ==============================================================================
-# SECTION 13: UI Configuration
-# ==============================================================================
-# Defines how the device appears in the GUI control panel.
+[scripts.ramp_to_temperature]
+description = "Ramp to target temperature and wait until stable"
+inputs = ["target"]
+returns = "float"
+script = """
+    // Set the ramp target
+    let target = input;
+
+    // Configure ramp rate (use parameter or default)
+    let rate = if ramp_rate_c_per_min > 0.0 {
+        ramp_rate_c_per_min
+    } else {
+        5.0
+    };
+
+    // Start the ramp
+    driver.set_ramp_rate(rate);
+    driver.start_ramp(target);
+
+    // Poll until temperature is stable
+    let stable_count = 0;
+    let tolerance = 0.5;  // C
+
+    loop {
+        driver.wait_ms(1000);
+        let temp = driver.get_temperature();
+
+        if abs(temp - target) < tolerance {
+            stable_count += 1;
+            if stable_count >= 3 {
+                break;  // Stable for 3 consecutive readings
+            }
+        } else {
+            stable_count = 0;
+        }
+    }
+
+    // Return final temperature
+    driver.get_temperature()
+"""
+timeout_ms = 300000
 
 [ui]
+color = "#FF6B35"
 icon = "thermometer"
-color = "#FF6B35"                     # Orange theme color
 panel_kind = "generic"
 
 [ui.control_panel]
+collapsible = true
 layout = "vertical"
 show_header = true
-collapsible = true
 
-# Temperature display section
 [[ui.control_panel.sections]]
-type = "sensor"
 label = "Temperature"
 precision = 2
-unit = "C"
-show_trend = true
 refresh_ms = 1000
+show_trend = true
+type = "sensor"
+unit = "C"
 
-# Setpoint control section
 [[ui.control_panel.sections]]
-type = "parameter"
 label = "Setpoint"
 parameter = "setpoint_celsius"
+type = "parameter"
 widget = "spinner"
 
-# Visual separator
 [[ui.control_panel.sections]]
 type = "separator"
 visible = true
 
-# Preset temperature buttons
 [[ui.control_panel.sections]]
-type = "preset_buttons"
 label = "Quick Setpoints"
+type = "preset_buttons"
 vertical = false
-presets = [
-    { label = "Room", value = 25.0 },
-    { label = "37C", value = 37.0 },
-    { label = "50C", value = 50.0 },
-    { label = "100C", value = 100.0 },
-]
 
-# Control mode selector
+[[ui.control_panel.sections.presets]]
+label = "Room"
+value = 25.0
+
+[[ui.control_panel.sections.presets]]
+label = "37C"
+value = 37.0
+
+[[ui.control_panel.sections.presets]]
+label = "50C"
+value = 50.0
+
+[[ui.control_panel.sections.presets]]
+label = "100C"
+value = 100.0
+
 [[ui.control_panel.sections]]
-type = "parameter"
 label = "Mode"
 parameter = "control_mode"
+type = "parameter"
 widget = "dropdown"
 
-# PID parameters (collapsible section would be nice)
 [[ui.control_panel.sections]]
-type = "status_display"
-label = "PID Settings"
-parameters = ["pid_p", "pid_i", "pid_d"]
 compact = true
+label = "PID Settings"
+parameters = [
+    "pid_p",
+    "pid_i",
+    "pid_d",
+]
+type = "status_display"
 
-# Heater power indicator
 [[ui.control_panel.sections]]
-type = "parameter"
 label = "Heater Output"
 parameter = "heater_power_percent"
-widget = "slider"
 read_only = true
+type = "parameter"
+widget = "slider"
 
-# Custom action buttons
 [[ui.control_panel.sections]]
-type = "custom_action"
-label = "Run Autotune"
 command = "autotune_pid"
-style = "primary"
 confirm = "This will take ~10 minutes. Continue?"
+label = "Run Autotune"
+style = "primary"
+type = "custom_action"
 
 [[ui.control_panel.sections]]
 type = "separator"
 visible = true
 
 [[ui.control_panel.sections]]
-type = "custom_action"
-label = "Clear Alarms"
 command = "clear_alarms"
+label = "Clear Alarms"
 style = "secondary"
+type = "custom_action"
 
-# Status display configuration (for device tree/summary)
 [ui.status_display]
-summary_params = ["actual_temp_celsius", "setpoint_celsius"]
-summary_format = "{{ actual_temp_celsius }}C -> {{ setpoint_celsius }}C"
 show_connection = true
+summary_format = "{{ actual_temp_celsius }}C -> {{ setpoint_celsius }}C"
+summary_params = [
+    "actual_temp_celsius",
+    "setpoint_celsius",
+]
+
+[validation.ramp_rate_c_per_min]
+error_message = "Ramp rate must be between 0.1 and 50 C/min"
+range = [
+    0.1,
+    50.0,
+]
+unit = "C/min"
+
+[validation.setpoint_celsius]
+error_message = "Setpoint must be between -40C and 200C"
+range = [
+    -40.0,
+    200.0,
+]
+unit = "C"

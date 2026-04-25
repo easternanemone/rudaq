@@ -1,226 +1,279 @@
-# config/devices/thorlabs_sc10.toml
-# Thorlabs SC10 Optical Beam Shutter Controller - Universal Driver Manifest
-#
-# Controls a solenoid-driven beam shutter for laser safety and experiment gating.
-# Used to block/unblock the laser beam path.
-#
-# Connection: RS-232 via USB adapter, 9600 baud, 8N1
-#   - Thorlabs ships a USB-to-serial cable (FTDI or CP210x)
-#   - Shows as /dev/ttyUSBN on Linux
-#
-# Protocol: Simple ASCII text commands
-#   - Commands terminated with CR (\r)
-#   - Responses terminated with CR (\r), preceded by ">" prompt
-#   - Strip ">" prompt and whitespace from responses
-#   - No echo mode — responses are direct
-#
-# Key commands:
-#   ens?     → "0" (closed) or "1" (open)
-#   open     → opens shutter (no response)
-#   close    → closes shutter (no response)
-#   mode=1   → manual mode (open/close via commands)
-#   mode=2   → auto mode (external trigger)
-#   mode?    → "1" or "2"
-#   id?      → "SC10" (identity)
-#   baud?    → "0" (9600 default)
-#   rep?     → repeat count for auto mode
-#   topen?   → open time in ms (auto mode)
-#   shut?    → shutter count (total open/close cycles)
-#   interlock? → "0" (OK) or "1" (interlock tripped)
-#
-# Reference: Thorlabs SC10 User Guide
-# bd-x1wj
-
 schema_version = 3
 
+[capabilities.shutter_control.close]
+command = "close_shutter"
+
+[capabilities.shutter_control.is_open]
+command = "get_shutter_state"
+output_field = "value"
+
+[capabilities.shutter_control.open]
+command = "open_shutter"
+
+[commands.close_shutter]
+delay_ms = 50
+description = "Close the beam shutter"
+expects_response = false
+template = "close"
+
+[commands.get_interlock]
+description = "Query interlock state (0=OK, 1=tripped)"
+response = "interlock_response"
+template = "interlock?"
+
+[commands.get_mode]
+description = "Query operating mode"
+response = "mode_response"
+template = "mode?"
+
+[commands.get_open_time]
+description = "Query open time in ms"
+response = "strip_prompt_int"
+template = "topen?"
+
+[commands.get_repeat_count]
+description = "Query repeat count"
+response = "strip_prompt_int"
+template = "rep?"
+
+[commands.get_shutter_count]
+description = "Query total shutter cycles"
+response = "strip_prompt_int"
+template = "shut?"
+
+[commands.get_shutter_state]
+description = "Query shutter enable state (0=closed, 1=open)"
+response = "bool_01"
+template = "ens?"
+
+[commands.identify]
+description = "Query device identity"
+response = "strip_prompt"
+template = "id?"
+
+[commands.open_shutter]
+delay_ms = 50
+description = "Open the beam shutter"
+expects_response = false
+template = "open"
+
+[commands.set_auto_mode]
+description = "Set auto mode (timed open)"
+expects_response = false
+template = "mode=2"
+
+[commands.set_manual_mode]
+description = "Set manual mode (open/close via commands)"
+expects_response = false
+template = "mode=1"
+
+[commands.set_mode_raw]
+description = "Set operating mode (1-5)"
+expects_response = false
+template = "mode={{ value }}"
+
+[commands.set_mode_raw.parameters]
+value = "int"
+
+[commands.set_open_time]
+description = "Set open time in ms"
+expects_response = false
+template = "topen={{ value }}"
+
+[commands.set_open_time.parameters]
+value = "int"
+
+[commands.set_repeat_count]
+description = "Set repeat count"
+expects_response = false
+template = "rep={{ value }}"
+
+[commands.set_repeat_count.parameters]
+value = "int"
+
+[connection]
+baud_rate = 9600
+terminator_rx = "\r"
+terminator_tx = "\r"
+timeout_ms = 1000
+type = "serial"
+
 [device]
-name = "Thorlabs SC10"
+capabilities = [
+    "ShutterControl",
+    "Parameterized",
+    "Commandable",
+]
+category = "modulator"
 description = "Optical beam shutter controller for laser safety and experiment gating"
 manufacturer = "Thorlabs"
 model = "SC10"
+name = "Thorlabs SC10"
 protocol = "thorlabs_sc10"
-category = "modulator"
-capabilities = ["ShutterControl", "Parameterized", "Commandable"]
 
-# ==============================================================================
-# Connection Settings
-# ==============================================================================
+[emulator]
+identity = "SC10"
+mode = "echo"
 
-[connection]
-type = "serial"
-baud_rate = 9600
-timeout_ms = 1000
-terminator_tx = "\r"
-terminator_rx = "\r"
+[[emulator.responses]]
+pattern = 'id\?'
+response = "> {{ identity }}"
 
-# ==============================================================================
-# Initialization Sequence
-# ==============================================================================
+[[emulator.responses]]
+pattern = 'ens\?'
+response = "> {{ shutter }}"
+
+[[emulator.responses]]
+pattern = "^open$"
+
+[emulator.responses.set_state]
+shutter = "1"
+
+[[emulator.responses]]
+pattern = "^close$"
+
+[emulator.responses.set_state]
+shutter = "0"
+
+[[emulator.responses]]
+pattern = 'mode\?'
+response = "> {{ mode }}"
+
+[[emulator.responses]]
+pattern = 'mode=(\d)'
+
+[emulator.responses.set_state]
+mode = "$1"
+
+[[emulator.responses]]
+pattern = 'topen\?'
+response = "> {{ open_time }}"
+
+[[emulator.responses]]
+pattern = 'topen=(\d+)'
+
+[emulator.responses.set_state]
+open_time = "$1"
+
+[[emulator.responses]]
+pattern = 'rep\?'
+response = "> {{ repeat_count }}"
+
+[[emulator.responses]]
+pattern = 'rep=(\d+)'
+
+[emulator.responses.set_state]
+repeat_count = "$1"
+
+[[emulator.responses]]
+pattern = 'shut\?'
+response = "> {{ shutter_count }}"
+
+[[emulator.responses]]
+pattern = 'interlock\?'
+response = "> {{ interlock }}"
+
+[emulator.state]
+interlock = "0"
+mode = "1"
+open_time = "10"
+repeat_count = "1"
+shutter = "0"
+shutter_count = "0"
 
 [[init_sequence]]
 command = "identify"
-description = "Verify SC10 identity"
-required = true
-expect = "SC10"
 delay_ms = 200
+description = "Verify SC10 identity"
+expect = "SC10"
+required = true
 
 [[init_sequence]]
 command = "set_manual_mode"
+delay_ms = 100
 description = "Set to manual mode for command-driven control"
 required = false
-delay_ms = 100
 
 [[init_sequence]]
 command = "get_shutter_state"
+delay_ms = 100
 description = "Read initial shutter state"
 required = false
-delay_ms = 100
 
-# ==============================================================================
-# Device Parameters
-# ==============================================================================
-
-[parameters.shutter_open]
-type = "bool"
-default = false
-description = "Shutter state (true = open, false = closed)"
+[parameters.interlock_ok]
+default = true
+description = "Interlock state (true = OK, false = tripped)"
+read_command = "get_interlock"
 read_only = true
-read_command = "get_shutter_state"
+type = "bool"
 
 [parameters.mode]
-type = "string"
+choices = [
+    "manual",
+    "auto",
+    "single",
+    "repeat",
+    "external",
+]
 default = "manual"
-choices = ["manual", "auto", "single", "repeat", "external"]
 description = "Operating mode (1=manual, 2=auto, 3=single, 4=repeat, 5=external)"
 read_command = "get_mode"
+type = "string"
 write_command = "set_mode_raw"
 
 [parameters.open_time_ms]
-type = "int"
 default = 10
-range = [1, 999999]
-unit = "ms"
 description = "Shutter open time for auto/single modes"
+range = [
+    1,
+    999999,
+]
 read_command = "get_open_time"
+type = "int"
+unit = "ms"
 write_command = "set_open_time"
 
 [parameters.repeat_count]
-type = "int"
 default = 1
-range = [1, 99]
 description = "Number of open/close cycles in repeat mode"
+range = [
+    1,
+    99,
+]
 read_command = "get_repeat_count"
+type = "int"
 write_command = "set_repeat_count"
 
 [parameters.shutter_cycles]
-type = "int"
 default = 0
 description = "Total shutter open/close cycles (lifetime counter)"
-read_only = true
 read_command = "get_shutter_count"
-
-[parameters.interlock_ok]
-type = "bool"
-default = true
-description = "Interlock state (true = OK, false = tripped)"
 read_only = true
-read_command = "get_interlock"
+type = "int"
 
-# ==============================================================================
-# Commands
-# ==============================================================================
+[parameters.shutter_open]
+default = false
+description = "Shutter state (true = open, false = closed)"
+read_command = "get_shutter_state"
+read_only = true
+type = "bool"
 
-[commands.identify]
-template = "id?"
-description = "Query device identity"
-response = "strip_prompt"
-
-[commands.open_shutter]
-template = "open"
-description = "Open the beam shutter"
-expects_response = false
-delay_ms = 50
-
-[commands.close_shutter]
-template = "close"
-description = "Close the beam shutter"
-expects_response = false
-delay_ms = 50
-
-[commands.get_shutter_state]
-template = "ens?"
-description = "Query shutter enable state (0=closed, 1=open)"
-response = "bool_01"
-
-[commands.set_manual_mode]
-template = "mode=1"
-description = "Set manual mode (open/close via commands)"
-expects_response = false
-
-[commands.set_auto_mode]
-template = "mode=2"
-description = "Set auto mode (timed open)"
-expects_response = false
-
-[commands.set_mode_raw]
-template = "mode={{ value }}"
-description = "Set operating mode (1-5)"
-parameters = { value = "int" }
-expects_response = false
-
-[commands.get_mode]
-template = "mode?"
-description = "Query operating mode"
-response = "mode_response"
-
-[commands.get_open_time]
-template = "topen?"
-description = "Query open time in ms"
-response = "strip_prompt_int"
-
-[commands.set_open_time]
-template = "topen={{ value }}"
-description = "Set open time in ms"
-parameters = { value = "int" }
-expects_response = false
-
-[commands.get_repeat_count]
-template = "rep?"
-description = "Query repeat count"
-response = "strip_prompt_int"
-
-[commands.set_repeat_count]
-template = "rep={{ value }}"
-description = "Set repeat count"
-parameters = { value = "int" }
-expects_response = false
-
-[commands.get_shutter_count]
-template = "shut?"
-description = "Query total shutter cycles"
-response = "strip_prompt_int"
-
-[commands.get_interlock]
-template = "interlock?"
-description = "Query interlock state (0=OK, 1=tripped)"
-response = "interlock_response"
-
-# ==============================================================================
-# Response Parsers
-# ==============================================================================
-
-# SC10 responses may include ">" prompt characters — strip them
-[responses.strip_prompt]
-transform = ["trim", "remove_prefix('>')"]
-
-[responses.strip_prompt_int]
-transform = ["trim", "remove_prefix('>')","trim", "to_int"]
-
-# "0" = closed, "1" = open
 [responses.bool_01]
-transform = ["trim", "remove_prefix('>')","trim"]
+transform = [
+    "trim",
+    "remove_prefix('>')",
+    "trim",
+]
 
-# Mode: 1=manual, 2=auto, 3=single, 4=repeat, 5=external
+[responses.interlock_response]
+transform = [
+    "trim",
+    "remove_prefix('>')",
+    "trim",
+    "map('0', 'true')",
+    "map('1', 'false')",
+]
+
 [responses.mode_response]
 transform = [
     "trim",
@@ -233,143 +286,73 @@ transform = [
     "map('5', 'external')",
 ]
 
-# Interlock: 0=OK, 1=tripped → invert for "interlock_ok" parameter
-[responses.interlock_response]
+[responses.strip_prompt]
+transform = [
+    "trim",
+    "remove_prefix('>')",
+]
+
+[responses.strip_prompt_int]
 transform = [
     "trim",
     "remove_prefix('>')",
     "trim",
-    "map('0', 'true')",
-    "map('1', 'false')",
+    "to_int",
 ]
 
-# ==============================================================================
-# Capability Mappings
-# ==============================================================================
-
-[capabilities.shutter_control]
-open = { command = "open_shutter" }
-close = { command = "close_shutter" }
-is_open = { command = "get_shutter_state", output_field = "value" }
-
-# ==============================================================================
-# Emulator Configuration
-# ==============================================================================
-
-[emulator]
-mode = "echo"
-identity = "SC10"
-
-[emulator.state]
-shutter = "0"
-mode = "1"
-open_time = "10"
-repeat_count = "1"
-interlock = "0"
-shutter_count = "0"
-
-[[emulator.responses]]
-pattern = "id\\?"
-response = "> {{ identity }}"
-
-[[emulator.responses]]
-pattern = "ens\\?"
-response = "> {{ shutter }}"
-
-[[emulator.responses]]
-pattern = "^open$"
-set_state = { shutter = "1" }
-
-[[emulator.responses]]
-pattern = "^close$"
-set_state = { shutter = "0" }
-
-[[emulator.responses]]
-pattern = "mode\\?"
-response = "> {{ mode }}"
-
-[[emulator.responses]]
-pattern = "mode=(\\d)"
-set_state = { mode = "$1" }
-
-[[emulator.responses]]
-pattern = "topen\\?"
-response = "> {{ open_time }}"
-
-[[emulator.responses]]
-pattern = "topen=(\\d+)"
-set_state = { open_time = "$1" }
-
-[[emulator.responses]]
-pattern = "rep\\?"
-response = "> {{ repeat_count }}"
-
-[[emulator.responses]]
-pattern = "rep=(\\d+)"
-set_state = { repeat_count = "$1" }
-
-[[emulator.responses]]
-pattern = "shut\\?"
-response = "> {{ shutter_count }}"
-
-[[emulator.responses]]
-pattern = "interlock\\?"
-response = "> {{ interlock }}"
-
-# ==============================================================================
-# UI Configuration
-# ==============================================================================
-
 [ui]
-icon = "shield"
 color = "#FF5722"
+icon = "shield"
 panel_kind = "generic"
 
 [ui.control_panel]
 layout = "vertical"
 
 [[ui.control_panel.sections]]
-type = "custom_action"
-label = "Open Shutter"
 command = "open_shutter"
+label = "Open Shutter"
 style = "success"
-
-[[ui.control_panel.sections]]
 type = "custom_action"
-label = "Close Shutter"
+
+[[ui.control_panel.sections]]
 command = "close_shutter"
+label = "Close Shutter"
 style = "danger"
+type = "custom_action"
 
 [[ui.control_panel.sections]]
-type = "status_display"
-label = "State"
-parameters = ["shutter_open", "interlock_ok"]
 compact = true
+label = "State"
+parameters = [
+    "shutter_open",
+    "interlock_ok",
+]
+type = "status_display"
 
 [[ui.control_panel.sections]]
-type = "separator"
 label = "Configuration"
+type = "separator"
 
 [[ui.control_panel.sections]]
-type = "parameter"
 label = "Mode"
 parameter = "mode"
+type = "parameter"
 widget = "dropdown"
 
 [[ui.control_panel.sections]]
-type = "parameter"
 label = "Open Time"
 parameter = "open_time_ms"
+type = "parameter"
 widget = "spinner"
 
 [[ui.control_panel.sections]]
-type = "parameter"
 label = "Repeat Count"
 parameter = "repeat_count"
+type = "parameter"
 widget = "spinner"
 
 [[ui.control_panel.sections]]
-type = "status_display"
+compact = true
 label = "Lifetime Cycles"
 parameters = ["shutter_cycles"]
-compact = true
+type = "status_display"

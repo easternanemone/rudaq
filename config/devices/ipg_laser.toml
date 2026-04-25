@@ -1,134 +1,132 @@
-# config/devices/ipg_laser.toml
-# IPG YLPP-200-1-50-R Fiber Laser - Protocol Definition
-#
-# TCP control interface on port 10001.
-# All responses use "CMD: value" prefix format (e.g. "ROP: 12.5").
-# When emission is off, power reads return "ROP: Off" instead of a number.
-
 schema_version = 3
 
+[capabilities.emission_control.disable]
+command = "emission_off"
+
+[capabilities.emission_control.enable]
+command = "emission_on"
+
+[capabilities.emission_control.is_enabled]
+command = "read_emission"
+
+[capabilities.readable.read]
+command = "read_power"
+output_field = "value"
+
+[commands.emission_off]
+description = "Disable laser emission"
+expects_response = false
+template = "EMOFF"
+
+[commands.emission_on]
+description = "Enable laser emission"
+expects_response = false
+template = "EMON"
+
+[commands.read_current]
+description = "Read laser current setpoint (percent)"
+response = "ipg_float"
+template = "RCS"
+
+[commands.read_emission]
+description = "Read emission status (On/Off)"
+response = "ipg_string"
+template = "REM"
+
+[commands.read_error]
+description = "Read error flags (hex bitmask)"
+response = "ipg_string"
+template = "REF"
+
+[commands.read_power]
+description = "Read output power (W). Returns 'Off' when emission is disabled."
+response = "ipg_power"
+template = "ROP"
+
+[commands.read_rep_rate]
+description = "Read repetition rate (kHz)"
+response = "ipg_float"
+template = "RRR"
+
+[commands.read_status]
+description = "Read laser status word (bitmask)"
+response = "ipg_integer"
+template = "STA"
+
+[commands.reset_errors]
+description = "Reset error flags"
+expects_response = false
+template = "RERR"
+
+[commands.set_current]
+description = "Set laser current (percent)"
+expects_response = false
+template = "SCS {{ value }}"
+
+[commands.set_current.parameters]
+value = "float"
+
+[commands.set_rep_rate]
+description = "Set repetition rate (kHz)"
+expects_response = false
+template = "SRR {{ value }}"
+
+[commands.set_rep_rate.parameters]
+value = "float"
+
+[connection]
+host = "10.0.0.15"
+port = 10001
+terminator = """
+\r
+"""
+timeout_ms = 1000
+type = "tcp"
+
 [device]
-name = "IPG YLPP-200-1-50-R"
+capabilities = [
+    "Readable",
+    "EmissionControl",
+    "Commandable",
+]
+category = "source"
 description = "IPG ytterbium fiber laser with TCP control"
 manufacturer = "IPG Photonics"
 model = "YLPP-200-1-50-R"
+name = "IPG YLPP-200-1-50-R"
 protocol = "ipg_tcp"
-category = "source"
-capabilities = ["Readable", "EmissionControl", "Commandable"]
-
-[connection]
-type = "tcp"
-host = "10.0.0.15"
-port = 10001
-timeout_ms = 1000
-terminator = "\r\n"
-
-# ==============================================================================
-# Response Definitions
-# ==============================================================================
-# All IPG responses have "CMD: value" format. Use format(...) to extract the
-# value portion after the colon, then parse appropriately.
 
 [responses.ipg_float]
-# Extracts the value after "CMD: " and parses as float.
-# e.g. "RCS: 100.00" -> 100.0, "RRR: 250.680" -> 250.68
-transform = ["format('{cmd}: {value}', 'value')", "trim", "to_float"]
+transform = [
+    "format('{cmd}: {value}', 'value')",
+    "trim",
+    "to_float",
+]
 
 [responses.ipg_integer]
-# Extracts the value after "CMD: " and parses as integer.
-# e.g. "STA: 8256" -> 8256
-transform = ["format('{cmd}: {value}', 'value')", "trim", "to_int"]
-
-[responses.ipg_string]
-# Extracts the value after "CMD: " as a string.
-# e.g. "REM: Off" -> "Off", "REF: 0x00000000" -> "0x00000000"
-transform = ["format('{cmd}: {value}', 'value')", "trim"]
+transform = [
+    "format('{cmd}: {value}', 'value')",
+    "trim",
+    "to_int",
+]
 
 [responses.ipg_power]
-# Power reads return a float when emitting, or "Off" when idle.
-# "ROP: 12.5" -> 12.5, "ROP: Off" -> 0.0
-transform = ["format('{cmd}: {value}', 'value')", "trim", "map('Off', '0.0')", "to_float"]
+transform = [
+    "format('{cmd}: {value}', 'value')",
+    "trim",
+    "map('Off', '0.0')",
+    "to_float",
+]
 
-# ==============================================================================
-# Command Definitions
-# ==============================================================================
-
-[commands.emission_on]
-template = "EMON"
-description = "Enable laser emission"
-expects_response = false
-
-[commands.emission_off]
-template = "EMOFF"
-description = "Disable laser emission"
-expects_response = false
-
-[commands.read_emission]
-template = "REM"
-description = "Read emission status (On/Off)"
-response = "ipg_string"
-
-[commands.set_current]
-template = "SCS {{ value }}"
-description = "Set laser current (percent)"
-parameters = { value = "float" }
-expects_response = false
-
-[commands.read_current]
-template = "RCS"
-description = "Read laser current setpoint (percent)"
-response = "ipg_float"
-
-[commands.read_power]
-template = "ROP"
-description = "Read output power (W). Returns 'Off' when emission is disabled."
-response = "ipg_power"
-
-[commands.read_status]
-template = "STA"
-description = "Read laser status word (bitmask)"
-response = "ipg_integer"
-
-[commands.read_error]
-template = "REF"
-description = "Read error flags (hex bitmask)"
-response = "ipg_string"
-
-[commands.set_rep_rate]
-template = "SRR {{ value }}"
-description = "Set repetition rate (kHz)"
-parameters = { value = "float" }
-expects_response = false
-
-[commands.read_rep_rate]
-template = "RRR"
-description = "Read repetition rate (kHz)"
-response = "ipg_float"
-
-[commands.reset_errors]
-template = "RERR"
-description = "Reset error flags"
-expects_response = false
-
-# ==============================================================================
-# Capability Mapping
-# ==============================================================================
-
-[capabilities.readable]
-read = { command = "read_power", output_field = "value" }
-
-[capabilities.emission_control]
-enable = { command = "emission_on" }
-disable = { command = "emission_off" }
-is_enabled = { command = "read_emission" }
-
-# ==============================================================================
-# UI Configuration
-# ==============================================================================
+[responses.ipg_string]
+transform = [
+    "format('{cmd}: {value}', 'value')",
+    "trim",
+]
 
 [ui]
-icon = "laser"
 color = "#FF6B00"
+icon = "laser"
 panel_kind = "maitai"
 
 [ui.control_panel]
@@ -136,48 +134,51 @@ layout = "vertical"
 show_header = true
 
 [[ui.control_panel.sections]]
-type = "sensor"
 label = "Output Power"
 precision = 2
-unit = "W"
 refresh_ms = 500
+type = "sensor"
+unit = "W"
 
 [[ui.control_panel.sections]]
 type = "separator"
 visible = true
 
 [[ui.control_panel.sections]]
-type = "custom_action"
-label = "Emission ON"
 command = "emission_on"
+label = "Emission ON"
 style = "success"
+type = "custom_action"
 
 [[ui.control_panel.sections]]
-type = "custom_action"
-label = "Emission OFF"
 command = "emission_off"
+label = "Emission OFF"
 style = "danger"
+type = "custom_action"
 
 [[ui.control_panel.sections]]
 type = "separator"
 visible = true
 
 [[ui.control_panel.sections]]
-type = "parameter"
 label = "Repetition Rate"
 parameter = "rep_rate"
-widget = "spinner"
-read_only = false
 read_command = "read_rep_rate"
+read_only = false
+type = "parameter"
+widget = "spinner"
 write_command = "set_rep_rate"
 
 [[ui.control_panel.sections]]
-type = "status_display"
-label = "Laser Status"
-parameters = ["status", "error"]
 compact = true
+label = "Laser Status"
+parameters = [
+    "status",
+    "error",
+]
+type = "status_display"
 
 [ui.status_display]
-summary_params = ["power"]
-summary_format = "{{ power }} W"
 show_connection = true
+summary_format = "{{ power }} W"
+summary_params = ["power"]

@@ -1,110 +1,84 @@
-# config/devices/generic_spectrometer.toml
-# Generic USB Spectrometer - 1D Detector Protocol Definition
-#
-# Represents a typical fiber-coupled spectrometer that returns
-# comma-separated intensity values over a fixed wavelength axis.
-# Serves as the canonical example for SpectrumReadable devices.
-#
-# Protocol: Simple ASCII/SCPI over serial or TCP.
-# Response: Comma-separated float values (one per pixel).
-
 schema_version = 3
 
-[device]
-name = "Generic Spectrometer"
-description = "1D fiber-coupled spectrometer with configurable integration time"
-manufacturer = "Generic"
-model = "SPEC-1024"
-protocol = "scpi"
-category = "detector"
-capabilities = ["SpectrumReadable", "Readable", "Parameterized"]
+[capabilities.readable.read]
+command = "read_peak"
 
-# ==============================================================================
-# Connection Settings
-# ==============================================================================
+[capabilities.spectrum_readable]
+axis_units = "nm"
+spectrum_length = 1024
+value_units = "counts"
 
-[connection]
-type = "tcp"
-host = "192.168.1.100"
-port = 5025
-timeout_ms = 5000
+[capabilities.spectrum_readable.read_spectrum]
+command = "read_spectrum"
 
-# ==============================================================================
-# Parameters
-# ==============================================================================
-
-[parameters.integration_time_ms]
-description = "Integration time"
-type = "float"
-unit = "ms"
-default = 100.0
-range = [0.1, 60000.0]
-read_command = "SENS:INT?"
-write_command = "SENS:INT {{ value }}"
-
-[parameters.averaging]
-description = "Number of averages"
-type = "int"
-default = 1
-range = [1, 1000]
-read_command = "SENS:AVER?"
-write_command = "SENS:AVER {{ value }}"
-
-# ==============================================================================
-# Commands
-# ==============================================================================
-
-[commands.read_spectrum]
-description = "Read the full 1D spectrum (comma-separated intensities)"
-template = "MEAS:SPEC?"
-response = "csv_floats"
+[commands.get_integration]
+description = "Query integration time"
+response = "single_float"
+template = "SENS:INT?"
 
 [commands.read_peak]
 description = "Read the peak intensity value"
-template = "MEAS:PEAK?"
 response = "single_float"
+template = "MEAS:PEAK?"
+
+[commands.read_spectrum]
+description = "Read the full 1D spectrum (comma-separated intensities)"
+response = "csv_floats"
+template = "MEAS:SPEC?"
 
 [commands.set_integration]
 description = "Set integration time"
 template = "SENS:INT {{ value }}"
 
-[commands.get_integration]
-description = "Query integration time"
-template = "SENS:INT?"
-response = "single_float"
+[connection]
+host = "192.168.1.100"
+port = 5025
+timeout_ms = 5000
+type = "tcp"
 
-# ==============================================================================
-# Response Parsers
-# ==============================================================================
+[device]
+capabilities = [
+    "SpectrumReadable",
+    "Readable",
+    "Parameterized",
+]
+category = "detector"
+description = "1D fiber-coupled spectrometer with configurable integration time"
+manufacturer = "Generic"
+model = "SPEC-1024"
+name = "Generic Spectrometer"
+protocol = "scpi"
+
+[parameters.averaging]
+default = 1
+description = "Number of averages"
+range = [
+    1,
+    1000,
+]
+read_command = "SENS:AVER?"
+type = "int"
+write_command = "SENS:AVER {{ value }}"
+
+[parameters.integration_time_ms]
+default = 100.0
+description = "Integration time"
+range = [
+    0.1,
+    60000.0,
+]
+read_command = "SENS:INT?"
+type = "float"
+unit = "ms"
+write_command = "SENS:INT {{ value }}"
 
 [responses.csv_floats]
-type = "format"
 format = "{value}"
+type = "format"
 
 [responses.single_float]
-type = "format"
 format = "{value}"
-
-# ==============================================================================
-# Capability Mappings
-# ==============================================================================
-
-[capabilities.spectrum_readable]
-spectrum_length = 1024
-value_units = "counts"
-axis_units = "nm"
-
-[capabilities.spectrum_readable.read_spectrum]
-command = "read_spectrum"
-
-[capabilities.readable]
-
-[capabilities.readable.read]
-command = "read_peak"
-
-# ==============================================================================
-# UI Metadata
-# ==============================================================================
+type = "format"
 
 [ui]
 panel_kind = "detector"

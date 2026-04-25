@@ -1,287 +1,256 @@
-# config/devices/maitai.toml
-# Spectra-Physics MaiTai Ti:Sapphire Laser - Protocol Definition
-#
-# This configuration defines the MaiTai protocol for config-driven
-# driver instantiation. It enables creating a GenericSerialDriver that
-# behaves identically to the hand-coded MaiTaiDriver.
-#
-# Reference: MaiTai HP/MaiTai XF User's Manual
-#
-# Protocol Notes (from MaiTai HP/XF User's Manual, Ch. 6):
-# - Format: ASCII SCPI over RS-232 (or USB-to-USB at higher baud)
-# - Baud: 9600 at power-up (default), 8N1, XON/XOFF flow control
-# - Command terminator: CR, LF, or both (manual §6: "terminated by CR, LF, or both")
-# - Response terminator: LF
-# - Commands have short/long forms: WAV/WAVelength, SHUT/SHUTter, ON, OFF
-# - Queries end with ?; read-only queries prefixed with READ (e.g., READ:POW?)
-# - Parameters separated from commands by spaces
-# - Device is case-insensitive (verified on hardware 2026-02-15)
-# - Response format: "820nm" for wavelength, "0"/"1" for shutter, "3.00W" for power
-#
-# Instance config notes:
-#   USB-to-USB connections require baud_rate = 115200 override
-
 schema_version = 3
 
+[capabilities.emission_control.disable]
+command = "emission_off"
+
+[capabilities.emission_control.enable]
+command = "emission_on"
+
+[capabilities.readable.read]
+command = "get_power"
+output_field = "value"
+
+[capabilities.shutter_control.close]
+command = "close_shutter"
+
+[capabilities.shutter_control.is_open]
+command = "get_shutter"
+output_field = "value"
+
+[capabilities.shutter_control.open]
+command = "open_shutter"
+
+[capabilities.wavelength_tunable.get_wavelength]
+command = "get_wavelength"
+output_field = "value"
+
+[capabilities.wavelength_tunable.set_wavelength]
+command = "set_wavelength"
+from_param = "wavelength"
+
+[commands.close_shutter]
+description = "Close the beam shutter (manual: SHUTter 0)"
+expects_response = false
+template = "SHUT 0"
+
+[commands.emission_off]
+description = "Disable laser emission (manual: OFF)"
+expects_response = false
+template = "OFF"
+
+[commands.emission_on]
+description = "Enable laser emission (manual: ON)"
+expects_response = false
+template = "ON"
+
+[commands.get_diode1_current_pct]
+description = "Query pump diode 1 current (% of max)"
+response = "percent"
+template = "READ:PLASER:DIODE1:CURRENT?"
+
+[commands.get_diode1_temp_c]
+description = "Query pump diode 1 temperature (C)"
+response = "temperature_c"
+template = "READ:PLASER:DIODE1:TEMPERATURE?"
+
+[commands.get_diode2_current_pct]
+description = "Query pump diode 2 current (% of max)"
+response = "percent"
+template = "READ:PLASER:DIODE2:CURRENT?"
+
+[commands.get_diode2_temp_c]
+description = "Query pump diode 2 temperature (C)"
+response = "temperature_c"
+template = "READ:PLASER:DIODE2:TEMPERATURE?"
+
+[commands.get_power]
+description = "Query laser output power (manual: READ:POWer?)"
+response = "power"
+template = "READ:POW?"
+
+[commands.get_pump_current]
+description = "Query pump current (% of max)"
+response = "percent"
+template = "READ:PLASER:PCURRENT?"
+
+[commands.get_pump_power]
+description = "Query pump laser power (W)"
+response = "power"
+template = "READ:PLASER:POWER?"
+
+[commands.get_shg_status]
+description = "Query SHG crystal health/status code"
+response = "status_code"
+template = "READ:PLASER:SHGS?"
+
+[commands.get_shutter]
+description = "Query shutter state (manual: SHUTter?)"
+response = "shutter_state"
+template = "SHUT?"
+
+[commands.get_warmup_percent]
+description = "Query laser warmup completion percent"
+response = "percent"
+template = "READ:PCTWARMEDUP?"
+
+[commands.get_wavelength]
+description = "Query current wavelength (manual: WAVelength?)"
+response = "wavelength"
+template = "WAV?"
+
+[commands.identify]
+description = "Query device identity (SCPI standard)"
+response = "identity"
+template = "*IDN?"
+
+[commands.open_shutter]
+description = "Open the beam shutter (manual: SHUTter 1)"
+expects_response = false
+template = "SHUT 1"
+
+[commands.set_wavelength]
+description = "Set output wavelength in nm (manual: WAVelength xxx)"
+expects_response = false
+template = "WAV {{ wavelength }}"
+
+[commands.set_wavelength.parameters]
+wavelength = "float"
+
+[connection]
+baud_rate = 9600
+data_bits = 8
+flow_control = "software"
+parity = "none"
+stop_bits = 1
+terminator_rx = """
+
+"""
+terminator_tx = """
+\r
+"""
+timeout_ms = 5000
+type = "serial"
+
 [device]
-name = "Spectra-Physics MaiTai"
+capabilities = [
+    "Readable",
+    "WavelengthTunable",
+    "ShutterControl",
+    "EmissionControl",
+    "Parameterized",
+    "Commandable",
+]
+category = "source"
 description = "Tunable Ti:Sapphire laser (690-1040 nm)"
 manufacturer = "Spectra-Physics"
 model = "MaiTai"
+name = "Spectra-Physics MaiTai"
 protocol = "maitai"
-category = "source"
-capabilities = ["Readable", "WavelengthTunable", "ShutterControl", "EmissionControl", "Parameterized", "Commandable"]
 
-# ==============================================================================
-# Connection Settings
-# ==============================================================================
-
-[connection]
-type = "serial"
-baud_rate = 9600              # Manual default at power-up; override to 115200 for USB-to-USB
-data_bits = 8
-parity = "none"
-stop_bits = 1
-flow_control = "software"     # XON/XOFF per manual (do NOT use hardware RTS/CTS)
-timeout_ms = 5000
-terminator_tx = "\r\n"        # Manual: "terminated by CR, LF, or both"
-terminator_rx = "\n"          # Manual: "responses terminated by LF"
-
-# ==============================================================================
-# Device Parameters
-# ==============================================================================
-
-[parameters.wavelength_nm]
-type = "float"
-default = 800.0
-range = [690.0, 1040.0]
-unit = "nm"
-description = "Tunable laser wavelength"
-
-[parameters.wavelength_min]
-type = "float"
-default = 690.0
-unit = "nm"
-description = "Minimum tuning wavelength"
-read_only = true
-
-[parameters.wavelength_max]
-type = "float"
-default = 1040.0
-unit = "nm"
-description = "Maximum tuning wavelength"
-read_only = true
-
-[parameters.shutter_open]
-type = "bool"
-default = false
-description = "Shutter state (true=open, false=closed)"
-
-[parameters.emission_enabled]
-type = "bool"
-default = false
-description = "Laser emission state"
-
-# ==============================================================================
-# Command Definitions
-# ==============================================================================
-
-# --- Wavelength Commands ---
-
-[commands.set_wavelength]
-template = "WAV {{ wavelength }}"
-description = "Set output wavelength in nm (manual: WAVelength xxx)"
-parameters = { wavelength = "float" }
-expects_response = false
-
-[commands.get_wavelength]
-template = "WAV?"
-description = "Query current wavelength (manual: WAVelength?)"
-response = "wavelength"
-
-# --- Shutter Commands ---
-
-[commands.open_shutter]
-template = "SHUT 1"
-description = "Open the beam shutter (manual: SHUTter 1)"
-expects_response = false
-
-[commands.close_shutter]
-template = "SHUT 0"
-description = "Close the beam shutter (manual: SHUTter 0)"
-expects_response = false
-
-[commands.get_shutter]
-template = "SHUT?"
-description = "Query shutter state (manual: SHUTter?)"
-response = "shutter_state"
-
-# --- Emission Commands ---
-
-[commands.emission_on]
-template = "ON"
-description = "Enable laser emission (manual: ON)"
-expects_response = false
-
-[commands.emission_off]
-template = "OFF"
-description = "Disable laser emission (manual: OFF)"
-expects_response = false
-
-# --- Power Query ---
-
-[commands.get_power]
-template = "READ:POW?"
-description = "Query laser output power (manual: READ:POWer?)"
-response = "power"
-
-# --- Diagnostics / Telemetry Queries ---
-
-[commands.get_warmup_percent]
-template = "READ:PCTWARMEDUP?"
-description = "Query laser warmup completion percent"
-response = "percent"
-
-[commands.get_pump_power]
-template = "READ:PLASER:POWER?"
-description = "Query pump laser power (W)"
-response = "power"
-
-[commands.get_pump_current]
-template = "READ:PLASER:PCURRENT?"
-description = "Query pump current (% of max)"
-response = "percent"
-
-[commands.get_diode1_temp_c]
-template = "READ:PLASER:DIODE1:TEMPERATURE?"
-description = "Query pump diode 1 temperature (C)"
-response = "temperature_c"
-
-[commands.get_diode2_temp_c]
-template = "READ:PLASER:DIODE2:TEMPERATURE?"
-description = "Query pump diode 2 temperature (C)"
-response = "temperature_c"
-
-[commands.get_diode1_current_pct]
-template = "READ:PLASER:DIODE1:CURRENT?"
-description = "Query pump diode 1 current (% of max)"
-response = "percent"
-
-[commands.get_diode2_current_pct]
-template = "READ:PLASER:DIODE2:CURRENT?"
-description = "Query pump diode 2 current (% of max)"
-response = "percent"
-
-[commands.get_shg_status]
-template = "READ:PLASER:SHGS?"
-description = "Query SHG crystal health/status code"
-response = "status_code"
-
-# --- Identity Query ---
-
-[commands.identify]
-template = "*IDN?"
-description = "Query device identity (SCPI standard)"
-response = "identity"
-
-# ==============================================================================
-# Response Definitions
-# ==============================================================================
-
-# Wavelength response: "820nm" or "820NM"
-# Strip suffix and convert to float
-[responses.wavelength]
-transform = ["trim", "remove_suffix('nm')", "remove_suffix('NM')", "to_float"]
-
-# Shutter state response: "0" or "1"
-[responses.shutter_state]
-transform = ["trim", "to_int"]
-
-# Power response: MaiTai returns "3.00W" (value with W suffix)
-[responses.power]
-transform = ["trim", "remove_suffix('W')", "remove_suffix('w')", "to_float"]
-
-[responses.percent]
-transform = ["trim", "regex_extract('([-+]?\\d+(?:\\.\\d+)?)', 1)", "to_float"]
-
-[responses.temperature_c]
-transform = ["trim", "regex_extract('([-+]?\\d+(?:\\.\\d+)?)', 1)", "to_float"]
-
-[responses.status_code]
-transform = ["trim", "regex_extract('(-?\\d+)', 1)", "to_int"]
-
-# Identity response: free-form string
-[responses.identity]
-transform = ["trim"]
-
-# ==============================================================================
-# Error Code Mapping
-# ==============================================================================
-
-[error_codes."ERR"]
-name = "Error"
+[error_codes.ERR]
 description = "General error"
+name = "Error"
 recoverable = true
-
-# ==============================================================================
-# Capability Mapping: Readable
-# ==============================================================================
-
-[capabilities.readable]
-read = { command = "get_power", output_field = "value" }
-
-# ==============================================================================
-# Capability Mapping: WavelengthTunable
-# ==============================================================================
-
-[capabilities.wavelength_tunable]
-set_wavelength = { command = "set_wavelength", from_param = "wavelength" }
-get_wavelength = { command = "get_wavelength", output_field = "value" }
-
-# ==============================================================================
-# Capability Mapping: ShutterControl
-# ==============================================================================
-
-[capabilities.shutter_control]
-open = { command = "open_shutter" }
-close = { command = "close_shutter" }
-is_open = { command = "get_shutter", output_field = "value" }
-
-# ==============================================================================
-# Capability Mapping: EmissionControl
-# ==============================================================================
-
-[capabilities.emission_control]
-enable = { command = "emission_on" }
-disable = { command = "emission_off" }
-# Note: is_enabled is intentionally omitted. The MaiTai protocol has no command
-# to query emission state (ON/OFF are fire-and-forget). GetEmission gRPC calls
-# will return an error; enable/disable operations work correctly.
-
-# ==============================================================================
-# Initialization Sequence
-# ==============================================================================
-# Validates device identity on connection to fail-fast if wrong device
 
 [[init_sequence]]
 command = "identify"
 description = "Query device identity to verify MaiTai is connected"
-required = true
 expect = "MaiTai"
+required = true
 
 [[init_sequence]]
 command = "get_shutter"
+delay_ms = 100
 description = "Query initial shutter state"
 required = false
-delay_ms = 100
 
-# ==============================================================================
-# UI Configuration
-# ==============================================================================
+[parameters.emission_enabled]
+default = false
+description = "Laser emission state"
+type = "bool"
+
+[parameters.shutter_open]
+default = false
+description = "Shutter state (true=open, false=closed)"
+type = "bool"
+
+[parameters.wavelength_max]
+default = 1040.0
+description = "Maximum tuning wavelength"
+read_only = true
+type = "float"
+unit = "nm"
+
+[parameters.wavelength_min]
+default = 690.0
+description = "Minimum tuning wavelength"
+read_only = true
+type = "float"
+unit = "nm"
+
+[parameters.wavelength_nm]
+default = 800.0
+description = "Tunable laser wavelength"
+range = [
+    690.0,
+    1040.0,
+]
+type = "float"
+unit = "nm"
+
+[responses.identity]
+transform = ["trim"]
+
+# Shared by 4 commands (diode1/2 current, pump current, warmup%) with differing
+# READ:... prefixes, so a single format(...) variant is not practical — keep regex_extract.
+[responses.percent]
+transform = [
+    "trim",
+    '''regex_extract('([-+]?\d+(?:\.\d+)?)', 1)''',
+    "to_float",
+]
+
+[responses.power]
+transform = [
+    "trim",
+    "remove_suffix('W')",
+    "remove_suffix('w')",
+    "to_float",
+]
+
+[responses.shutter_state]
+transform = [
+    "trim",
+    "to_int",
+]
+
+# Generic signed-integer extractor for SHG status — kept as regex_extract.
+[responses.status_code]
+transform = [
+    "trim",
+    '''regex_extract('(-?\d+)', 1)''',
+    "to_int",
+]
+
+# Shared by both diode temperature commands with differing prefixes — keep regex_extract.
+[responses.temperature_c]
+transform = [
+    "trim",
+    '''regex_extract('([-+]?\d+(?:\.\d+)?)', 1)''',
+    "to_float",
+]
+
+[responses.wavelength]
+transform = [
+    "trim",
+    "remove_suffix('nm')",
+    "remove_suffix('NM')",
+    "to_float",
+]
 
 [ui]
-icon = "laser"
 color = "#E91E63"
+icon = "laser"
 panel_kind = "maitai"
 
 [ui.control_panel]
@@ -289,40 +258,51 @@ layout = "vertical"
 show_header = true
 
 [[ui.control_panel.sections]]
-type = "wavelength"
 label = "Wavelength Tuning"
-show_slider = true
-presets = [700.0, 750.0, 800.0, 850.0, 900.0, 950.0, 1000.0]
+presets = [
+    700.0,
+    750.0,
+    800.0,
+    850.0,
+    900.0,
+    950.0,
+    1000.0,
+]
 show_color = true
+show_slider = true
+type = "wavelength"
 
 [[ui.control_panel.sections]]
 type = "separator"
 visible = true
 
 [[ui.control_panel.sections]]
-type = "shutter"
 label = "Beam Shutter"
 toggle_style = true
+type = "shutter"
 
 [[ui.control_panel.sections]]
 type = "separator"
 visible = true
 
 [[ui.control_panel.sections]]
-type = "sensor"
 label = "Output Power"
 precision = 2
-unit = "mW"
-show_trend = true
 refresh_ms = 1000
+show_trend = true
+type = "sensor"
+unit = "mW"
 
 [[ui.control_panel.sections]]
-type = "status_display"
+compact = true
 label = "Status"
 parameters = ["emission_enabled"]
-compact = true
+type = "status_display"
 
 [ui.status_display]
-summary_params = ["wavelength_nm", "shutter_open"]
-summary_format = "{{ wavelength_nm }} nm | Shutter: {{ shutter_open }}"
 show_connection = true
+summary_format = "{{ wavelength_nm }} nm | Shutter: {{ shutter_open }}"
+summary_params = [
+    "wavelength_nm",
+    "shutter_open",
+]
