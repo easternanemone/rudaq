@@ -26,6 +26,8 @@ pub mod driver;
 pub mod factory;
 pub mod format_parser;
 pub mod formula_helpers;
+pub mod panel_extract;
+pub mod panel_ir;
 pub mod response;
 pub mod string_utils;
 pub mod template;
