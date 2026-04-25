@@ -34,6 +34,8 @@ pub(crate) mod config_renderer;
 #[cfg(test)]
 mod config_tests;
 pub(crate) mod dispatch;
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) mod synthesis;
 mod types;
 
 pub use types::{DeviceCategory, DeviceDragId, DeviceGroup, OpenDevicePanelRequest, ParameterInfo};

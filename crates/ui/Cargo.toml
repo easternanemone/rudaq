@@ -69,6 +69,10 @@ egui_ltreeview = "0.6"
 tonic = { workspace = true, default-features = false, features = ["transport", "prost", "codegen"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "sync", "macros"] }
 preferences = "2"
+# Native-only: driver-universal's tokio feature set isn't wasm-compatible.
+# The G2b synthesis module that consumes its `panel_ir` is gated on
+# #[cfg(not(target_arch = "wasm32"))] in `panels/instrument_manager/mod.rs`.
+driver-universal = { path = "../driver-universal" }
 
 # eframe with native windowing
 eframe = { version = "0.33", default-features = false, features = [
