@@ -26,7 +26,7 @@ use crate::config::validated::{
 };
 use crate::format_parser::FormatSegment;
 use crate::transport::Transport;
-use response_gen::{ResponseGen, regex_capture_names, regex_to_template};
+use response_gen::{ResponseGen, regex_capture_names};
 use template_matcher::TemplateMatcher;
 
 /// A compiled command ready for matching and response generation.
@@ -459,20 +459,27 @@ fn build_response_gen(
         return Ok(Some(ResponseGen::Scpi(scpi_type.clone())));
     }
 
-    // Tier 1-3: named response reference
+    // Tier 1-2: named response reference
+    //
+    // F5 (bd-jcb4x.1.5): the Tier-3 regex-derived response generator was
+    // removed. Regex-parsed responses no longer get a synthetic emulator
+    // reply — `handle_command` will fall through to the empty-string branch
+    // for those commands. Drivers that drove the regex path in the emulator
+    // should be migrated to format variants (see `migrate-v3`) so the Tier-1
+    // path picks them up instead.
     if let Some(resp_ref) = &cmd.response
         && let Some(parser) = manifest.responses.get(&resp_ref.0)
     {
-        return Ok(Some(match parser {
-            ResponseParser::Format(fmt) => ResponseGen::FormatString(fmt.first_segments().to_vec()),
-            ResponseParser::Transform(pipeline) => ResponseGen::TransformInverse {
+        return Ok(match parser {
+            ResponseParser::Format(fmt) => {
+                Some(ResponseGen::FormatString(fmt.first_segments().to_vec()))
+            }
+            ResponseParser::Transform(pipeline) => Some(ResponseGen::TransformInverse {
                 ops: pipeline.ops().to_vec(),
                 cmd_prefix: extract_cmd_prefix(&cmd.template.source),
-            },
-            ResponseParser::Regex(regex) => {
-                ResponseGen::RegexTemplate(regex_to_template(&regex.source))
-            }
-        }));
+            }),
+            ResponseParser::Regex(_) => None,
+        });
     }
 
     Ok(None)

@@ -1,9 +1,16 @@
 //! Generate response strings from emulated device state.
 //!
-//! Each response type (SCPI, format string, transform pipeline, regex) has a
+//! Each response type (SCPI, format string, transform pipeline) has a
 //! corresponding generation strategy. Transform pipelines are inverted: the
 //! emulator applies each operation in reverse to reconstruct a valid raw
 //! response string from the stored numeric/string value.
+//!
+//! # F5 note (bd-jcb4x.1.5)
+//!
+//! A fourth tier — `RegexTemplate`, which inverted a regex pattern back into
+//! a string — was removed. Regex-parsed responses are now silently skipped
+//! by the emulator; callers that relied on that path should migrate their
+//! manifest to format variants (see the `migrate-v3` CLI).
 
 use crate::config::validated::ScpiResponseType;
 use crate::format_parser::{FieldKind, FormatSegment};
@@ -25,8 +32,6 @@ pub enum ResponseGen {
         /// Literal prefix from the command template (for regex_extract inversion).
         cmd_prefix: String,
     },
-    /// Tier 3: Regex-derived template with `{field_name}` placeholders.
-    RegexTemplate(String),
 }
 
 impl ResponseGen {
@@ -38,7 +43,6 @@ impl ResponseGen {
             ResponseGen::TransformInverse { ops, cmd_prefix } => {
                 Ok(generate_transform_inverse(ops, cmd_prefix, state))
             }
-            ResponseGen::RegexTemplate(template) => Ok(generate_regex_template(template, state)),
         }
     }
 }
@@ -261,106 +265,12 @@ fn generate_transform_inverse(
 }
 
 // ---------------------------------------------------------------------------
-// Tier 3: Regex-derived template
+// Public helper: regex capture-name inspection
 // ---------------------------------------------------------------------------
-
-fn generate_regex_template(template: &str, state: &HashMap<String, Value>) -> String {
-    let mut result = template.to_string();
-    for (key, val) in state {
-        let placeholder = format!("{{{key}}}");
-        if result.contains(&placeholder) {
-            result = result.replace(&placeholder, &value_as_string(val));
-        }
-    }
-    result
-}
-
-// ---------------------------------------------------------------------------
-// Public helper: regex pattern → response template
-// ---------------------------------------------------------------------------
-
-/// Convert a regex pattern with named groups into a simple `{field_name}` template.
-///
-/// Steps:
-/// 1. Strip `^` and `$` anchors
-/// 2. Replace `(?P<name>...)` with `{name}` (handles balanced parens)
-/// 3. Replace `\\s+` / `\\s*` with a single space
-/// 4. Unescape remaining regex escapes
-pub fn regex_to_template(pattern: &str) -> String {
-    let chars: Vec<char> = pattern.chars().collect();
-    let mut result = String::new();
-    let mut i = 0;
-
-    // Skip leading ^
-    if i < chars.len() && chars[i] == '^' {
-        i += 1;
-    }
-
-    let end = if !chars.is_empty() && chars[chars.len() - 1] == '$' {
-        chars.len() - 1
-    } else {
-        chars.len()
-    };
-
-    while i < end {
-        // Check for (?P<name>...)
-        if i + 4 < end
-            && chars[i] == '('
-            && chars[i + 1] == '?'
-            && chars[i + 2] == 'P'
-            && chars[i + 3] == '<'
-        {
-            i += 4; // skip "(?P<"
-            let name_start = i;
-            while i < end && chars[i] != '>' {
-                i += 1;
-            }
-            let name: String = chars[name_start..i].iter().collect();
-            i += 1; // skip '>'
-
-            // Skip the pattern inside parens (balanced)
-            let mut depth = 1;
-            while i < end && depth > 0 {
-                if chars[i] == '(' {
-                    depth += 1;
-                }
-                if chars[i] == ')' {
-                    depth -= 1;
-                }
-                if depth > 0 {
-                    i += 1;
-                }
-            }
-            if i < end {
-                i += 1; // skip closing ')'
-            }
-
-            result.push('{');
-            result.push_str(&name);
-            result.push('}');
-        }
-        // Check for \\s+ or \\s*
-        else if i + 1 < end && chars[i] == '\\' && chars[i + 1] == 's' {
-            i += 2;
-            // Skip quantifier
-            if i < end && (chars[i] == '+' || chars[i] == '*') {
-                i += 1;
-            }
-            result.push(' ');
-        }
-        // Other escape sequences
-        else if i + 1 < end && chars[i] == '\\' {
-            i += 1;
-            result.push(chars[i]);
-            i += 1;
-        } else {
-            result.push(chars[i]);
-            i += 1;
-        }
-    }
-
-    result
-}
+//
+// F5 removed the regex-template generation path; only `regex_capture_names`
+// below remains, because `emulator::init_default_state` still seeds default
+// values keyed by capture name for regex-parsed responses.
 
 /// Extract named capture groups from a regex pattern.
 pub fn regex_capture_names(pattern: &str) -> Vec<String> {
@@ -530,34 +440,18 @@ mod tests {
     }
 
     #[test]
-    fn regex_to_template_temp() {
-        let template = regex_to_template(r"^TEMP\s+(?P<value>[+-]?\d+\.?\d*)$");
-        assert_eq!(template, "TEMP {value}");
-    }
-
-    #[test]
-    fn regex_to_template_pid() {
-        let template =
-            regex_to_template(r"^PID\s+(?P<p>\d+\.?\d*),(?P<i>\d+\.?\d*),(?P<d>\d+\.?\d*)$");
-        assert_eq!(template, "PID {p},{i},{d}");
-    }
-
-    #[test]
-    fn regex_to_template_identity() {
-        let template = regex_to_template(
-            r"^(?P<manufacturer>\w+),(?P<model>[\w-]+),(?P<serial>\w+),v(?P<version>[\d.]+)$",
+    fn regex_capture_names_picks_up_named_groups() {
+        // Retained helper from the removed Tier-3 path: still used by
+        // `emulator::init_default_state` to seed defaults keyed by capture
+        // name.
+        assert_eq!(
+            regex_capture_names(r"^(?P<manufacturer>\w+),(?P<model>[\w-]+),(?P<serial>\w+)$",),
+            vec![
+                "manufacturer".to_string(),
+                "model".to_string(),
+                "serial".to_string(),
+            ],
         );
-        assert_eq!(template, "{manufacturer},{model},{serial},v{version}");
-    }
-
-    #[test]
-    fn regex_template_substitution() {
-        let template = "TEMP {value}";
-        let mut state = HashMap::new();
-        state.insert("value".into(), json!(25.5));
-
-        let result = generate_regex_template(template, &state);
-        assert_eq!(result, "TEMP 25.5");
     }
 
     #[test]
