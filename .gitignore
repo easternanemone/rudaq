@@ -165,8 +165,10 @@ docs/MORPH_*.md
 whats-next.md
 .grepai/
 
-# Beads task tracking (ephemeral)
-.beads/
+# Beads task tracking — directory is tracked for issue sync; runtime/local
+# files are excluded by .beads/.gitignore (dolt/, sqlite, locks, credential
+# key, etc). Re-adding `.beads/` here would block `bd remember` / auto-export
+# from staging issues.jsonl and events.jsonl, and break the dolt sync loop.
 
 # Local AI tool config
 .agents/
