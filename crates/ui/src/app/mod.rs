@@ -20,9 +20,7 @@ use crate::daemon_launcher::{AutoConnectState, DaemonLauncher, DaemonMode};
 use crate::device_ext::DeviceInfoExt;
 use crate::icons;
 use crate::layout;
-use crate::panels::instrument_manager::{
-    DeviceDragId, config_loader::DeviceConfigCache, config_renderer::ConfigDrivenPanel,
-};
+use crate::panels::instrument_manager::{DeviceDragId, config_loader::DeviceConfigCache};
 use crate::panels::{
     ComediPanel, DocumentViewerPanel, ExperimentDesignerPanel, GettingStartedPanel,
     ImageViewerPanel, InstrumentManagerPanel, LoggingPanel, ModulesPanel, PlanRunnerPanel,
@@ -170,26 +168,18 @@ pub struct DaqApp {
     /// Next available device panel ID
     next_device_panel_id: usize,
 
-    /// Docked device control panels using GenericDevicePanel (keyed by panel ID)
-    docked_panels: HashMap<usize, GenericDevicePanel>,
-    /// Docked MaiTai panels (advanced layout mode)
-    docked_maitai_panels: HashMap<usize, MaiTaiControlPanel>,
-    /// Docked power meter panels (advanced layout mode)
-    docked_power_meter_panels: HashMap<usize, PowerMeterControlPanel>,
-    /// Docked rotator panels (advanced layout mode)
-    docked_rotator_panels: HashMap<usize, RotatorControlPanel>,
-    /// Docked stage panels (advanced layout mode)
-    docked_stage_panels: HashMap<usize, StageControlPanel>,
-    /// Docked Comedi panels (advanced layout mode)
-    docked_comedi_panels: HashMap<usize, ComediPanel>,
-    /// Docked config-driven panels (from gRPC `ui_schema_json` or local TOML `[ui.control_panel]`)
-    docked_config_driven_panels: HashMap<usize, ConfigDrivenPanel>,
+    /// Unified per-panel controller state (bd-1xi2p.8 D2).
+    ///
+    /// Replaces the seven parallel `docked_*_panels` maps, the gRPC UI config
+    /// cache, and the command-widget palette map with a single store keyed
+    /// by panel ID. Each entry is a [`PanelController`] holding:
+    ///   - the render widget (enum: Generic / MaiTai / PowerMeter / Rotator /
+    ///     Stage / Comedi / ConfigDriven), lazily created on first draw;
+    ///   - the cached gRPC `ui_schema_json` decision;
+    ///   - the command-widget palette overlay.
+    panel_controllers: HashMap<usize, PanelController>,
     /// Device config cache for TOML-driven panel dispatch
     config_cache: DeviceConfigCache,
-    /// gRPC UI config cache for docked panels (keyed by panel ID)
-    grpc_ui_config_cache: HashMap<usize, Option<hardware::config::schema::ControlPanelConfig>>,
-    /// User-added command widgets for advanced control panels (keyed by panel ID)
-    docked_command_widgets: HashMap<usize, CommandWidgetPalette>,
     /// Preferred control-panel layout mode for docked device panels
     control_panel_layout_mode: ControlPanelLayoutMode,
 
@@ -626,14 +616,7 @@ impl DaqApp {
             status_bar: StatusBar::new(),
             device_panel_info,
             next_device_panel_id,
-            docked_panels: HashMap::new(),
-            docked_maitai_panels: HashMap::new(),
-            docked_power_meter_panels: HashMap::new(),
-            docked_rotator_panels: HashMap::new(),
-            docked_stage_panels: HashMap::new(),
-            docked_comedi_panels: HashMap::new(),
-            docked_config_driven_panels: HashMap::new(),
-            grpc_ui_config_cache: HashMap::new(),
+            panel_controllers: HashMap::new(),
             config_cache: {
                 let mut cache = DeviceConfigCache::new();
                 if let Err(e) = cache.load_all() {
@@ -641,7 +624,6 @@ impl DaqApp {
                 }
                 cache
             },
-            docked_command_widgets: HashMap::new(),
             control_panel_layout_mode,
             settings_window: crate::settings::SettingsWindow::default(),
             app_settings,
@@ -718,14 +700,7 @@ impl DaqApp {
             status_bar: StatusBar::new(),
             device_panel_info,
             next_device_panel_id,
-            docked_panels: HashMap::new(),
-            docked_maitai_panels: HashMap::new(),
-            docked_power_meter_panels: HashMap::new(),
-            docked_rotator_panels: HashMap::new(),
-            docked_stage_panels: HashMap::new(),
-            docked_comedi_panels: HashMap::new(),
-            docked_config_driven_panels: HashMap::new(),
-            grpc_ui_config_cache: HashMap::new(),
+            panel_controllers: HashMap::new(),
             config_cache: {
                 let mut cache = DeviceConfigCache::new();
                 if let Err(e) = cache.load_all() {
@@ -733,7 +708,6 @@ impl DaqApp {
                 }
                 cache
             },
-            docked_command_widgets: HashMap::new(),
             control_panel_layout_mode,
             settings_window: crate::settings::SettingsWindow::default(),
             app_settings,

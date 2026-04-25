@@ -18,15 +18,9 @@ impl DaqApp {
     }
 
     pub(super) fn invalidate_all_panel_widgets(&mut self) {
-        self.docked_panels.clear();
-        self.docked_maitai_panels.clear();
-        self.docked_power_meter_panels.clear();
-        self.docked_rotator_panels.clear();
-        self.docked_stage_panels.clear();
-        self.docked_comedi_panels.clear();
-        self.docked_config_driven_panels.clear();
-        self.grpc_ui_config_cache.clear();
-        self.docked_command_widgets.clear();
+        // Unified panel store (bd-1xi2p.8 D2): clearing drops every panel's
+        // widget + grpc_config cache + command_widgets in one call.
+        self.panel_controllers.clear();
     }
 
     /// Remove all state associated with a device control panel.
@@ -34,15 +28,7 @@ impl DaqApp {
     /// Returns the removed DevicePanelInfo if the panel existed, None otherwise.
     /// Used for cleanup when panels are closed or during app shutdown.
     pub(crate) fn remove_panel_data(&mut self, id: usize) -> Option<DevicePanelInfo> {
-        self.docked_panels.remove(&id);
-        self.docked_maitai_panels.remove(&id);
-        self.docked_power_meter_panels.remove(&id);
-        self.docked_rotator_panels.remove(&id);
-        self.docked_stage_panels.remove(&id);
-        self.docked_comedi_panels.remove(&id);
-        self.docked_config_driven_panels.remove(&id);
-        self.grpc_ui_config_cache.remove(&id);
-        self.docked_command_widgets.remove(&id);
+        self.panel_controllers.remove(&id);
         self.device_panel_info.remove(&id)
     }
 
@@ -198,16 +184,11 @@ impl DaqApp {
     }
 
     pub(super) fn invalidate_panel_widget(&mut self, panel_id: usize) {
-        self.docked_panels.remove(&panel_id);
-        self.docked_maitai_panels.remove(&panel_id);
-        self.docked_power_meter_panels.remove(&panel_id);
-        self.docked_rotator_panels.remove(&panel_id);
-        self.docked_stage_panels.remove(&panel_id);
-        self.docked_comedi_panels.remove(&panel_id);
-        #[cfg(not(target_arch = "wasm32"))]
-        self.docked_config_driven_panels.remove(&panel_id);
-        #[cfg(not(target_arch = "wasm32"))]
-        self.grpc_ui_config_cache.remove(&panel_id);
-        self.docked_command_widgets.remove(&panel_id);
+        // Unified panel store (bd-1xi2p.8 D2): dropping the controller entry
+        // clears the widget, the gRPC config decision cache, and any command
+        // widgets in a single call. `device_panel_info` is deliberately
+        // preserved — this helper handles capability-change migrations, not
+        // panel removal.
+        self.panel_controllers.remove(&panel_id);
     }
 }

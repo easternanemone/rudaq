@@ -301,21 +301,33 @@ impl DaqTabViewer<'_> {
         }
 
         // --- Priority 0 & 1: Config-driven panels (cross-platform, uses hardware schema types) ---
+        //
+        // After bd-1xi2p.8 D2 all per-panel state lives in a single
+        // `panel_controllers` map. Each branch below resolves the panel's
+        // controller entry, asks the controller to ensure the right widget
+        // variant, then renders.
         {
-            // Priority 0: gRPC-driven panel from device metadata
-            let grpc_config = self
-                .app
-                .grpc_ui_config_cache
-                .entry(panel_id)
-                .or_insert_with(|| {
-                    crate::panels::instrument_manager::dispatch::try_grpc_ui_config(device_info)
-                });
-            if let Some(panel_config) = grpc_config {
-                let panel = self
-                    .app
-                    .docked_config_driven_panels
-                    .entry(panel_id)
-                    .or_insert_with(|| ConfigDrivenPanel::new(panel_config.clone()));
+            // Priority 0: gRPC-driven panel from device metadata. The config
+            // decision is cached on the controller so we don't re-parse on
+            // every frame.
+            let controller = self.app.panel_controllers.entry(panel_id).or_default();
+            if matches!(
+                controller.grpc_config,
+                crate::app::types::GrpcConfigCache::Unknown
+            ) {
+                controller.grpc_config =
+                    match crate::panels::instrument_manager::dispatch::try_grpc_ui_config(
+                        device_info,
+                    ) {
+                        Some(cfg) => crate::app::types::GrpcConfigCache::Present(cfg),
+                        None => crate::app::types::GrpcConfigCache::Absent,
+                    };
+            }
+            if let crate::app::types::GrpcConfigCache::Present(panel_config) =
+                controller.grpc_config.clone()
+            {
+                let controller = self.app.panel_controllers.entry(panel_id).or_default();
+                let panel = controller.ensure_config_driven(&panel_config);
                 ui.push_id(("docked", panel_id), |ui| {
                     panel.ui(ui, device_info, self.app.client.as_mut(), &self.app.runtime);
                 });
@@ -327,12 +339,10 @@ impl DaqTabViewer<'_> {
                 .app
                 .config_cache
                 .get_ui_config_for_driver(&device_info.driver_type)
+                .cloned()
             {
-                let panel = self
-                    .app
-                    .docked_config_driven_panels
-                    .entry(panel_id)
-                    .or_insert_with(|| ConfigDrivenPanel::new(panel_config.clone()));
+                let controller = self.app.panel_controllers.entry(panel_id).or_default();
+                let panel = controller.ensure_config_driven(&panel_config);
                 ui.push_id(("docked", panel_id), |ui| {
                     panel.ui(ui, device_info, self.app.client.as_mut(), &self.app.runtime);
                 });
@@ -343,62 +353,52 @@ impl DaqTabViewer<'_> {
         let layout_mode = self.app.control_panel_layout_mode;
         ui.push_id(("docked", panel_id), |ui| match layout_mode {
             ControlPanelLayoutMode::Simple => {
-                let panel = self
-                    .app
-                    .docked_panels
-                    .entry(panel_id)
-                    .or_insert_with(|| GenericDevicePanel::from_device_info(device_info));
+                let controller = self.app.panel_controllers.entry(panel_id).or_default();
+                let panel = controller.ensure_generic(device_info);
                 panel.ui(ui, device_info, self.app.client.as_mut(), &self.app.runtime);
             }
             ControlPanelLayoutMode::Advanced => {
-                match docked_advanced_panel_kind_for_device(device_info) {
+                let advanced_kind = docked_advanced_panel_kind_for_device(device_info);
+                let controller = self.app.panel_controllers.entry(panel_id).or_default();
+
+                match advanced_kind {
                     DockedAdvancedPanelKind::MaiTai => {
-                        let panel = self.app.docked_maitai_panels.entry(panel_id).or_default();
+                        let panel = controller.ensure_maitai();
                         panel.ui(ui, device_info, self.app.client.as_mut(), &self.app.runtime);
                     }
                     DockedAdvancedPanelKind::Comedi => {
-                        let did = device_info.id.clone();
-                        let panel = self
-                            .app
-                            .docked_comedi_panels
-                            .entry(panel_id)
-                            .or_insert_with(|| ComediPanel::new(&did));
+                        let panel = controller.ensure_comedi(&device_info.id);
                         panel.ui(ui, self.app.client.as_mut(), &self.app.runtime);
                     }
                     DockedAdvancedPanelKind::PowerMeter => {
-                        let panel = self
-                            .app
-                            .docked_power_meter_panels
-                            .entry(panel_id)
-                            .or_default();
+                        let panel = controller.ensure_power_meter();
                         panel.ui(ui, device_info, self.app.client.as_mut(), &self.app.runtime);
                     }
                     DockedAdvancedPanelKind::Rotator => {
-                        let panel = self.app.docked_rotator_panels.entry(panel_id).or_default();
+                        let panel = controller.ensure_rotator();
                         panel.ui(ui, device_info, self.app.client.as_mut(), &self.app.runtime);
                     }
                     DockedAdvancedPanelKind::Stage => {
-                        let panel = self.app.docked_stage_panels.entry(panel_id).or_default();
+                        let panel = controller.ensure_stage();
                         panel.ui(ui, device_info, self.app.client.as_mut(), &self.app.runtime);
                     }
                     DockedAdvancedPanelKind::Generic => {
-                        let panel =
-                            self.app.docked_panels.entry(panel_id).or_insert_with(|| {
-                                GenericDevicePanel::from_device_info(device_info)
-                            });
+                        let panel = controller.ensure_generic(device_info);
                         panel.ui(ui, device_info, self.app.client.as_mut(), &self.app.runtime);
                     }
                 }
 
-                let mut command_widgets = self
-                    .app
-                    .docked_command_widgets
-                    .remove(&panel_id)
-                    .unwrap_or_default();
+                // The command-widget palette now lives on the controller.
+                // Temporarily take it to drop the controller borrow so the
+                // palette can render with simultaneous access to client + runtime.
+                let controller = self.app.panel_controllers.entry(panel_id).or_default();
+                let mut command_widgets = std::mem::take(&mut controller.command_widgets);
                 command_widgets.ui(ui, device_info, self.app.client.as_mut(), &self.app.runtime);
                 self.app
-                    .docked_command_widgets
-                    .insert(panel_id, command_widgets);
+                    .panel_controllers
+                    .entry(panel_id)
+                    .or_default()
+                    .command_widgets = command_widgets;
             }
         });
     }

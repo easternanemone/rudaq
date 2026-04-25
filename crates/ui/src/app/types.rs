@@ -551,6 +551,142 @@ impl CommandWidgetPalette {
     }
 }
 
+/// Rendering widget for a docked device control panel.
+///
+/// Each variant holds the panel-type-specific state that used to live in its
+/// own parallel `HashMap<usize, ...>`. The variant is chosen lazily on first
+/// render (see [`PanelController::ensure_*`] helpers below) and reset when
+/// the device's capabilities change (via `invalidate_panel_widget`) or the
+/// global layout mode toggles.
+pub(super) enum PanelWidget {
+    Generic(GenericDevicePanel),
+    MaiTai(MaiTaiControlPanel),
+    PowerMeter(PowerMeterControlPanel),
+    Rotator(RotatorControlPanel),
+    Stage(StageControlPanel),
+    // Boxed because ComediPanel is ~3x larger than the other variants and
+    // would bloat every unused PanelWidget cell by the same amount.
+    Comedi(Box<ComediPanel>),
+    ConfigDriven(crate::panels::instrument_manager::config_renderer::ConfigDrivenPanel),
+}
+
+/// Tri-state cache for the gRPC `ui_schema_json` lookup.
+#[derive(Clone, Default)]
+pub(super) enum GrpcConfigCache {
+    /// Not yet checked — resolve on next render.
+    #[default]
+    Unknown,
+    /// Checked, device has no config-driven panel.
+    Absent,
+    /// Checked, use this config.
+    Present(hardware::config::schema::ControlPanelConfig),
+}
+
+/// Unified per-panel controller state, keyed by panel ID in
+/// `DaqApp::panel_controllers`. Collapses the seven panel-type `HashMap`s,
+/// the gRPC UI-config cache, and the command-widget palette into a single
+/// entry so there is one store of per-panel state instead of nine.
+#[derive(Default)]
+pub(super) struct PanelController {
+    /// Rendering widget, lazily created on first draw.
+    pub(super) widget: Option<PanelWidget>,
+    /// Cached gRPC `ui_schema_json` decision for this panel.
+    pub(super) grpc_config: GrpcConfigCache,
+    /// User-added command widgets for advanced control panels.
+    pub(super) command_widgets: CommandWidgetPalette,
+}
+
+impl PanelController {
+    /// Ensure the widget is a [`ConfigDrivenPanel`] for the given config,
+    /// creating or replacing it if a different variant is currently stored.
+    pub(super) fn ensure_config_driven(
+        &mut self,
+        config: &hardware::config::schema::ControlPanelConfig,
+    ) -> &mut crate::panels::instrument_manager::config_renderer::ConfigDrivenPanel {
+        if !matches!(self.widget, Some(PanelWidget::ConfigDriven(_))) {
+            self.widget = Some(PanelWidget::ConfigDriven(
+                crate::panels::instrument_manager::config_renderer::ConfigDrivenPanel::new(
+                    config.clone(),
+                ),
+            ));
+        }
+        let Some(PanelWidget::ConfigDriven(p)) = self.widget.as_mut() else {
+            unreachable!("widget variant just set to ConfigDriven");
+        };
+        p
+    }
+
+    /// Ensure the widget is a [`GenericDevicePanel`], constructing it from
+    /// `device` if it is absent or a different variant.
+    pub(super) fn ensure_generic(&mut self, device: &DeviceInfo) -> &mut GenericDevicePanel {
+        if !matches!(self.widget, Some(PanelWidget::Generic(_))) {
+            self.widget = Some(PanelWidget::Generic(GenericDevicePanel::from_device_info(
+                device,
+            )));
+        }
+        let Some(PanelWidget::Generic(p)) = self.widget.as_mut() else {
+            unreachable!("widget variant just set to Generic");
+        };
+        p
+    }
+
+    /// Ensure the widget is a [`MaiTaiControlPanel`] (default-constructed).
+    pub(super) fn ensure_maitai(&mut self) -> &mut MaiTaiControlPanel {
+        if !matches!(self.widget, Some(PanelWidget::MaiTai(_))) {
+            self.widget = Some(PanelWidget::MaiTai(MaiTaiControlPanel::default()));
+        }
+        let Some(PanelWidget::MaiTai(p)) = self.widget.as_mut() else {
+            unreachable!("widget variant just set to MaiTai");
+        };
+        p
+    }
+
+    /// Ensure the widget is a [`PowerMeterControlPanel`] (default-constructed).
+    pub(super) fn ensure_power_meter(&mut self) -> &mut PowerMeterControlPanel {
+        if !matches!(self.widget, Some(PanelWidget::PowerMeter(_))) {
+            self.widget = Some(PanelWidget::PowerMeter(PowerMeterControlPanel::default()));
+        }
+        let Some(PanelWidget::PowerMeter(p)) = self.widget.as_mut() else {
+            unreachable!("widget variant just set to PowerMeter");
+        };
+        p
+    }
+
+    /// Ensure the widget is a [`RotatorControlPanel`] (default-constructed).
+    pub(super) fn ensure_rotator(&mut self) -> &mut RotatorControlPanel {
+        if !matches!(self.widget, Some(PanelWidget::Rotator(_))) {
+            self.widget = Some(PanelWidget::Rotator(RotatorControlPanel::default()));
+        }
+        let Some(PanelWidget::Rotator(p)) = self.widget.as_mut() else {
+            unreachable!("widget variant just set to Rotator");
+        };
+        p
+    }
+
+    /// Ensure the widget is a [`StageControlPanel`] (default-constructed).
+    pub(super) fn ensure_stage(&mut self) -> &mut StageControlPanel {
+        if !matches!(self.widget, Some(PanelWidget::Stage(_))) {
+            self.widget = Some(PanelWidget::Stage(StageControlPanel::default()));
+        }
+        let Some(PanelWidget::Stage(p)) = self.widget.as_mut() else {
+            unreachable!("widget variant just set to Stage");
+        };
+        p
+    }
+
+    /// Ensure the widget is a [`ComediPanel`], constructing it from `device_id`
+    /// if it is absent or a different variant.
+    pub(super) fn ensure_comedi(&mut self, device_id: &str) -> &mut ComediPanel {
+        if !matches!(self.widget, Some(PanelWidget::Comedi(_))) {
+            self.widget = Some(PanelWidget::Comedi(Box::new(ComediPanel::new(device_id))));
+        }
+        let Some(PanelWidget::Comedi(p)) = self.widget.as_mut() else {
+            unreachable!("widget variant just set to Comedi");
+        };
+        p
+    }
+}
+
 /// Storage key for persisting the WASM server URL across reloads.
 #[cfg(target_arch = "wasm32")]
 pub(super) const WASM_SERVER_URL_KEY: &str = "wasm_server_url";
