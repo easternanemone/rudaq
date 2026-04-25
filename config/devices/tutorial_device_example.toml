@@ -1,0 +1,282 @@
+# config/devices/tutorial_device_example.toml
+#
+# Fictitious "ACME DPS-3010" programmable DC bench power supply.
+# Demonstrates every major v4 manifest feature in one place. See
+# docs/how-to/write-a-device-manifest.md for a walkthrough that follows
+# this file section by section.
+#
+# Protocol notes (invented for the tutorial):
+#   - SCPI-like ASCII over USB-CDC serial, 9600 8N1, LF terminator.
+#   - Queries end in "?"; writes are fire-and-forget.
+#   - Voltage/current replies use the prefixed form "<TAG>: <value> <unit>",
+#     e.g. "VOLT: 12.345 V" or "CURR: 0.512 A".
+#   - Status replies are a comma-separated triplet: "<state>,<code>,<temp>",
+#     e.g. "RUN,0,37.4".
+#   - Boolean output state is reported as "ON" / "OFF".
+
+schema_version = 3
+
+# ------------------------------------------------------------------------------
+# Device identity
+# ------------------------------------------------------------------------------
+
+[device]
+name = "ACME DPS-3010 (tutorial)"
+manufacturer = "ACME Instruments"
+model = "DPS-3010"
+description = "Fictitious 30 V / 10 A programmable bench DC power supply. Used as the walkthrough example in docs/how-to/write-a-device-manifest.md."
+category = "source"
+capabilities = ["Readable", "Settable", "Commandable"]
+
+# ------------------------------------------------------------------------------
+# Transport
+# ------------------------------------------------------------------------------
+# USB-CDC devices appear as a serial port. `terminator` applies to both
+# directions; use `terminator_tx` / `terminator_rx` when they differ.
+
+[connection]
+type = "serial"
+baud_rate = 9600
+data_bits = 8
+parity = "none"
+stop_bits = 1
+flow_control = "none"
+timeout_ms = 1000
+terminator = "\n"
+
+# Commands to run once after connecting. Any command with `expects_response = false`
+# or a declared response is legal; use this to put the device into a known state.
+[[init_sequence]]
+command = "clear_errors"
+delay_ms = 50
+
+[[init_sequence]]
+command = "remote_mode"
+delay_ms = 50
+
+# ------------------------------------------------------------------------------
+# Response definitions (format strings, variants, transforms)
+# ------------------------------------------------------------------------------
+
+# --- Format strings --- extract one or more named fields from a reply.
+# Specifiers: {name} greedy, {name:N} N chars, {name:int}, {name:float},
+# {name:hex2|hex4|hex8}. Fields named "_" are discarded.
+
+[responses.voltage_reading]
+# Parses "VOLT: 12.345 V" into `{ value: 12.345 }`. The literal "VOLT: ",
+# trailing " V", and the unit discard token do not escape into the output.
+format = "VOLT: {value:float} V"
+
+[responses.current_reading]
+format = "CURR: {value:float} A"
+
+# --- Variants --- multiple shapes tried in order, first match wins. Use this
+# when firmware variants reply differently or a field is optional.
+
+[responses.status_line]
+variants = [
+    # Firmware ≥ 2.1 appends a temperature field.
+    "{state},{code:int},{temp_c:float}",
+    # Older firmware omits temperature.
+    "{state},{code:int}",
+]
+
+# --- Transform pipelines --- small operations applied left-to-right. The
+# format(...) shorthand is a first-class v4 transform that behaves like a
+# single-field format string and is the preferred replacement for regex_extract.
+
+[responses.output_state]
+# Replies are "ON" or "OFF"; normalize to boolean-style strings.
+transform = [
+    "trim",
+    "map('ON', 'true')",
+    "map('OFF', 'false')",
+]
+
+[responses.idn]
+# SCPI *IDN? returns "ACME,DPS-3010,SN12345,FW1.0.4". Keep the full string.
+transform = ["trim"]
+
+# ------------------------------------------------------------------------------
+# Commands
+# ------------------------------------------------------------------------------
+# `template` is a MiniJinja string. Declare each parameter in `parameters`
+# with a type so MiniJinja knows how to render it. `response` links to a
+# `[responses.X]` entry; omit it (plus `expects_response = false`) for writes.
+
+[commands.identify]
+template = "*IDN?"
+description = "SCPI standard identity query."
+response = "idn"
+
+[commands.clear_errors]
+template = "*CLS"
+description = "Clear the error queue."
+expects_response = false
+
+[commands.remote_mode]
+template = "SYST:REM"
+description = "Switch to remote-control mode."
+expects_response = false
+
+[commands.read_voltage]
+template = "MEAS:VOLT?"
+description = "Measure the actual output voltage."
+response = "voltage_reading"
+
+[commands.read_current]
+template = "MEAS:CURR?"
+description = "Measure the actual output current."
+response = "current_reading"
+
+[commands.read_status]
+template = "STAT?"
+description = "Read state, error code, and (fw ≥ 2.1) temperature."
+response = "status_line"
+
+[commands.read_output]
+template = "OUTP?"
+description = "Read output-enable state."
+response = "output_state"
+
+[commands.set_voltage]
+template = "SOUR:VOLT {{ volts }}"
+description = "Set the target output voltage."
+expects_response = false
+parameters = { volts = "float" }
+
+[commands.set_current_limit]
+template = "SOUR:CURR:LIM {{ amps }}"
+description = "Set the current limit."
+expects_response = false
+parameters = { amps = "float" }
+
+[commands.output_on]
+template = "OUTP ON"
+description = "Enable the output."
+expects_response = false
+
+[commands.output_off]
+template = "OUTP OFF"
+description = "Disable the output."
+expects_response = false
+
+# ------------------------------------------------------------------------------
+# Parameters (rich metadata for UI + DB consumption)
+# ------------------------------------------------------------------------------
+# Each parameter may be a bare scalar (just the default) or a table. The table
+# form carries metadata the GUI uses for widgets and the DB uses for schemas.
+
+[parameters.voltage_setpoint]
+type = "float"
+default = 0.0
+range = [0.0, 30.0]
+unit = "V"
+description = "Target output voltage"
+read_only = false
+
+[parameters.current_limit]
+type = "float"
+default = 1.0
+range = [0.0, 10.0]
+unit = "A"
+description = "Current-limit setpoint"
+read_only = false
+
+[parameters.output_enabled]
+type = "bool"
+default = false
+description = "Whether the output stage is energized"
+
+# ------------------------------------------------------------------------------
+# Conversions (evalexpr formulas)
+# ------------------------------------------------------------------------------
+# `formula` is an evalexpr expression; free identifiers are substituted from
+# the method mapping's `input_param` / `output_field`. Keep them pure (no I/O).
+
+[conversions.millivolts_to_volts]
+formula = "mv / 1000.0"
+
+[conversions.volts_to_millivolts]
+formula = "round(v * 1000.0)"
+
+# ------------------------------------------------------------------------------
+# Capabilities — wire commands into the typed runtime interfaces
+# ------------------------------------------------------------------------------
+# Each capability method references a command by name. Use `from_param` to
+# name the caller-facing argument, `input_param` to name the command
+# template's `{{ placeholder }}`, and `input_conversion` / `output_conversion`
+# to run a [conversions.X] formula on the way in or out.
+
+[capabilities.readable]
+read = { command = "read_voltage", output_field = "value" }
+
+[capabilities.settable]
+# Caller passes `voltage_mv` (millivolts) → conversion → `volts` placeholder.
+set = { command = "set_voltage", from_param = "voltage_mv", input_param = "volts", input_conversion = "millivolts_to_volts" }
+
+# ------------------------------------------------------------------------------
+# UI — config-driven control panel
+# ------------------------------------------------------------------------------
+# `[ui.control_panel]` declares how the GUI renders this device. See
+# config/devices/CONFIG_README.md for the full section catalogue.
+
+[ui]
+icon = "bolt"
+color = "#2196F3"
+panel_kind = "generic"
+
+[ui.control_panel]
+layout = "vertical"
+show_header = true
+collapsible = false
+
+[[ui.control_panel.sections]]
+type = "sensor"
+label = "Voltage"
+precision = 3
+unit = "V"
+refresh_ms = 500
+
+[[ui.control_panel.sections]]
+type = "sensor"
+label = "Current"
+precision = 3
+unit = "A"
+refresh_ms = 500
+
+[[ui.control_panel.sections]]
+type = "separator"
+visible = true
+
+[[ui.control_panel.sections]]
+type = "parameter"
+label = "Voltage setpoint"
+parameter = "voltage_setpoint"
+widget = "spinner"
+read_command = "read_voltage"
+write_command = "set_voltage"
+
+[[ui.control_panel.sections]]
+type = "parameter"
+label = "Current limit"
+parameter = "current_limit"
+widget = "spinner"
+write_command = "set_current_limit"
+
+[[ui.control_panel.sections]]
+type = "custom_action"
+label = "Output ON"
+command = "output_on"
+style = "success"
+
+[[ui.control_panel.sections]]
+type = "custom_action"
+label = "Output OFF"
+command = "output_off"
+style = "danger"
+
+[ui.status_display]
+summary_params = ["voltage_setpoint"]
+summary_format = "{{ voltage_setpoint }} V"
+show_connection = true

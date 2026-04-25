@@ -34,6 +34,7 @@
 
 - [Driver Overview](how-to/hardware-drivers.md)
 - [Device Config (Schema v3)](how-to/device-config.md)
+- [Write a Device Manifest (v4)](how-to/write-a-device-manifest.md)
 - [Legacy SCPI Deprecation](how-to/legacy-scpi-deprecation.md)
 - [PVCAM Setup](how-to/pvcam-setup.md)
   - [PVCAM Integration Map](explanation/pvcam-integration-map.md)

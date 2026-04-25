@@ -226,3 +226,24 @@ Validated 25 specific claims from the first ingest pass against the actual code 
 - Regenerate `docs/reference/driver-capability-matrix.md` *properly* by introspecting `DriverFactory::capabilities()` for every registered factory and expanding the Coverage Summary to cover all 30 traits. The date bump + changelog in this pass is a stop-gap.
 - Potential sweep of the 17+ ADRs in `docs/adr/` for other out-of-date specifics; not triggered by the known stale-pattern list.
 - `HISTORY.md` distillation into concept pages (still open from earlier entries).
+
+---
+
+## 2026-04-23 — H1 tutorial manifest + write-a-device-manifest.md (ingest)
+
+**Source:** jcb4x Phase 3 H1 (task #13). PR `feat/jcb4x-h1-tutorial-docs`.
+
+**What landed:**
+
+- `config/devices/tutorial_device_example.toml` — fictitious ACME DPS-3010 bench DC power supply. Exercises every major v4 manifest feature (format strings, variants, transforms, parameter metadata, `evalexpr` conversions, capabilities, inline `[ui.control_panel]`) in one file and is referenced throughout the new how-to.
+- `docs/how-to/write-a-device-manifest.md` — v4-focused walkthrough: transport, commands, response parsing (format / variants / transforms and when to reach for each), parameters, conversions, capabilities, UI, plus `manifest-check` / `migrate-v3` / planned `manifest-wizard` usage. Cross-links to `device-config.md` (v3 background), `CONFIG_README.md` (UI section catalogue), and the working manifests that best illustrate each pattern.
+- `docs/SUMMARY.md` — mdBook TOC entry added under Hardware Drivers beside the existing `device-config.md` (schema-v3 deep-dive).
+
+**Deliberately NOT touched:**
+
+- `docs/how-to/device-config.md` left intact. It documents v3 mechanics and the v2 → v3 migration in detail; the new doc layers v4 patterns on top and cross-links instead of duplicating.
+- `llm-wiki/crates/driver-universal.md` — no update needed for this PR; the crate's surface area has not shifted, only its documentation.
+
+**Pages touched:** `config/devices/tutorial_device_example.toml` (new), `docs/how-to/write-a-device-manifest.md` (new), `docs/SUMMARY.md`, `llm-wiki/log.md` (this entry).
+
+**Verification:** `manifest-check config/devices/tutorial_device_example.toml` → `OK  11 commands, 5 responses, 2 parameters`. `cargo nextest run -p driver-universal` → 292/292.
