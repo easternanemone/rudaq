@@ -252,14 +252,36 @@ pub struct DaqApp {
     ghost_dom: Option<crate::ghost_dom::GhostDom>,
 }
 
+/// Shared startup values produced by [`DaqApp::bootstrap_common`].
+///
+/// Both the native [`DaqApp::new`] and WASM [`DaqApp::new_wasm`] entry points
+/// run the same block of persistence/egui setup. `BootstrapCommon` holds the
+/// results so each constructor only has to layer its platform-specific
+/// configuration on top.
+struct BootstrapCommon {
+    theme_preference: ThemePreference,
+    shortcut_manager: ShortcutManager,
+    app_settings: crate::settings::AppSettings,
+    control_panel_layout_mode: ControlPanelLayoutMode,
+    device_panel_info: HashMap<usize, DevicePanelInfo>,
+    next_device_panel_id: usize,
+    dock_state: DockState<Panel>,
+    device_reconcile_tx: mpsc::Sender<DeviceReconcileMsg>,
+    device_reconcile_rx: mpsc::Receiver<DeviceReconcileMsg>,
+    db_status_tx: mpsc::Sender<DbStatus>,
+    db_status_rx: mpsc::Receiver<DbStatus>,
+}
+
 impl DaqApp {
-    /// Create a new application instance with the specified daemon mode
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn new(
-        cc: &eframe::CreationContext<'_>,
-        daemon_mode: DaemonMode,
-        log_receiver: tokio::sync::mpsc::Receiver<crate::gui_log_layer::GuiLogEvent>,
-    ) -> Self {
+    /// Shared App initialization performed by both native and WASM constructors.
+    ///
+    /// This installs the phosphor icon font, applies the persisted theme, loads
+    /// shortcut manager + app settings + layout state, rebuilds the dock with
+    /// stale-version detection and orphan cleanup, and creates the device
+    /// reconcile / DB status channels. Platform-specific wiring (runtime,
+    /// connection state, daemon launcher, WASM connection state, automation
+    /// bridge) is layered on top in each `new*` function.
+    fn bootstrap_common(cc: &eframe::CreationContext<'_>) -> BootstrapCommon {
         // Load phosphor icons into egui fonts
         let mut fonts = egui::FontDefinitions::default();
         icons::add_to_fonts(&mut fonts);
@@ -282,6 +304,158 @@ impl DaqApp {
         let mut style = (*cc.egui_ctx.style()).clone();
         style.spacing.item_spacing = layout::ITEM_SPACING;
         cc.egui_ctx.set_style(style);
+
+        // Load application settings (native performs additional legacy / gui.toml
+        // migrations on top of this base value).
+        let app_settings: crate::settings::AppSettings = cc
+            .storage
+            .and_then(|s| eframe::get_value(s, "app_settings"))
+            .unwrap_or_default();
+
+        let control_panel_layout_mode: ControlPanelLayoutMode = cc
+            .storage
+            .and_then(|s| eframe::get_value(s, "control_panel_layout_mode"))
+            .unwrap_or(ControlPanelLayoutMode::Simple);
+
+        // Device reconciliation + DB status channels
+        let (device_reconcile_tx, device_reconcile_rx) = mpsc::channel(4);
+        let (db_status_tx, db_status_rx) = mpsc::channel(1);
+
+        // Load persisted device panel info (panels created lazily on first render)
+        let (device_panel_info, next_device_panel_id) = if let Some(storage) = cc.storage {
+            let persisted: HashMap<usize, PersistedPanelInfo> =
+                eframe::get_value(storage, "device_panel_info").unwrap_or_default();
+            let next_id: usize = eframe::get_value(storage, "next_device_panel_id").unwrap_or(0);
+
+            let mut device_info_map = HashMap::new();
+            for (id, persisted_info) in persisted {
+                let device_info: DeviceInfo = persisted_info.clone().into();
+                let kind = panel_kind_for_device(&device_info);
+                device_info_map.insert(
+                    id,
+                    DevicePanelInfo {
+                        device_info,
+                        availability: DeviceAvailability::Pending,
+                        kind,
+                    },
+                );
+            }
+
+            (device_info_map, next_id)
+        } else {
+            (HashMap::new(), 0)
+        };
+
+        // Initialize dock state. If the stored layout is from an earlier
+        // LAYOUT_VERSION (or has none), fall back to the default layout.
+        let mut dock_state = if let Some(storage) = cc.storage {
+            let stored_version: Option<u32> = eframe::get_value(storage, LAYOUT_VERSION_KEY);
+            match stored_version {
+                Some(v) if v == LAYOUT_VERSION => eframe::get_value(storage, eframe::APP_KEY)
+                    .unwrap_or_else(Self::default_dock_state),
+                Some(v) => {
+                    tracing::info!(
+                        "Layout version changed ({} -> {}), resetting to default layout",
+                        v,
+                        LAYOUT_VERSION
+                    );
+                    Self::default_dock_state()
+                }
+                None => {
+                    tracing::info!(
+                        "No layout version found, resetting to default layout (v{})",
+                        LAYOUT_VERSION
+                    );
+                    Self::default_dock_state()
+                }
+            }
+        } else {
+            Self::default_dock_state()
+        };
+
+        // Remove DeviceControl panels that have no matching device_panel_info
+        // (can happen if storage is corrupted or panels were manually edited)
+        let orphaned_ids: Vec<usize> = dock_state
+            .iter_all_tabs()
+            .filter_map(|(_, tab)| {
+                if let Panel::DeviceControl { id } = tab {
+                    if !device_panel_info.contains_key(id) {
+                        Some(*id)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for id in orphaned_ids {
+            dock_state.retain_tabs(
+                |tab| !matches!(tab, Panel::DeviceControl { id: panel_id } if *panel_id == id),
+            );
+        }
+
+        BootstrapCommon {
+            theme_preference,
+            shortcut_manager,
+            app_settings,
+            control_panel_layout_mode,
+            device_panel_info,
+            next_device_panel_id,
+            dock_state,
+            device_reconcile_tx,
+            device_reconcile_rx,
+            db_status_tx,
+            db_status_rx,
+        }
+    }
+
+    /// Restore the echelle profile UI state from persisted storage (shared
+    /// between native and WASM). Must run after the app struct is constructed
+    /// because it mutates `image_viewer_panel`.
+    fn restore_echelle_state(&mut self, cc: &eframe::CreationContext<'_>) {
+        if let Some(paths) = cc
+            .storage
+            .and_then(|s| eframe::get_value::<Vec<String>>(s, "echelle_recent_profile_paths"))
+        {
+            self.image_viewer_panel
+                .restore_echelle_recent_profile_paths(paths);
+        }
+
+        // Restore last echelle profile path and auto-trigger load on next connection
+        if let Some(path) = cc
+            .storage
+            .and_then(|s| eframe::get_value::<String>(s, "echelle_profile_path"))
+            && !path.is_empty()
+        {
+            self.image_viewer_panel
+                .echelle_cal_ui
+                .save_as_path_text
+                .clone_from(&path);
+            self.image_viewer_panel.request_remote_profile_load(path);
+        }
+    }
+
+    /// Create a new application instance with the specified daemon mode
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn new(
+        cc: &eframe::CreationContext<'_>,
+        daemon_mode: DaemonMode,
+        log_receiver: tokio::sync::mpsc::Receiver<crate::gui_log_layer::GuiLogEvent>,
+    ) -> Self {
+        let BootstrapCommon {
+            theme_preference,
+            shortcut_manager,
+            mut app_settings,
+            control_panel_layout_mode,
+            device_panel_info,
+            next_device_panel_id,
+            dock_state,
+            device_reconcile_tx,
+            device_reconcile_rx,
+            db_status_tx,
+            db_status_rx,
+        } = Self::bootstrap_common(cc);
 
         // Create tokio runtime for gRPC calls
         let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -310,16 +484,6 @@ impl DaqApp {
             // For remote mode, we can try to connect immediately
             AutoConnectState::ReadyToConnect
         };
-
-        // Load application settings from storage (before address resolution)
-        let mut app_settings: crate::settings::AppSettings = cc
-            .storage
-            .and_then(|s| eframe::get_value(s, "app_settings"))
-            .unwrap_or_default();
-        let control_panel_layout_mode: ControlPanelLayoutMode = cc
-            .storage
-            .and_then(|s| eframe::get_value(s, "control_panel_layout_mode"))
-            .unwrap_or(ControlPanelLayoutMode::Simple);
 
         // Load native preferences early for fallback during address resolution
         let native_prefs = crate::preferences::AppPreferences::load_or_default();
@@ -402,93 +566,8 @@ impl DaqApp {
         };
         let address_input = daemon_address.original().to_string();
 
-        // Create health check channel
+        // Create health check channel (native-only — WASM has no reconnect manager)
         let (health_tx, health_rx) = mpsc::channel(4);
-        let (db_status_tx, db_status_rx) = mpsc::channel(1);
-
-        // Create device reconciliation channel
-        let (device_reconcile_tx, device_reconcile_rx) = mpsc::channel(4);
-
-        // Load persisted device panel info
-        // GenericDevicePanel instances are created lazily on first render
-        let (device_panel_info, next_device_panel_id) = if let Some(storage) = cc.storage {
-            let persisted: HashMap<usize, PersistedPanelInfo> =
-                eframe::get_value(storage, "device_panel_info").unwrap_or_default();
-            let next_id: usize = eframe::get_value(storage, "next_device_panel_id").unwrap_or(0);
-
-            let mut device_info_map = HashMap::new();
-            for (id, persisted_info) in persisted {
-                let device_info: DeviceInfo = persisted_info.clone().into();
-                let kind = panel_kind_for_device(&device_info);
-                device_info_map.insert(
-                    id,
-                    DevicePanelInfo {
-                        device_info,
-                        availability: DeviceAvailability::Pending,
-                        kind,
-                    },
-                );
-            }
-
-            (device_info_map, next_id)
-        } else {
-            (HashMap::new(), 0)
-        };
-
-        // Initialize dock state and filter out orphaned DeviceControl panels
-        // Check layout version to detect stale saved layouts
-        let mut dock_state = if let Some(storage) = cc.storage {
-            let stored_version: Option<u32> = eframe::get_value(storage, LAYOUT_VERSION_KEY);
-            match stored_version {
-                Some(v) if v == LAYOUT_VERSION => {
-                    // Version matches, use stored layout
-                    eframe::get_value(storage, eframe::APP_KEY)
-                        .unwrap_or_else(Self::default_dock_state)
-                }
-                Some(v) => {
-                    // Version mismatch - reset to default
-                    tracing::info!(
-                        "Layout version changed ({} -> {}), resetting to default layout",
-                        v,
-                        LAYOUT_VERSION
-                    );
-                    Self::default_dock_state()
-                }
-                None => {
-                    // No version stored (first run or pre-versioning) - reset to default
-                    tracing::info!(
-                        "No layout version found, resetting to default layout (v{})",
-                        LAYOUT_VERSION
-                    );
-                    Self::default_dock_state()
-                }
-            }
-        } else {
-            Self::default_dock_state()
-        };
-
-        // Remove DeviceControl panels that have no matching device_panel_info
-        // (can happen if storage is corrupted or panels were manually edited)
-        let orphaned_ids: Vec<usize> = dock_state
-            .iter_all_tabs()
-            .filter_map(|(_, tab)| {
-                if let Panel::DeviceControl { id } = tab {
-                    if !device_panel_info.contains_key(id) {
-                        Some(*id)
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        for id in orphaned_ids {
-            dock_state.retain_tabs(
-                |tab| !matches!(tab, Panel::DeviceControl { id: panel_id } if *panel_id == id),
-            );
-        }
 
         // Crash recovery detection (bd-izdj.30)
         let recovered_from_crash = if let Some(crashed_url) = check_crashed_session() {
@@ -579,26 +658,7 @@ impl DaqApp {
             recovered_from_crash,
         };
 
-        if let Some(paths) = cc
-            .storage
-            .and_then(|s| eframe::get_value::<Vec<String>>(s, "echelle_recent_profile_paths"))
-        {
-            app.image_viewer_panel
-                .restore_echelle_recent_profile_paths(paths);
-        }
-
-        // Restore last echelle profile path and auto-trigger load on next connection
-        if let Some(path) = cc
-            .storage
-            .and_then(|s| eframe::get_value::<String>(s, "echelle_profile_path"))
-            && !path.is_empty()
-        {
-            app.image_viewer_panel
-                .echelle_cal_ui
-                .save_as_path_text
-                .clone_from(&path);
-            app.image_viewer_panel.request_remote_profile_load(path);
-        }
+        app.restore_echelle_state(cc);
 
         app
     }
@@ -606,101 +666,22 @@ impl DaqApp {
     /// Skips daemon launching, session files, crash detection, and ConnectionManager.
     #[cfg(target_arch = "wasm32")]
     pub fn new_wasm(cc: &eframe::CreationContext<'_>) -> Self {
-        // Load phosphor icons into egui fonts
-        let mut fonts = egui::FontDefinitions::default();
-        icons::add_to_fonts(&mut fonts);
-        cc.egui_ctx.set_fonts(fonts);
-
-        // Load or default theme preference
-        let theme_preference: ThemePreference = cc
-            .storage
-            .and_then(|s| eframe::get_value(s, "theme_preference"))
-            .unwrap_or_default();
-        theme::apply_theme(&cc.egui_ctx, theme_preference);
-
-        // Load or initialize keyboard shortcuts
-        let shortcut_manager: ShortcutManager = cc
-            .storage
-            .and_then(|s| eframe::get_value(s, "shortcut_manager"))
-            .unwrap_or_default();
-
-        // Configure egui style
-        let mut style = (*cc.egui_ctx.style()).clone();
-        style.spacing.item_spacing = layout::ITEM_SPACING;
-        cc.egui_ctx.set_style(style);
+        let BootstrapCommon {
+            theme_preference,
+            shortcut_manager,
+            app_settings,
+            control_panel_layout_mode,
+            device_panel_info,
+            next_device_panel_id,
+            dock_state,
+            device_reconcile_tx,
+            device_reconcile_rx,
+            db_status_tx,
+            db_status_rx,
+        } = Self::bootstrap_common(cc);
 
         // WASM runtime (delegates to spawn_local)
         let runtime = crate::runtime::Runtime;
-
-        // Load app settings
-        let app_settings: crate::settings::AppSettings = cc
-            .storage
-            .and_then(|s| eframe::get_value(s, "app_settings"))
-            .unwrap_or_default();
-        let control_panel_layout_mode: ControlPanelLayoutMode = cc
-            .storage
-            .and_then(|s| eframe::get_value(s, "control_panel_layout_mode"))
-            .unwrap_or(ControlPanelLayoutMode::Simple);
-
-        // Device reconciliation and DB status channels
-        let (device_reconcile_tx, device_reconcile_rx) = mpsc::channel(4);
-        let (db_status_tx, db_status_rx) = mpsc::channel(1);
-
-        // Load persisted device panel info
-        let (device_panel_info, next_device_panel_id) = if let Some(storage) = cc.storage {
-            let persisted: HashMap<usize, PersistedPanelInfo> =
-                eframe::get_value(storage, "device_panel_info").unwrap_or_default();
-            let next_id: usize = eframe::get_value(storage, "next_device_panel_id").unwrap_or(0);
-            let mut device_info_map = HashMap::new();
-            for (id, persisted_info) in persisted {
-                let device_info: DeviceInfo = persisted_info.clone().into();
-                let kind = panel_kind_for_device(&device_info);
-                device_info_map.insert(
-                    id,
-                    DevicePanelInfo {
-                        device_info,
-                        availability: DeviceAvailability::Pending,
-                        kind,
-                    },
-                );
-            }
-            (device_info_map, next_id)
-        } else {
-            (HashMap::new(), 0)
-        };
-
-        // Initialize dock state
-        let mut dock_state = if let Some(storage) = cc.storage {
-            let stored_version: Option<u32> = eframe::get_value(storage, LAYOUT_VERSION_KEY);
-            match stored_version {
-                Some(v) if v == LAYOUT_VERSION => eframe::get_value(storage, eframe::APP_KEY)
-                    .unwrap_or_else(Self::default_dock_state),
-                _ => Self::default_dock_state(),
-            }
-        } else {
-            Self::default_dock_state()
-        };
-
-        // Remove orphaned DeviceControl panels
-        let orphaned_ids: Vec<usize> = dock_state
-            .iter_all_tabs()
-            .filter_map(|(_, tab)| {
-                if let Panel::DeviceControl { id } = tab {
-                    if !device_panel_info.contains_key(id) {
-                        Some(*id)
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            })
-            .collect();
-        for id in orphaned_ids {
-            dock_state.retain_tabs(
-                |tab| !matches!(tab, Panel::DeviceControl { id: panel_id } if *panel_id == id),
-            );
-        }
 
         // Get shared handles for the automation bridge (JS ↔ DaqApp)
         let (automation_commands, automation_state) = crate::automation::get_bridge_handles();
@@ -794,26 +775,7 @@ impl DaqApp {
             },
         };
 
-        if let Some(paths) = cc
-            .storage
-            .and_then(|s| eframe::get_value::<Vec<String>>(s, "echelle_recent_profile_paths"))
-        {
-            app.image_viewer_panel
-                .restore_echelle_recent_profile_paths(paths);
-        }
-
-        // Restore last echelle profile path and auto-trigger load on next connection
-        if let Some(path) = cc
-            .storage
-            .and_then(|s| eframe::get_value::<String>(s, "echelle_profile_path"))
-            && !path.is_empty()
-        {
-            app.image_viewer_panel
-                .echelle_cal_ui
-                .save_as_path_text
-                .clone_from(&path);
-            app.image_viewer_panel.request_remote_profile_load(path);
-        }
+        app.restore_echelle_state(cc);
 
         app
     }
