@@ -45,3 +45,7 @@ path = "src/bin/manifest_check.rs"
 [[bin]]
 name = "export-manifest-schema"
 path = "src/bin/export_manifest_schema.rs"
+
+[[bin]]
+name = "migrate-v3"
+path = "src/bin/migrate_v3.rs"
