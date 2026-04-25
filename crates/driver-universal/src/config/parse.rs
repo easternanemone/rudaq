@@ -796,8 +796,14 @@ fn validate_conversions(
 }
 
 fn validate_capabilities(raw: &RawManifest, errors: &mut Vec<ConfigError>) -> CapabilitySet {
-    let command_names: std::collections::HashSet<&str> =
+    let mut command_names: std::collections::HashSet<&str> =
         raw.commands.keys().map(String::as_str).collect();
+    // Capability mappings may reference entries in `[binary_commands.*]` too
+    // (e.g. Modbus devices where reads/writes are binary frames, not text).
+    // Merge those keys into the lookup set so those references validate.
+    if let Some(toml::Value::Table(bin_cmds)) = raw.binary_commands.as_ref() {
+        command_names.extend(bin_cmds.keys().map(String::as_str));
+    }
     let conversion_names: std::collections::HashSet<&str> =
         raw.conversions.keys().map(String::as_str).collect();
 
@@ -2508,6 +2514,73 @@ expects_response = false
         assert!(
             msg.contains("must be an integer"),
             "expected 'must be an integer' in: {msg}"
+        );
+    }
+
+    /// Regression: capability mappings that reference a `[binary_commands.*]`
+    /// entry (e.g. Modbus devices) must validate successfully. Before the fix,
+    /// `validate_capabilities` only consulted `[commands.*]` and emitted a
+    /// spurious "missing command" error even when the reference was valid.
+    #[test]
+    fn capability_references_binary_command_validates_ok() {
+        let toml_str = r#"
+schema_version = 3
+
+[device]
+name = "Modbus Slave"
+capabilities = ["Readable", "Settable"]
+
+[connection]
+type = "serial"
+baud_rate = 9600
+
+[binary_commands.read_holding_registers]
+function_code = 3
+
+[binary_commands.write_single_register]
+function_code = 6
+
+[capabilities.readable]
+read = { command = "read_holding_registers" }
+
+[capabilities.settable]
+set = { command = "write_single_register", from_param = "value" }
+"#;
+        let raw: RawManifest = toml::from_str(toml_str).unwrap();
+        let manifest =
+            parse_manifest(raw).expect("binary_command references in capabilities should validate");
+        assert!(manifest.capabilities.readable.is_some());
+        assert!(manifest.capabilities.settable.is_some());
+    }
+
+    /// A capability that references a command NOT present in either
+    /// `[commands]` or `[binary_commands]` still fails, so the fix does not
+    /// silently accept genuinely-missing references.
+    #[test]
+    fn capability_references_nonexistent_command_still_fails() {
+        let toml_str = r#"
+schema_version = 3
+
+[device]
+name = "Modbus Slave"
+capabilities = ["Readable"]
+
+[connection]
+type = "serial"
+baud_rate = 9600
+
+[binary_commands.read_holding_registers]
+function_code = 3
+
+[capabilities.readable]
+read = { command = "does_not_exist" }
+"#;
+        let raw: RawManifest = toml::from_str(toml_str).unwrap();
+        let errs = parse_manifest(raw).unwrap_err();
+        let msg = errs.iter().map(|e| e.to_string()).collect::<String>();
+        assert!(
+            msg.contains("does_not_exist"),
+            "expected missing-command error mentioning 'does_not_exist' in: {msg}"
         );
     }
 }
