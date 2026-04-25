@@ -1,0 +1,68 @@
+name: 'Reclaim disk on self-hosted runner'
+description: |
+  Runs `cargo clean` when free disk space is below a threshold, or unconditionally
+  when `force: true`. Intended for self-hosted runners whose target/ cache can
+  grow large enough to collide with other concurrent jobs on the same host
+  (e.g. maitai-eos and leabs-dev share the `leabs` label, so both may run jobs
+  that build into separate target/ trees on the same filesystem).
+
+inputs:
+  threshold-gib:
+    description: 'Free-space threshold (GiB). Below this, cargo clean runs.'
+    required: false
+    default: '20'
+  force:
+    description: 'Always run cargo clean regardless of free space.'
+    required: false
+    default: 'false'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Reclaim disk
+      shell: bash
+      env:
+        INPUT_THRESHOLD_GIB: ${{ inputs.threshold-gib }}
+        INPUT_FORCE: ${{ inputs.force }}
+      run: |
+        set -euo pipefail
+
+        # Validate threshold is a positive integer (guards against arithmetic injection).
+        threshold_gib="${INPUT_THRESHOLD_GIB}"
+        if ! [[ "${threshold_gib}" =~ ^[0-9]+$ ]] || [[ "${threshold_gib}" -lt 1 ]]; then
+          echo "::error::threshold-gib must be a positive integer, got: ${threshold_gib}"
+          exit 1
+        fi
+
+        force="${INPUT_FORCE}"
+        case "${force}" in
+          true|false) ;;
+          *)
+            echo "::error::force must be 'true' or 'false', got: ${force}"
+            exit 1
+            ;;
+        esac
+
+        echo "::group::Disk before"
+        df -h .
+        du -sh target 2>/dev/null || echo "(no target/ yet)"
+        echo "::endgroup::"
+
+        avail_kb=$(df --output=avail . | tail -1 | tr -d ' ')
+        threshold_kb=$(( threshold_gib * 1024 * 1024 ))
+        avail_gib=$(( avail_kb / 1024 / 1024 ))
+
+        if [ "${force}" = "true" ]; then
+          echo "Running cargo clean (force=true)"
+          cargo clean || true
+        elif [ "${avail_kb}" -lt "${threshold_kb}" ]; then
+          echo "Running cargo clean (free=${avail_gib}GiB < threshold=${threshold_gib}GiB)"
+          cargo clean || true
+        else
+          echo "Skipping cargo clean (free=${avail_gib}GiB >= threshold=${threshold_gib}GiB)"
+        fi
+
+        echo "::group::Disk after"
+        df -h .
+        du -sh target 2>/dev/null || echo "(target/ absent)"
+        echo "::endgroup::"

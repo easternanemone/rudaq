@@ -99,6 +99,11 @@ jobs:
           toolchain: 1.92.0
           cache-key: nightly-hardware-smoke
 
+      - name: Reclaim disk (nightly runs always clean)
+        uses: ./.github/actions/reclaim-disk
+        with:
+          force: 'true'
+
       - name: Resolve run parameters
         run: |
           set -euo pipefail

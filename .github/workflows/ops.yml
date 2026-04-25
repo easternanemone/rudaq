@@ -165,6 +165,11 @@ jobs:
           toolchain: 1.92.0
           cache-key: ops-bench
 
+      - name: Reclaim disk before benchmarks
+        uses: ./.github/actions/reclaim-disk
+        with:
+          threshold-gib: '20'
+
       - name: Run benchmarks
         run: |
           cargo bench --workspace \

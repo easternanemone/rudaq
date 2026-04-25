@@ -1,0 +1,15 @@
+[Unit]
+Description=Disk-fill watchdog for self-hosted GitHub Actions runner
+Documentation=file:///usr/local/share/doc/disk-safety/README.md
+After=multi-user.target network-online.target
+# Failure here must not panic systemd or block boot — best-effort.
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/default/disk-watchdog
+ExecStart=/usr/local/bin/disk-watchdog.sh
+# Cap watchdog runtime so a hung rm can't pin the timer
+TimeoutStartSec=120s
+# Watchdog needs root to stop the runner unit and rm out-of-tree dirs
+User=root

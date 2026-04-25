@@ -1,0 +1,14 @@
+[Unit]
+Description=Run disk-watchdog every minute
+Documentation=file:///usr/local/share/doc/disk-safety/README.md
+
+[Timer]
+# First check 30s after boot, then every minute
+OnBootSec=30s
+OnUnitActiveSec=60s
+AccuracySec=10s
+Unit=disk-watchdog.service
+Persistent=true
+
+[Install]
+WantedBy=timers.target

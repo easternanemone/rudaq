@@ -136,6 +136,11 @@ jobs:
         with:
           tool: cargo-nextest
 
+      - name: Reclaim disk before matrix job
+        uses: ./.github/actions/reclaim-disk
+        with:
+          threshold-gib: '20'
+
       - name: Clippy (${{ matrix.name }})
         run: |
           cargo clippy -p ${{ matrix.package }} \
@@ -189,6 +194,11 @@ jobs:
           dependency-profile: minimal
           toolchain: 1.92.0
           cache-key: feature-powerset-${{ matrix.package }}
+
+      - name: Reclaim disk before powerset
+        uses: ./.github/actions/reclaim-disk
+        with:
+          threshold-gib: '20'
 
       - name: Install cargo-hack
         uses: taiki-e/install-action@v2
